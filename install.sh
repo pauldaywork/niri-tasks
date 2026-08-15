@@ -57,12 +57,26 @@ fi
 # Passed to fuzzel with --config=, so fuzzel.ini itself is left alone.
 link "$REPO/fuzzel/picker.ini" "$CONFIG/fuzzel/picker.ini"
 
-# ─── 4. reload niri ───────────────────────────────────────────────────────────
+# ─── 4. the overlay daemon ────────────────────────────────────────────────────
+# A copy rather than a symlink: systemd reads unit files as root-ish early in
+# session startup and does not follow links out of its search path reliably.
+UNIT_DIR="$CONFIG/systemd/user"
+mkdir -p "$UNIT_DIR"
+if ! cmp -s "$REPO/systemd/niri-tasks.service" "$UNIT_DIR/niri-tasks.service"; then
+    cp "$REPO/systemd/niri-tasks.service" "$UNIT_DIR/niri-tasks.service"
+    info "Installed $UNIT_DIR/niri-tasks.service"
+fi
+systemctl --user daemon-reload 2>/dev/null || true
+systemctl --user enable --now niri-tasks.service 2>/dev/null \
+    && info "Overlay daemon enabled" \
+    || warn "Could not enable niri-tasks.service — start it with: systemctl --user start niri-tasks"
+
+# ─── 5. reload niri ───────────────────────────────────────────────────────────
 if command -v niri >/dev/null && [ -n "${NIRI_SOCKET:-}" ]; then
     niri msg action load-config-file >/dev/null 2>&1 && info "Reloaded niri config" || true
 fi
 
-# ─── 5. dependencies ──────────────────────────────────────────────────────────
+# ─── 6. dependencies ──────────────────────────────────────────────────────────
 missing=()
 for dep in niri task fuzzel tmux; do
     command -v "$dep" >/dev/null || missing+=("$dep")

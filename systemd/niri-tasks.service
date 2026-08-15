@@ -1,0 +1,26 @@
+[Unit]
+Description=niri-tasks active-task overlay
+Documentation=https://github.com/paul/niri-tasks
+# The overlay is a layer-shell surface, so it needs a Wayland session to attach
+# to. graphical-session.target is what niri's session pulls in.
+PartOf=graphical-session.target
+After=graphical-session.target
+# StartLimit* belong in [Unit]; systemd ignores them in [Service].
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+ExecStart=%h/.cargo/bin/wt daemon
+# The overlay is a readout: if it dies, bring it back, but do not fight a crash
+# loop that would spam the journal.
+Restart=on-failure
+RestartSec=3
+
+# Set WT_OVERLAY_MARGIN to move it up or down; it is a preference, not a
+# measurement of anyone's bar.
+# Environment=WT_OVERLAY_MARGIN=56
+# Environment=WT_DEBUG=1
+
+[Install]
+WantedBy=graphical-session.target

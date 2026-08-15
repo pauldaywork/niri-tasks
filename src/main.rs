@@ -38,6 +38,9 @@ enum Command {
 
     /// Open a tmux session named after the focused workspace (ghostty's `command =`)
     TmuxSession,
+
+    /// Run the active-task overlay (long-running; started by a systemd user unit)
+    Daemon,
 }
 
 #[derive(Subcommand)]
@@ -99,6 +102,7 @@ fn run() -> Result<()> {
         Command::Workspace(c) => return workspace_command(c),
         Command::Project(ProjectCommand::Open) => return project_open(),
         Command::TmuxSession => return tmux_session(),
+        Command::Daemon => return niri_tasks::overlay::run(),
     }
     Ok(())
 }
@@ -347,16 +351,7 @@ fn workspace_command(cmd: WorkspaceCommand) -> Result<()> {
             };
             niri::set_workspace_name(&name, None)?;
         }
-        WorkspaceCommand::Default => {
-            // Startup only: give workspace 1 a name so it has a tag from the
-            // first moment, rather than silently dropping tasks until named.
-            let all = niri::workspaces()?;
-            if let Some(ws) = all.iter().find(|w| w.idx == 1) {
-                if ws.name.is_none() {
-                    niri::set_workspace_name("general", Some(WorkspaceReferenceArg::Index(1)))?;
-                }
-            }
-        }
+        WorkspaceCommand::Default => niri_tasks::workspace_default()?,
     }
     Ok(())
 }

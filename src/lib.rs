@@ -6,6 +6,7 @@
 
 pub mod niri;
 pub mod notify;
+pub mod overlay;
 pub mod picker;
 pub mod project;
 pub mod rows;
@@ -36,4 +37,22 @@ pub fn require_workspace_tag() -> Result<String> {
         "Workspace name '{name}' has no usable tag characters."
     );
     Ok(t)
+}
+
+/// Name workspace 1 if it has no name.
+///
+/// Run once at startup. Naming matters more than it looks: the name is the tag
+/// the task shortcuts scope to, so an unnamed workspace silently has no tasks.
+/// Lives here rather than in the binary because the overlay daemon runs it too.
+pub fn workspace_default() -> Result<()> {
+    let all = niri::workspaces()?;
+    if let Some(ws) = all.iter().find(|w| w.idx == 1) {
+        if ws.name.is_none() {
+            niri::set_workspace_name(
+                "general",
+                Some(niri_ipc::WorkspaceReferenceArg::Index(1)),
+            )?;
+        }
+    }
+    Ok(())
 }
