@@ -8,7 +8,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
-use niri_tasks::{niri, notify, picker::Picker, project, require_workspace_tag, session, task, text};
+use niri_tasks::{
+    niri, notify, picker::Picker, project, require_workspace_tag, session, task, taskbox, text,
+};
 
 #[derive(Parser)]
 #[command(name = "wt", version, about, long_about = None)]
@@ -121,10 +123,24 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
 
         TaskCommand::List { dry_run } => return task_list(dry_run),
 
+        // With no text, open the box. With text, add straight away — which is
+        // what makes `wt task add ship it due:friday` work from a shell.
         TaskCommand::Add { text: words } => {
             let tag = require_workspace_tag()?;
-            let joined = words.join(" ");
-            let description = text::collapse_whitespace(&joined);
+            let description = if words.is_empty() {
+                match taskbox::show(taskbox::BoxConfig {
+                    mode: taskbox::Mode::Add,
+                    subtitle: format!("+{tag}"),
+                    initial: String::new(),
+                    notes: String::new(),
+                }) {
+                    Some(t) => t,
+                    None => return Ok(()),
+                }
+            } else {
+                text::collapse_whitespace(&words.join(" "))
+            };
+
             if description.is_empty() {
                 return Ok(());
             }
@@ -138,7 +154,25 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         }
 
         TaskCommand::Edit { uuid, text: words } => {
-            let description = text::collapse_whitespace(&words.join(" "));
+            let description = if words.is_empty() {
+                // The box fetches the description itself rather than taking it
+                // as an argument — the descriptions you reach for the edit box
+                // to fix are the long ones, and those are exactly the ones a
+                // single picker row showed you a fraction of.
+                let current = task::get(&uuid)?.context("task not found")?.description;
+                match taskbox::show(taskbox::BoxConfig {
+                    mode: taskbox::Mode::Edit,
+                    subtitle: String::new(),
+                    initial: current,
+                    notes: String::new(),
+                }) {
+                    Some(t) => t,
+                    None => return Ok(()),
+                }
+            } else {
+                text::collapse_whitespace(&words.join(" "))
+            };
+
             if description.is_empty() {
                 return Ok(());
             }
@@ -156,7 +190,34 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         }
 
         TaskCommand::Note { uuid, text: words } => {
-            let note = text::collapse_whitespace(&words.join(" "));
+            let note = if words.is_empty() {
+                // Existing notes are listed above the input: they are otherwise
+                // invisible from the picker, which shows a description, and an
+                // annotation is not one.
+                let t = task::get(&uuid)?.context("task not found")?;
+                let notes = t
+                    .annotations
+                    .iter()
+                    .map(|a| {
+                        let date = a.entry.get(..8).unwrap_or(&a.entry);
+                        format!("{date}  {}", text::collapse_whitespace(&a.description))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                match taskbox::show(taskbox::BoxConfig {
+                    mode: taskbox::Mode::Annotate,
+                    subtitle: t.description,
+                    initial: String::new(),
+                    notes,
+                }) {
+                    Some(t) => t,
+                    None => return Ok(()),
+                }
+            } else {
+                text::collapse_whitespace(&words.join(" "))
+            };
+
             if note.is_empty() {
                 return Ok(());
             }
@@ -207,8 +268,10 @@ fn task_list(dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
+    // Hand straight over to the add path rather than reimplementing it, so
+    // there is one definition of what "adding a task" means.
     if selected == niri_tasks::rows::ADD_SENTINEL {
-        return open_add_box();
+        return task_command(TaskCommand::Add { text: vec![] });
     }
 
     let description = tasks
@@ -231,34 +294,11 @@ fn task_list(dry_run: bool) -> Result<()> {
         ])?;
 
     match action.as_deref() {
-        Some("Edit") => {
-            // --search pre-fills the input with the current description, so
-            // this is an edit box rather than a retype-it-all box.
-            let new = Picker::new()
-                .lines(0)
-                .width(width)
-                .prompt("edit ")
-                .arg(format!("--search={description}"))
-                .run(&[])?
-                .unwrap_or_default();
-            let new = text::collapse_whitespace(&new);
-            if !new.is_empty() && new != description {
-                task::modify_description(&selected, &new)?;
-            }
-        }
-        Some("Note") => {
-            let note = Picker::new()
-                .lines(0)
-                .width(width)
-                .prompt("note ")
-                .arg("--placeholder=New note…")
-                .run(&[])?
-                .unwrap_or_default();
-            let note = text::collapse_whitespace(&note);
-            if !note.is_empty() {
-                task::annotate(&selected, &note)?;
-            }
-        }
+        // Edit and Note open the box, not a one-line picker: the descriptions
+        // you reach for the edit box to fix are the long ones, and a note has
+        // nowhere to show existing notes in a single row.
+        Some("Edit") => return task_command(TaskCommand::Edit { uuid: selected, text: vec![] }),
+        Some("Note") => return task_command(TaskCommand::Note { uuid: selected, text: vec![] }),
         Some("Delete") => {
             let confirm = Picker::new()
                 .lines(2)
@@ -280,25 +320,6 @@ fn task_list(dry_run: bool) -> Result<()> {
         }
         _ => {}
     }
-    Ok(())
-}
-
-/// Until the GTK box lands in stage 2 this is the one-line fuzzel box.
-fn open_add_box() -> Result<()> {
-    let tag = require_workspace_tag()?;
-    let typed = Picker::new()
-        .lines(0)
-        .width(48)
-        .prompt(&format!("+{tag} "))
-        .run(&[])?
-        .unwrap_or_default();
-
-    let description = text::collapse_whitespace(&typed);
-    if description.is_empty() {
-        return Ok(());
-    }
-    task::add(&tag, &text::add_args(&description))?;
-    notify::tasks(&format!("Added to +{tag}: {description}"));
     Ok(())
 }
 

@@ -11,8 +11,10 @@ pub mod project;
 pub mod rows;
 pub mod session;
 pub mod tag;
+pub mod taskbox;
 pub mod task;
 pub mod text;
+pub mod theme;
 
 use anyhow::Result;
 
