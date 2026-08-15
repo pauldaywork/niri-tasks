@@ -31,7 +31,7 @@ bash install.sh
 Then add the include to `~/.config/niri/config.kdl`:
 
 ```kdl
-include "tasks.kdl"
+include "niri-tasks.kdl"
 ```
 
 `install.sh` builds `wt`, symlinks the niri include and the fuzzel picker theme,

@@ -42,15 +42,15 @@ info "Building wt"
 cargo install --path "$REPO" --locked
 
 # ─── 2. the niri include ──────────────────────────────────────────────────────
-# config.kdl must carry `include "tasks.kdl"` for these binds to load. We do not
+# config.kdl must carry `include "niri-tasks.kdl"` for these binds to load. We do not
 # edit config.kdl ourselves — it belongs to whoever owns the niri setup — so say
 # so rather than silently doing nothing.
-link "$REPO/niri/tasks.kdl" "$CONFIG/niri/tasks.kdl"
+link "$REPO/niri/niri-tasks.kdl" "$CONFIG/niri/niri-tasks.kdl"
 
-if [ -f "$CONFIG/niri/config.kdl" ] && ! grep -q 'include "tasks.kdl"' "$CONFIG/niri/config.kdl"; then
-    warn "$CONFIG/niri/config.kdl does not include tasks.kdl — the keybinds will not load."
+if [ -f "$CONFIG/niri/config.kdl" ] && ! grep -q 'include "niri-tasks.kdl"' "$CONFIG/niri/config.kdl"; then
+    warn "$CONFIG/niri/config.kdl does not include niri-tasks.kdl — the keybinds will not load."
     warn "Add this line to it:"
-    warn '    include "tasks.kdl"'
+    warn '    include "niri-tasks.kdl"'
 fi
 
 # ─── 3. the picker theme ──────────────────────────────────────────────────────
