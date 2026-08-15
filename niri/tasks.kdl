@@ -1,0 +1,35 @@
+// niri-tasks — workspace-scoped Taskwarrior.
+//
+// Included from ~/.config/niri/config.kdl as:
+//     include "tasks.kdl"
+//
+// niri merges binds blocks per-key rather than replacing them, so these live
+// alongside whatever config.kdl defines. (Verified: the DMS stub at
+// ~/.config/niri/dms/binds.kdl is an empty binds block included *after* the
+// main one, and the main binds still work.)
+//
+// A missing include target is fatal to niri, so anything that ships this
+// include must seed an empty stub when niri-tasks is not installed.
+
+// Name workspace 1 on startup if it has no name. Naming matters more than it
+// looks: the name is the tag the task shortcuts scope to, so an unnamed
+// workspace has no tasks.
+spawn-at-startup "wt" "workspace" "default"
+
+binds {
+    // Create a new workspace and name it.
+    Mod+Alt+W hotkey-overlay-title="New Named Workspace" { spawn "wt" "workspace" "new"; }
+
+    // Rename the current workspace — and with it, which tag its tasks carry.
+    Mod+Shift+Alt+W hotkey-overlay-title="Rename Workspace" { spawn "wt" "workspace" "rename"; }
+
+    // Pick a folder from ~/Projects, put it on its own named workspace, and
+    // open a terminal in it.
+    Mod+Alt+P hotkey-overlay-title="Open Project Workspace" { spawn "wt" "project" "open"; }
+
+    // Taskwarrior, scoped to the current workspace's name as a tag.
+    // Mod+Alt+T writes a new task; Mod+Alt+L lists this workspace's tasks and
+    // offers edit / note / delete / complete / set-active on the one you pick.
+    Mod+Alt+T hotkey-overlay-title="Add Task" { spawn "wt" "task" "add"; }
+    Mod+Alt+L hotkey-overlay-title="Workspace Tasks: edit, note, complete" { spawn "wt" "task" "list"; }
+}
