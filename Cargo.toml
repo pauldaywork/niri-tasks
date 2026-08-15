@@ -1,0 +1,27 @@
+[package]
+name = "niri-tasks"
+version = "0.1.0"
+edition = "2021"
+description = "Workspace-scoped Taskwarrior for niri: the focused workspace's name is the task tag"
+license = "MIT"
+
+[lib]
+name = "niri_tasks"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wt"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Matches niri 26.04 — the crate tracks niri's release versioning.
+niri-ipc = "26.4"
+
+[profile.release]
+strip = true
+lto = true
