@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "Workspace-scoped Taskwarrior for niri: the focused workspace's name is the task tag"
 license = "MIT"
+repository = "https://github.com/pauldaywork/niri-tasks"
+readme = "README.md"
+keywords = ["niri", "taskwarrior", "wayland"]
 
 [lib]
 name = "niri_tasks"

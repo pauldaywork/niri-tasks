@@ -1,6 +1,6 @@
 [Unit]
 Description=niri-tasks active-task overlay
-Documentation=https://github.com/paul/niri-tasks
+Documentation=https://github.com/pauldaywork/niri-tasks
 # The overlay is a layer-shell surface, so it needs a Wayland session to attach
 # to. graphical-session.target is what niri's session pulls in.
 PartOf=graphical-session.target

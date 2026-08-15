@@ -3,7 +3,7 @@
 Workspace-scoped Taskwarrior for [niri](https://github.com/YaLTeR/niri).
 
 The niri workspace you are looking at *is* the task filter. Name a workspace
-`keystone` and every task you add from it is tagged `+keystone`; the list
+`website` and every task you add from it is tagged `+website`; the list
 shortcut shows that workspace's tasks and nothing else. Switch workspace and the
 same keys show a different set.
 
@@ -23,7 +23,7 @@ which `wt project open` sets to the folder name.
 ## Install
 
 ```bash
-git clone https://github.com/<you>/niri-tasks ~/Projects/niri-tasks
+git clone https://github.com/pauldaywork/niri-tasks ~/Projects/niri-tasks
 cd ~/Projects/niri-tasks
 bash install.sh
 ```
