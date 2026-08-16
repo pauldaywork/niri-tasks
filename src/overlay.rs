@@ -156,6 +156,28 @@ fn build(app: &Application) {
 
     // Paint once immediately rather than waiting out the first tick.
     tick(&surfaces, &state);
+
+    // Serve task-box requests. The daemon is already a warm GTK process, so a
+    // box it opens appears immediately instead of paying ~0.6s (2.6s cold) to
+    // start another one. Failing to listen is not fatal: the CLI falls back to
+    // building the box itself, which is the whole reason this is a cache and
+    // not a dependency.
+    if let Err(e) = crate::ipc::listen(move |req| {
+        // Back onto the main thread: GTK may only be touched from there, and
+        // the listener runs on its own. The Application cannot be captured
+        // across that boundary — it is not Send — so look it up once we are
+        // already on the main thread, where holding it is legal.
+        gtk4::glib::idle_add_once(move || {
+            let Some(app) = gtk4::gio::Application::default() else {
+                return;
+            };
+            if let Ok(app) = app.downcast::<Application>() {
+                serve_box_request(&app, req);
+            }
+        });
+    }) {
+        eprintln!("task box over IPC unavailable ({e}); the CLI will open its own");
+    }
 }
 
 /// `WT_DEBUG=1` traces each tick to stderr — which, under the systemd unit,
@@ -163,6 +185,94 @@ fn build(app: &Application) {
 fn debug(msg: &str) {
     if std::env::var_os("WT_DEBUG").is_some() {
         eprintln!("[overlay] {msg}");
+    }
+}
+
+/// Open the box for a request from the CLI, and do the taskwarrior work when it
+/// is submitted — the CLI has already exited by then, so this side owns it.
+fn serve_box_request(app: &Application, req: crate::ipc::Request) {
+    use crate::{ipc::Request, notify, task, taskbox, text};
+
+    match req {
+        Request::Add => {
+            let tag = match crate::require_workspace_tag() {
+                Ok(t) => t,
+                Err(e) => {
+                    notify::tasks(&e.to_string());
+                    return;
+                }
+            };
+            let tag_for_submit = tag.clone();
+            taskbox::open_in(
+                app,
+                taskbox::BoxConfig {
+                    mode: taskbox::Mode::Add,
+                    subtitle: format!("+{tag}"),
+                    initial: String::new(),
+                    notes: String::new(),
+                },
+                move |text| {
+                    if let Err(e) = task::add(&tag_for_submit, &text::add_args(&text)) {
+                        notify::tasks(&e.to_string());
+                    } else {
+                        notify::tasks(&format!("Added to +{tag_for_submit}: {text}"));
+                    }
+                },
+            );
+        }
+
+        Request::Edit(uuid) => {
+            let Ok(Some(t)) = task::get(&uuid) else {
+                notify::tasks("Task not found");
+                return;
+            };
+            let uuid_for_submit = uuid.clone();
+            taskbox::open_in(
+                app,
+                taskbox::BoxConfig {
+                    mode: taskbox::Mode::Edit,
+                    subtitle: String::new(),
+                    initial: t.description,
+                    notes: String::new(),
+                },
+                move |text| {
+                    if let Err(e) = task::modify_description(&uuid_for_submit, &text) {
+                        notify::tasks(&e.to_string());
+                    }
+                },
+            );
+        }
+
+        Request::Note(uuid) => {
+            let Ok(Some(t)) = task::get(&uuid) else {
+                notify::tasks("Task not found");
+                return;
+            };
+            let notes = t
+                .annotations
+                .iter()
+                .map(|a| {
+                    let date = a.entry.get(..8).unwrap_or(&a.entry);
+                    format!("{date}  {}", text::collapse_whitespace(&a.description))
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let uuid_for_submit = uuid.clone();
+            taskbox::open_in(
+                app,
+                taskbox::BoxConfig {
+                    mode: taskbox::Mode::Annotate,
+                    subtitle: t.description,
+                    initial: String::new(),
+                    notes,
+                },
+                move |text| {
+                    if let Err(e) = task::annotate(&uuid_for_submit, &text) {
+                        notify::tasks(&e.to_string());
+                    }
+                },
+            );
+        }
     }
 }
 

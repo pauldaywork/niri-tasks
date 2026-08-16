@@ -9,8 +9,19 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
-    niri, notify, picker::Picker, project, require_workspace_tag, session, task, taskbox, text,
+    ipc, niri, notify, picker::Picker, project, require_workspace_tag, session, task, taskbox, text,
 };
+
+/// Hand the box to the daemon if one is listening.
+///
+/// The daemon is already a warm GTK process, so its box appears immediately
+/// rather than paying ~0.6s (2.6s cold) to start another one. Returning false
+/// means no daemon, and the caller builds the box itself — the fallback is the
+/// point, since a daemon you cannot do without is a dependency rather than a
+/// cache, and needing one was the thing that made the DMS plugin worth removing.
+fn delegate_to_daemon(req: ipc::Request) -> bool {
+    ipc::send(&req).is_ok()
+}
 
 #[derive(Parser)]
 #[command(name = "wt", version, about, long_about = None)]
@@ -132,6 +143,9 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         TaskCommand::Add { text: words } => {
             let tag = require_workspace_tag()?;
             let description = if words.is_empty() {
+                if delegate_to_daemon(ipc::Request::Add) {
+                    return Ok(());
+                }
                 match taskbox::show(taskbox::BoxConfig {
                     mode: taskbox::Mode::Add,
                     subtitle: format!("+{tag}"),
@@ -159,6 +173,9 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
 
         TaskCommand::Edit { uuid, text: words } => {
             let description = if words.is_empty() {
+                if delegate_to_daemon(ipc::Request::Edit(uuid.clone())) {
+                    return Ok(());
+                }
                 // The box fetches the description itself rather than taking it
                 // as an argument — the descriptions you reach for the edit box
                 // to fix are the long ones, and those are exactly the ones a
@@ -195,6 +212,9 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
 
         TaskCommand::Note { uuid, text: words } => {
             let note = if words.is_empty() {
+                if delegate_to_daemon(ipc::Request::Note(uuid.clone())) {
+                    return Ok(());
+                }
                 // Existing notes are listed above the input: they are otherwise
                 // invisible from the picker, which shows a description, and an
                 // annotation is not one.

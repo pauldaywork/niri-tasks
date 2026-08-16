@@ -48,6 +48,15 @@ impl Mode {
     }
 }
 
+/// Whether accepted text is worth acting on.
+///
+/// Pulled out of the submit closure so it can be tested: it is the rule that
+/// decides whether anything reaches taskwarrior at all, and inside a GTK
+/// callback it could only be checked by typing into a window by hand.
+pub fn is_worth_submitting(mode: Mode, text: &str, original: &str) -> bool {
+    !text.is_empty() && !(mode == Mode::Edit && text == original)
+}
+
 /// Fixed, because a resizable window here would be a decision to make every
 /// time rather than a box that is always the same shape — except when there are
 /// notes to list above the input, which need the room. Same dimensions the QML
@@ -67,6 +76,18 @@ pub struct BoxConfig {
     pub initial: String,
     /// Existing notes, listed above the input when annotating.
     pub notes: String,
+}
+
+/// Open the box inside an Application that is already running, calling
+/// `on_submit` with the text when it is accepted.
+///
+/// This is what the daemon uses. The standalone `show` below wraps the same
+/// window in a throwaway Application; the window itself is built once, in
+/// `build_window`, so the two paths cannot drift apart in appearance or in
+/// which keys do what.
+pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(String) + 'static) {
+    let theme = Theme::load();
+    build_window(app, &cfg, &theme, Rc::new(on_submit));
 }
 
 /// Show the box and return what was submitted.
@@ -90,7 +111,13 @@ pub fn show(cfg: BoxConfig) -> Option<String> {
     {
         let result = result.clone();
         app.connect_activate(move |app| {
-            build_window(app, &cfg, &theme, result.clone());
+            let result = result.clone();
+            build_window(
+                app,
+                &cfg,
+                &theme,
+                Rc::new(move |text| *result.borrow_mut() = Some(text)),
+            );
         });
     }
 
@@ -101,11 +128,14 @@ pub fn show(cfg: BoxConfig) -> Option<String> {
     taken
 }
 
+/// Build and show the window. `on_submit` fires with the accepted text, and
+/// only when there is something to do: never on cancel, never on empty input,
+/// and never on an edit that changed nothing.
 fn build_window(
     app: &Application,
     cfg: &BoxConfig,
     theme: &Theme,
-    result: Rc<RefCell<Option<String>>>,
+    on_submit: Rc<dyn Fn(String)>,
 ) {
     let has_notes = cfg.mode == Mode::Annotate && !cfg.notes.is_empty();
     let height = if has_notes { HEIGHT_WITH_NOTES } else { HEIGHT };
@@ -207,7 +237,7 @@ fn build_window(
     let do_submit = {
         let buffer = buffer.clone();
         let window = window.clone();
-        let result = result.clone();
+        let on_submit = on_submit.clone();
         move || {
             let text = buffer
                 .text(&buffer.start_iter(), &buffer.end_iter(), false)
@@ -221,10 +251,11 @@ fn build_window(
             let text = crate::text::collapse_whitespace(&text);
 
             // Nothing typed, or an edit that changed nothing, means do nothing.
-            if !text.is_empty() && !(mode == Mode::Edit && text == original) {
-                *result.borrow_mut() = Some(text);
-            }
+            let worth_doing = is_worth_submitting(mode, &text, &original);
             window.close();
+            if worth_doing {
+                on_submit(text);
+            }
         }
     };
 
@@ -261,6 +292,19 @@ fn build_window(
     window.add_controller(keys);
 
     window.present();
+
+    // The Wayland app_id comes from the GtkApplication, and inside the daemon
+    // that application is the overlay's — so a box opened there arrived as
+    // dev.niri-tasks.overlay while one opened by the CLI was dev.niri-tasks.box.
+    // Two ids for one window defeats the point of having a stable one at all,
+    // and it is set per-toplevel rather than per-application, so set it here
+    // once the surface exists.
+    if let Some(surface) = window.surface() {
+        if let Ok(toplevel) = surface.downcast::<gdk4_wayland::WaylandToplevel>() {
+            toplevel.set_application_id(APP_ID);
+        }
+    }
+
     input.grab_focus();
 
     // Put the cursor at the end, so editing starts where you would keep typing
@@ -284,6 +328,28 @@ mod tests {
     fn submit_labels_are_distinct() {
         assert_ne!(Mode::Add.submit_label(), Mode::Edit.submit_label());
         assert_ne!(Mode::Edit.submit_label(), Mode::Annotate.submit_label());
+    }
+
+    #[test]
+    fn empty_input_never_submits() {
+        for mode in [Mode::Add, Mode::Edit, Mode::Annotate] {
+            assert!(!is_worth_submitting(mode, "", "anything"));
+        }
+    }
+
+    #[test]
+    fn an_edit_that_changed_nothing_does_nothing() {
+        assert!(!is_worth_submitting(Mode::Edit, "same text", "same text"));
+        assert!(is_worth_submitting(Mode::Edit, "new text", "same text"));
+    }
+
+    /// Only Edit compares against the original. Re-adding a task whose wording
+    /// matches an existing one is a legitimate thing to do, and a note repeating
+    /// the description it is attached to is too.
+    #[test]
+    fn add_and_annotate_ignore_the_original() {
+        assert!(is_worth_submitting(Mode::Add, "same text", "same text"));
+        assert!(is_worth_submitting(Mode::Annotate, "same text", "same text"));
     }
 
     /// The box is fixed-size specifically so niri floats it; if these ever

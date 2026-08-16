@@ -4,6 +4,7 @@
 //! integration tests — in particular `tests/differential.rs`, which checks the
 //! pure functions against the shell pipelines they were ported from.
 
+pub mod ipc;
 pub mod niri;
 pub mod notify;
 pub mod overlay;
