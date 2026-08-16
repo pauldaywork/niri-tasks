@@ -124,7 +124,10 @@ mod tests {
     #[test]
     fn task_width_is_clamped_both_ends() {
         assert_eq!(clamp_task_width(0), 40, "short lists still get a usable box");
-        assert_eq!(clamp_task_width(30), 36.max(40));
+        // 30 + 6 is under the floor, so the floor wins. Written out rather than
+        // as `36.max(40)`, which reads like a calculation but is a constant the
+        // compiler folds — the assertion could not have failed.
+        assert_eq!(clamp_task_width(30), 40);
         assert_eq!(clamp_task_width(40), 46);
         assert_eq!(clamp_task_width(100), 52, "long descriptions elide, not widen");
     }

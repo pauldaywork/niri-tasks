@@ -49,7 +49,7 @@ pub fn resolve(typed: &str, existing: &[String]) -> Resolved {
     }
 
     // Re-check after normalising: "my project" may already exist as "my-project".
-    if existing.iter().any(|p| *p == normalized) {
+    if existing.contains(&normalized) {
         return Resolved::Existing(normalized);
     }
 

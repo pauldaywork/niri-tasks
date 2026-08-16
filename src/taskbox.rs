@@ -79,7 +79,13 @@ pub fn key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
 /// decides whether anything reaches taskwarrior at all, and inside a GTK
 /// callback it could only be checked by typing into a window by hand.
 pub fn is_worth_submitting(mode: Mode, text: &str, original: &str) -> bool {
-    !text.is_empty() && !(mode == Mode::Edit && text == original)
+    if text.is_empty() {
+        return false;
+    }
+    // Only an edit is compared against what was there before: re-adding a task
+    // worded like an existing one is legitimate, and so is a note that repeats
+    // the description it hangs off.
+    mode != Mode::Edit || text != original
 }
 
 /// Fixed, because a resizable window here would be a decision to make every
@@ -89,6 +95,12 @@ pub fn is_worth_submitting(mode: Mode, text: &str, original: &str) -> bool {
 const WIDTH: i32 = 560;
 const HEIGHT: i32 = 300;
 const HEIGHT_WITH_NOTES: i32 = 440;
+
+/// The notes variant has to be the taller of the two, or the list it exists to
+/// make room for does not fit. Checked when the crate compiles rather than when
+/// the suite runs: these are constants, so there is no input that could make it
+/// false later, and a build is a stricter place to find out than a test.
+const _: () = assert!(HEIGHT_WITH_NOTES > HEIGHT);
 
 /// Stable, so `window-rule { match app-id="dev.niri-tasks.box" }` works.
 pub const APP_ID: &str = "dev.niri-tasks.box";
@@ -472,11 +484,12 @@ mod tests {
         assert!(is_worth_submitting(Mode::Annotate, "same text", "same text"));
     }
 
-    /// The box is fixed-size specifically so niri floats it; if these ever
-    /// diverge the window tiles instead and the whole point is lost.
+    /// The box is fixed-size specifically so niri floats it; if the two
+    /// variants ever differ in width the window tiles instead and the whole
+    /// point is lost. That the notes variant is the taller one is asserted at
+    /// compile time, where the constants are.
     #[test]
-    fn notes_variant_is_taller_but_no_wider() {
-        assert!(HEIGHT_WITH_NOTES > HEIGHT);
+    fn both_variants_share_one_width() {
         assert_eq!(WIDTH, 560, "width is shared by both variants");
     }
 }
