@@ -1,9 +1,10 @@
 //! wt — workspace-scoped Taskwarrior for niri.
 //!
 //! Every task is tagged with the name of the workspace it was created on, so
-//! "my tasks" always means "the tasks for the project I'm looking at". Nothing
-//! here knows about ~/Projects — it goes purely off the niri workspace name,
-//! which `wt project open` sets to the folder name.
+//! "my tasks" always means "the tasks for the project I'm looking at". Which
+//! tasks you see is decided purely by the niri workspace name, which
+//! `wt project open` sets to the folder name; ~/Projects is read only to offer
+//! folders to pick from — opening one, or moving a task to another.
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -306,7 +307,7 @@ fn task_list(dry_run: bool) -> Result<()> {
 
     let width = niri_tasks::picker::clamp_task_width(longest);
     let action = Picker::new()
-        .lines(5)
+        .lines(6)
         .width(20)
         .prompt("")
         .run(&[
@@ -315,6 +316,7 @@ fn task_list(dry_run: bool) -> Result<()> {
             "Delete".into(),
             "Complete".into(),
             "Set active".into(),
+            "Move to workspace".into(),
         ])?;
 
     match action.as_deref() {
@@ -342,9 +344,79 @@ fn task_list(dry_run: bool) -> Result<()> {
             task::set_active(&tag, &selected)?;
             notify::tasks(&format!("Active: {description}"));
         }
+        Some("Move to workspace") => return task_move(&tag, &selected, &description),
         _ => {}
     }
     Ok(())
+}
+
+/// Move a task to another workspace by retagging it.
+///
+/// The destinations are the `~/Projects` folders, listed by folder name and
+/// folded to a tag only once one is picked — so the list reads the way the
+/// project picker does, and picking `niri-tasks` here puts the task on the same
+/// `+niri_tasks` that opening that project would give it.
+fn task_move(tag: &str, uuid: &str, description: &str) -> Result<()> {
+    let (_, names) = projects()?;
+    let destinations = project::move_destinations(&names, tag);
+    if destinations.is_empty() {
+        notify::tasks("No other project to move this to.");
+        return Ok(());
+    }
+
+    let longest = destinations.iter().map(|n| n.chars().count()).max().unwrap_or(0);
+    let selected = Picker::new()
+        .arg("--no-sort")
+        .lines(niri_tasks::picker::clamp_lines(destinations.len()))
+        .width(niri_tasks::picker::clamp_project_width(longest))
+        .prompt("move to ")
+        .run(&destinations)?;
+
+    let Some(selected) = selected else { return Ok(()) };
+
+    // fuzzel echoes typed text verbatim when it matches no entry. For the
+    // project picker that is a feature — it is how a folder gets created — but
+    // here it would invent a tag for a project that does not exist, and a task
+    // on a tag no workspace ever produces is invisible to every list. Only an
+    // entry off the list counts.
+    if !destinations.contains(&selected) {
+        return Ok(());
+    }
+
+    let destination = niri_tasks::tag::workspace_tag(&selected);
+    anyhow::ensure!(
+        !destination.is_empty(),
+        "'{selected}' has no usable tag characters."
+    );
+
+    task::move_to_tag(uuid, tag, &destination)?;
+    notify::tasks(&format!("Moved to +{destination}: {description}"));
+    Ok(())
+}
+
+/// `~/Projects` and the folders in it, sorted, dotfiles left out.
+///
+/// Shared by the project picker and the move-a-task picker so the two always
+/// offer the same set — a project you can open is a project you can move a task
+/// to.
+fn projects() -> Result<(std::path::PathBuf, Vec<String>)> {
+    let home = std::env::var("HOME").context("HOME is unset")?;
+    let projects_dir = std::path::Path::new(&home).join("Projects");
+    anyhow::ensure!(
+        projects_dir.is_dir(),
+        "No {} folder found.",
+        projects_dir.display()
+    );
+
+    let mut names: Vec<String> = std::fs::read_dir(&projects_dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| !n.starts_with('.'))
+        .collect();
+    names.sort();
+
+    Ok((projects_dir, names))
 }
 
 fn workspace_command(cmd: WorkspaceCommand) -> Result<()> {
@@ -391,21 +463,7 @@ fn prompt_for_name(prompt: &str, prefill: &str) -> Result<Option<String>> {
 }
 
 fn project_open() -> Result<()> {
-    let home = std::env::var("HOME").context("HOME is unset")?;
-    let projects_dir = std::path::Path::new(&home).join("Projects");
-    anyhow::ensure!(
-        projects_dir.is_dir(),
-        "No {} folder found.",
-        projects_dir.display()
-    );
-
-    let mut names: Vec<String> = std::fs::read_dir(&projects_dir)?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| !n.starts_with('.'))
-        .collect();
-    names.sort();
+    let (projects_dir, names) = projects()?;
 
     let longest = names.iter().map(|n| n.chars().count()).max().unwrap_or(0);
 

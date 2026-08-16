@@ -160,6 +160,32 @@ pub fn complete(uuid: &str) -> Result<()> {
     Ok(())
 }
 
+/// Move a task from one workspace's tag to another.
+///
+/// The two tags go as separate arguments, each one entirely `-tag` or `+tag`,
+/// which is what makes taskwarrior read them as metadata rather than as words
+/// to append to the description.
+///
+/// A moved task is stopped on the way out. "One active task per tag" is what
+/// lets the overlay and `wt task active` have a single answer, and a task that
+/// carried its `start` across would either hand the destination a second active
+/// task or quietly claim to be the work in progress on a workspace nobody is
+/// looking at. `stop` exits non-zero when the task was not started, which is
+/// the normal case, so only the retag's status is checked.
+pub fn move_to_tag(uuid: &str, from: &str, to: &str) -> Result<()> {
+    let _ = base().arg(uuid).arg("stop").status();
+
+    let status = base()
+        .arg(uuid)
+        .arg("modify")
+        .arg(format!("-{from}"))
+        .arg(format!("+{to}"))
+        .status()
+        .context("could not run `task modify`")?;
+    anyhow::ensure!(status.success(), "`task modify` failed");
+    Ok(())
+}
+
 /// Make `uuid` the one active task for `tag`.
 ///
 /// Clears the tag's current active task first, so a tag never has two — which

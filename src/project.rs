@@ -65,6 +65,22 @@ pub fn resolve(typed: &str, existing: &[String]) -> Resolved {
     Resolved::Create(normalized)
 }
 
+/// The project folders offered as destinations when moving a task off this
+/// workspace.
+///
+/// Every folder except the one the task is already on — a move to where it
+/// already lives is not a move, and listing it only invites picking it. The
+/// comparison is on the folded tag, not the folder name, because the tag is
+/// what the task actually carries: the folder `niri-tasks` and the tag
+/// `niri_tasks` are the same place.
+pub fn move_destinations(names: &[String], current_tag: &str) -> Vec<String> {
+    names
+        .iter()
+        .filter(|n| crate::tag::workspace_tag(n) != current_tag)
+        .cloned()
+        .collect()
+}
+
 /// The editor opened beside the terminal when a project workspace starts.
 pub const EDITOR: &str = "code";
 
@@ -189,6 +205,30 @@ mod tests {
             resolve(".hidden", &existing()),
             Resolved::Rejected(_)
         ));
+    }
+
+    /// The folder you are already on is not offered — and it is recognised by
+    /// its tag, so the dashed folder name and the underscored tag it folds to
+    /// count as the same place.
+    #[test]
+    fn destinations_leave_out_the_workspace_you_are_on() {
+        let names: Vec<String> = ["niri-tasks", "alp-theme", "keystone"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        assert_eq!(
+            move_destinations(&names, "niri_tasks"),
+            vec!["alp-theme".to_string(), "keystone".to_string()]
+        );
+    }
+
+    /// A tag that matches no folder — a workspace named for something that is
+    /// not a project — filters nothing out, rather than silently dropping one.
+    #[test]
+    fn an_unrelated_tag_keeps_every_destination() {
+        let names: Vec<String> = ["alpha", "beta"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(move_destinations(&names, "scratch").len(), 2);
     }
 
     /// A directory holding `runnable` (executable) and `readable` (not).
