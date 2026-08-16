@@ -103,10 +103,11 @@ enum ProjectCommand {
 
 fn main() {
     if let Err(e) = run() {
-        // Errors here are things the user needs to act on ("name this
-        // workspace first"), so they go to the desktop, not just to a stderr
-        // nobody is watching — these run from keybinds with no terminal.
-        notify::tasks(&e.to_string());
+        // Errors here are things the caller needs to act on ("name this
+        // workspace first"), and who the caller is decides where they have to
+        // land: a keybind has no terminal to read stderr, while a script or an
+        // agent never sees a desktop notification. So both — see notify::error.
+        notify::error(&e.to_string());
         std::process::exit(1);
     }
 }

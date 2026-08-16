@@ -130,6 +130,7 @@ still works, it is just flat.
 ```bash
 cargo test              # unit, differential, and write-path suites
 bash tests/e2e-box.sh   # the task box, driven by real keypresses
+bash tests/e2e-tag.sh   # `wt tag --session`, against real tmux sessions
 ```
 
 `tests/e2e-box.sh` is not a cargo test and cannot be: it needs a running niri, a
@@ -145,6 +146,14 @@ matching on app-id looked straight past it. And Ctrl+Enter did nothing: the key
 mapping was correct and tested, but the event controller was in the wrong
 propagation phase, so the focused text view swallowed Return before the window
 saw it. Both only exist once a compositor is involved.
+
+`tests/e2e-tag.sh` is a script for the same reason: it needs niri to ask for
+workspaces and a tmux server to make sessions in. It pins the property
+`--session` exists for, which no unit test can see — that the tag follows the
+terminal rather than the focus. It makes sessions named after real workspaces
+with suffixes well clear of yours (`_91` and up), addresses them with tmux's
+exact-match `=name` so a prefix cannot match one of your real ones, and never
+touches the task database.
 
 `tests/differential.rs` runs the original shell pipelines this was ported from
 and compares them against the Rust functions over a corpus of awkward workspace
