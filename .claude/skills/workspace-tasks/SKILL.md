@@ -27,18 +27,29 @@ phase of this skill, not an interruption to it.
 ## Phase 1 — read the list
 
 ```bash
-wt tag                                   # the focused workspace's tag
-task "+$(wt tag)" status:pending export  # the tasks, as JSON
+wt tag --session                                   # this terminal's workspace tag
+task "+$(wt tag --session)" status:pending export  # the tasks, as JSON
 ```
 
-`wt tag` exits non-zero when the workspace has no name. Stop there and tell the
-user to name it with `Mod+Shift+Alt+W` — an unnamed workspace has no tag, so it
-has no tasks, and guessing a tag would work on somebody else's list.
+**`--session`, not bare `wt tag`.** Bare `wt tag` answers "which workspace is
+focused *right now*", which is the right answer for a keybind and the wrong one
+for you: a run takes minutes, the user switches workspace while it goes, and the
+tag moves with them — so the findings get filed onto whatever project they
+happened to be reading. `--session` takes the workspace from the tmux session
+this terminal was opened on, which does not move.
 
-**Write the tag down and reuse that value for the rest of the run.** Do not
-re-run `wt tag` later. It reports whatever workspace is focused *now*, and the
-user may well have switched away while you worked — re-resolving it at the end
-would file the follow-up tasks onto the wrong project.
+It fails, rather than guessing, in three cases, and each wants a different thing
+from you:
+
+| It says | What to do |
+|---|---|
+| the workspace has no name | Stop. Tell the user to name it with `Mod+Shift+Alt+W` — an unnamed workspace has no tag, so it has no tasks. |
+| not inside a tmux session | Fall back to `wt tag`, and **say so**: the tag is focus-derived, so ask the user not to switch workspace mid-run. |
+| the session matches no named workspace | The workspace was renamed since this terminal opened. Ask which project the list belongs to rather than picking one. |
+
+**Write the tag down and reuse that value for the rest of the run** either way.
+That is belt and braces with `--session`, and the only thing keeping the
+fallback honest.
 
 Read the JSON, not the table. Four fields matter:
 
@@ -194,8 +205,8 @@ print(next(t['uuid'] for t in json.load(sys.stdin) if t['description'] == sys.ar
 task "$uuid" annotate -- "src/overlay.rs:410 — what you saw, and why it matters"
 ```
 
-Using the tag **captured in Phase 1**, not a fresh `wt tag` — see the warning
-there.
+Using the tag **captured in Phase 1**, not a freshly resolved one — see the
+table there.
 
 One line is all the picker shows, and it is not enough to act on months later:
 you are holding the file, the line number and the reason right now, and nobody

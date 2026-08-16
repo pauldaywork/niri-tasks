@@ -33,8 +33,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Print the focused workspace's task tag, or exit 1 if it has none
-    Tag,
+    /// Print the workspace's task tag, or exit 1 if it has none
+    Tag {
+        /// Take the workspace from this terminal's tmux session rather than
+        /// from whatever is focused. For anything long-running: focus moves,
+        /// the terminal's own workspace does not.
+        #[arg(long)]
+        session: bool,
+    },
 
     /// Taskwarrior operations scoped to the focused workspace
     #[command(subcommand)]
@@ -107,8 +113,13 @@ fn main() {
 
 fn run() -> Result<()> {
     match Cli::parse().command {
-        Command::Tag => {
-            print!("{}", require_workspace_tag()?);
+        Command::Tag { session } => {
+            let tag = if session {
+                niri_tasks::session_workspace_tag()?
+            } else {
+                require_workspace_tag()?
+            };
+            print!("{tag}");
         }
         Command::Task(c) => return task_command(c),
         Command::Workspace(c) => return workspace_command(c),

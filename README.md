@@ -60,6 +60,7 @@ Tested against niri 26.04 and taskwarrior 2.6.2.
 
 ```
 wt tag                      # the focused workspace's tag
+wt tag --session            # the tag of the workspace this terminal was opened on
 wt task active              # the active task's description, or nothing
 wt task list                # the picker
 wt task list --dry-run      # the rows it would show, for scripting and testing

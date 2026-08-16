@@ -54,6 +54,36 @@ pub fn next_session_name(base: &str, exists: impl Fn(&str) -> bool) -> String {
     }
 }
 
+/// Strip the numeric suffix off a session name: `niri-tasks_1` -> `niri-tasks`.
+///
+/// The inverse of what [`next_session_name`] appended, and only that — a
+/// workspace genuinely called "phase_1" produces the session `phase_1_1`, so
+/// only the last `_<digits>` group comes off.
+pub fn session_base(session: &str) -> &str {
+    let Some((base, suffix)) = session.rsplit_once(SEPARATOR) else {
+        return session;
+    };
+    if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
+        base
+    } else {
+        session
+    }
+}
+
+/// Which of `workspaces` this tmux session was opened on.
+///
+/// The session name is a *lossy* rendering of the workspace name — spaces and
+/// dots both became underscores — so it cannot simply be unfolded. Matching
+/// each live workspace name through the same sanitiser instead recovers the
+/// original exactly, and answers `None` when the workspace it named is gone or
+/// has since been renamed.
+pub fn workspace_for_session<'a>(session: &str, workspaces: &'a [String]) -> Option<&'a String> {
+    let base = session_base(session);
+    workspaces
+        .iter()
+        .find(|name| sanitize_session_name(name) == base)
+}
+
 /// Where a new tmux session should start.
 ///
 /// `~/Projects/<workspace>` -> `~/Projects` -> `~`. Uses the *raw* workspace
@@ -115,6 +145,52 @@ mod tests {
             "work_3",
             "should fill the gap at 3, not jump past 4"
         );
+    }
+
+    #[test]
+    fn session_base_strips_only_the_number_it_added() {
+        assert_eq!(session_base("niri-tasks_1"), "niri-tasks");
+        assert_eq!(session_base("keystone_42"), "keystone");
+        // A workspace whose own name ends in _1 keeps it: the session was
+        // "phase_1" + "_" + "1".
+        assert_eq!(session_base("phase_1_1"), "phase_1");
+        // Nothing that is not a trailing number comes off.
+        assert_eq!(session_base("my_project"), "my_project");
+        assert_eq!(session_base("plain"), "plain");
+        assert_eq!(session_base("trailing_"), "trailing_");
+    }
+
+    /// The session name cannot be unfolded — "a  b" and "a__b" both sanitise to
+    /// "a__b" — so the live workspace names are run through the same sanitiser
+    /// and compared, which recovers the original exactly.
+    #[test]
+    fn a_session_finds_the_workspace_that_named_it() {
+        let workspaces: Vec<String> = ["niri-tasks", "a  b", "My Project"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        assert_eq!(
+            workspace_for_session("niri-tasks_1", &workspaces),
+            Some(&"niri-tasks".to_string())
+        );
+        assert_eq!(
+            workspace_for_session("a__b_2", &workspaces),
+            Some(&"a  b".to_string()),
+            "the lossy rendering is resolved by matching, not by unfolding"
+        );
+        assert_eq!(
+            workspace_for_session("My_Project_1", &workspaces),
+            Some(&"My Project".to_string())
+        );
+    }
+
+    /// A session whose workspace was renamed or closed matches nothing, rather
+    /// than resolving to a plausible-looking wrong one.
+    #[test]
+    fn a_session_with_no_live_workspace_matches_nothing() {
+        let workspaces = vec!["niri-tasks".to_string()];
+        assert_eq!(workspace_for_session("old-name_1", &workspaces), None);
     }
 
     #[test]
