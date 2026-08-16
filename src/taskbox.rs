@@ -48,6 +48,31 @@ impl Mode {
     }
 }
 
+/// What a keypress in the box means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyAction {
+    Submit,
+    Cancel,
+    /// Pass it through to the text view — ordinary typing, including a bare
+    /// Return, which must insert a newline for a multi-line box to be worth
+    /// having at all.
+    Ignore,
+}
+
+/// Map a keypress to what it should do.
+///
+/// Separated from the controller so the mapping is testable. Note this does not
+/// cover the propagation phase, which is the other half of making Ctrl+Enter
+/// work and the half that was actually broken — see where the controller is
+/// created.
+pub fn key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
+    match key {
+        gdk::Key::Escape => KeyAction::Cancel,
+        gdk::Key::Return | gdk::Key::KP_Enter if ctrl => KeyAction::Submit,
+        _ => KeyAction::Ignore,
+    }
+}
+
 /// Whether accepted text is worth acting on.
 ///
 /// Pulled out of the submit closure so it can be tested: it is the rule that
@@ -270,22 +295,33 @@ fn build_window(
 
     // Enter has to insert a newline for a multi-line box to be worth having, so
     // submitting moves to Ctrl+Enter. Escape cancels.
+    //
+    // The phase matters and defaulting to it was a bug: an EventControllerKey on
+    // the window bubbles, so the focused TextView saw Return first, inserted a
+    // newline and stopped propagation — Ctrl+Enter did nothing at all. Escape
+    // kept working the whole time, because a TextView does not consume that,
+    // which is exactly the shape of "only one of the two shortcuts is broken".
+    //
+    // Capture phase gets the window in first. Everything except the two keys
+    // handled here still returns Proceed, so ordinary typing reaches the
+    // TextView untouched.
     let keys = gtk4::EventControllerKey::new();
+    keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
     {
         let window = window.clone();
         let do_submit = do_submit.clone();
         keys.connect_key_pressed(move |_, key, _, state| {
             let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
-            match key {
-                gdk::Key::Escape => {
+            match key_action(key, ctrl) {
+                KeyAction::Cancel => {
                     window.close();
                     gtk4::glib::Propagation::Stop
                 }
-                gdk::Key::Return | gdk::Key::KP_Enter if ctrl => {
+                KeyAction::Submit => {
                     do_submit();
                     gtk4::glib::Propagation::Stop
                 }
-                _ => gtk4::glib::Propagation::Proceed,
+                KeyAction::Ignore => gtk4::glib::Propagation::Proceed,
             }
         });
     }
@@ -328,6 +364,32 @@ mod tests {
     fn submit_labels_are_distinct() {
         assert_ne!(Mode::Add.submit_label(), Mode::Edit.submit_label());
         assert_ne!(Mode::Edit.submit_label(), Mode::Annotate.submit_label());
+    }
+
+    #[test]
+    fn ctrl_enter_submits_and_bare_enter_does_not() {
+        assert_eq!(key_action(gdk::Key::Return, true), KeyAction::Submit);
+        assert_eq!(key_action(gdk::Key::KP_Enter, true), KeyAction::Submit);
+        // A bare Return has to reach the text view, or the box cannot be
+        // multi-line, which is its only reason to exist.
+        assert_eq!(key_action(gdk::Key::Return, false), KeyAction::Ignore);
+        assert_eq!(key_action(gdk::Key::KP_Enter, false), KeyAction::Ignore);
+    }
+
+    #[test]
+    fn escape_cancels_with_or_without_ctrl() {
+        assert_eq!(key_action(gdk::Key::Escape, false), KeyAction::Cancel);
+        assert_eq!(key_action(gdk::Key::Escape, true), KeyAction::Cancel);
+    }
+
+    #[test]
+    fn ordinary_typing_is_passed_through() {
+        for k in [gdk::Key::a, gdk::Key::space, gdk::Key::Tab, gdk::Key::BackSpace] {
+            assert_eq!(key_action(k, false), KeyAction::Ignore);
+            // Ctrl+A and friends must still reach the text view, or select-all
+            // and the usual editing keys stop working inside the box.
+            assert_eq!(key_action(k, true), KeyAction::Ignore);
+        }
     }
 
     #[test]
