@@ -48,17 +48,19 @@ pub const NAMESPACE: &str = "niri-tasks";
 /// the bar's row. Nudge it with `WT_OVERLAY_MARGIN` — a taller bar wants more.
 const DEFAULT_BOTTOM_MARGIN: i32 = 10;
 
-/// How much text the pill shows before ellipsising, and so how wide it gets.
+/// The widest the pill is allowed to get, in characters.
 ///
-/// The pill hugs its content, so this is the width control: the surface is
-/// sized by the label, not the other way round.
-const DEFAULT_WIDTH_CHARS: i32 = 80;
+/// A ceiling, not a width. The pill hugs its text, so a two-word task gets a
+/// two-word pill; this is only the point at which it stops growing and starts
+/// ellipsising, so that one long description cannot stretch a readout the width
+/// of the monitor.
+const DEFAULT_MAX_WIDTH_CHARS: i32 = 80;
 
-fn width_chars() -> i32 {
-    std::env::var("WT_OVERLAY_WIDTH_CHARS")
+fn max_width_chars() -> i32 {
+    std::env::var("WT_OVERLAY_MAX_WIDTH_CHARS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_WIDTH_CHARS)
+        .unwrap_or(DEFAULT_MAX_WIDTH_CHARS)
 }
 
 const TICK: Duration = Duration::from_millis(700);
@@ -336,6 +338,16 @@ fn tick(
             }
         } else {
             label.set_text(&text);
+            // Unmap before mapping again, so the surface is sized for the text
+            // it is about to show. The width is negotiated once, when the
+            // surface maps, and changing the label afterwards does not make it
+            // ask again — so without this the pill keeps the previous task's
+            // width, and a short description sits marooned in the middle of a
+            // pill cut for a long one (or a long one ellipsises down to a
+            // couple of letters in a pill cut for a short one).
+            if window.is_visible() {
+                window.set_visible(false);
+            }
             // present(), not set_visible(true): a layer surface that has never
             // been presented is not mapped by set_visible alone, so the overlay
             // would stay invisible for the whole session whenever it started
@@ -402,13 +414,12 @@ fn make_surface(app: &Application, monitor: &gdk::Monitor) -> (ApplicationWindow
     let label = gtk4::Label::new(None);
     label.add_css_class("active-task");
     label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    // Both, deliberately. An ellipsizing label reports a tiny *minimum* width,
-    // and the layer surface sizes itself from that rather than from the natural
-    // width — so raising max-width-chars alone made the pill narrower, not
-    // wider. width-chars is what actually pins the surface open.
-    let chars = width_chars();
-    label.set_width_chars(chars);
-    label.set_max_width_chars(chars);
+    // max-width-chars only. width-chars would be a *minimum* as well as a
+    // maximum, and a pill held open to 80 characters around the words "ship it"
+    // is a band across the wallpaper rather than a label on a task. Setting
+    // neither is not the answer either: an ellipsizing label with no ceiling
+    // would let one long description run the width of the monitor.
+    label.set_max_width_chars(max_width_chars());
 
     window.set_child(Some(&label));
 
@@ -484,16 +495,16 @@ mod tests {
 
     #[test]
     fn width_defaults_and_is_overridable() {
-        std::env::remove_var("WT_OVERLAY_WIDTH_CHARS");
-        assert_eq!(width_chars(), DEFAULT_WIDTH_CHARS);
+        std::env::remove_var("WT_OVERLAY_MAX_WIDTH_CHARS");
+        assert_eq!(max_width_chars(), DEFAULT_MAX_WIDTH_CHARS);
 
-        std::env::set_var("WT_OVERLAY_WIDTH_CHARS", "120");
-        assert_eq!(width_chars(), 120);
+        std::env::set_var("WT_OVERLAY_MAX_WIDTH_CHARS", "120");
+        assert_eq!(max_width_chars(), 120);
 
         // Garbage falls back rather than panicking a long-running daemon.
-        std::env::set_var("WT_OVERLAY_WIDTH_CHARS", "wide-ish");
-        assert_eq!(width_chars(), DEFAULT_WIDTH_CHARS);
-        std::env::remove_var("WT_OVERLAY_WIDTH_CHARS");
+        std::env::set_var("WT_OVERLAY_MAX_WIDTH_CHARS", "wide-ish");
+        assert_eq!(max_width_chars(), DEFAULT_MAX_WIDTH_CHARS);
+        std::env::remove_var("WT_OVERLAY_MAX_WIDTH_CHARS");
     }
 
     #[test]
