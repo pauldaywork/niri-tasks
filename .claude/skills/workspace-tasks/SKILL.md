@@ -46,7 +46,7 @@ Read the JSON, not the table. Four fields matter:
 |---|---|
 | `uuid` | The only stable handle — see the warning below |
 | `description` | The one-liner typed into the box |
-| `annotations` | Longer detail added later via the **Note** action. Terse tasks often have their real specification here. Always read them. |
+| `annotations` | Longer detail added later — by the user via the **Note** action, or by a previous run of this skill (Phases 2 and 5). Terse tasks often have their real specification here. Always read them. |
 | `start` | Present means the task is already active |
 
 `annotations` and `start` are **absent** from the JSON rather than empty when a
@@ -82,6 +82,25 @@ Ask when the task:
 Do **not** ask about things you can find out yourself. Which file holds the
 code, whether a binary is installed, what the current value is — read the repo.
 Reserve the questions for what only the user knows.
+
+**Write the answers back onto the task, before starting any work:**
+
+```bash
+task <uuid> annotate -- "the answer, as the specification it now is"
+```
+
+The answer to a clarifying question *is* the task — "make it lower" only became
+actionable when the user said how low. Left in the chat it dies with the
+session, and the task is back to its terse one line for whoever reads it next,
+including the next run of this skill. Annotating is also how the detail reaches
+the desktop: the picker marks an annotated task with `¶` and the **Note** box
+lists the notes above the input, so it is visible from the keybind, not only
+from here.
+
+Annotate only the tasks you actually asked about, one annotation each, and
+record the decision rather than the exchange — *"80 chars, ellipsised"*, not
+*"asked how wide, user said 80"*. Note the `--`; Phase 5 sets out what eats your
+text without it.
 
 Restate the list back to the user before starting, so a
 task you have misread gets caught before any work goes into it.
@@ -130,7 +149,7 @@ before closing it.
 
 ```bash
 task <uuid> stop
-task <uuid> annotate "blocked: <one line on why>"
+task <uuid> annotate -- "blocked: <one line on why>"
 ```
 
 A stale active task sits on the user's screen claiming work is in progress that
@@ -162,25 +181,57 @@ quietly grows it by five items is worse than one that mentions them.
 Ask once, for the whole set, and let them pick which ones they want rather than
 forcing all-or-nothing. `AskUserQuestion` with `multiSelect: true` fits this.
 
-For each one they accept:
+For each one they accept, file the line and then put the context on it as an
+annotation:
 
 ```bash
-task add "+<tag>" "the finding, as one actionable line"
+finding="the finding, as one actionable line"
+task add "+<tag>" -- "$finding"
+uuid=$(task "+<tag>" status:pending export | python3 -c "
+import json,sys
+print(next(t['uuid'] for t in json.load(sys.stdin) if t['description'] == sys.argv[1]))
+" "$finding")
+task "$uuid" annotate -- "src/overlay.rs:410 — what you saw, and why it matters"
 ```
 
 Using the tag **captured in Phase 1**, not a fresh `wt tag` — see the warning
 there.
 
+One line is all the picker shows, and it is not enough to act on months later:
+you are holding the file, the line number and the reason right now, and nobody
+will have them again without rediscovering the finding from scratch. The
+annotation is where they go. Skip it only when the one line genuinely says
+everything — an annotation that restates the description is noise.
+
+Read the uuid back out of the export rather than off `task add`'s *"Created task
+8."*: that is an id, and ids renumber — the same trap Phase 1 warns about.
+Matching on the description keeps it exact when several findings are filed in
+the same second.
+
 > [!IMPORTANT]
-> Pass the description as **one quoted argument**, exactly as above.
-> Taskwarrior classifies each argument whole: an argument that is *entirely*
-> `+tag` or `due:friday` becomes metadata, but a multi-word argument is
-> description text and is not scanned inside. So the quoting does two jobs at
-> once — `"+<tag>"` still tags the task, while a finding that happens to mention
-> `due:` or `priority:` keeps those words as text instead of having them eaten.
-> Word-split the description and that stops being true. (This is the same
-> distinction the `wt` tool draws between `wt task add`, which splits, and
-> `wt task edit`, which does not.)
+> **Quote the text as one argument, and put `--` in front of it.** Both halves
+> matter, and the `--` is not optional politeness — it is what stops taskwarrior
+> reading your text as instructions.
+>
+> Taskwarrior decides what an argument is from its **first word**. A word that
+> looks like `attribute:value` anywhere else in the argument stays literal —
+> `"fix the lint due:friday now"` keeps its `due:friday` as text — but the same
+> word at the *front* takes the whole argument with it. `"project.rs:52 says
+> so"` is read as the `project` attribute with the value `52 says so`, and a
+> file:line reference is exactly the shape a good finding starts with.
+>
+> The two failures do not look alike, and the second is the dangerous one:
+>
+> * `task add "+tag" "project.rs:52 fix the lint"` **fails outright** — "A task
+>   must have a description", because the description became an attribute.
+> * `task <uuid> annotate "project.rs:52 says so"` **silently sets `project`,
+>   files no annotation, and exits 0.** It even prints "Annotated 1 task."
+>   Nothing tells you the note is gone.
+>
+> `--` ends attribute parsing, so everything after it is text. `"+<tag>"` still
+> has to sit *before* the `--` to register as a tag. This is what the `wt` tool
+> itself does — see `task::annotate` and `task::modify_description` in
+> `src/task.rs`, both of which pass `--`.
 
 Confirm what was filed, then stop. Do not start working the tasks you just
 created — they are the next run's list, not this one's.
@@ -198,5 +249,8 @@ created — they are the next run's list, not this one's.
   never work you just do, and never a task you file without being asked.
 - **Findings are raised, not chased.** Note them the moment you see them; do not
   fix them. The only exception is a finding that blocks the task in front of you.
+- **What only exists in the chat is lost.** A clarification that made a task
+  actionable, and the context behind a finding, belong on the task as
+  annotations — the session ends, the task list does not.
 - **Never complete a task you did not finish.** A partial fix stays pending with
   an annotation explaining where it got to.
