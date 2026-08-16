@@ -271,15 +271,7 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
                 notify::tasks("Task not found");
                 return;
             };
-            let notes = t
-                .annotations
-                .iter()
-                .map(|a| {
-                    let date = a.entry.get(..8).unwrap_or(&a.entry);
-                    format!("{date}  {}", text::collapse_whitespace(&a.description))
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
+            let notes = t.notes_list();
             let uuid_for_submit = uuid.clone();
             taskbox::open_in(
                 app,

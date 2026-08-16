@@ -41,6 +41,48 @@ impl Task {
     pub fn has_notes(&self) -> bool {
         !self.annotations.is_empty()
     }
+
+    /// Every note, one per line — what the note box lists above its input and
+    /// what `wt task get-notes` prints.
+    ///
+    /// One definition, because there are three callers and they must agree:
+    /// notes are invisible from the picker, which shows a description, so this
+    /// listing is the only place they are read.
+    pub fn notes_list(&self) -> String {
+        self.annotations
+            .iter()
+            .map(Annotation::line)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+impl Annotation {
+    /// One note as every surface shows it: the date it was added, then the text.
+    pub fn line(&self) -> String {
+        format!(
+            "{}  {}",
+            self.date(),
+            crate::text::collapse_whitespace(&self.description)
+        )
+    }
+
+    /// The `entry` stamp as a date a person reads.
+    ///
+    /// Taskwarrior stores it as `20260816T130710Z`; the first eight characters
+    /// are the day, and hyphens are what make them read as one. Anything that
+    /// is not that shape is passed through untouched rather than sliced into
+    /// nonsense — the stamp is taskwarrior's to define, not ours.
+    fn date(&self) -> String {
+        // Characters, not bytes: `&self.entry[..8]` panics when the eighth byte
+        // lands inside a multi-byte character, and this runs inside a
+        // long-lived daemon.
+        let day: String = self.entry.chars().take(8).collect();
+        if day.len() != 8 || !day.chars().all(|c| c.is_ascii_digit()) {
+            return self.entry.clone();
+        }
+        format!("{}-{}-{}", &day[..4], &day[4..6], &day[6..8])
+    }
 }
 
 fn base() -> Command {
@@ -265,6 +307,60 @@ mod tests {
         assert_eq!(tasks[0].uuid, "abc");
         assert!(!tasks[0].has_notes());
         assert!(!tasks[0].is_active());
+    }
+
+    /// One listing, used by the note box, the CLI and the daemon alike. It was
+    /// three copies of this format string before, free to drift apart.
+    #[test]
+    fn notes_list_is_one_line_per_note() {
+        let json = r#"[{
+            "uuid":"abc","description":"x","urgency":1.0,
+            "annotations":[
+                {"entry":"20260815T080000Z","description":"first"},
+                {"entry":"20260816T091500Z","description":"second  note   wrapped"}
+            ]
+        }]"#;
+        let tasks: Vec<Task> = serde_json::from_str(json).unwrap();
+        let listing = tasks[0].notes_list();
+        let lines: Vec<&str> = listing.lines().collect();
+
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].ends_with("  first"));
+        assert!(
+            lines[1].ends_with("  second note wrapped"),
+            "a note's own whitespace is collapsed for the listing"
+        );
+    }
+
+    /// The stamp taskwarrior stores is not a date anyone reads.
+    #[test]
+    fn note_dates_read_as_dates() {
+        let a = Annotation {
+            entry: "20260816T130710Z".into(),
+            description: "a note".into(),
+        };
+        assert_eq!(a.line(), "2026-08-16  a note");
+    }
+
+    /// A stamp of some other shape is shown as it is. Slicing blindly would
+    /// turn an unexpected format into invented punctuation, or panic on a
+    /// multi-byte boundary.
+    #[test]
+    fn an_unexpected_stamp_is_passed_through() {
+        for stamp in ["", "2026-08-16", "whenever", "日付です"] {
+            let a = Annotation {
+                entry: stamp.into(),
+                description: "x".into(),
+            };
+            assert_eq!(a.line(), format!("{stamp}  x"));
+        }
+    }
+
+    #[test]
+    fn a_task_with_no_notes_lists_nothing() {
+        let json = r#"[{"uuid":"abc","description":"x","urgency":1.0}]"#;
+        let tasks: Vec<Task> = serde_json::from_str(json).unwrap();
+        assert_eq!(tasks[0].notes_list(), "");
     }
 
     /// The uuid comes off `rc.verbose=new-uuid`'s line, not off the id in the

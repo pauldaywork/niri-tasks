@@ -206,10 +206,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         TaskCommand::GetNotes { uuid } => {
             let t = task::get(&uuid)?.context("task not found")?;
             for a in &t.annotations {
-                // Date first, then the text, whitespace collapsed — the shape
-                // the box lists them in.
-                let date = a.entry.get(..8).unwrap_or(&a.entry);
-                println!("{}  {}", date, text::collapse_whitespace(&a.description));
+                println!("{}", a.line());
             }
         }
 
@@ -222,15 +219,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
                 // invisible from the picker, which shows a description, and an
                 // annotation is not one.
                 let t = task::get(&uuid)?.context("task not found")?;
-                let notes = t
-                    .annotations
-                    .iter()
-                    .map(|a| {
-                        let date = a.entry.get(..8).unwrap_or(&a.entry);
-                        format!("{date}  {}", text::collapse_whitespace(&a.description))
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                let notes = t.notes_list();
 
                 match taskbox::show(taskbox::BoxConfig {
                     mode: taskbox::Mode::Annotate,
