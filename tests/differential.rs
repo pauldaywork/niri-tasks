@@ -87,24 +87,36 @@ fn workspace_tag_matches_the_shell_pipeline() {
     );
 }
 
+/// The whole session name, against the pipeline as it was actually written.
+///
+/// The first version of this test piped the bare string into `tr`, which missed
+/// the point: the script ran `echo "$ws" | tr ...`, and `echo` appends a newline
+/// that `tr -c` turns into a trailing underscore. That underscore is why every
+/// session on the machine is `ubuntu-setup_1` rather than `ubuntu-setup1`, and
+/// testing `tr` in isolation could never have caught it. Compare the finished
+/// name, not one stage of the pipeline.
 #[test]
 fn session_name_matches_the_shell_pipeline() {
-    // tmux-niri-session.sh:9 — note this is `tr -c`, per-character, no collapsing.
-    let pipeline = r#"tr -c 'A-Za-z0-9_-' '_'"#;
+    // tmux-niri-session.sh:9,13-17 — `tr -c` is per-character, no collapsing.
+    // `IFS=` matters: a bare `read` strips leading and trailing whitespace, which
+    // the real script never does — it takes $ws straight from `jq -r`. Without
+    // it the harness invents a difference the code does not have.
+    let pipeline = r#"IFS= read -r -d '' ws || true; ws_clean=$(echo "$ws" | tr -c 'A-Za-z0-9_-' '_'); printf '%s1' "$ws_clean""#;
 
     let mut mismatches = Vec::new();
     for input in corpus() {
-        // `tr -c` also rewrites the trailing newline echo adds, so feed it bare
-        // and compare against the same length of input.
         let shell = sh(pipeline, input);
-        let rust = niri_tasks::session::sanitize_session_name(input);
+        let rust = niri_tasks::session::next_session_name(
+            &niri_tasks::session::sanitize_session_name(input),
+            |_| false,
+        );
         if shell != rust {
             mismatches.push(format!("{input:?}: shell={shell:?} rust={rust:?}"));
         }
     }
     assert!(
         mismatches.is_empty(),
-        "sanitize_session_name diverged from tmux-niri-session.sh:\n  {}",
+        "session naming diverged from tmux-niri-session.sh:\n  {}",
         mismatches.join("\n  ")
     );
 }

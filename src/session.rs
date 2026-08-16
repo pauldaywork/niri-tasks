@@ -5,7 +5,7 @@
 //!
 //! * The *sanitised* name is used for the tmux session, but the **raw** name is
 //!   used for the directory lookup. A workspace called "my project" looks for
-//!   `~/Projects/my project` while running in session `my_project1`.
+//!   `~/Projects/my project` while running in session `my_project_1`.
 //! * `tr -c 'A-Za-z0-9_-' '_'` replaces each disallowed character individually.
 //!   It does **not** collapse runs, unlike `workspace_tag`. Two spaces become
 //!   two underscores.
@@ -27,12 +27,26 @@ pub fn sanitize_session_name(name: &str) -> String {
         .collect()
 }
 
+/// The separator between the workspace name and the number.
+///
+/// It exists because the shell version produced one by accident: it ran
+/// `echo "$ws" | tr -c 'A-Za-z0-9_-' '_'`, and `echo` appends a newline, which
+/// is not in the allowed set, so it became a trailing underscore. Every session
+/// on this machine is named that way — `ubuntu-setup_1`, `keystone_2`.
+///
+/// Reproducing an accident sounds like the wrong call, but `tmux new-session -A`
+/// treats the name as the identity: dropping the underscore would not rename
+/// those sessions, it would create a second parallel set beside them and stop
+/// the shortcut ever reattaching to the ones you have open. So it is a real
+/// separator now, written down rather than emerging from a newline.
+const SEPARATOR: &str = "_";
+
 /// Pick the smallest unused numeric suffix for a session name, given a
 /// predicate that reports whether a session already exists.
 pub fn next_session_name(base: &str, exists: impl Fn(&str) -> bool) -> String {
     let mut n = 1u32;
     loop {
-        let candidate = format!("{base}{n}");
+        let candidate = format!("{base}{SEPARATOR}{n}");
         if !exists(&candidate) {
             return candidate;
         }
@@ -90,15 +104,15 @@ mod tests {
 
     #[test]
     fn first_session_gets_suffix_one() {
-        assert_eq!(next_session_name("work", |_| false), "work1");
+        assert_eq!(next_session_name("work", |_| false), "work_1");
     }
 
     #[test]
     fn finds_the_smallest_unused_suffix() {
-        let taken: HashSet<&str> = ["work1", "work2", "work4"].into_iter().collect();
+        let taken: HashSet<&str> = ["work_1", "work_2", "work_4"].into_iter().collect();
         assert_eq!(
             next_session_name("work", |s| taken.contains(s)),
-            "work3",
+            "work_3",
             "should fill the gap at 3, not jump past 4"
         );
     }
@@ -134,6 +148,11 @@ mod tests {
 
         assert_eq!(start_dir(&tmp, "my project"), projects.join("my project"));
         assert_eq!(sanitize_session_name("my project"), "my_project");
+        // ...and the full name the shell version would have produced.
+        assert_eq!(
+            next_session_name(&sanitize_session_name("my project"), |_| false),
+            "my_project_1"
+        );
 
         std::fs::remove_dir_all(&tmp).ok();
     }
