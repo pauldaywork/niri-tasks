@@ -18,6 +18,11 @@
 #     consumed Return before the window saw it. Only a real keypress through a
 #     real compositor exercises that.
 #
+# It covers both boxes: the add box, including the notes area whose lines each
+# become an annotation, and the note box opened for an existing task. Both are
+# driven the only way that proves anything here — real keypresses, including the
+# Tab that moves between the add box's two text areas.
+#
 # Runs against a sandboxed TASKDATA, so the real task database is untouched.
 set -uo pipefail
 
@@ -55,13 +60,40 @@ except Exception: print('no'); raise SystemExit
 print('yes' if (w or {}).get('app_id')=='dev.niri-tasks.box' else 'no')
 "
 }
+box_title() {
+    niri msg -j focused-window 2>/dev/null | python3 -c "
+import json,sys
+try: w=json.load(sys.stdin) or {}
+except Exception: w={}
+print(w.get('title') or '')
+"
+}
+# open_box add          — the add box
+# open_box note <uuid>  — the note box for a task
 open_box() {
-    "$WT" task add >/dev/null 2>&1 &
+    "$WT" task "$@" >/dev/null 2>&1 &
     for _ in $(seq 1 40); do
         [ -n "$(box_id)" ] && { sleep 0.6; return 0; }
         sleep 0.1
     done
     return 1
+}
+# The uuid of the pending task whose description contains $1.
+uuid_of() {
+    task rc.verbose=nothing rc.json.array=on status:pending export 2>/dev/null \
+      | python3 -c "
+import json,sys
+print(next((t['uuid'] for t in json.load(sys.stdin) if sys.argv[1] in t['description']), ''))
+" "$1"
+}
+# A task's notes, one per line.
+notes_of() {
+    task rc.verbose=nothing rc.json.array=on "$1" export 2>/dev/null \
+      | python3 -c "
+import json,sys
+ts=json.load(sys.stdin)
+print('\n'.join(a['description'] for a in (ts[0].get('annotations') or []))) if ts else None
+"
 }
 pending() {
     task rc.verbose=nothing rc.json.array=on status:pending export 2>/dev/null \
@@ -77,7 +109,7 @@ run_suite() {
     echo
     echo "=== $label ==="
 
-    if open_box; then
+    if open_box add; then
         ok "box opens"
         [ "$(focused_is_box)" = yes ] && ok "box takes keyboard focus" \
             || bad "box did not take focus — keys would go to the wrong window"
@@ -110,7 +142,7 @@ print(next((t['description'] for t in ts if 'end to end' in t['description']), '
     # which is its only reason to exist. It collapses to a space on the way out
     # because taskwarrior descriptions are one line.
     before=$(pending)
-    if open_box; then
+    if open_box add; then
         wtype "first line"; wtype -k Return; wtype "second line"
         sleep 0.4
         [ "$(pending)" -eq "$before" ] && ok "bare Enter did not submit" \
@@ -130,7 +162,7 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
 
     # Escape cancels; nothing typed is kept.
     before=$(pending)
-    if open_box; then
+    if open_box add; then
         wtype "this should never be saved"; sleep 0.3
         wtype -k Escape; sleep 1.2
         [ "$(pending)" -eq "$before" ] && ok "Escape wrote nothing" || bad "Escape wrote a task"
@@ -141,13 +173,78 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
 
     # Submitting an empty box is a no-op rather than an empty task.
     before=$(pending)
-    if open_box; then
+    if open_box add; then
         wtype -M ctrl -k Return -m ctrl; sleep 1.2
         [ "$(pending)" -eq "$before" ] && ok "empty submit wrote nothing" \
             || bad "empty submit wrote a task"
     else
         bad "box did not reopen"
     fi
+
+    # The notes area. Tab moves to it — the description text view is set not to
+    # accept Tab precisely so it moves focus — and each line becomes its own
+    # annotation on the task being created. A marker keeps the two suites from
+    # finding each other's tasks in the shared sandbox.
+    local marker="notes-$RANDOM" uuid notes
+    if open_box add; then
+        wtype "$marker"
+        sleep 0.3
+        wtype -k Tab
+        sleep 0.3
+        wtype "first note"; wtype -k Return
+        wtype -k Return                      # a blank line is not a note
+        wtype "second note"
+        sleep 0.4
+        wtype -M ctrl -k Return -m ctrl
+        sleep 1.8
+
+        uuid=$(uuid_of "$marker")
+        if [ -n "$uuid" ]; then
+            ok "add box wrote the task with Tab into the notes area"
+            notes=$(notes_of "$uuid")
+            [ "$(printf '%s\n' "$notes" | grep -c .)" -eq 2 ] \
+                && ok "one annotation per line, blank line dropped" \
+                || bad "expected 2 notes, got: $(printf '%s' "$notes" | tr '\n' '|')"
+            printf '%s\n' "$notes" | grep -qx "first note" \
+                && printf '%s\n' "$notes" | grep -qx "second note" \
+                && ok "both notes survived intact" \
+                || bad "notes differ: $(printf '%s' "$notes" | tr '\n' '|')"
+        else
+            bad "add box with notes wrote no task"
+        fi
+    else
+        bad "box did not reopen"
+    fi
+
+    # The note box: opened for a uuid, it annotates that task and nothing else.
+    if [ -n "${uuid:-}" ] && open_box note "$uuid"; then
+        [ "$(box_title)" = "Add Note" ] && ok "note box opens as the note box" \
+            || bad "note box title was \"$(box_title)\", expected Add Note"
+        wtype "typed into the note box"
+        sleep 0.4
+        wtype -M ctrl -k Return -m ctrl
+        sleep 1.8
+        notes_of "$uuid" | grep -qx "typed into the note box" \
+            && ok "note box added a note to the task it was opened for" \
+            || bad "note box did not add the note"
+        [ "$(notes_of "$uuid" | grep -c .)" -eq 3 ] \
+            && ok "the note was added beside the existing ones, not instead of them" \
+            || bad "expected 3 notes after the note box, got $(notes_of "$uuid" | grep -c .)"
+    else
+        bad "note box did not open"
+    fi
+
+    # Escape in the note box leaves the task's notes alone.
+    if [ -n "${uuid:-}" ] && open_box note "$uuid"; then
+        wtype "this note should never be saved"; sleep 0.3
+        wtype -k Escape; sleep 1.2
+        [ "$(notes_of "$uuid" | grep -c .)" -eq 3 ] \
+            && ok "Escape in the note box wrote nothing" \
+            || bad "Escape in the note box changed the notes"
+    else
+        bad "note box did not reopen"
+    fi
+
     close_any_box
 }
 
@@ -156,7 +253,7 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
 # one makes the next run fail for reasons that have nothing to do with the code.
 # That happened once and cost a confusing debugging detour.
 close_any_box
-pkill -f "$WT task add" 2>/dev/null
+pkill -f "$WT task (add|note)" 2>/dev/null
 
 # Both paths matter: the daemon serves the box when it is running, and the CLI
 # builds its own when it is not. The fallback is the reason this tool does not
