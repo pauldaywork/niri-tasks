@@ -1,7 +1,7 @@
 // niri-tasks — workspace-scoped Taskwarrior.
 //
 // Included from ~/.config/niri/config.kdl as:
-//     include "tasks.kdl"
+//     include "niri-tasks.kdl"
 //
 // niri merges binds blocks per-key rather than replacing them, so these live
 // alongside whatever config.kdl defines. (Verified: the DMS stub at
