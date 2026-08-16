@@ -88,19 +88,33 @@ database. Getting them backwards fails silently, which is why they are pinned.
 The pickers use a stripped-down fuzzel theme (`fuzzel/picker.ini`) passed with
 `--config=`, so your own `fuzzel.ini` is untouched. Its half-transparent
 background expects a compositor blur behind it; on niri that is a layer rule
-matching the `launcher` namespace. Without one the picker still works, it is
-just flatter.
+matching the `launcher` namespace. That one is yours to add — `launcher` is
+fuzzel's namespace, not this tool's, so shipping a rule for it would be
+reaching into someone else's surface:
+
+```kdl
+layer-rule {
+    match namespace="^launcher$"
+    background-effect {
+        blur true
+        xray true
+        noise 0.05
+        saturation 1.4
+    }
+}
+```
+
+Without it the picker still works, it is just flatter.
 
 The active-task overlay makes the same trade and comes with its own layer rule
-already written, in `niri-tasks.kdl`, matching the namespace `^niri-tasks$`.
-Nothing to add: unlike the `launcher` rule above — which is yours to supply,
-since the namespace is fuzzel's and not this tool's — that one arrives with the
-include. The overlay sets that namespace itself (`overlay.rs`, `NAMESPACE`)
-rather than taking the crate default of `gtk4-layer-shell`, which would match
-every GTK layer-shell app on the system. The rule blurs with `xray true`, so
-what is blurred is the wallpaper rather than whichever window happens to be
-under the text, and the readout looks the same wherever it is shown. Drop the
-rule and the overlay still works, it is just flat.
+already written, in `niri-tasks.kdl`, matching the namespace `^niri-tasks$` —
+same four settings as above, so the two surfaces read alike. The overlay sets
+that namespace itself (`overlay.rs`, `NAMESPACE`) rather than taking the crate
+default of `gtk4-layer-shell`, which would match every GTK layer-shell app on
+the system. The rule blurs with `xray true`, so what is blurred is the
+wallpaper rather than whichever window happens to be under the text, and the
+readout looks the same wherever it is shown. Drop the rule and the overlay
+still works, it is just flat.
 
 ## Development
 
