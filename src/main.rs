@@ -431,16 +431,18 @@ fn project_open() -> Result<()> {
         }
     };
 
+    let dir = projects_dir.join(&name);
+
     let all = niri::workspaces()?;
     if let Some(ws) = niri::find_workspace_by_name(&all, &name) {
         // Already opened this project once — go back to its workspace rather
         // than ending up with two workspaces sharing a name. Re-picking means
-        // "take me back", not "give me another terminal", so only spawn one if
-        // the workspace is empty.
+        // "take me back", not "give me another terminal", so only start things
+        // up if the workspace is empty.
         let id = ws.id;
         niri::focus_workspace(WorkspaceReferenceArg::Name(name.clone()))?;
         if niri::window_count(id)? == 0 {
-            niri::spawn(vec!["ghostty".into()])?;
+            spawn_startup(&dir)?;
         }
     } else {
         let focused = all.iter().find(|w| w.is_focused).context("no focused workspace")?;
@@ -449,7 +451,18 @@ fn project_open() -> Result<()> {
 
         niri::focus_workspace(WorkspaceReferenceArg::Index(last))?;
         niri::set_workspace_name(&name, None)?;
-        niri::spawn(vec!["ghostty".into()])?;
+        spawn_startup(&dir)?;
+    }
+    Ok(())
+}
+
+/// Start a project workspace's programs — terminal, and editor if installed.
+///
+/// The name is set before this runs, which is what puts the windows on the
+/// right workspace: niri spawns onto whatever is focused.
+fn spawn_startup(dir: &std::path::Path) -> Result<()> {
+    for command in project::startup_commands(dir) {
+        niri::spawn(command)?;
     }
     Ok(())
 }

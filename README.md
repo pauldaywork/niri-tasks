@@ -16,7 +16,7 @@ which `wt project open` sets to the folder name.
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace |
 | `Mod+Alt+L` | List this workspace's tasks — edit, note, delete, complete, set active |
-| `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal in it |
+| `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+W` | Create a new workspace and name it |
 | `Mod+Shift+Alt+W` | Rename this workspace (and with it, which tag its tasks carry) |
 
@@ -44,6 +44,11 @@ copy to keep in sync.
 
 `niri`, `taskwarrior`, `fuzzel`, `tmux`, and a Rust toolchain to build with.
 `notify-send` is used for feedback and degrades to stderr without it.
+
+VS Code is optional. `wt project open` starts one on the project folder when
+`code` is on `$PATH`, and starts only the terminal when it is not — the lookup
+is there because niri answers a spawn of a missing binary with a desktop
+notification, which would otherwise fire on every project you opened.
 
 Tested against niri 26.04 and taskwarrior 2.6.2.
 

@@ -8,6 +8,8 @@
 //! normalisation matters: typing "my project" may well have just become an
 //! existing "my-project", in which case the picker should open that rather than
 //! fail to create it.
+//!
+//! Also here: which programs a freshly-opened project workspace starts with.
 
 /// What the picker decided to do with the text the user accepted.
 #[derive(Debug, PartialEq, Eq)]
@@ -61,6 +63,52 @@ pub fn resolve(typed: &str, existing: &[String]) -> Resolved {
     }
 
     Resolved::Create(normalized)
+}
+
+/// The editor opened beside the terminal when a project workspace starts.
+pub const EDITOR: &str = "code";
+
+/// Whether a bare command name resolves to something executable on `$PATH`.
+///
+/// The editor is looked up rather than simply spawned because it is not a
+/// requirement of this tool: niri answers a `Spawn` for a missing binary with a
+/// desktop notification, so a machine without VS Code would get an error every
+/// time it opened a project instead of just getting its terminal.
+pub fn on_path(bin: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|path| found_in(&path, bin))
+}
+
+/// The lookup itself, against a given `PATH` value.
+///
+/// Split out from [`on_path`] so it can be tested without writing to the real
+/// `PATH`, which the rest of the suite is shelling out against in parallel.
+fn found_in(path: &std::ffi::OsStr, bin: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::env::split_paths(path).any(|dir| {
+        std::fs::metadata(dir.join(bin))
+            .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    })
+}
+
+/// What to launch on a project workspace that is starting empty.
+///
+/// The terminal takes no argument: ghostty runs `wt tmux-session`, which finds
+/// `~/Projects/<workspace>` from the workspace name itself. The editor has no
+/// such indirection, so it is handed the path.
+///
+/// `code <dir>` deliberately, not `code -n <dir>`: VS Code reuses an existing
+/// window already holding that folder. That is the right trade — `-n` would
+/// stack a duplicate window every time — but it does mean that if the project's
+/// editor window is parked on some *other* workspace, opening the project
+/// focuses that window instead of putting a new one here.
+pub fn startup_commands(dir: &std::path::Path) -> Vec<Vec<String>> {
+    let mut commands = vec![vec!["ghostty".to_string()]];
+    if on_path(EDITOR) {
+        commands.push(vec![EDITOR.to_string(), dir.display().to_string()]);
+    }
+    commands
 }
 
 #[cfg(test)]
@@ -141,5 +189,55 @@ mod tests {
             resolve(".hidden", &existing()),
             Resolved::Rejected(_)
         ));
+    }
+
+    /// A directory holding `runnable` (executable) and `readable` (not).
+    fn path_fixture(label: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("wt-path-{label}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, mode) in [("runnable", 0o755), ("readable", 0o644)] {
+            let f = dir.join(name);
+            std::fs::write(&f, "").unwrap();
+            std::fs::set_permissions(&f, std::fs::Permissions::from_mode(mode)).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn path_lookup_wants_an_executable_not_just_a_file() {
+        let dir = path_fixture("exec");
+        let path = std::ffi::OsString::from(format!("/nonexistent:{}", dir.display()));
+
+        assert!(found_in(&path, "runnable"));
+        // A non-executable file of the right name is not the program.
+        assert!(!found_in(&path, "readable"));
+        assert!(!found_in(&path, "absent"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The terminal is unconditional; the editor is only added when installed,
+    /// so a machine without VS Code opens a project without a failed spawn.
+    #[test]
+    fn startup_commands_always_include_the_terminal() {
+        let cmds = startup_commands(std::path::Path::new("/home/x/Projects/alpha"));
+        assert_eq!(cmds[0], vec!["ghostty"]);
+        assert!(cmds.len() <= 2);
+    }
+
+    /// When the editor is there, it is handed the project path — the terminal
+    /// finds its own via the workspace name, the editor cannot.
+    #[test]
+    fn the_editor_is_given_the_project_directory() {
+        if !on_path(EDITOR) {
+            return; // nothing to assert on a machine without it
+        }
+        let cmds = startup_commands(std::path::Path::new("/home/x/Projects/alpha"));
+        assert_eq!(
+            cmds[1],
+            vec![EDITOR.to_string(), "/home/x/Projects/alpha".to_string()]
+        );
     }
 }
