@@ -334,16 +334,27 @@ fn tick(
             }
         } else {
             label.set_text(&text);
-            // Unmap before mapping again, so the surface is sized for the text
-            // it is about to show. The width is negotiated once, when the
-            // surface maps, and changing the label afterwards does not make it
-            // ask again — so without this the pill keeps the previous task's
-            // width, and a short description sits marooned in the middle of a
-            // pill cut for a long one (or a long one ellipsises down to a
-            // couple of letters in a pill cut for a short one).
-            if window.is_visible() {
-                window.set_visible(false);
-            }
+            // Ask for the width the new text wants. A layer surface takes its
+            // size from the window, and the label's natural size is not
+            // consulted again once the surface is mapped — so left alone the
+            // pill keeps the previous task's width, leaving a short description
+            // marooned in the middle of a pill cut for a long one, or a long
+            // one ellipsised to a couple of letters in a pill cut for a short
+            // one.
+            //
+            // Both calls, and each covers one direction. The size request is a
+            // *minimum*: on its own the pill grows and then never shrinks back,
+            // because nothing asks the toplevel to give the space up. The
+            // default size is what lets it shrink. Checked both ways round.
+            //
+            // This is deliberately not "unmap it and map it again", which also
+            // forces a fresh negotiation and was how this worked first. The
+            // surface stays up now, so there is no run of frames with no pill
+            // on screen at all — gtk4-layer-shell has no size setter to call
+            // instead, so the window is the only handle there is.
+            let (_, natural, _, _) = label.measure(gtk4::Orientation::Horizontal, -1);
+            window.set_size_request(natural, -1);
+            window.set_default_size(natural, -1);
             // present(), not set_visible(true): a layer surface that has never
             // been presented is not mapped by set_visible alone, so the overlay
             // would stay invisible for the whole session whenever it started
