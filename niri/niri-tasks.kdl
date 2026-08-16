@@ -46,7 +46,8 @@ binds {
     Mod+Shift+Alt+W hotkey-overlay-title="Rename Workspace" { spawn "wt" "workspace" "rename"; }
 
     // Pick a folder from ~/Projects, put it on its own named workspace, and
-    // open a terminal in it.
+    // open a terminal and VS Code in it. The editor is skipped when `code` is
+    // not on $PATH — it is a nicety here, not a requirement.
     Mod+Alt+P hotkey-overlay-title="Open Project Workspace" { spawn "wt" "project" "open"; }
 
     // Taskwarrior, scoped to the current workspace's name as a tag.
