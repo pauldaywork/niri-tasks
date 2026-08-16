@@ -91,6 +91,17 @@ background expects a compositor blur behind it; on niri that is a layer rule
 matching the `launcher` namespace. Without one the picker still works, it is
 just flatter.
 
+The active-task overlay makes the same trade and comes with its own layer rule
+already written, in `niri-tasks.kdl`, matching the namespace `^niri-tasks$`.
+Nothing to add: unlike the `launcher` rule above — which is yours to supply,
+since the namespace is fuzzel's and not this tool's — that one arrives with the
+include. The overlay sets that namespace itself (`overlay.rs`, `NAMESPACE`)
+rather than taking the crate default of `gtk4-layer-shell`, which would match
+every GTK layer-shell app on the system. The rule blurs with `xray true`, so
+what is blurred is the wallpaper rather than whichever window happens to be
+under the text, and the readout looks the same wherever it is shown. Drop the
+rule and the overlay still works, it is just flat.
+
 ## Development
 
 ```bash
