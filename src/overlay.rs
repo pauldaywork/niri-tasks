@@ -42,7 +42,24 @@ pub const NAMESPACE: &str = "niri-tasks";
 
 /// How far above the bottom edge the text sits. Tuned once for a bar of the
 /// usual height; it is a preference, not a measurement.
-const DEFAULT_BOTTOM_MARGIN: i32 = 56;
+///
+/// Sized to sit just clear of a bottom bar: anything much above this reads as a
+/// stray label floating over the wallpaper rather than something belonging to
+/// the bar's row. Nudge it with `WT_OVERLAY_MARGIN` — a taller bar wants more.
+const DEFAULT_BOTTOM_MARGIN: i32 = 10;
+
+/// How much text the pill shows before ellipsising, and so how wide it gets.
+///
+/// The pill hugs its content, so this is the width control: the surface is
+/// sized by the label, not the other way round.
+const DEFAULT_WIDTH_CHARS: i32 = 80;
+
+fn width_chars() -> i32 {
+    std::env::var("WT_OVERLAY_WIDTH_CHARS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_WIDTH_CHARS)
+}
 
 const TICK: Duration = Duration::from_millis(700);
 
@@ -385,7 +402,13 @@ fn make_surface(app: &Application, monitor: &gdk::Monitor) -> (ApplicationWindow
     let label = gtk4::Label::new(None);
     label.add_css_class("active-task");
     label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    label.set_max_width_chars(60);
+    // Both, deliberately. An ellipsizing label reports a tiny *minimum* width,
+    // and the layer surface sizes itself from that rather than from the natural
+    // width — so raising max-width-chars alone made the pill narrower, not
+    // wider. width-chars is what actually pins the surface open.
+    let chars = width_chars();
+    label.set_width_chars(chars);
+    label.set_max_width_chars(chars);
 
     window.set_child(Some(&label));
 
@@ -403,6 +426,26 @@ fn make_surface(app: &Application, monitor: &gdk::Monitor) -> (ApplicationWindow
     (window, label)
 }
 
+/// How far from opaque the pill sits.
+///
+/// Low enough that the pill reads as part of the desktop rather than a chip
+/// sitting on top of it — more see-through than the picker's 0.5.
+///
+/// Kept as a constant rather than inlined because it is the one dial that
+/// decides whether the `layer-rule` in `niri/niri-tasks.kdl` does anything: that
+/// rule blurs what is behind this surface, and the blur is only visible *through*
+/// the background. At this alpha the blur is doing most of the work of keeping
+/// the text legible, so the two belong together.
+const BACKGROUND_ALPHA: f32 = 0.3;
+
+/// The pill's corner radius, matching `fuzzel/picker.ini`'s `[border] radius`
+/// so the two surfaces this tool puts on screen are cut the same way.
+const CORNER_RADIUS: i32 = 14;
+
+/// The overlay's stylesheet.
+///
+/// A rounded, translucent pill — the same treatment as the task box and the
+/// picker, rather than bare text on the wallpaper.
 fn overlay_css(theme: &Theme) -> String {
     format!(
         "
@@ -411,12 +454,13 @@ label.active-task {{
     color: {fg};
     background-color: {bg};
     padding: 6px 16px;
-    border-radius: 14px;
+    border-radius: {radius}px;
     font-size: 105%;
 }}
 ",
         fg = theme.surface_text,
-        bg = theme.surface_container,
+        bg = crate::theme::with_alpha(&theme.surface_container, BACKGROUND_ALPHA),
+        radius = CORNER_RADIUS,
     )
 }
 
@@ -439,6 +483,20 @@ mod tests {
     }
 
     #[test]
+    fn width_defaults_and_is_overridable() {
+        std::env::remove_var("WT_OVERLAY_WIDTH_CHARS");
+        assert_eq!(width_chars(), DEFAULT_WIDTH_CHARS);
+
+        std::env::set_var("WT_OVERLAY_WIDTH_CHARS", "120");
+        assert_eq!(width_chars(), 120);
+
+        // Garbage falls back rather than panicking a long-running daemon.
+        std::env::set_var("WT_OVERLAY_WIDTH_CHARS", "wide-ish");
+        assert_eq!(width_chars(), DEFAULT_WIDTH_CHARS);
+        std::env::remove_var("WT_OVERLAY_WIDTH_CHARS");
+    }
+
+    #[test]
     fn pending_data_path_follows_taskdata() {
         std::env::set_var("TASKDATA", "/tmp/somewhere");
         assert_eq!(
@@ -454,6 +512,45 @@ mod tests {
         assert!(css.contains(&Theme::default().surface_text));
         for placeholder in ["{fg}", "{bg}"] {
             assert!(!css.contains(placeholder));
+        }
+    }
+
+    /// The pill draws a themed background at the configured alpha, and is
+    /// rounded. Both are what separate it from bare text on the wallpaper.
+    #[test]
+    fn the_pill_is_filled_and_rounded() {
+        let theme = Theme::default();
+        let css = overlay_css(&theme);
+
+        assert!(
+            css.contains(&crate::theme::with_alpha(
+                &theme.surface_container,
+                BACKGROUND_ALPHA
+            )),
+            "background is not the themed colour at the expected alpha"
+        );
+        assert!(css.contains(&format!("border-radius: {CORNER_RADIUS}px")));
+    }
+
+    /// The alpha and the compositor rule are coupled across repositories: the
+    /// `layer-rule` in `niri/niri-tasks.kdl` blurs what is behind this surface,
+    /// and that blur is only visible *through* the background. This does not
+    /// forbid an opaque pill — it pins the relationship down so that whoever
+    /// changes the alpha finds out that the rule's fate hangs on it.
+    #[test]
+    fn opacity_decides_whether_the_blur_rule_does_anything() {
+        assert!(
+            (0.0..=1.0).contains(&BACKGROUND_ALPHA),
+            "alpha outside 0..=1 renders as a GTK parse error, not a colour"
+        );
+        if BACKGROUND_ALPHA >= 1.0 {
+            // Dormant by choice. If the rule is ever deleted as dead config,
+            // lowering the alpha again must bring it back with it.
+            let kdl = include_str!("../niri/niri-tasks.kdl");
+            assert!(
+                kdl.contains("blur true"),
+                "opaque pill plus no blur rule: lowering the alpha will now do nothing"
+            );
         }
     }
 }

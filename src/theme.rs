@@ -136,6 +136,20 @@ button.suggested {{ background-color: {primary}; color: {bg}; font-weight: bold;
     }
 }
 
+/// Render a `#rrggbb` token as a GTK `rgba()` with an alpha channel.
+///
+/// Needed because the palette is opaque hex and the overlay wants to be seen
+/// through. Anything unparseable is passed back untouched rather than becoming
+/// black — a wrong colour is survivable, an invisible readout is not.
+pub fn with_alpha(hex: &str, alpha: f32) -> String {
+    let h = hex.trim_start_matches('#');
+    if h.len() < 6 || !h.as_bytes()[..6].iter().all(u8::is_ascii_hexdigit) {
+        return hex.to_string();
+    }
+    let ch = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).unwrap_or(0);
+    format!("rgba({}, {}, {}, {alpha})", ch(0), ch(2), ch(4))
+}
+
 /// DMS's `surfaceTextMedium` is a dimmed `surfaceText`; approximate it by
 /// pulling each channel toward the middle rather than shipping a second token.
 fn dim(hex: &str) -> String {
@@ -208,6 +222,21 @@ mod tests {
             Theme::from_dir(Some(PathBuf::from("/nonexistent"))),
             Theme::default()
         );
+    }
+
+    #[test]
+    fn with_alpha_renders_gtk_rgba() {
+        assert_eq!(with_alpha("#09070d", 0.72), "rgba(9, 7, 13, 0.72)");
+        // The leading # is optional, as it is for dim().
+        assert_eq!(with_alpha("ffffff", 1.0), "rgba(255, 255, 255, 1)");
+    }
+
+    /// A malformed token must pass through, not silently become black — the
+    /// overlay would be a black bar rather than an obviously wrong colour.
+    #[test]
+    fn with_alpha_passes_through_anything_unparseable() {
+        assert_eq!(with_alpha("bad", 0.5), "bad");
+        assert_eq!(with_alpha("#gggggg", 0.5), "#gggggg");
     }
 
     #[test]
