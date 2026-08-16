@@ -127,11 +127,47 @@ still works, it is just flat.
 
 ## Development
 
+### Running the tests
+
 ```bash
-cargo test              # unit, differential, and write-path suites
-bash tests/e2e-box.sh   # the task box, driven by real keypresses
-bash tests/e2e-tag.sh   # `wt tag --session`, against real tmux sessions
+cargo test              # unit, differential, write-path        ~2s
+bash tests/e2e-tag.sh   # `wt tag --session`, against real tmux ~2s
+bash tests/e2e-box.sh   # the task box, driven by real keys     ~65s
 ```
+
+Each exits non-zero on failure, so all three can go in a loop or a hook.
+
+| | Needs | Touches |
+|---|---|---|
+| `cargo test` | `taskwarrior` on `$PATH`, and `bash` for the differential suite | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
+| `tests/e2e-tag.sh` | `tmux`, and niri running with **two named workspaces** — one focused, one not | tmux sessions named `<workspace>_91` and up, killed as it goes. No task database at all |
+| `tests/e2e-box.sh` | `wtype`, a Wayland session, niri | **Your keyboard**, and the `niri-tasks` daemon |
+
+Narrowing `cargo test` works as usual — `cargo test --lib`, `cargo test --test
+write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
+
+Two things about `e2e-box.sh` in particular. It **types into whatever has
+focus**, so start it and leave the keyboard alone until it finishes; anything
+you type lands in the box alongside it. And it stops `niri-tasks.service`, runs
+its own daemon for the first half, then starts the service again if it was
+running — that is deliberate, since the point is to prove both the daemon path
+and the fallback, but it means the overlay blinks out for a minute.
+
+> [!IMPORTANT]
+> Both scripts run `wt` **from `$PATH`** — the installed binary, not the one you
+> just built. A green run after an edit you have not installed is testing the
+> old code. Point them at a build with `WT=`:
+>
+> ```bash
+> cargo build --release
+> WT=./target/release/wt bash tests/e2e-box.sh
+> ```
+>
+> And to try a change by hand rather than under test, `cargo install --path .`
+> then `systemctl --user restart niri-tasks` — installing alone leaves the
+> running daemon on the previous binary, so overlay changes will not show up.
+
+### Why the two scripts are not cargo tests
 
 `tests/e2e-box.sh` is not a cargo test and cannot be: it needs a running niri, a
 Wayland display, and `wtype` to press the keys. It opens the box, types into it,
