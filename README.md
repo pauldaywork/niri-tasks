@@ -15,7 +15,7 @@ from — opening one, or moving a task to another workspace.
 
 | Key | Does |
 |---|---|
-| `Mod+Alt+T` | Add a task to this workspace |
+| `Mod+Alt+T` | Add a task to this workspace, with notes — one annotation per line |
 | `Mod+Alt+L` | List this workspace's tasks — edit, note, delete, complete, set active, move to another workspace |
 | `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+W` | Create a new workspace and name it |
@@ -80,6 +80,12 @@ argument, so a typed `due:` stays literal text.
 
 Both are covered by tests in `tests/write_path.rs`, against a sandboxed task
 database. Getting them backwards fails silently, which is why they are pinned.
+
+There is a third rule, in the add box's notes area: **line breaks are kept**,
+and each line becomes its own annotation. A description collapses its newlines
+away because taskwarrior descriptions are one line; notes are a list, so the
+breaks are what say where one note ends and the next begins. Blank lines are
+dropped rather than filed as empty notes.
 
 ## Notes
 

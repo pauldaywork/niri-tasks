@@ -143,7 +143,9 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         // what makes `wt task add ship it due:friday` work from a shell.
         TaskCommand::Add { text: words } => {
             let tag = require_workspace_tag()?;
-            let description = if words.is_empty() {
+            // The box can return notes with the description; the shell form has
+            // nowhere to type them, so it never does.
+            let (description, notes) = if words.is_empty() {
                 if delegate_to_daemon(ipc::Request::Add) {
                     return Ok(());
                 }
@@ -153,17 +155,17 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
                     initial: String::new(),
                     notes: String::new(),
                 }) {
-                    Some(t) => t,
+                    Some(s) => (s.text, s.notes),
                     None => return Ok(()),
                 }
             } else {
-                text::collapse_whitespace(&words.join(" "))
+                (text::collapse_whitespace(&words.join(" ")), Vec::new())
             };
 
             if description.is_empty() {
                 return Ok(());
             }
-            task::add(&tag, &text::add_args(&description))?;
+            task::add_with_notes(&tag, &text::add_args(&description), &notes)?;
             notify::tasks(&format!("Added to +{tag}: {description}"));
         }
 
@@ -188,7 +190,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
                     initial: current,
                     notes: String::new(),
                 }) {
-                    Some(t) => t,
+                    Some(s) => s.text,
                     None => return Ok(()),
                 }
             } else {
@@ -236,7 +238,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
                     initial: String::new(),
                     notes,
                 }) {
-                    Some(t) => t,
+                    Some(s) => s.text,
                     None => return Ok(()),
                 }
             } else {

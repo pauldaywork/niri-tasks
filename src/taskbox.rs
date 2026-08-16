@@ -103,6 +103,16 @@ pub struct BoxConfig {
     pub notes: String,
 }
 
+/// What the box hands back when it is accepted.
+pub struct Submission {
+    /// The description, when adding or editing; the note, when annotating.
+    /// Whitespace collapsed, because all three are single-line to taskwarrior.
+    pub text: String,
+    /// Add only: the second text area, one annotation per line. Empty for every
+    /// other mode, which have nowhere to type them.
+    pub notes: Vec<String>,
+}
+
 /// Open the box inside an Application that is already running, calling
 /// `on_submit` with the text when it is accepted.
 ///
@@ -110,7 +120,7 @@ pub struct BoxConfig {
 /// window in a throwaway Application; the window itself is built once, in
 /// `build_window`, so the two paths cannot drift apart in appearance or in
 /// which keys do what.
-pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(String) + 'static) {
+pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission) + 'static) {
     let theme = Theme::load();
     build_window(app, &cfg, &theme, Rc::new(on_submit));
 }
@@ -119,9 +129,9 @@ pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(String) + '
 ///
 /// `None` means cancelled, submitted empty, or (when editing) submitted text
 /// identical to what was already there — all of which mean "do nothing".
-pub fn show(cfg: BoxConfig) -> Option<String> {
+pub fn show(cfg: BoxConfig) -> Option<Submission> {
     let theme = Theme::load();
-    let result: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let result: Rc<RefCell<Option<Submission>>> = Rc::new(RefCell::new(None));
 
     // Stable app id, so niri window rules can match the box. NON_UNIQUE is what
     // keeps two boxes opened at once from colliding on the bus and handing the
@@ -141,7 +151,7 @@ pub fn show(cfg: BoxConfig) -> Option<String> {
                 app,
                 &cfg,
                 &theme,
-                Rc::new(move |text| *result.borrow_mut() = Some(text)),
+                Rc::new(move |submission| *result.borrow_mut() = Some(submission)),
             );
         });
     }
@@ -149,7 +159,7 @@ pub fn show(cfg: BoxConfig) -> Option<String> {
     // Stop GTK from parsing our argv as its own.
     app.run_with_args::<&str>(&[]);
 
-    let taken = result.borrow().clone();
+    let taken = result.borrow_mut().take();
     taken
 }
 
@@ -160,10 +170,17 @@ fn build_window(
     app: &Application,
     cfg: &BoxConfig,
     theme: &Theme,
-    on_submit: Rc<dyn Fn(String)>,
+    on_submit: Rc<dyn Fn(Submission)>,
 ) {
     let has_notes = cfg.mode == Mode::Annotate && !cfg.notes.is_empty();
-    let height = if has_notes { HEIGHT_WITH_NOTES } else { HEIGHT };
+    // Adding gets a second text area to type notes into. Both variants need the
+    // taller box: one to list notes that exist, the other to write new ones.
+    let takes_note_lines = cfg.mode == Mode::Add;
+    let height = if has_notes || takes_note_lines {
+        HEIGHT_WITH_NOTES
+    } else {
+        HEIGHT
+    };
 
     let window = ApplicationWindow::builder()
         .application(app)
@@ -233,10 +250,39 @@ fn build_window(
 
     let input_scroll = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
-        .vexpand(true)
+        // The description takes the slack, unless there is a notes area below
+        // it — a description is one line and the notes are the list that grows.
+        .vexpand(!takes_note_lines)
         .child(&input)
         .build();
+    if takes_note_lines {
+        input_scroll.set_height_request(72);
+    }
     root.append(&input_scroll);
+
+    // ─── note lines, when adding ──────────────────────────────────────────
+    //
+    // One annotation per line, so a task can be raised with its detail already
+    // on it instead of being reopened through the Note action afterwards.
+    let note_buffer = takes_note_lines.then(|| {
+        let label = gtk4::Label::new(Some("Notes — one per line"));
+        label.add_css_class("dim");
+        label.set_xalign(0.0);
+        root.append(&label);
+
+        let buffer = gtk4::TextBuffer::new(None);
+        let view = gtk4::TextView::with_buffer(&buffer);
+        view.set_wrap_mode(gtk4::WrapMode::WordChar);
+        view.set_accepts_tab(false);
+
+        let scroll = gtk4::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk4::PolicyType::Never)
+            .vexpand(true)
+            .child(&view)
+            .build();
+        root.append(&scroll);
+        buffer
+    });
 
     let hint = gtk4::Label::new(Some("Ctrl+Enter to save · Esc to cancel"));
     hint.add_css_class("dim");
@@ -261,12 +307,22 @@ fn build_window(
 
     let do_submit = {
         let buffer = buffer.clone();
+        let note_buffer = note_buffer.clone();
         let window = window.clone();
         let on_submit = on_submit.clone();
         move || {
             let text = buffer
                 .text(&buffer.start_iter(), &buffer.end_iter(), false)
                 .to_string();
+
+            // The notes area is the one place a newline survives: it is what
+            // separates one annotation from the next.
+            let notes = note_buffer
+                .as_ref()
+                .map(|b| {
+                    crate::text::note_lines(&b.text(&b.start_iter(), &b.end_iter(), false))
+                })
+                .unwrap_or_default();
 
             // Taskwarrior descriptions are single-line, and the picker renders
             // rows through a tab-separated format where a newline would show as
@@ -276,10 +332,12 @@ fn build_window(
             let text = crate::text::collapse_whitespace(&text);
 
             // Nothing typed, or an edit that changed nothing, means do nothing.
+            // Notes alone are not enough: they are annotations on a task, and
+            // an empty description would give them nothing to hang off.
             let worth_doing = is_worth_submitting(mode, &text, &original);
             window.close();
             if worth_doing {
-                on_submit(text);
+                on_submit(Submission { text, notes });
             }
         }
     };

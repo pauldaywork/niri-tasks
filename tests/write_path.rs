@@ -119,6 +119,47 @@ fn write_path_lifecycle() {
         "annotations keep attribute syntax literal too"
     );
 
+    // ---- add with notes --------------------------------------------------
+    // The add box's second text area: one annotation per line, attached to the
+    // task that was just created. The uuid comes back from `task add` itself,
+    // so the notes cannot land on somebody else's task.
+    let notes = text::note_lines("first note\n\nsecond note with due:2026-09-01\n");
+    task::add_with_notes(TAG, &text::add_args("raised with notes"), &notes)
+        .expect("add with notes");
+
+    let with_notes = task::pending_for_tag(TAG)
+        .expect("list")
+        .into_iter()
+        .find(|t| t.description == "raised with notes")
+        .expect("find the task added with notes");
+
+    assert_eq!(
+        with_notes.annotations.len(),
+        2,
+        "each line is its own annotation, and the blank line is not one"
+    );
+    assert_eq!(with_notes.annotations[0].description, "first note");
+    assert_eq!(
+        with_notes.annotations[1].description, "second note with due:2026-09-01",
+        "notes go through as one argument, so attribute syntax stays literal"
+    );
+    assert!(
+        raw(&with_notes.uuid, "due").is_empty(),
+        "a due: inside a note must not become the task's due date"
+    );
+
+    // A task added with no notes is just a task — no empty annotation.
+    task::add_with_notes(TAG, &text::add_args("raised with no notes"), &[])
+        .expect("add without notes");
+    assert!(
+        !task::pending_for_tag(TAG)
+            .expect("list")
+            .into_iter()
+            .find(|t| t.description == "raised with no notes")
+            .expect("find it")
+            .has_notes()
+    );
+
     // ---- empty input is a no-op, not an error ---------------------------
     task::add(TAG, &text::add_args("   ")).expect("empty add is a no-op");
     task::modify_description(&uuid, "").expect("empty edit is a no-op");

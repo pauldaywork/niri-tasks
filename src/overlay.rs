@@ -230,11 +230,15 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
                     initial: String::new(),
                     notes: String::new(),
                 },
-                move |text| {
-                    if let Err(e) = task::add(&tag_for_submit, &text::add_args(&text)) {
+                move |sub: taskbox::Submission| {
+                    if let Err(e) = task::add_with_notes(
+                        &tag_for_submit,
+                        &text::add_args(&sub.text),
+                        &sub.notes,
+                    ) {
                         notify::tasks(&e.to_string());
                     } else {
-                        notify::tasks(&format!("Added to +{tag_for_submit}: {text}"));
+                        notify::tasks(&format!("Added to +{tag_for_submit}: {}", sub.text));
                     }
                 },
             );
@@ -254,8 +258,8 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
                     initial: t.description,
                     notes: String::new(),
                 },
-                move |text| {
-                    if let Err(e) = task::modify_description(&uuid_for_submit, &text) {
+                move |sub: taskbox::Submission| {
+                    if let Err(e) = task::modify_description(&uuid_for_submit, &sub.text) {
                         notify::tasks(&e.to_string());
                     }
                 },
@@ -285,8 +289,8 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
                     initial: String::new(),
                     notes,
                 },
-                move |text| {
-                    if let Err(e) = task::annotate(&uuid_for_submit, &text) {
+                move |sub: taskbox::Submission| {
+                    if let Err(e) = task::annotate(&uuid_for_submit, &sub.text) {
                         notify::tasks(&e.to_string());
                     }
                 },
