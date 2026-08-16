@@ -35,8 +35,9 @@ Then add the include to `~/.config/niri/config.kdl`:
 include "niri-tasks.kdl"
 ```
 
-`install.sh` builds `wt`, symlinks the niri include and the fuzzel picker theme,
-and reloads niri. Updating is `git pull && bash install.sh`.
+`install.sh` builds `wt`, symlinks the niri include, the fuzzel picker theme and
+the `workspace-tasks` skill into `~/.claude/skills`, and reloads niri. Updating
+is `git pull && bash install.sh`.
 
 The symlinks mean editing a file in this repo is immediately live — there is no
 copy to keep in sync.

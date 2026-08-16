@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install niri-tasks: build the binary, then link the three files that have to
+# Install niri-tasks: build the binary, then link the four files that have to
 # live outside this repo.
 #
 # Symlinks rather than copies, deliberately. The repo lives at a stable path, so
@@ -57,7 +57,20 @@ fi
 # Passed to fuzzel with --config=, so fuzzel.ini itself is left alone.
 link "$REPO/fuzzel/picker.ini" "$CONFIG/fuzzel/picker.ini"
 
-# ─── 4. the overlay daemon ────────────────────────────────────────────────────
+# ─── 4. the workspace-tasks skill ─────────────────────────────────────────────
+# The skill Claude Code loads to work this list. It is carried in the repo
+# because it is part of the tool, and linked for the same reason as everything
+# else here: a copy is a thing to keep in sync, and this one was being synced by
+# hand.
+#
+# The file, not the directory that holds it. Linking the directory would make
+# `link` rename the existing one out of the way as `workspace-tasks.before-...`,
+# which is still a skill directory with `name: workspace-tasks` inside it — two
+# skills claiming one name. A displaced SKILL.md is inert.
+CLAUDE_SKILLS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
+link "$REPO/.claude/skills/workspace-tasks/SKILL.md" "$CLAUDE_SKILLS/workspace-tasks/SKILL.md"
+
+# ─── 5. the overlay daemon ────────────────────────────────────────────────────
 # A copy rather than a symlink: systemd reads unit files as root-ish early in
 # session startup and does not follow links out of its search path reliably.
 UNIT_DIR="$CONFIG/systemd/user"
@@ -71,12 +84,12 @@ systemctl --user enable --now niri-tasks.service 2>/dev/null \
     && info "Overlay daemon enabled" \
     || warn "Could not enable niri-tasks.service — start it with: systemctl --user start niri-tasks"
 
-# ─── 5. reload niri ───────────────────────────────────────────────────────────
+# ─── 6. reload niri ───────────────────────────────────────────────────────────
 if command -v niri >/dev/null && [ -n "${NIRI_SOCKET:-}" ]; then
     niri msg action load-config-file >/dev/null 2>&1 && info "Reloaded niri config" || true
 fi
 
-# ─── 6. dependencies ──────────────────────────────────────────────────────────
+# ─── 7. dependencies ──────────────────────────────────────────────────────────
 missing=()
 for dep in niri task fuzzel tmux; do
     command -v "$dep" >/dev/null || missing+=("$dep")
