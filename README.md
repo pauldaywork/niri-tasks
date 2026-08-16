@@ -89,8 +89,23 @@ just flatter.
 ## Development
 
 ```bash
-cargo test          # unit, differential, and write-path suites
+cargo test              # unit, differential, and write-path suites
+bash tests/e2e-box.sh   # the task box, driven by real keypresses
 ```
+
+`tests/e2e-box.sh` is not a cargo test and cannot be: it needs a running niri, a
+Wayland display, and `wtype` to press the keys. It opens the box, types into it,
+presses Ctrl+Enter, and checks a task was actually written — against a sandboxed
+`TASKDATA`, so your real database is untouched. It runs the whole thing twice,
+once served by the daemon and once with the daemon stopped, because the fallback
+is the reason this tool does not depend on a daemon.
+
+It exists because two bugs reached daily use that no unit test could have caught.
+The box opened carrying the daemon's `app_id` instead of its own, so every check
+matching on app-id looked straight past it. And Ctrl+Enter did nothing: the key
+mapping was correct and tested, but the event controller was in the wrong
+propagation phase, so the focused text view swallowed Return before the window
+saw it. Both only exist once a compositor is involved.
 
 `tests/differential.rs` runs the original shell pipelines this was ported from
 and compares them against the Rust functions over a corpus of awkward workspace
