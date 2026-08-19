@@ -80,9 +80,19 @@ if ! cmp -s "$REPO/systemd/niri-tasks.service" "$UNIT_DIR/niri-tasks.service"; t
     info "Installed $UNIT_DIR/niri-tasks.service"
 fi
 systemctl --user daemon-reload 2>/dev/null || true
-systemctl --user enable --now niri-tasks.service 2>/dev/null \
-    && info "Overlay daemon enabled" \
-    || warn "Could not enable niri-tasks.service — start it with: systemctl --user start niri-tasks"
+
+# `enable` then `restart`, not `enable --now`. --now only *starts* the unit, and
+# does nothing at all when it is already running — so every update installed a
+# new binary and left the old one on screen, until someone restarted it by hand
+# or logged out. `restart` starts a stopped unit too, so it covers both.
+systemctl --user enable niri-tasks.service 2>/dev/null \
+    || warn "Could not enable niri-tasks.service — it will not start on login"
+
+if systemctl --user restart niri-tasks.service 2>/dev/null; then
+    info "Overlay daemon restarted on the new binary"
+else
+    warn "Could not start niri-tasks.service — start it with: systemctl --user start niri-tasks"
+fi
 
 # ─── 6. reload niri ───────────────────────────────────────────────────────────
 if command -v niri >/dev/null && [ -n "${NIRI_SOCKET:-}" ]; then

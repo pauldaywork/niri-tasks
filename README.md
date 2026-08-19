@@ -36,8 +36,8 @@ include "niri-tasks.kdl"
 ```
 
 `install.sh` builds `wt`, symlinks the niri include, the fuzzel picker theme and
-the `workspace-tasks` skill into `~/.claude/skills`, and reloads niri. Updating
-is `git pull && bash install.sh`.
+the `workspace-tasks` skill into `~/.claude/skills`, restarts the overlay daemon
+onto the new binary, and reloads niri. Updating is `git pull && bash install.sh`.
 
 The symlinks mean editing a file in this repo is immediately live — there is no
 copy to keep in sync.
@@ -130,21 +130,52 @@ still works, it is just flat.
 ### Running the tests
 
 ```bash
-cargo test              # unit, differential, write-path        ~2s
-bash tests/e2e-tag.sh   # `wt tag --session`, against real tmux ~2s
-bash tests/e2e-box.sh   # the task box, driven by real keys     ~65s
+bash tests/all.sh           # everything this machine can run       ~105s
+
+cargo test                  # unit, differential, write-path        ~2s
+bash tests/e2e-tag.sh       # `wt tag --session`, against real tmux ~2s
+bash tests/e2e-overlay.sh   # the pill, measured in pixels          ~35s
+bash tests/e2e-box.sh       # the task box, driven by real keys     ~65s
 ```
 
-Each exits non-zero on failure, so all three can go in a loop or a hook.
+Each exits non-zero on failure, so any of them can go in a loop or a hook.
+
+`tests/all.sh` is the four in one command, run cheapest-and-quietest first. It
+checks each suite's prerequisites itself and reports one it cannot run as a
+**skip, with the reason** — no tmux, no Pillow, no Wayland display — rather than
+letting it fail. A skip is not a failure: it exits non-zero only when a suite
+that actually ran said no, which is what makes it safe on a machine that can
+only run half of it. It warns you before the two that take the machine over.
 
 | | Needs | Touches |
 |---|---|---|
+| `tests/all.sh` | Nothing of its own — whatever is missing is skipped and named | Whatever the suites it ends up running touch |
 | `cargo test` | `taskwarrior` on `$PATH`, and `bash` for the differential suite | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
 | `tests/e2e-tag.sh` | `tmux`, and niri running with **two named workspaces** — one focused, one not | tmux sessions named `<workspace>_91` and up, killed as it goes. No task database at all |
+| `tests/e2e-overlay.sh` | niri, `python3-pil`, taskwarrior | Screenshots, so **your clipboard**; and the `niri-tasks` daemon. It removes every screenshot it takes and leaves the rest of the directory alone |
 | `tests/e2e-box.sh` | `wtype`, a Wayland session, niri | **Your keyboard**, and the `niri-tasks` daemon |
 
 Narrowing `cargo test` works as usual — `cargo test --lib`, `cargo test --test
 write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
+
+`e2e-overlay.sh` needs the bottom of the screen to hold still — it works by
+comparing frames — so it checks that first and tells you what to move rather
+than reporting a flaky answer. Don't switch workspaces while it runs: the
+overlay follows the focused workspace, and so does the tag it files its tasks
+under. `WT_E2E_KEEP=1` leaves the frames on disk when you need to see what a
+failure actually looked like.
+
+It measures a strip of screen, so it follows `WT_OVERLAY_MARGIN` rather than
+assuming the default — set the same value you set in the unit file and it moves
+the strip and the daemon it starts together:
+
+```bash
+WT_OVERLAY_MARGIN=56 bash tests/e2e-overlay.sh
+```
+
+Left unset, both sit at the default 10. Note that a larger margin puts the strip
+over whatever window is there, and the stillness check will refuse to run if
+that window is redrawing.
 
 Two things about `e2e-box.sh` in particular. It **types into whatever has
 focus**, so start it and leave the keyboard alone until it finishes; anything
@@ -154,7 +185,7 @@ running — that is deliberate, since the point is to prove both the daemon path
 and the fallback, but it means the overlay blinks out for a minute.
 
 > [!IMPORTANT]
-> Both scripts run `wt` **from `$PATH`** — the installed binary, not the one you
+> All three scripts run `wt` **from `$PATH`** — the installed binary, not the one you
 > just built. A green run after an edit you have not installed is testing the
 > old code. Point them at a build with `WT=`:
 >
@@ -163,11 +194,12 @@ and the fallback, but it means the overlay blinks out for a minute.
 > WT=./target/release/wt bash tests/e2e-box.sh
 > ```
 >
-> And to try a change by hand rather than under test, `cargo install --path .`
-> then `systemctl --user restart niri-tasks` — installing alone leaves the
+> And to try a change by hand rather than under test, either `bash install.sh`,
+> which restarts the daemon for you, or `cargo install --path .` followed by
+> `systemctl --user restart niri-tasks` — `cargo install` alone leaves the
 > running daemon on the previous binary, so overlay changes will not show up.
 
-### Why the two scripts are not cargo tests
+### Why the three scripts are not cargo tests
 
 `tests/e2e-box.sh` is not a cargo test and cannot be: it needs a running niri, a
 Wayland display, and `wtype` to press the keys. It opens the box, types into it,
@@ -190,6 +222,21 @@ terminal rather than the focus. It makes sessions named after real workspaces
 with suffixes well clear of yours (`_91` and up), addresses them with tmux's
 exact-match `=name` so a prefix cannot match one of your real ones, and never
 touches the task database.
+
+`tests/e2e-overlay.sh` is the third, and the least obvious. The overlay is a
+layer-shell surface, so its behaviour is what the compositor puts on screen: the
+window can only report the size it *asked* for, which is exactly what has been
+wrong twice — once pinned to 80 characters whatever the task said, once keeping
+the previous task's width so a long description ellipsised to "mak…" inside a
+short pill. Both passed every unit test. So it screenshots the pill and measures
+it, against a baseline taken with no task active.
+
+It counts columns rather than pixels. The pill is translucent, so most of it
+differs from the wallpaper by only a few levels while a window repainting
+elsewhere differs by a lot — but the pill is a solid band ~33px tall, so every
+column inside it changes down most of its height and noise never does. The
+distance between the first and last such column is the pill's width. Both old
+bugs were reintroduced on purpose to confirm the checks catch them.
 
 `tests/differential.rs` runs the original shell pipelines this was ported from
 and compares them against the Rust functions over a corpus of awkward workspace

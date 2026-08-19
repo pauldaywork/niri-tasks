@@ -19,6 +19,10 @@
 # It makes tmux sessions named after real workspaces, always with a suffix well
 # clear of the ones you have open (_91 and up), and kills only those. Nothing
 # here writes to the task database at all.
+#
+# It needs two named workspaces to show the contrast, and will borrow niri's
+# trailing empty workspace as the second one when there is only ever a single
+# project open — naming it without focusing it, and unnaming it on the way out.
 set -uo pipefail
 
 command -v tmux >/dev/null || { echo "tmux is required" >&2; exit 1; }
@@ -40,8 +44,53 @@ focused=next((w['name'] for w in ws if w['is_focused']), '')
 other=next((w['name'] for w in ws if not w['is_focused']), '')
 print(focused, other)
 ")
-if [ -z "$FOCUSED" ] || [ -z "$OTHER" ]; then
-    echo "need two named workspaces (one focused, one not) to test against" >&2
+
+# A machine with one project open has one named workspace, and the contrast this
+# whole file is about needs two. Rather than refuse to run there, borrow the
+# empty workspace niri always keeps at the end of the output: name it, use it,
+# and take the name off again on the way out. It is named without being focused
+# — moving focus would change the very thing under test.
+SCRATCH=""
+cleanup() {
+    [ -n "$SCRATCH" ] && niri msg action unset-workspace-name "$SCRATCH" >/dev/null 2>&1
+}
+# INT and TERM as well as EXIT: interrupting a run must not leave a workspace
+# named after this test sitting in the switcher.
+trap cleanup EXIT INT TERM
+
+# WT_E2E_SCRATCH=1 takes this path even when a second named workspace exists, so
+# the fallback is testable on a machine that does not need it. A branch nobody
+# can reach is a branch nobody has run.
+if [ -z "$OTHER" ] || [ -n "${WT_E2E_SCRATCH:-}" ]; then
+    scratch_idx=$(niri msg -j workspaces | python3 -c "
+import json,sys
+ws = json.load(sys.stdin)
+focused = next((w for w in ws if w['is_focused']), None)
+output = focused['output'] if focused else None
+spare = [w for w in ws
+         if not w.get('name')
+         and w.get('active_window_id') is None
+         and (output is None or w['output'] == output)]
+print(spare[0]['idx'] if spare else '')
+")
+    if [ -n "$scratch_idx" ]; then
+        SCRATCH="wt-e2e-scratch"
+        if niri msg action set-workspace-name --workspace "$scratch_idx" "$SCRATCH" >/dev/null 2>&1; then
+            OTHER="$SCRATCH"
+            echo "no second named workspace to hand — named workspace $scratch_idx" \
+                 "'$SCRATCH' for the run, and will unname it afterwards"
+        else
+            SCRATCH=""
+        fi
+    fi
+fi
+
+if [ -z "$FOCUSED" ]; then
+    echo "the focused workspace has no name — name it with Mod+Shift+Alt+W first" >&2
+    exit 1
+fi
+if [ -z "$OTHER" ]; then
+    echo "need a second workspace to test against, and no empty one was free to borrow" >&2
     exit 1
 fi
 
