@@ -141,7 +141,78 @@ pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission)
 ///
 /// `None` means cancelled, submitted empty, or (when editing) submitted text
 /// identical to what was already there — all of which mean "do nothing".
+/// Ask GTK for the cheap startup path, unless something already asked for
+/// another one.
+///
+/// Opening the box was measured at ~620ms warm and 2.5-2.8s on the first open
+/// of a session, against 50-80ms for `wt --help` — so none of it is this
+/// binary or its linking, and all of it is GTK coming up. Two defaults account
+/// for most of that, and neither buys this window anything:
+///
+/// GSK_RENDERER=cairo. GTK4 defaults to the Vulkan renderer, and creating a
+/// device and warming a shader cache is where the multi-second first open goes.
+/// The box is a text entry on a solid background at 560x440 — software
+/// rendering draws that without breaking a sweat, and it deletes the cold-start
+/// spike outright rather than shortening it. Measured ~620ms -> ~400ms warm.
+///
+/// GTK_A11Y=none. The AT-SPI bridge costs a session-bus round trip at init,
+/// ~200ms here, and it is pure overhead when nothing is listening. So it is
+/// only turned off when nothing is: a screen reader that is actually enabled
+/// keeps the bridge and pays the 200ms, which is the right way round. The
+/// check is in-process gio, not a `gsettings` subprocess, which would cost more
+/// than the saving.
+///
+/// Both are skipped when already set, so `GSK_RENDERER=ngl wt task add` still
+/// does what it says.
+fn prefer_fast_startup() {
+    let gsk_set = std::env::var_os("GSK_RENDERER").is_some();
+    let a11y_set = std::env::var_os("GTK_A11Y").is_some();
+    // Only asked when it can still change the answer: reading it is a settings
+    // lookup, and an explicit GTK_A11Y has already decided the question.
+    let reader_on = !a11y_set && screen_reader_enabled();
+
+    for (key, value) in fast_startup_overrides(gsk_set, a11y_set, reader_on) {
+        std::env::set_var(key, value);
+    }
+}
+
+/// Which of the two to set, given what is already set and whether anything is
+/// listening. Split out from the setting so the decision can be tested without
+/// a test mutating the process environment out from under its neighbours.
+fn fast_startup_overrides(
+    gsk_set: bool,
+    a11y_set: bool,
+    reader_on: bool,
+) -> Vec<(&'static str, &'static str)> {
+    let mut out = Vec::new();
+    if !gsk_set {
+        out.push(("GSK_RENDERER", "cairo"));
+    }
+    if !a11y_set && !reader_on {
+        out.push(("GTK_A11Y", "none"));
+    }
+    out
+}
+
+/// Is a screen reader turned on right now?
+///
+/// False when the schema is not installed, which is the answer we want on a
+/// system with no GNOME settings rather than a panic: `gio::Settings::new`
+/// aborts on a missing schema, so the source is looked up first.
+fn screen_reader_enabled() -> bool {
+    let Some(source) = gtk4::gio::SettingsSchemaSource::default() else {
+        return false;
+    };
+    if source.lookup(A11Y_SCHEMA, true).is_none() {
+        return false;
+    }
+    gtk4::gio::Settings::new(A11Y_SCHEMA).boolean("screen-reader-enabled")
+}
+
+const A11Y_SCHEMA: &str = "org.gnome.desktop.a11y.applications";
+
 pub fn show(cfg: BoxConfig) -> Option<Submission> {
+    prefer_fast_startup();
     let theme = Theme::load();
     let result: Rc<RefCell<Option<Submission>>> = Rc::new(RefCell::new(None));
 
@@ -422,6 +493,37 @@ fn build_window(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fast_startup_sets_both_when_nothing_is_set_or_listening() {
+        assert_eq!(
+            fast_startup_overrides(false, false, false),
+            vec![("GSK_RENDERER", "cairo"), ("GTK_A11Y", "none")]
+        );
+    }
+
+    #[test]
+    fn fast_startup_leaves_an_explicit_choice_alone() {
+        // `GSK_RENDERER=ngl wt task add` means what it says.
+        assert_eq!(
+            fast_startup_overrides(true, false, false),
+            vec![("GTK_A11Y", "none")]
+        );
+        assert_eq!(
+            fast_startup_overrides(false, true, false),
+            vec![("GSK_RENDERER", "cairo")]
+        );
+        assert!(fast_startup_overrides(true, true, false).is_empty());
+    }
+
+    #[test]
+    fn a_running_screen_reader_keeps_the_accessibility_bridge() {
+        // The renderer is still swapped: that one costs nothing to anybody.
+        assert_eq!(
+            fast_startup_overrides(false, false, true),
+            vec![("GSK_RENDERER", "cairo")]
+        );
+    }
 
     #[test]
     fn titles_match_the_mode() {
