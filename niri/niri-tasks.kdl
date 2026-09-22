@@ -38,49 +38,37 @@ layer-rule {
     }
 }
 
-// Every bind below opens a popup, and every one of them holds the same lock
-// while it does, so a second popup cannot open on top of the first.
+// One of the binds below is guarded against opening twice, and only one needs
+// to be.
 //
-// It is needed here more than anywhere else. The pickers are fuzzel, which
-// refuses to run twice on its own — it flocks
-// $XDG_RUNTIME_DIR/fuzzel-$WAYLAND_DISPLAY.lock and a second instance exits
-// with "failed to acquire lock". The task box is not fuzzel: it is the GTK
-// window in src/taskbox.rs, it has no lock, and fuzzel's lock does not know it
-// exists. So `wt task add` opens a box on top of an open picker, and a picker
-// opens on top of an open box, and nothing in either program can see the other.
+// The pickers are fuzzel, and fuzzel already refuses to run twice: it flocks
+// $XDG_RUNTIME_DIR/fuzzel-$WAYLAND_DISPLAY.lock and a second instance exits with
+// "failed to acquire lock", in --dmenu mode as much as as a launcher. Wrapping
+// those in a lock of our own was worse than useless — `flock` holds its lock
+// through a file descriptor, and everything a picker goes on to launch inherits
+// it, so `wt project open` would have kept the lock alive for as long as the
+// terminal and the editor it spawns stayed open.
 //
-// flock -n in the bind rather than a check inside wt, because the lock has to
-// cover popups this program does not own: the application launcher and the
-// wallpaper picker take the same lock from the other side, and a guard inside
-// wt could not exclude them. It cannot race the way a "is one running?" test
-// can, and the kernel drops the lock when the process ends however it ends, so
-// there is nothing to clean up.
-//
-// The path is the contract, and the only thing shared with whatever else takes
-// it — ubuntu-setup spells it the same way in config/niri/popup-guard.sh,
-// fallback included. Change it here and it stops excluding anything there.
-// Holding it is enough to be ignored: flock exits 1 without running the
-// command, and niri does not care what a bind's process exited with.
+// The task box is the exception, and the reason any of this exists: it is the
+// GTK window in src/taskbox.rs, it has no lock, and fuzzel's lock does not know
+// it exists, so pressing Mod+Alt+T twice stacked two boxes. It spawns nothing
+// that outlives it, which is what makes holding a lock across it safe where the
+// same trick was not safe for the pickers.
 binds {
     // Create a new workspace and name it.
-    Mod+Alt+W hotkey-overlay-title="New Named Workspace" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niri-popup.lock\" wt workspace new"; }
+    Mod+Alt+W hotkey-overlay-title="New Named Workspace" { spawn "wt" "workspace" "new"; }
 
     // Rename the current workspace — and with it, which tag its tasks carry.
-    Mod+Shift+Alt+W hotkey-overlay-title="Rename Workspace" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niri-popup.lock\" wt workspace rename"; }
+    Mod+Shift+Alt+W hotkey-overlay-title="Rename Workspace" { spawn "wt" "workspace" "rename"; }
 
     // Pick a folder from ~/Projects, put it on its own named workspace, and
     // open a terminal and VS Code in it. The editor is skipped when `code` is
     // not on $PATH — it is a nicety here, not a requirement.
-    //
-    // This one keeps the lock a moment longer than the popup is up: the picker
-    // closes, then the terminal and the editor are spawned, and only then does
-    // wt exit. Under a second, and the alternative is dropping the lock while
-    // the workspace is still being built.
-    Mod+Alt+P hotkey-overlay-title="Open Project Workspace" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niri-popup.lock\" wt project open"; }
+    Mod+Alt+P hotkey-overlay-title="Open Project Workspace" { spawn "wt" "project" "open"; }
 
     // Taskwarrior, scoped to the current workspace's name as a tag.
     // Mod+Alt+T writes a new task; Mod+Alt+L lists this workspace's tasks and
     // offers edit / note / delete / complete / set-active on the one you pick.
-    Mod+Alt+T hotkey-overlay-title="Add Task" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niri-popup.lock\" wt task add"; }
-    Mod+Alt+L hotkey-overlay-title="Workspace Tasks: edit, note, complete" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niri-popup.lock\" wt task list"; }
+    Mod+Alt+T hotkey-overlay-title="Add Task" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/wt-taskbox.lock\" wt task add"; }
+    Mod+Alt+L hotkey-overlay-title="Workspace Tasks: edit, note, complete" { spawn "wt" "task" "list"; }
 }
