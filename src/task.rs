@@ -43,7 +43,7 @@ impl Task {
     }
 
     /// Every note, one per line — what the note box lists above its input and
-    /// what `wt task get-notes` prints.
+    /// what `niritasks task get-notes` prints.
     ///
     /// One definition, because there are three callers and they must agree:
     /// notes are invisible from the picker, which shows a description, so this
@@ -258,7 +258,7 @@ pub fn complete(uuid: &str) -> Result<()> {
 /// to append to the description.
 ///
 /// A moved task is stopped on the way out. "One active task per tag" is what
-/// lets the overlay and `wt task active` have a single answer, and a task that
+/// lets the overlay and `niritasks task active` have a single answer, and a task that
 /// carried its `start` across would either hand the destination a second active
 /// task or quietly claim to be the work in progress on a workspace nobody is
 /// looking at. `stop` exits non-zero when the task was not started, which is
@@ -280,7 +280,7 @@ pub fn move_to_tag(uuid: &str, from: &str, to: &str) -> Result<()> {
 /// Make `uuid` the one active task for `tag`.
 ///
 /// Clears the tag's current active task first, so a tag never has two — which
-/// is what lets `wt task active` have a single unambiguous answer. `stop` exits
+/// is what lets `niritasks task active` have a single unambiguous answer. `stop` exits
 /// non-zero when nothing matches, which is the normal case, so its status is
 /// deliberately ignored.
 pub fn set_active(tag: &str, uuid: &str) -> Result<()> {

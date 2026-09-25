@@ -38,8 +38,16 @@ if ! command -v cargo >/dev/null; then
     echo "cargo not found — install Rust first (https://rustup.rs)" >&2
     exit 1
 fi
-info "Building wt"
+info "Building niritasks"
 cargo install --path "$REPO" --locked
+
+# The binary used to be called `wt`. cargo install does not remove a binary the
+# package no longer builds, so a stale one would linger on PATH.
+OLD_BIN="${CARGO_HOME:-$HOME/.cargo}/bin/wt"
+if [ -x "$OLD_BIN" ]; then
+    rm -f "$OLD_BIN"
+    info "Removed the old wt binary"
+fi
 
 # ─── 2. the niri include ──────────────────────────────────────────────────────
 # config.kdl must carry `include "niri-tasks.kdl"` for these binds to load. We do not

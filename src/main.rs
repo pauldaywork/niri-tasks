@@ -1,9 +1,9 @@
-//! wt — workspace-scoped Taskwarrior for niri.
+//! niritasks — workspace-scoped Taskwarrior for niri.
 //!
 //! Every task is tagged with the name of the workspace it was created on, so
 //! "my tasks" always means "the tasks for the project I'm looking at". Which
 //! tasks you see is decided purely by the niri workspace name, which
-//! `wt project open` sets to the folder name; ~/Projects is read only to offer
+//! `niritasks project open` sets to the folder name; ~/Projects is read only to offer
 //! folders to pick from — opening one, or moving a task to another.
 
 use anyhow::{Context, Result};
@@ -25,7 +25,7 @@ fn delegate_to_daemon(req: ipc::Request) -> bool {
 }
 
 #[derive(Parser)]
-#[command(name = "wt", version, about, long_about = None)]
+#[command(name = "niritasks", version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -152,7 +152,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         TaskCommand::List { dry_run } => return task_list(dry_run),
 
         // With no text, open the box. With text, add straight away — which is
-        // what makes `wt task add ship it due:friday` work from a shell.
+        // what makes `niritasks task add ship it due:friday` work from a shell.
         TaskCommand::Add { text: words } => {
             let tag = require_workspace_tag()?;
             // The box can return notes with the description; the shell form has

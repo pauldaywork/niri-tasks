@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end test of `wt tag --session`: tmux session -> workspace -> tag.
+# End-to-end test of `niritasks tag --session`: tmux session -> workspace -> tag.
 #
 #   bash tests/e2e-tag.sh
 #
@@ -29,7 +29,7 @@ command -v tmux >/dev/null || { echo "tmux is required" >&2; exit 1; }
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
 [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)" >&2; exit 1; }
 
-WT="${WT:-wt}"
+NIRITASKS="${NIRITASKS:-niritasks}"
 
 pass=0; fail=0
 ok()  { echo "  PASS  $*"; pass=$((pass+1)); }
@@ -58,10 +58,10 @@ cleanup() {
 # named after this test sitting in the switcher.
 trap cleanup EXIT INT TERM
 
-# WT_E2E_SCRATCH=1 takes this path even when a second named workspace exists, so
+# NIRITASKS_E2E_SCRATCH=1 takes this path even when a second named workspace exists, so
 # the fallback is testable on a machine that does not need it. A branch nobody
 # can reach is a branch nobody has run.
-if [ -z "$OTHER" ] || [ -n "${WT_E2E_SCRATCH:-}" ]; then
+if [ -z "$OTHER" ] || [ -n "${NIRITASKS_E2E_SCRATCH:-}" ]; then
     scratch_idx=$(niri msg -j workspaces | python3 -c "
 import json,sys
 ws = json.load(sys.stdin)
@@ -74,7 +74,7 @@ spare = [w for w in ws
 print(spare[0]['idx'] if spare else '')
 ")
     if [ -n "$scratch_idx" ]; then
-        SCRATCH="wt-e2e-scratch"
+        SCRATCH="niritasks-e2e-scratch"
         if niri msg action set-workspace-name --workspace "$scratch_idx" "$SCRATCH" >/dev/null 2>&1; then
             OTHER="$SCRATCH"
             echo "no second named workspace to hand — named workspace $scratch_idx" \
@@ -112,7 +112,7 @@ print(re.sub(r'[^A-Za-z0-9_-]', '_', sys.argv[1]))
 " "$1"
 }
 
-# Run `wt tag --session` inside a throwaway session of the given name, and put
+# Run `niritasks tag --session` inside a throwaway session of the given name, and put
 # its output in TAG_OUT and its exit status in TAG_RC.
 #
 # '=' before the name is tmux's exact-match syntax. Without it a target can
@@ -122,7 +122,7 @@ tag_in_session() {
     local name="$1" out rc
     out=$(mktemp); rc=$(mktemp)
     tmux kill-session -t "=$name" 2>/dev/null
-    tmux new-session -d -s "$name" "$WT tag --session >$out 2>&1; echo \$? >$rc"
+    tmux new-session -d -s "$name" "$NIRITASKS tag --session >$out 2>&1; echo \$? >$rc"
     for _ in $(seq 1 60); do [ -s "$rc" ] && break; sleep 0.1; done
     tmux kill-session -t "=$name" 2>/dev/null
     TAG_OUT=$(cat "$out"); TAG_RC=$(cat "$rc" 2>/dev/null || echo 99)
@@ -143,11 +143,11 @@ else
     bad "expected '$expected' (rc 0), got '$TAG_OUT' (rc $TAG_RC)"
 fi
 
-focused_tag=$("$WT" tag 2>/dev/null)
+focused_tag=$("$NIRITASKS" tag 2>/dev/null)
 if [ "$focused_tag" = "$(tag_of "$FOCUSED")" ]; then
-    ok "bare wt tag still answers with the focused workspace ($focused_tag)"
+    ok "bare niritasks tag still answers with the focused workspace ($focused_tag)"
 else
-    bad "bare wt tag gave '$focused_tag', expected '$(tag_of "$FOCUSED")'"
+    bad "bare niritasks tag gave '$focused_tag', expected '$(tag_of "$FOCUSED")'"
 fi
 [ "$TAG_OUT" != "$focused_tag" ] \
     && ok "the two disagree, which is the whole point of the flag" \
@@ -177,7 +177,7 @@ fi
 
 # Outside tmux there is no terminal to take a workspace from. env -u is what
 # makes this honest: the check is on $TMUX, and this test runs inside one.
-outside=$(env -u TMUX "$WT" tag --session 2>&1); rc=$?
+outside=$(env -u TMUX "$NIRITASKS" tag --session 2>&1); rc=$?
 if [ "$rc" -ne 0 ]; then
     ok "outside tmux it exits non-zero rather than falling back to focus"
     case "$outside" in

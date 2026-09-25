@@ -45,7 +45,7 @@ pub const NAMESPACE: &str = "niri-tasks";
 ///
 /// Sized to sit just clear of a bottom bar: anything much above this reads as a
 /// stray label floating over the wallpaper rather than something belonging to
-/// the bar's row. Nudge it with `WT_OVERLAY_MARGIN` — a taller bar wants more.
+/// the bar's row. Nudge it with `NIRITASKS_OVERLAY_MARGIN` — a taller bar wants more.
 const DEFAULT_BOTTOM_MARGIN: i32 = 10;
 
 /// The widest the pill is allowed to get, in characters.
@@ -57,7 +57,7 @@ const DEFAULT_BOTTOM_MARGIN: i32 = 10;
 const DEFAULT_MAX_WIDTH_CHARS: i32 = 80;
 
 fn max_width_chars() -> i32 {
-    std::env::var("WT_OVERLAY_MAX_WIDTH_CHARS")
+    std::env::var("NIRITASKS_OVERLAY_MAX_WIDTH_CHARS")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_MAX_WIDTH_CHARS)
@@ -66,7 +66,7 @@ fn max_width_chars() -> i32 {
 const TICK: Duration = Duration::from_millis(700);
 
 fn bottom_margin() -> i32 {
-    std::env::var("WT_OVERLAY_MARGIN")
+    std::env::var("NIRITASKS_OVERLAY_MARGIN")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_BOTTOM_MARGIN)
@@ -199,10 +199,10 @@ fn build(app: &Application) {
     }
 }
 
-/// `WT_DEBUG=1` traces each tick to stderr — which, under the systemd unit,
+/// `NIRITASKS_DEBUG=1` traces each tick to stderr — which, under the systemd unit,
 /// means `journalctl --user -u niri-tasks`.
 fn debug(msg: &str) {
-    if std::env::var_os("WT_DEBUG").is_some() {
+    if std::env::var_os("NIRITASKS_DEBUG").is_some() {
         eprintln!("[overlay] {msg}");
     }
 }
@@ -488,30 +488,30 @@ mod tests {
 
     #[test]
     fn margin_defaults_and_is_overridable() {
-        std::env::remove_var("WT_OVERLAY_MARGIN");
+        std::env::remove_var("NIRITASKS_OVERLAY_MARGIN");
         assert_eq!(bottom_margin(), DEFAULT_BOTTOM_MARGIN);
 
-        std::env::set_var("WT_OVERLAY_MARGIN", "120");
+        std::env::set_var("NIRITASKS_OVERLAY_MARGIN", "120");
         assert_eq!(bottom_margin(), 120);
 
         // Garbage falls back rather than panicking a long-running daemon.
-        std::env::set_var("WT_OVERLAY_MARGIN", "not-a-number");
+        std::env::set_var("NIRITASKS_OVERLAY_MARGIN", "not-a-number");
         assert_eq!(bottom_margin(), DEFAULT_BOTTOM_MARGIN);
-        std::env::remove_var("WT_OVERLAY_MARGIN");
+        std::env::remove_var("NIRITASKS_OVERLAY_MARGIN");
     }
 
     #[test]
     fn width_defaults_and_is_overridable() {
-        std::env::remove_var("WT_OVERLAY_MAX_WIDTH_CHARS");
+        std::env::remove_var("NIRITASKS_OVERLAY_MAX_WIDTH_CHARS");
         assert_eq!(max_width_chars(), DEFAULT_MAX_WIDTH_CHARS);
 
-        std::env::set_var("WT_OVERLAY_MAX_WIDTH_CHARS", "120");
+        std::env::set_var("NIRITASKS_OVERLAY_MAX_WIDTH_CHARS", "120");
         assert_eq!(max_width_chars(), 120);
 
         // Garbage falls back rather than panicking a long-running daemon.
-        std::env::set_var("WT_OVERLAY_MAX_WIDTH_CHARS", "wide-ish");
+        std::env::set_var("NIRITASKS_OVERLAY_MAX_WIDTH_CHARS", "wide-ish");
         assert_eq!(max_width_chars(), DEFAULT_MAX_WIDTH_CHARS);
-        std::env::remove_var("WT_OVERLAY_MAX_WIDTH_CHARS");
+        std::env::remove_var("NIRITASKS_OVERLAY_MAX_WIDTH_CHARS");
     }
 
     #[test]

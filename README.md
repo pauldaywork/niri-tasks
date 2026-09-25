@@ -7,7 +7,7 @@ The niri workspace you are looking at *is* the task filter. Name a workspace
 shortcut shows that workspace's tasks and nothing else. Switch workspace and the
 same keys show a different set.
 
-Which tasks you see goes purely off the workspace name, which `wt project open`
+Which tasks you see goes purely off the workspace name, which `niritasks project open`
 sets to the folder name. `~/Projects` is only ever read to offer folders to pick
 from — opening one, or moving a task to another workspace.
 
@@ -35,7 +35,7 @@ Then add the include to `~/.config/niri/config.kdl`:
 include "niri-tasks.kdl"
 ```
 
-`install.sh` builds `wt`, symlinks the niri include, the fuzzel picker theme and
+`install.sh` builds `niritasks`, symlinks the niri include, the fuzzel picker theme and
 the `workspace-tasks` skill into `~/.claude/skills`, restarts the overlay daemon
 onto the new binary, and reloads niri. Updating is `git pull && bash install.sh`.
 
@@ -47,7 +47,7 @@ copy to keep in sync.
 `niri`, `taskwarrior`, `fuzzel`, `tmux`, and a Rust toolchain to build with.
 `notify-send` is used for feedback and degrades to stderr without it.
 
-VS Code is optional. `wt project open` starts one on the project folder when
+VS Code is optional. `niritasks project open` starts one on the project folder when
 `code` is on `$PATH`, and starts only the terminal when it is not — the lookup
 is there because niri answers a spawn of a missing binary with a desktop
 notification, which would otherwise fire on every project you opened.
@@ -56,28 +56,28 @@ Tested against niri 26.04 and taskwarrior 2.6.2.
 
 ## Commands
 
-`wt` is usable directly, not just from keybinds:
+`niritasks` is usable directly, not just from keybinds:
 
 ```
-wt tag                      # the focused workspace's tag
-wt tag --session            # the tag of the workspace this terminal was opened on
-wt task active              # the active task's description, or nothing
-wt task list                # the picker
-wt task list --dry-run      # the rows it would show, for scripting and testing
-wt task add <text>          # honours taskwarrior attributes: due:friday, priority:H
-wt task edit <uuid> <text>  # replaces the description; attributes stay literal
-wt task note <uuid> <text>  # attaches an annotation
-wt workspace new|rename|default
-wt project open
-wt tmux-session             # ghostty's `command =`
+niritasks tag                      # the focused workspace's tag
+niritasks tag --session            # the tag of the workspace this terminal was opened on
+niritasks task active              # the active task's description, or nothing
+niritasks task list                # the picker
+niritasks task list --dry-run      # the rows it would show, for scripting and testing
+niritasks task add <text>          # honours taskwarrior attributes: due:friday, priority:H
+niritasks task edit <uuid> <text>  # replaces the description; attributes stay literal
+niritasks task note <uuid> <text>  # attaches an annotation
+niritasks workspace new|rename|default
+niritasks project open
+niritasks tmux-session             # ghostty's `command =`
 ```
 
 ### Two rules that look alike and are not
 
-`wt task add` **word-splits** the description, so taskwarrior parses its own
-attribute syntax — `wt task add ship it due:friday` sets a due date.
+`niritasks task add` **word-splits** the description, so taskwarrior parses its own
+attribute syntax — `niritasks task add ship it due:friday` sets a due date.
 
-`wt task edit` and `wt task note` **do not** split. The text goes through as one
+`niritasks task edit` and `niritasks task note` **do not** split. The text goes through as one
 argument, so a typed `due:` stays literal text.
 
 Both are covered by tests in `tests/write_path.rs`, against a sandboxed task
@@ -133,7 +133,7 @@ still works, it is just flat.
 bash tests/all.sh           # everything this machine can run       ~105s
 
 cargo test                  # unit, differential, write-path        ~2s
-bash tests/e2e-tag.sh       # `wt tag --session`, against real tmux ~2s
+bash tests/e2e-tag.sh       # `niritasks tag --session`, against real tmux ~2s
 bash tests/e2e-overlay.sh   # the pill, measured in pixels          ~35s
 bash tests/e2e-box.sh       # the task box, driven by real keys     ~65s
 ```
@@ -162,15 +162,15 @@ write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
 comparing frames — so it checks that first and tells you what to move rather
 than reporting a flaky answer. Don't switch workspaces while it runs: the
 overlay follows the focused workspace, and so does the tag it files its tasks
-under. `WT_E2E_KEEP=1` leaves the frames on disk when you need to see what a
+under. `NIRITASKS_E2E_KEEP=1` leaves the frames on disk when you need to see what a
 failure actually looked like.
 
-It measures a strip of screen, so it follows `WT_OVERLAY_MARGIN` rather than
+It measures a strip of screen, so it follows `NIRITASKS_OVERLAY_MARGIN` rather than
 assuming the default — set the same value you set in the unit file and it moves
 the strip and the daemon it starts together:
 
 ```bash
-WT_OVERLAY_MARGIN=56 bash tests/e2e-overlay.sh
+NIRITASKS_OVERLAY_MARGIN=56 bash tests/e2e-overlay.sh
 ```
 
 Left unset, both sit at the default 10. Note that a larger margin puts the strip
@@ -185,13 +185,13 @@ running — that is deliberate, since the point is to prove both the daemon path
 and the fallback, but it means the overlay blinks out for a minute.
 
 > [!IMPORTANT]
-> All three scripts run `wt` **from `$PATH`** — the installed binary, not the one you
+> All three scripts run `niritasks` **from `$PATH`** — the installed binary, not the one you
 > just built. A green run after an edit you have not installed is testing the
-> old code. Point them at a build with `WT=`:
+> old code. Point them at a build with `NIRITASKS=`:
 >
 > ```bash
 > cargo build --release
-> WT=./target/release/wt bash tests/e2e-box.sh
+> NIRITASKS=./target/release/niritasks bash tests/e2e-box.sh
 > ```
 >
 > And to try a change by hand rather than under test, either `bash install.sh`,

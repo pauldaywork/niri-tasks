@@ -33,7 +33,7 @@ command -v wtype >/dev/null || {
 [ -n "${WAYLAND_DISPLAY:-}" ] || { echo "no Wayland display" >&2; exit 1; }
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
 
-WT="${WT:-wt}"
+NIRITASKS="${NIRITASKS:-niritasks}"
 SB="$(mktemp -d)"
 trap 'rm -rf "$SB"' EXIT
 mkdir -p "$SB/data"
@@ -71,7 +71,7 @@ print(w.get('title') or '')
 # open_box add          — the add box
 # open_box note <uuid>  — the note box for a task
 open_box() {
-    "$WT" task "$@" >/dev/null 2>&1 &
+    "$NIRITASKS" task "$@" >/dev/null 2>&1 &
     for _ in $(seq 1 40); do
         [ -n "$(box_id)" ] && { sleep 0.6; return 0; }
         sleep 0.1
@@ -253,7 +253,7 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
 # one makes the next run fail for reasons that have nothing to do with the code.
 # That happened once and cost a confusing debugging detour.
 close_any_box
-pkill -f "$WT task (add|note)" 2>/dev/null
+pkill -f "$NIRITASKS task (add|note)" 2>/dev/null
 
 # Both paths matter: the daemon serves the box when it is running, and the CLI
 # builds its own when it is not. The fallback is the reason this tool does not
@@ -262,7 +262,7 @@ WAS_ACTIVE=$(systemctl --user is-active niri-tasks.service 2>/dev/null || echo i
 systemctl --user stop niri-tasks.service 2>/dev/null
 sleep 1
 
-"$WT" daemon >"$SB/daemon.err" 2>&1 &
+"$NIRITASKS" daemon >"$SB/daemon.err" 2>&1 &
 DAEMON=$!
 sleep 3
 run_suite "served by the daemon"

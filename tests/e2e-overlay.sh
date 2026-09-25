@@ -36,7 +36,7 @@ command -v task >/dev/null || { echo "taskwarrior is required" >&2; exit 1; }
 python3 -c "import PIL" 2>/dev/null || {
     echo "python3 Pillow is required: sudo apt install python3-pil" >&2; exit 1; }
 
-WT="${WT:-wt}"
+NIRITASKS="${NIRITASKS:-niritasks}"
 
 # How far above the bottom edge the pill sits. Everything below measures a strip
 # of screen, and a strip in the wrong place finds nothing however well the
@@ -47,8 +47,8 @@ WT="${WT:-wt}"
 # same environment. The band and the pill therefore move together, whatever the
 # margin is, and neither depends on what the installed systemd unit happens to
 # set. The default mirrors DEFAULT_BOTTOM_MARGIN in src/overlay.rs.
-MARGIN="${WT_OVERLAY_MARGIN:-10}"
-export WT_OVERLAY_MARGIN="$MARGIN"
+MARGIN="${NIRITASKS_OVERLAY_MARGIN:-10}"
+export NIRITASKS_OVERLAY_MARGIN="$MARGIN"
 
 SB="$(mktemp -d)"
 mkdir -p "$SB/data" "$SB/shots"
@@ -60,7 +60,7 @@ WAS_ACTIVE=$(systemctl --user is-active niri-tasks.service 2>/dev/null || echo i
 cleanup() {
     [ -n "$DAEMON" ] && kill "$DAEMON" 2>/dev/null
     [ "$WAS_ACTIVE" = active ] && systemctl --user start niri-tasks.service 2>/dev/null
-    if [ -n "${WT_E2E_KEEP:-}" ]; then
+    if [ -n "${NIRITASKS_E2E_KEEP:-}" ]; then
         echo "frames kept in $SB/shots"
     else
         rm -rf "$SB"
@@ -74,7 +74,7 @@ bad() { echo "  FAIL  $*"; fail=$((fail+1)); }
 
 # The overlay shows the focused workspace's active task, so its tasks have to
 # carry the focused workspace's tag.
-TAG=$("$WT" tag 2>/dev/null)
+TAG=$("$NIRITASKS" tag 2>/dev/null)
 [ -n "$TAG" ] || { echo "this workspace has no name, so the overlay has nothing to show" >&2; exit 1; }
 
 # Where niri drops screenshots. There is no option to write one somewhere else,
@@ -143,7 +143,7 @@ w, h = base.size
 # Vertically it is placed relative to the pill's own bottom edge, which sits
 # `margin` px up from the bottom of the screen — not at a fixed height, which
 # would be reading the default margin of 10 off the screen and calling it a
-# measurement. With a taller bar and a larger WT_OVERLAY_MARGIN a fixed strip
+# measurement. With a taller bar and a larger NIRITASKS_OVERLAY_MARGIN a fixed strip
 # looks straight past the pill, and every check downstream reports "no pill
 # appeared" — a failure that blames the overlay for the ruler being in the
 # wrong place.
@@ -173,7 +173,7 @@ task rc.verbose=nothing rc.confirmation=no add "+$TAG" -- "$LONG"  >/dev/null 2>
 # overlays would draw on top of each other.
 systemctl --user stop niri-tasks.service 2>/dev/null
 sleep 1
-"$WT" daemon >"$SB/daemon.err" 2>&1 &
+"$NIRITASKS" daemon >"$SB/daemon.err" 2>&1 &
 DAEMON=$!
 sleep 3
 
@@ -209,7 +209,7 @@ else
     bad "no pill appeared for the active task ($cols pill columns found) —
       either the overlay drew nothing, or it is not in the strip being measured
       ($((MARGIN + 85))-$((MARGIN + 10))px above the bottom edge, from
-      WT_OVERLAY_MARGIN=$MARGIN); WT_E2E_KEEP=1 keeps the frames to tell which"
+      NIRITASKS_OVERLAY_MARGIN=$MARGIN); NIRITASKS_E2E_KEEP=1 keeps the frames to tell which"
 fi
 
 band=$((SCREEN_W / 4))
@@ -265,7 +265,7 @@ read -r cols _ < <(measure hidden)
 # tasks were started afterwards.
 kill "$DAEMON" 2>/dev/null; wait "$DAEMON" 2>/dev/null
 sleep 1
-"$WT" daemon >"$SB/daemon2.err" 2>&1 &
+"$NIRITASKS" daemon >"$SB/daemon2.err" 2>&1 &
 DAEMON=$!
 sleep 3
 set_active "$SHORT"

@@ -33,11 +33,11 @@ set -uo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 1
 cd "$ROOT" || exit 1
 
-# The e2e scripts default to the installed `wt`, not the one you just built, and
+# The e2e scripts default to the installed `niritasks`, not the one you just built, and
 # a green run against the old binary is worse than no run at all. Exported so
 # the value reported here is the value they use.
-WT="${WT:-wt}"
-export WT
+NIRITASKS="${NIRITASKS:-niritasks}"
+export NIRITASKS
 
 passed=(); failed=(); skipped=()
 
@@ -47,20 +47,20 @@ why_cargo() {
     command -v task  >/dev/null || { echo "no taskwarrior on \$PATH"; return; }
 }
 why_tag() {
-    command -v "$WT" >/dev/null || { echo "no $WT on \$PATH — build it, or set WT="; return; }
+    command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
     command -v tmux >/dev/null || { echo "no tmux"; return; }
     command -v niri >/dev/null || { echo "no niri"; return; }
     [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)"; return; }
 }
 why_overlay() {
-    command -v "$WT" >/dev/null || { echo "no $WT on \$PATH — build it, or set WT="; return; }
+    command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
     command -v niri >/dev/null || { echo "no niri"; return; }
     command -v task >/dev/null || { echo "no taskwarrior on \$PATH"; return; }
     [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)"; return; }
     python3 -c "import PIL" 2>/dev/null || { echo "no python3 Pillow (sudo apt install python3-pil)"; return; }
 }
 why_box() {
-    command -v "$WT" >/dev/null || { echo "no $WT on \$PATH — build it, or set WT="; return; }
+    command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
     command -v wtype >/dev/null || { echo "no wtype (sudo apt install wtype)"; return; }
     command -v niri  >/dev/null || { echo "no niri"; return; }
     [ -n "${WAYLAND_DISPLAY:-}" ] || { echo "no Wayland display"; return; }
@@ -82,8 +82,8 @@ suite() {  # name, reason it cannot run (empty if it can), command...
     fi
 }
 
-echo "repo $ROOT"
-echo "wt   $(command -v "$WT" 2>/dev/null || echo "not found ($WT)")"
+echo "repo      $ROOT"
+echo "niritasks $(command -v "$NIRITASKS" 2>/dev/null || echo "not found ($NIRITASKS)")"
 
 suite "cargo test"           "$(why_cargo)"   cargo test
 suite "tests/e2e-tag.sh"     "$(why_tag)"     bash tests/e2e-tag.sh

@@ -145,7 +145,7 @@ pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission)
 /// another one.
 ///
 /// Opening the box was measured at ~620ms warm and 2.5-2.8s on the first open
-/// of a session, against 50-80ms for `wt --help` — so none of it is this
+/// of a session, against 50-80ms for `niritasks --help` — so none of it is this
 /// binary or its linking, and all of it is GTK coming up. Two defaults account
 /// for most of that, and neither buys this window anything:
 ///
@@ -162,7 +162,7 @@ pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission)
 /// check is in-process gio, not a `gsettings` subprocess, which would cost more
 /// than the saving.
 ///
-/// Both are skipped when already set, so `GSK_RENDERER=ngl wt task add` still
+/// Both are skipped when already set, so `GSK_RENDERER=ngl niritasks task add` still
 /// does what it says.
 fn prefer_fast_startup() {
     let gsk_set = std::env::var_os("GSK_RENDERER").is_some();
@@ -504,7 +504,7 @@ mod tests {
 
     #[test]
     fn fast_startup_leaves_an_explicit_choice_alone() {
-        // `GSK_RENDERER=ngl wt task add` means what it says.
+        // `GSK_RENDERER=ngl niritasks task add` means what it says.
         assert_eq!(
             fast_startup_overrides(true, false, false),
             vec![("GTK_A11Y", "none")]

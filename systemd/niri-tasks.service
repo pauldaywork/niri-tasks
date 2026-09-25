@@ -11,22 +11,22 @@ StartLimitIntervalSec=60
 
 [Service]
 Type=simple
-ExecStart=%h/.cargo/bin/wt daemon
+ExecStart=%h/.cargo/bin/niritasks daemon
 # The overlay is a readout: if it dies, bring it back, but do not fight a crash
 # loop that would spam the journal.
 Restart=on-failure
 RestartSec=3
 
-# Set WT_OVERLAY_MARGIN to move it up or down; it is a preference, not a
+# Set NIRITASKS_OVERLAY_MARGIN to move it up or down; it is a preference, not a
 # measurement of anyone's bar.
-# Environment=WT_OVERLAY_MARGIN=56
+# Environment=NIRITASKS_OVERLAY_MARGIN=56
 #
-# WT_OVERLAY_MAX_WIDTH_CHARS is the widest the pill may get, in characters. It
+# NIRITASKS_OVERLAY_MAX_WIDTH_CHARS is the widest the pill may get, in characters. It
 # is a ceiling, not a width: the pill hugs whatever the task says, and only a
 # description longer than this is ellipsised.
-# Environment=WT_OVERLAY_MAX_WIDTH_CHARS=80
+# Environment=NIRITASKS_OVERLAY_MAX_WIDTH_CHARS=80
 #
-# Environment=WT_DEBUG=1
+# Environment=NIRITASKS_DEBUG=1
 
 [Install]
 WantedBy=graphical-session.target

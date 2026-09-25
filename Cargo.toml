@@ -13,7 +13,7 @@ name = "niri_tasks"
 path = "src/lib.rs"
 
 [[bin]]
-name = "wt"
+name = "niritasks"
 path = "src/main.rs"
 
 [dependencies]

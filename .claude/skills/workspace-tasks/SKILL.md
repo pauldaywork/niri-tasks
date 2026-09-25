@@ -27,11 +27,11 @@ phase of this skill, not an interruption to it.
 ## Phase 1 — read the list
 
 ```bash
-wt tag --session                                   # this terminal's workspace tag
-task "+$(wt tag --session)" status:pending export  # the tasks, as JSON
+niritasks tag --session                                   # this terminal's workspace tag
+task "+$(niritasks tag --session)" status:pending export  # the tasks, as JSON
 ```
 
-**`--session`, not bare `wt tag`.** Bare `wt tag` answers "which workspace is
+**`--session`, not bare `niritasks tag`.** Bare `niritasks tag` answers "which workspace is
 focused *right now*", which is the right answer for a keybind and the wrong one
 for you: a run takes minutes, the user switches workspace while it goes, and the
 tag moves with them — so the findings get filed onto whatever project they
@@ -44,7 +44,7 @@ from you:
 | It says | What to do |
 |---|---|
 | the workspace has no name | Stop. Tell the user to name it with `Mod+Shift+Alt+W` — an unnamed workspace has no tag, so it has no tasks. |
-| not inside a tmux session | Fall back to `wt tag`, and **say so**: the tag is focus-derived, so ask the user not to switch workspace mid-run. |
+| not inside a tmux session | Fall back to `niritasks tag`, and **say so**: the tag is focus-derived, so ask the user not to switch workspace mid-run. |
 | the session matches no named workspace | The workspace was renamed since this terminal opened. Ask which project the list belongs to rather than picking one. |
 
 **Write the tag down and reuse that value for the rest of the run** either way.
@@ -240,7 +240,7 @@ the same second.
 >   Nothing tells you the note is gone.
 >
 > `--` ends attribute parsing, so everything after it is text. `"+<tag>"` still
-> has to sit *before* the `--` to register as a tag. This is what the `wt` tool
+> has to sit *before* the `--` to register as a tag. This is what the `niritasks` tool
 > itself does — see `task::annotate` and `task::modify_description` in
 > `src/task.rs`, both of which pass `--`.
 

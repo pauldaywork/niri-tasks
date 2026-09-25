@@ -24,7 +24,7 @@ struct Sandbox {
 
 impl Sandbox {
     fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!("wt-write-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("niritasks-write-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("data")).expect("create sandbox");
         std::fs::write(
@@ -190,7 +190,7 @@ fn write_path_lifecycle() {
         active_now,
         vec![second.clone()],
         "setting a second task active must stop the first — this is what makes \
-         `wt task active` unambiguous"
+         `niritasks task active` unambiguous"
     );
 
     // ---- complete and delete --------------------------------------------

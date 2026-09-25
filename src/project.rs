@@ -257,7 +257,7 @@ mod tests {
     fn path_fixture(label: &str) -> std::path::PathBuf {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join(format!("wt-path-{label}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("niritasks-path-{label}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         for (name, mode) in [("runnable", 0o755), ("readable", 0o644)] {
             let f = dir.join(name);

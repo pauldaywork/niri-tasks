@@ -1,4 +1,4 @@
-//! wt — workspace-scoped Taskwarrior for niri.
+//! niritasks — workspace-scoped Taskwarrior for niri.
 //!
 //! The logic lives here rather than in `main.rs` so it can be exercised by
 //! integration tests — in particular `tests/differential.rs`, which checks the
@@ -49,7 +49,7 @@ pub fn require_workspace_tag() -> Result<String> {
 /// while it runs and the focused answer moves with you, so work started on one
 /// project finishes filing tasks onto another.
 ///
-/// The anchor is the tmux session, because `wt tmux-session` names it after the
+/// The anchor is the tmux session, because `niritasks tmux-session` names it after the
 /// workspace the terminal was opened on and that name does not move.
 ///
 /// The obvious alternative — walk this process's parents to the niri window

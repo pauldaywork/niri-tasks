@@ -14,7 +14,7 @@
 // Name workspace 1 on startup if it has no name. Naming matters more than it
 // looks: the name is the tag the task shortcuts scope to, so an unnamed
 // workspace has no tasks.
-spawn-at-startup "wt" "workspace" "default"
+spawn-at-startup "niritasks" "workspace" "default"
 
 // Blur behind the active-task overlay.
 //
@@ -46,7 +46,7 @@ layer-rule {
 // "failed to acquire lock", in --dmenu mode as much as as a launcher. Wrapping
 // those in a lock of our own was worse than useless — `flock` holds its lock
 // through a file descriptor, and everything a picker goes on to launch inherits
-// it, so `wt project open` would have kept the lock alive for as long as the
+// it, so `niritasks project open` would have kept the lock alive for as long as the
 // terminal and the editor it spawns stayed open.
 //
 // The task box is the exception, and the reason any of this exists: it is the
@@ -56,20 +56,20 @@ layer-rule {
 // same trick was not safe for the pickers.
 binds {
     // Create a new workspace and name it.
-    Mod+Alt+W hotkey-overlay-title="New Named Workspace" { spawn "wt" "workspace" "new"; }
+    Mod+Alt+W hotkey-overlay-title="New Named Workspace" { spawn "niritasks" "workspace" "new"; }
 
     // Rename the current workspace — and with it, which tag its tasks carry.
-    Mod+Shift+Alt+W hotkey-overlay-title="Rename Workspace" { spawn "wt" "workspace" "rename"; }
+    Mod+Shift+Alt+W hotkey-overlay-title="Rename Workspace" { spawn "niritasks" "workspace" "rename"; }
 
     // Pick a folder from ~/Projects, put it on its own named workspace, and
     // open a terminal on its own herdr session (`herdr --session <project>`)
     // and VS Code in it. The editor is skipped when `code` is
     // not on $PATH — it is a nicety here, not a requirement.
-    Mod+Alt+P hotkey-overlay-title="Open Project Workspace" { spawn "wt" "project" "open"; }
+    Mod+Alt+P hotkey-overlay-title="Open Project Workspace" { spawn "niritasks" "project" "open"; }
 
     // Taskwarrior, scoped to the current workspace's name as a tag.
     // Mod+Alt+T writes a new task; Mod+Alt+L lists this workspace's tasks and
     // offers edit / note / delete / complete / set-active on the one you pick.
-    Mod+Alt+T hotkey-overlay-title="Add Task" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/wt-taskbox.lock\" wt task add"; }
-    Mod+Alt+L hotkey-overlay-title="Workspace Tasks: edit, note, complete" { spawn "wt" "task" "list"; }
+    Mod+Alt+T hotkey-overlay-title="Add Task" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niritasks-taskbox.lock\" niritasks task add"; }
+    Mod+Alt+L hotkey-overlay-title="Workspace Tasks: edit, note, complete" { spawn "niritasks" "task" "list"; }
 }

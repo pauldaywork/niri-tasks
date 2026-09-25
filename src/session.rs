@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn start_dir_falls_back_through_the_chain() {
-        let tmp = std::env::temp_dir().join(format!("wt-session-test-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("niritasks-session-test-{}", std::process::id()));
         let home = tmp.join("home");
         let projects = home.join("Projects");
         std::fs::create_dir_all(projects.join("alpha")).unwrap();
@@ -218,7 +218,7 @@ mod tests {
     /// land you in the right folder.
     #[test]
     fn directory_uses_raw_name_while_session_uses_sanitized() {
-        let tmp = std::env::temp_dir().join(format!("wt-raw-test-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("niritasks-raw-test-{}", std::process::id()));
         let projects = tmp.join("Projects");
         std::fs::create_dir_all(projects.join("my project")).unwrap();
 
