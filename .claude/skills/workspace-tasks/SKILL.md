@@ -71,8 +71,12 @@ task has neither, so read them with `t.get(...)`, not `t[...]`.
 > tasks done — silently, and with no way to tell afterwards which was which.
 > Every command below takes a uuid, and every one of them accepts it.
 
-If a task is already `start`ed, say so and ask whether to pick it up or leave
-it — something else may be mid-flight on it.
+**A task that is already `start`ed is taken — leave it alone.** Several agents
+can work one project's list at once (one per worktree, say), and a started task
+is how one of them says "mine". It may also be the user's own. List those as
+*in progress elsewhere* when you restate the list in Phase 2, and work only the
+ones nobody has started. If one has plainly been abandoned — started days ago,
+nothing running — tell the user; clearing it is their call, not yours.
 
 ## Phase 2 — clarify before touching anything
 
@@ -121,15 +125,25 @@ task you have misread gets caught before any work goes into it.
 
 For each task, in the order the user confirmed:
 
-**1. Mark it active.** Exactly one task per workspace may be active — that is
-the rule the desktop UI enforces, and the overlay shows only one:
+**1. Claim it by starting it.**
 
 ```bash
-task "+<tag>" status:pending +ACTIVE export \
-  | python3 -c "import json,sys; [print(t['uuid']) for t in json.load(sys.stdin)]" \
-  | xargs -r -n1 -I{} task {} stop      # clear any other active task first
 task <uuid> start
 ```
+
+Starting is the claim. Taskwarrior locks its data files while it writes, and
+`task start` on a task that is already started refuses — *"already started"*,
+exit 1 — so when two agents reach for the same task at once, exactly one of them
+gets it. If yours is the one refused, another agent (or the user) took the task
+after you read the list: say so, skip it, and move on to the next. Do not
+retry, and do not stop their claim to take it.
+
+**Stop only your own.** Before claiming the next task, stop the one you just
+finished or gave up on — never another active task on the tag, even though the
+desktop's own "set active" does clear the whole tag. Other active tasks are
+other agents' claims; stopping one pulls work out from under them. The overlay
+shows one active task per workspace, so with several agents running it shows
+one of theirs — that is expected.
 
 `<tag>` is the value captured in Phase 1, here and everywhere below.
 
@@ -253,7 +267,9 @@ created — they are the next run's list, not this one's.
 ## Invariants
 
 - **uuid, never id.** Ids renumber the moment a task completes.
-- **One active task at a time.** Stop the previous before starting the next.
+- **One active task per agent, and only ever your own.** Claim by `task start`;
+  a refused start means someone else has it — skip it. Stop your previous task
+  before claiming the next, and never stop a task you did not start.
 - **Never end with a stale active task.** Done, or stopped, or explicitly
   handed back mid-flight — never silently left running.
 - **Never invent tasks.** Work the list as it stands. Something worth doing that
