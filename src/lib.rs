@@ -29,7 +29,7 @@ pub fn require_workspace_tag() -> Result<String> {
     let name = niri::focused_workspace_name()?.unwrap_or_default();
     anyhow::ensure!(
         !name.is_empty(),
-        "This workspace has no name — name it with Mod+Shift+Alt+W first."
+        "This workspace has no name — name it with Mod+Alt+Ctrl+W first."
     );
 
     let t = tag::workspace_tag(&name);

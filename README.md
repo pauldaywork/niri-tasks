@@ -16,10 +16,10 @@ from — opening one, or moving a task to another workspace.
 | Key | Does |
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — one annotation per line |
-| `Mod+Alt+L` | List this workspace's tasks — edit, note, delete, complete, set active, move to another workspace |
+| `Mod+Alt+Ctrl+T` | List this workspace's tasks — edit, note, delete, complete, set active, move to another workspace |
 | `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+W` | Create a new workspace and name it |
-| `Mod+Shift+Alt+W` | Rename this workspace (and with it, which tag its tasks carry) |
+| `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
 
 ## Install
 

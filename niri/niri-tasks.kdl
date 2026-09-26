@@ -59,7 +59,7 @@ binds {
     Mod+Alt+W hotkey-overlay-title="New Named Workspace" { spawn "niritasks" "workspace" "new"; }
 
     // Rename the current workspace — and with it, which tag its tasks carry.
-    Mod+Shift+Alt+W hotkey-overlay-title="Rename Workspace" { spawn "niritasks" "workspace" "rename"; }
+    Mod+Alt+Ctrl+W hotkey-overlay-title="Rename Workspace" { spawn "niritasks" "workspace" "rename"; }
 
     // Pick a folder from ~/Projects, put it on its own named workspace, and
     // open a terminal on its own herdr session (`herdr --session <project>`)
@@ -68,8 +68,9 @@ binds {
     Mod+Alt+P hotkey-overlay-title="Open Project Workspace" { spawn "niritasks" "project" "open"; }
 
     // Taskwarrior, scoped to the current workspace's name as a tag.
-    // Mod+Alt+T writes a new task; Mod+Alt+L lists this workspace's tasks and
-    // offers edit / note / delete / complete / set-active on the one you pick.
+    // Mod+Alt+T writes a new task; its Ctrl companion, Mod+Alt+Ctrl+T, lists this
+    // workspace's tasks and offers edit / note / delete / complete / set-active on
+    // the one you pick.
     Mod+Alt+T hotkey-overlay-title="Add Task" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niritasks-taskbox.lock\" niritasks task add"; }
-    Mod+Alt+L hotkey-overlay-title="Workspace Tasks: edit, note, complete" { spawn "niritasks" "task" "list"; }
+    Mod+Alt+Ctrl+T hotkey-overlay-title="Workspace Tasks: edit, note, complete" { spawn "niritasks" "task" "list"; }
 }

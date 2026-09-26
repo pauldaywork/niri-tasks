@@ -117,4 +117,4 @@ if [ "${#missing[@]}" -gt 0 ]; then
 fi
 
 echo
-info "Done. Keybinds: Mod+Alt+T add, Mod+Alt+L list, Mod+Alt+P project, Mod+Alt+W name workspace."
+info "Done. Keybinds: Mod+Alt+T add, Mod+Alt+Ctrl+T list, Mod+Alt+P project, Mod+Alt+W new workspace, Mod+Alt+Ctrl+W rename it."

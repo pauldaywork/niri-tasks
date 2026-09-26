@@ -43,7 +43,7 @@ from you:
 
 | It says | What to do |
 |---|---|
-| the workspace has no name | Stop. Tell the user to name it with `Mod+Shift+Alt+W` — an unnamed workspace has no tag, so it has no tasks. |
+| the workspace has no name | Stop. Tell the user to name it with `Mod+Alt+Ctrl+W` — an unnamed workspace has no tag, so it has no tasks. |
 | not inside a tmux session | Fall back to `niritasks tag`, and **say so**: the tag is focus-derived, so ask the user not to switch workspace mid-run. |
 | the session matches no named workspace | The workspace was renamed since this terminal opened. Ask which project the list belongs to rather than picking one. |
 
