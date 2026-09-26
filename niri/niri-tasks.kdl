@@ -61,10 +61,18 @@ binds {
     // Rename the current workspace — and with it, which tag its tasks carry.
     Mod+Alt+Ctrl+W hotkey-overlay-title="Rename Workspace" { spawn "niritasks" "workspace" "rename"; }
 
+    // A terminal in the focused workspace's project folder, ~/Projects/<name>
+    // (or ~/Projects when there is no such folder). This replaces the plain
+    // `spawn "ghostty"` a config.kdl without niri-tasks falls back on: includes
+    // are positional, so this later bind of the same key wins.
+    Mod+Return hotkey-overlay-title="Open Terminal" { spawn "niritasks" "terminal"; }
+
     // Pick a folder from ~/Projects, put it on its own named workspace, and
-    // open a terminal on its own herdr session (`herdr --session <project>`)
-    // and VS Code in it. The editor is skipped when `code` is
-    // not on $PATH — it is a nicety here, not a requirement.
+    // open a terminal on that workspace's herdr session
+    // (`herdr --session <workspace>`) and VS Code in it. herdr reattaches the
+    // session if it exists and creates it in the project folder if not. The
+    // editor is skipped when `code` is not on $PATH — it is a nicety here, not
+    // a requirement.
     Mod+Alt+P hotkey-overlay-title="Open Project Workspace" { spawn "niritasks" "project" "open"; }
 
     // Taskwarrior, scoped to the current workspace's name as a tag.

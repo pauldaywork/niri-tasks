@@ -35,8 +35,9 @@ task "+$(niritasks tag --session)" status:pending export  # the tasks, as JSON
 focused *right now*", which is the right answer for a keybind and the wrong one
 for you: a run takes minutes, the user switches workspace while it goes, and the
 tag moves with them — so the findings get filed onto whatever project they
-happened to be reading. `--session` takes the workspace from the tmux session
-this terminal was opened on, which does not move.
+happened to be reading. `--session` takes the workspace from the herdr session
+this terminal runs in — or, outside a named herdr session, from the
+`~/Projects/<workspace>` folder it is in — neither of which moves.
 
 It fails, rather than guessing, in three cases, and each wants a different thing
 from you:
@@ -44,8 +45,8 @@ from you:
 | It says | What to do |
 |---|---|
 | the workspace has no name | Stop. Tell the user to name it with `Mod+Alt+Ctrl+W` — an unnamed workspace has no tag, so it has no tasks. |
-| not inside a tmux session | Fall back to `niritasks tag`, and **say so**: the tag is focus-derived, so ask the user not to switch workspace mid-run. |
-| the session matches no named workspace | The workspace was renamed since this terminal opened. Ask which project the list belongs to rather than picking one. |
+| not in a named herdr session or a ~/Projects folder | Fall back to `niritasks tag`, and **say so**: the tag is focus-derived, so ask the user not to switch workspace mid-run. |
+| the session (or folder) matches no named workspace | The workspace was renamed since this terminal opened. Ask which project the list belongs to rather than picking one. |
 
 **Write the tag down and reuse that value for the rest of the run** either way.
 That is belt and braces with `--session`, and the only thing keeping the

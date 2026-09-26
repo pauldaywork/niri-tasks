@@ -1,98 +1,94 @@
-//! tmux session naming and project-folder resolution.
+//! Which folder a workspace's terminals start in, and which herdr session a
+//! workspace's project terminal attaches to.
 //!
-//! Ported from `tmux-niri-session.sh`, which ghostty runs as its `command =`.
-//! Two details there are easy to lose and are pinned by tests below:
+//! Two rules, and the inverse of each, because `niritasks tag --session` has
+//! to get from a terminal back to the workspace it was opened for:
 //!
-//! * The *sanitised* name is used for the tmux session, but the **raw** name is
-//!   used for the directory lookup. A workspace called "my project" looks for
-//!   `~/Projects/my project` while running in session `my_project_1`.
-//! * `tr -c 'A-Za-z0-9_-' '_'` replaces each disallowed character individually.
-//!   It does **not** collapse runs, unlike `workspace_tag`. Two spaces become
-//!   two underscores.
+//! * **Folder**: a workspace named "hansard-votes" works in
+//!   `~/Projects/hansard-votes` ([`start_dir`]). Inverse: [`project_from_cwd`].
+//! * **Session**: its project terminal runs `herdr --session <name>`, with the
+//!   name made safe for herdr ([`herdr_session_name`]). Inverse:
+//!   [`workspace_for_session`], fed by [`session_from_env`].
+//!
+//! The folder uses the *raw* workspace name and the session the sanitised one.
+//! A workspace called "my project" looks in `~/Projects/my project` while
+//! running in session `my_project`.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
-/// Sanitise a workspace name for use as a tmux session name.
+/// herdr refuses session names longer than this (herdr `src/session.rs`,
+/// `MAX_SESSION_NAME_LEN`).
+pub const SESSION_NAME_MAX: usize = 64;
+
+/// The herdr session a workspace's project terminal attaches to.
 ///
-/// Per-character replacement, deliberately not run-collapsing — see module docs.
-pub fn sanitize_session_name(name: &str) -> String {
-    name.chars()
+/// herdr only accepts `[A-Za-z0-9._-]`, at most 64 bytes, and not `.` or `..`;
+/// anything else makes `herdr --session` exit 2 before it draws a thing. And
+/// `default` is not a name at all to herdr — it means the unnamed default
+/// session. So each disallowed character becomes `_` (per character, not
+/// run-collapsing, case kept), the result is cut to 64, and the three names
+/// herdr treats specially get a `ws-` prefix.
+pub fn herdr_session_name(workspace: &str) -> String {
+    let mut name: String = workspace
+        .chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
                 c
             } else {
                 '_'
             }
         })
-        .collect()
-}
-
-/// The separator between the workspace name and the number.
-///
-/// It exists because the shell version produced one by accident: it ran
-/// `echo "$ws" | tr -c 'A-Za-z0-9_-' '_'`, and `echo` appends a newline, which
-/// is not in the allowed set, so it became a trailing underscore. Every session
-/// on this machine is named that way — `ubuntu-setup_1`, `keystone_2`.
-///
-/// Reproducing an accident sounds like the wrong call, but `tmux new-session -A`
-/// treats the name as the identity: dropping the underscore would not rename
-/// those sessions, it would create a second parallel set beside them and stop
-/// the shortcut ever reattaching to the ones you have open. So it is a real
-/// separator now, written down rather than emerging from a newline.
-const SEPARATOR: &str = "_";
-
-/// Pick the smallest unused numeric suffix for a session name, given a
-/// predicate that reports whether a session already exists.
-pub fn next_session_name(base: &str, exists: impl Fn(&str) -> bool) -> String {
-    let mut n = 1u32;
-    loop {
-        let candidate = format!("{base}{SEPARATOR}{n}");
-        if !exists(&candidate) {
-            return candidate;
-        }
-        n += 1;
+        .collect();
+    // Every char is ASCII by now, so truncating at a byte count cannot split one.
+    name.truncate(SESSION_NAME_MAX);
+    if matches!(name.as_str(), "" | "." | ".." | "default") {
+        name = format!("ws-{name}");
     }
+    name
 }
 
-/// Strip the numeric suffix off a session name: `niri-tasks_1` -> `niri-tasks`.
-///
-/// The inverse of what [`next_session_name`] appended, and only that — a
-/// workspace genuinely called "phase_1" produces the session `phase_1_1`, so
-/// only the last `_<digits>` group comes off.
-pub fn session_base(session: &str) -> &str {
-    let Some((base, suffix)) = session.rsplit_once(SEPARATOR) else {
-        return session;
-    };
-    if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
-        base
-    } else {
-        session
-    }
-}
-
-/// Which of `workspaces` this tmux session was opened on.
+/// Which of `workspaces` this herdr session was opened for.
 ///
 /// The session name is a *lossy* rendering of the workspace name — spaces and
-/// dots both became underscores — so it cannot simply be unfolded. Matching
-/// each live workspace name through the same sanitiser instead recovers the
+/// slashes both became underscores — so it cannot simply be unfolded. Matching
+/// each live workspace name through the same rule instead recovers the
 /// original exactly, and answers `None` when the workspace it named is gone or
 /// has since been renamed.
 pub fn workspace_for_session<'a>(session: &str, workspaces: &'a [String]) -> Option<&'a String> {
-    let base = session_base(session);
     workspaces
         .iter()
-        .find(|name| sanitize_session_name(name) == base)
+        .find(|name| herdr_session_name(name) == session)
 }
 
-/// Where a new tmux session should start.
+/// The herdr session this process is running in, from the environment herdr
+/// gives its panes.
+///
+/// `HERDR_SESSION` carries the name. herdr's client sets it and its server,
+/// and so every pane, inherits it — but only for a named session: the default
+/// session removes it, and there is no name to recover then. `HERDR_SOCKET_PATH`
+/// is the backup, `<config>/sessions/<name>/herdr.sock` for a named session and
+/// `<config>/herdr.sock` for the default one. Passed in rather than read here
+/// so the tests need not touch the real environment.
+pub fn session_from_env(herdr_session: Option<&str>, socket_path: Option<&str>) -> Option<String> {
+    if let Some(name) = herdr_session.filter(|s| !s.is_empty()) {
+        return Some(name.to_string());
+    }
+    let dir = Path::new(socket_path?).parent()?;
+    let is_named = dir.parent()?.file_name()? == "sessions";
+    is_named.then(|| dir.file_name()?.to_str().map(str::to_string)).flatten()
+}
+
+/// Where a workspace's terminals start.
 ///
 /// `~/Projects/<workspace>` -> `~/Projects` -> `~`. Uses the *raw* workspace
-/// name, not the sanitised one.
+/// name, not the sanitised one. Always an existing directory, which
+/// `ghostty +new-window` needs: it resolves the path before asking the running
+/// ghostty for a window, and fails outright on one that is not there.
 pub fn start_dir(home: &Path, workspace_raw: &str) -> PathBuf {
     let projects = home.join("Projects");
 
     let in_project = projects.join(workspace_raw);
-    if in_project.is_dir() {
+    if !workspace_raw.is_empty() && in_project.is_dir() {
         return in_project;
     }
     if projects.is_dir() {
@@ -101,88 +97,69 @@ pub fn start_dir(home: &Path, workspace_raw: &str) -> PathBuf {
     home.to_path_buf()
 }
 
+/// The project folder `cwd` is inside, if it is inside one: the first path
+/// component under `~/Projects`. [`start_dir`] run backwards.
+pub fn project_from_cwd(home: &Path, cwd: &Path) -> Option<String> {
+    let rest = cwd.strip_prefix(home.join("Projects")).ok()?;
+    match rest.components().next()? {
+        Component::Normal(name) => name.to_str().map(str::to_string),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
 
     #[test]
-    fn sanitizes_characters_tmux_dislikes() {
-        assert_eq!(sanitize_session_name("my:project"), "my_project");
-        assert_eq!(sanitize_session_name("my.project"), "my_project");
-        assert_eq!(sanitize_session_name("my project"), "my_project");
+    fn a_plain_workspace_name_is_its_own_session_name() {
+        assert_eq!(herdr_session_name("niri-tasks"), "niri-tasks");
+        assert_eq!(herdr_session_name("my_project"), "my_project");
+        assert_eq!(herdr_session_name("v1.2"), "v1.2", "herdr allows dots");
+        assert_eq!(herdr_session_name("MyProject"), "MyProject", "case is kept");
     }
 
     #[test]
-    fn keeps_dashes_and_underscores_unlike_the_tag_rule() {
-        // workspace_tag() would turn the dash into an underscore; this must not.
-        assert_eq!(sanitize_session_name("ubuntu-setup"), "ubuntu-setup");
-        assert_eq!(sanitize_session_name("my_project"), "my_project");
+    fn characters_herdr_rejects_become_underscores_one_for_one() {
+        assert_eq!(herdr_session_name("my project"), "my_project");
+        assert_eq!(herdr_session_name("a  b"), "a__b", "runs are not collapsed");
+        assert_eq!(herdr_session_name("a/b:c"), "a_b_c");
+        assert_eq!(herdr_session_name("café"), "caf_", "non-ASCII is one char, one underscore");
     }
 
     #[test]
-    fn does_not_collapse_runs() {
-        // The contrast with workspace_tag(), which would give "a_b".
-        assert_eq!(sanitize_session_name("a  b"), "a__b");
-        assert_eq!(sanitize_session_name("a...b"), "a___b");
+    fn long_names_are_cut_to_what_herdr_accepts() {
+        let long = "x".repeat(100);
+        assert_eq!(herdr_session_name(&long).len(), SESSION_NAME_MAX);
+        let unicode = "é".repeat(100);
+        assert_eq!(herdr_session_name(&unicode).len(), SESSION_NAME_MAX);
     }
 
     #[test]
-    fn preserves_case_unlike_the_tag_rule() {
-        assert_eq!(sanitize_session_name("MyProject"), "MyProject");
+    fn names_herdr_treats_specially_are_prefixed() {
+        assert_eq!(herdr_session_name("default"), "ws-default");
+        assert_eq!(herdr_session_name("."), "ws-.");
+        assert_eq!(herdr_session_name(".."), "ws-..");
+        assert_eq!(herdr_session_name(""), "ws-");
+        // Only the exact names: these are ordinary.
+        assert_eq!(herdr_session_name("Default"), "Default");
+        assert_eq!(herdr_session_name("defaults"), "defaults");
     }
 
-    #[test]
-    fn first_session_gets_suffix_one() {
-        assert_eq!(next_session_name("work", |_| false), "work_1");
-    }
-
-    #[test]
-    fn finds_the_smallest_unused_suffix() {
-        let taken: HashSet<&str> = ["work_1", "work_2", "work_4"].into_iter().collect();
-        assert_eq!(
-            next_session_name("work", |s| taken.contains(s)),
-            "work_3",
-            "should fill the gap at 3, not jump past 4"
-        );
-    }
-
-    #[test]
-    fn session_base_strips_only_the_number_it_added() {
-        assert_eq!(session_base("niri-tasks_1"), "niri-tasks");
-        assert_eq!(session_base("keystone_42"), "keystone");
-        // A workspace whose own name ends in _1 keeps it: the session was
-        // "phase_1" + "_" + "1".
-        assert_eq!(session_base("phase_1_1"), "phase_1");
-        // Nothing that is not a trailing number comes off.
-        assert_eq!(session_base("my_project"), "my_project");
-        assert_eq!(session_base("plain"), "plain");
-        assert_eq!(session_base("trailing_"), "trailing_");
-    }
-
-    /// The session name cannot be unfolded — "a  b" and "a__b" both sanitise to
-    /// "a__b" — so the live workspace names are run through the same sanitiser
-    /// and compared, which recovers the original exactly.
+    /// The session name cannot be unfolded — "a  b" and "a__b" both become
+    /// "a__b" — so the live workspace names are run through the same rule and
+    /// compared, which recovers the original.
     #[test]
     fn a_session_finds_the_workspace_that_named_it() {
-        let workspaces: Vec<String> = ["niri-tasks", "a  b", "My Project"]
+        let workspaces: Vec<String> = ["niri-tasks", "a  b", "My Project", "default"]
             .iter()
             .map(|s| s.to_string())
             .collect();
 
-        assert_eq!(
-            workspace_for_session("niri-tasks_1", &workspaces),
-            Some(&"niri-tasks".to_string())
-        );
-        assert_eq!(
-            workspace_for_session("a__b_2", &workspaces),
-            Some(&"a  b".to_string()),
-            "the lossy rendering is resolved by matching, not by unfolding"
-        );
-        assert_eq!(
-            workspace_for_session("My_Project_1", &workspaces),
-            Some(&"My Project".to_string())
-        );
+        assert_eq!(workspace_for_session("niri-tasks", &workspaces), Some(&workspaces[0]));
+        assert_eq!(workspace_for_session("a__b", &workspaces), Some(&workspaces[1]));
+        assert_eq!(workspace_for_session("My_Project", &workspaces), Some(&workspaces[2]));
+        assert_eq!(workspace_for_session("ws-default", &workspaces), Some(&workspaces[3]));
     }
 
     /// A session whose workspace was renamed or closed matches nothing, rather
@@ -190,7 +167,35 @@ mod tests {
     #[test]
     fn a_session_with_no_live_workspace_matches_nothing() {
         let workspaces = vec!["niri-tasks".to_string()];
-        assert_eq!(workspace_for_session("old-name_1", &workspaces), None);
+        assert_eq!(workspace_for_session("old-name", &workspaces), None);
+        assert_eq!(workspace_for_session("niri", &workspaces), None, "no prefix matching");
+    }
+
+    #[test]
+    fn herdr_session_comes_from_herdr_session_first() {
+        assert_eq!(
+            session_from_env(Some("alpha"), Some("/h/.config/herdr/sessions/beta/herdr.sock")),
+            Some("alpha".to_string())
+        );
+    }
+
+    #[test]
+    fn socket_path_is_the_backup_for_a_named_session() {
+        assert_eq!(
+            session_from_env(None, Some("/h/.config/herdr/sessions/beta/herdr.sock")),
+            Some("beta".to_string())
+        );
+        assert_eq!(
+            session_from_env(Some(""), Some("/h/.config/herdr/sessions/beta/herdr.sock")),
+            Some("beta".to_string()),
+            "an empty HERDR_SESSION is no name"
+        );
+    }
+
+    #[test]
+    fn the_default_session_and_no_herdr_have_no_session() {
+        assert_eq!(session_from_env(None, Some("/h/.config/herdr/herdr.sock")), None);
+        assert_eq!(session_from_env(None, None), None);
     }
 
     #[test]
@@ -199,11 +204,14 @@ mod tests {
         let home = tmp.join("home");
         let projects = home.join("Projects");
         std::fs::create_dir_all(projects.join("alpha")).unwrap();
+        std::fs::create_dir_all(projects.join("my project")).unwrap();
 
-        // Exact project folder wins.
+        // Exact project folder wins, by its raw name.
         assert_eq!(start_dir(&home, "alpha"), projects.join("alpha"));
-        // Unknown project falls back to ~/Projects.
+        assert_eq!(start_dir(&home, "my project"), projects.join("my project"));
+        // Unknown project, or an unnamed workspace, falls back to ~/Projects.
         assert_eq!(start_dir(&home, "nope"), projects);
+        assert_eq!(start_dir(&home, ""), projects);
 
         // Without ~/Projects at all, fall back to home.
         let bare = tmp.join("bare");
@@ -213,23 +221,23 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    /// The raw name is used for the directory even when it needs sanitising for
-    /// the session name — the pairing that makes `open_project_workspace.sh`
-    /// land you in the right folder.
     #[test]
-    fn directory_uses_raw_name_while_session_uses_sanitized() {
-        let tmp = std::env::temp_dir().join(format!("niritasks-raw-test-{}", std::process::id()));
-        let projects = tmp.join("Projects");
-        std::fs::create_dir_all(projects.join("my project")).unwrap();
-
-        assert_eq!(start_dir(&tmp, "my project"), projects.join("my project"));
-        assert_eq!(sanitize_session_name("my project"), "my_project");
-        // ...and the full name the shell version would have produced.
+    fn project_from_cwd_is_the_folder_under_projects() {
+        let home = Path::new("/home/x");
         assert_eq!(
-            next_session_name(&sanitize_session_name("my project"), |_| false),
-            "my_project_1"
+            project_from_cwd(home, Path::new("/home/x/Projects/alpha")),
+            Some("alpha".to_string())
         );
-
-        std::fs::remove_dir_all(&tmp).ok();
+        assert_eq!(
+            project_from_cwd(home, Path::new("/home/x/Projects/alpha/src/deep")),
+            Some("alpha".to_string())
+        );
+        assert_eq!(
+            project_from_cwd(home, Path::new("/home/x/Projects/my project")),
+            Some("my project".to_string())
+        );
+        assert_eq!(project_from_cwd(home, Path::new("/home/x/Projects")), None);
+        assert_eq!(project_from_cwd(home, Path::new("/home/x")), None);
+        assert_eq!(project_from_cwd(home, Path::new("/tmp/alpha")), None);
     }
 }

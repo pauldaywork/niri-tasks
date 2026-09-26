@@ -1,35 +1,41 @@
 #!/usr/bin/env bash
-# End-to-end test of `niritasks tag --session`: tmux session -> workspace -> tag.
+# End-to-end test of `niritasks tag --session`: herdr session or project
+# folder -> workspace -> tag.
 #
 #   bash tests/e2e-tag.sh
 #
 # Not a cargo test, and cannot be, for the same reason as tests/e2e-box.sh: it
-# needs a running niri to ask for workspaces and a running tmux server to make
-# sessions in. `cargo test` covers the pure halves — session_base and
-# workspace_for_session — and they were all that was covered before this file.
-# The parts only a live system exercises are the two ends: whether a command
-# inside a session can find out which session it is in, and whether the name it
-# finds still matches a workspace niri will admit to having.
+# needs a running niri to ask for workspaces. `cargo test` covers the pure
+# halves — session_from_env, workspace_for_session, project_from_cwd — and this
+# covers the join: whether the name the binary finds still matches a workspace
+# niri will admit to having.
 #
 # What it is really pinning is the property the flag exists for: the tag comes
 # from the terminal, not from the focus. That is invisible to a unit test —
 # both halves can be right while the command still answers "whatever workspace
 # you are looking at", which is the bug the flag was added to avoid.
 #
-# It makes tmux sessions named after real workspaces, always with a suffix well
-# clear of the ones you have open (_91 and up), and kills only those. Nothing
-# here writes to the task database at all.
+# It does not start herdr. The session is handed over exactly the way herdr
+# hands it to a pane — HERDR_SESSION, with HERDR_SOCKET_PATH as the backup —
+# so no session of yours is attached to, created or stopped. That herdr really
+# does put HERDR_SESSION in its panes is the one thing only a live pane shows:
+#   tr '\0' '\n' </proc/<pane shell pid>/environ | grep HERDR_
+# The folder cases run with a throwaway $HOME, so they need no real folder
+# either. Nothing here writes to the task database at all.
 #
 # It needs two named workspaces to show the contrast, and will borrow niri's
 # trailing empty workspace as the second one when there is only ever a single
 # project open — naming it without focusing it, and unnaming it on the way out.
 set -uo pipefail
 
-command -v tmux >/dev/null || { echo "tmux is required" >&2; exit 1; }
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
 [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)" >&2; exit 1; }
 
 NIRITASKS="${NIRITASKS:-niritasks}"
+# Absolute, because the folder cases run from other directories and a relative
+# NIRITASKS=./target/debug/niritasks would stop resolving there.
+NIRITASKS=$(realpath "$(command -v "$NIRITASKS")" 2>/dev/null) \
+    || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS=" >&2; exit 1; }
 
 pass=0; fail=0
 ok()  { echo "  PASS  $*"; pass=$((pass+1)); }
@@ -51,8 +57,10 @@ print(focused, other)
 # and take the name off again on the way out. It is named without being focused
 # — moving focus would change the very thing under test.
 SCRATCH=""
+FAKE_HOME=""
 cleanup() {
     [ -n "$SCRATCH" ] && niri msg action unset-workspace-name "$SCRATCH" >/dev/null 2>&1
+    [ -n "$FAKE_HOME" ] && rm -rf "$FAKE_HOME"
 }
 # INT and TERM as well as EXIT: interrupting a run must not leave a workspace
 # named after this test sitting in the switcher.
@@ -103,42 +111,35 @@ name = sys.argv[1].lower()
 print(re.sub(r'_+\$', '', re.sub(r'^_+', '', re.sub(r'[^a-z0-9_]+', '_', name))))
 " "$1"
 }
-# The tmux session name for a workspace, mirroring src/session.rs: per
-# character, not run-collapsing, case kept.
+# The herdr session name for a workspace, mirroring src/session.rs: per
+# character, not run-collapsing, case kept, cut to 64, reserved names prefixed.
 session_of() {
     python3 -c "
 import re,sys
-print(re.sub(r'[^A-Za-z0-9_-]', '_', sys.argv[1]))
+s = re.sub(r'[^A-Za-z0-9._-]', '_', sys.argv[1])[:64]
+print('ws-' + s if s in ('', '.', '..', 'default') else s)
 " "$1"
 }
 
-# Run `niritasks tag --session` inside a throwaway session of the given name, and put
-# its output in TAG_OUT and its exit status in TAG_RC.
-#
-# '=' before the name is tmux's exact-match syntax. Without it a target can
-# prefix-match, and these names sit next to the real sessions of the same
-# workspaces — killing one of those would close whatever you had running in it.
-tag_in_session() {
-    local name="$1" out rc
-    out=$(mktemp); rc=$(mktemp)
-    tmux kill-session -t "=$name" 2>/dev/null
-    tmux new-session -d -s "$name" "$NIRITASKS tag --session >$out 2>&1; echo \$? >$rc"
-    for _ in $(seq 1 60); do [ -s "$rc" ] && break; sleep 0.1; done
-    tmux kill-session -t "=$name" 2>/dev/null
-    TAG_OUT=$(cat "$out"); TAG_RC=$(cat "$rc" 2>/dev/null || echo 99)
-    rm -f "$out" "$rc"
+# Run `niritasks tag --session` with a clean slate of herdr variables plus the
+# given assignments, from the current directory. Output in TAG_OUT, status in
+# TAG_RC. The -u's matter: this test may itself be running inside a herdr pane,
+# and an inherited HERDR_SESSION would answer every case the same way.
+tag_with() {
+    TAG_OUT=$(env -u HERDR_SESSION -u HERDR_SOCKET_PATH "$@" "$NIRITASKS" tag --session 2>&1)
+    TAG_RC=$?
 }
 
 echo "focused workspace: $FOCUSED   other: $OTHER"
 expected=$(tag_of "$OTHER")
-base=$(session_of "$OTHER")
+session=$(session_of "$OTHER")
 
 # ─── the property the flag exists for ─────────────────────────────────────────
 # A session named after the workspace that is *not* focused must answer with
 # that workspace, while the focus-derived answer stays on the focused one.
-tag_in_session "${base}_91"
+tag_with HERDR_SESSION="$session"
 if [ "$TAG_RC" -eq 0 ] && [ "$TAG_OUT" = "$expected" ]; then
-    ok "--session answers with the session's workspace ($TAG_OUT)"
+    ok "--session answers with the herdr session's workspace ($TAG_OUT)"
 else
     bad "expected '$expected' (rc 0), got '$TAG_OUT' (rc $TAG_RC)"
 fi
@@ -153,17 +154,23 @@ fi
     && ok "the two disagree, which is the whole point of the flag" \
     || bad "both answers were '$TAG_OUT' — this test proves nothing as set up"
 
-# ─── the suffix is stripped, whatever it is ───────────────────────────────────
-tag_in_session "${base}_4242"
-[ "$TAG_OUT" = "$expected" ] && ok "a multi-digit session suffix is stripped" \
-    || bad "suffix _4242: expected '$expected', got '$TAG_OUT'"
+# ─── the socket path is the backup ────────────────────────────────────────────
+tag_with HERDR_SOCKET_PATH="/nonexistent/herdr/sessions/$session/herdr.sock"
+[ "$TAG_OUT" = "$expected" ] && ok "without HERDR_SESSION, the socket path names the session" \
+    || bad "socket path: expected '$expected', got '$TAG_OUT' (rc $TAG_RC)"
 
-tag_in_session "$base"
-[ "$TAG_OUT" = "$expected" ] && ok "a session with no numeric suffix resolves too" \
-    || bad "no suffix: expected '$expected', got '$TAG_OUT'"
+# ─── the project folder, when there is no named session ───────────────────────
+FAKE_HOME=$(mktemp -d)
+mkdir -p "$FAKE_HOME/Projects/$OTHER/src"
+# The default herdr session has no name, so it falls through to the folder.
+pushd "$FAKE_HOME/Projects/$OTHER/src" >/dev/null
+tag_with HOME="$FAKE_HOME" HERDR_SOCKET_PATH="/nonexistent/herdr/herdr.sock"
+popd >/dev/null
+[ "$TAG_OUT" = "$expected" ] && ok "in ~/Projects/<workspace>/…, the folder names the workspace" \
+    || bad "folder: expected '$expected', got '$TAG_OUT' (rc $TAG_RC)"
 
 # ─── the failure cases, which must fail rather than guess ─────────────────────
-tag_in_session "zzz-no-such-workspace_91"
+tag_with HERDR_SESSION="zzz-no-such-workspace"
 if [ "$TAG_RC" -ne 0 ]; then
     ok "a session matching no workspace exits non-zero"
     case "$TAG_OUT" in
@@ -175,17 +182,29 @@ else
     bad "a session matching no workspace was resolved anyway: '$TAG_OUT'"
 fi
 
-# Outside tmux there is no terminal to take a workspace from. env -u is what
-# makes this honest: the check is on $TMUX, and this test runs inside one.
-outside=$(env -u TMUX "$NIRITASKS" tag --session 2>&1); rc=$?
+# A renamed workspace must not be rescued by the folder: that answer would look
+# right and be wrong.
+pushd "$FAKE_HOME/Projects/$OTHER" >/dev/null
+tag_with HOME="$FAKE_HOME" HERDR_SESSION="zzz-no-such-workspace"
+popd >/dev/null
+case "$TAG_RC:$TAG_OUT" in
+    0:*) bad "an unmatched session was rescued by the folder: '$TAG_OUT'" ;;
+    *"does not match any named workspace"*)
+         ok "an unmatched session does not fall back to the folder" ;;
+    *)   bad "an unmatched session failed for the wrong reason: $TAG_OUT" ;;
+esac
+
+# Neither a named session nor a project folder: nothing to take a workspace
+# from, so it must say so rather than fall back to focus.
+outside=$(cd / && env -u HERDR_SESSION -u HERDR_SOCKET_PATH "$NIRITASKS" tag --session 2>&1); rc=$?
 if [ "$rc" -ne 0 ]; then
-    ok "outside tmux it exits non-zero rather than falling back to focus"
+    ok "outside herdr and ~/Projects it exits non-zero rather than falling back to focus"
     case "$outside" in
-        *tmux*) ok "and says tmux is why" ;;
-        *)      bad "message does not mention tmux: $outside" ;;
+        *"herdr session"*) ok "and says why" ;;
+        *)                 bad "message does not explain: $outside" ;;
     esac
 else
-    bad "outside tmux it answered '$outside' — a focus fallback the skill would trust"
+    bad "outside herdr and ~/Projects it answered '$outside' — a focus fallback the skill would trust"
 fi
 
 echo

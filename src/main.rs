@@ -35,9 +35,10 @@ struct Cli {
 enum Command {
     /// Print the workspace's task tag, or exit 1 if it has none
     Tag {
-        /// Take the workspace from this terminal's tmux session rather than
-        /// from whatever is focused. For anything long-running: focus moves,
-        /// the terminal's own workspace does not.
+        /// Take the workspace from this terminal's herdr session, or failing
+        /// that its ~/Projects folder, rather than from whatever is focused.
+        /// For anything long-running: focus moves, the terminal's own workspace
+        /// does not.
         #[arg(long)]
         session: bool,
     },
@@ -54,8 +55,8 @@ enum Command {
     #[command(subcommand)]
     Project(ProjectCommand),
 
-    /// Open a tmux session named after the focused workspace (ghostty's `command =`)
-    TmuxSession,
+    /// Open a terminal in the focused workspace's ~/Projects folder (Mod+Return)
+    Terminal,
 
     /// Run the active-task overlay (long-running; started by a systemd user unit)
     Daemon,
@@ -125,7 +126,7 @@ fn run() -> Result<()> {
         Command::Task(c) => return task_command(c),
         Command::Workspace(c) => return workspace_command(c),
         Command::Project(ProjectCommand::Open) => return project_open(),
-        Command::TmuxSession => return tmux_session(),
+        Command::Terminal => return terminal(),
         Command::Daemon => return niri_tasks::overlay::run(),
     }
     Ok(())
@@ -503,7 +504,7 @@ fn project_open() -> Result<()> {
         let id = ws.id;
         niri::focus_workspace(WorkspaceReferenceArg::Name(name.clone()))?;
         if niri::window_count(id)? == 0 {
-            spawn_startup(&dir)?;
+            spawn_startup(&dir, &name)?;
         }
     } else {
         let focused = all.iter().find(|w| w.is_focused).context("no focused workspace")?;
@@ -512,50 +513,39 @@ fn project_open() -> Result<()> {
 
         niri::focus_workspace(WorkspaceReferenceArg::Index(last))?;
         niri::set_workspace_name(&name, None)?;
-        spawn_startup(&dir)?;
+        spawn_startup(&dir, &name)?;
     }
     Ok(())
 }
 
-/// Start a project workspace's programs — terminal, and editor if installed.
+/// Start a project workspace's programs — its herdr session's terminal, and
+/// the editor if installed.
 ///
 /// The name is set before this runs, which is what puts the windows on the
 /// right workspace: niri spawns onto whatever is focused.
-fn spawn_startup(dir: &std::path::Path) -> Result<()> {
-    for command in project::startup_commands(dir) {
+fn spawn_startup(dir: &std::path::Path, workspace: &str) -> Result<()> {
+    for command in project::startup_commands(dir, workspace) {
         niri::spawn(command)?;
     }
     Ok(())
 }
 
-fn tmux_session() -> Result<()> {
-    use std::os::unix::process::CommandExt;
-
+/// A terminal in the focused workspace's project folder.
+///
+/// Run directly rather than through niri's spawn, so a failure — no ghostty,
+/// D-Bus refusing the window — comes back here and is reported, instead of
+/// the key doing nothing. The window still lands on the focused workspace:
+/// the running ghostty makes it, and niri places new windows by focus.
+fn terminal() -> Result<()> {
     let home = std::env::var("HOME").context("HOME is unset")?;
+    let workspace = niri::focused_workspace_name()?.unwrap_or_default();
+    let dir = session::start_dir(std::path::Path::new(&home), &workspace);
 
-    // Fall back to the workspace index when unnamed, then to "unknown".
-    let raw = match niri::focused_workspace()? {
-        Some(ws) => ws.name.unwrap_or_else(|| ws.idx.to_string()),
-        None => "unknown".to_string(),
-    };
-
-    let base = session::sanitize_session_name(&raw);
-    let name = session::next_session_name(&base, |candidate| {
-        std::process::Command::new("tmux")
-            .args(["has-session", "-t", candidate])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    });
-
-    let dir = session::start_dir(std::path::Path::new(&home), &raw);
-
-    // exec, so ghostty's child is tmux itself rather than a shell wrapping it.
-    Err(std::process::Command::new("tmux")
-        .args(["new-session", "-A", "-s", &name, "-c"])
-        .arg(&dir)
-        .exec())
-    .context("could not exec tmux")
+    let cmd = project::terminal_command(&dir);
+    let status = std::process::Command::new(&cmd[0])
+        .args(&cmd[1..])
+        .status()
+        .with_context(|| format!("could not run {}", cmd[0]))?;
+    anyhow::ensure!(status.success(), "{} failed to open a window ({status})", cmd.join(" "));
+    Ok(())
 }

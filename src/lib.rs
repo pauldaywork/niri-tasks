@@ -19,6 +19,7 @@ pub mod text;
 pub mod theme;
 
 use anyhow::{Context, Result};
+use std::path::Path;
 
 /// The focused workspace's task tag.
 ///
@@ -49,24 +50,47 @@ pub fn require_workspace_tag() -> Result<String> {
 /// while it runs and the focused answer moves with you, so work started on one
 /// project finishes filing tasks onto another.
 ///
-/// The anchor is the tmux session, because `niritasks tmux-session` names it after the
-/// workspace the terminal was opened on and that name does not move.
+/// Two anchors, both of which were fixed when the terminal opened and do not
+/// move with the focus:
+///
+/// 1. The herdr session. `niritasks project open` names it after the
+///    workspace, and herdr hands the name to every pane in it.
+/// 2. Failing that, the project folder the shell is in. A terminal opened with
+///    `niritasks terminal` starts in `~/Projects/<workspace>`, so the folder
+///    names the workspace the same way the session does.
+///
+/// A named herdr session that matches no workspace is an error rather than a
+/// reason to try the folder: it means the workspace was renamed, and the
+/// folder would only give a plausible-looking guess.
 ///
 /// The obvious alternative — walk this process's parents to the niri window
-/// running it and read *its* workspace — does not survive contact with either
-/// half of this setup. tmux breaks the chain (the shell's parent is the tmux
-/// *server*, which belongs to no window), and ghostty is one process for every
-/// window it draws, so even unbroken the pid identifies the application rather
-/// than the terminal you are typing in.
+/// running it and read *its* workspace — does not survive contact with this
+/// setup. herdr breaks the chain (the shell's parent is the herdr *server*,
+/// which belongs to no window), and ghostty is one process for every window it
+/// draws, so even unbroken the pid identifies the application rather than the
+/// terminal you are typing in.
 pub fn session_workspace_tag() -> Result<String> {
-    let session = tmux_session().context(
-        "not inside a tmux session, so there is no terminal to take the workspace from",
-    )?;
-
     let names: Vec<String> = niri::workspaces()?.into_iter().filter_map(|w| w.name).collect();
-    let workspace = session::workspace_for_session(&session, &names).with_context(|| {
-        format!("tmux session '{session}' does not match any named workspace — it may have been renamed since this terminal was opened")
-    })?;
+
+    let herdr = session::session_from_env(
+        std::env::var("HERDR_SESSION").ok().as_deref(),
+        std::env::var("HERDR_SOCKET_PATH").ok().as_deref(),
+    );
+    let workspace = match herdr {
+        Some(s) => session::workspace_for_session(&s, &names).with_context(|| {
+            format!("herdr session '{s}' does not match any named workspace — it may have been renamed since this terminal was opened")
+        })?,
+        None => {
+            let home = std::env::var("HOME").context("HOME is unset")?;
+            let cwd = std::env::current_dir().context("cannot read the current directory")?;
+            let project = session::project_from_cwd(Path::new(&home), &cwd).context(
+                "not in a named herdr session or a ~/Projects folder, so there is no terminal to take the workspace from",
+            )?;
+            names.iter().find(|n| **n == project).with_context(|| {
+                format!("folder ~/Projects/{project} does not match any named workspace")
+            })?
+        }
+    };
 
     let t = tag::workspace_tag(workspace);
     anyhow::ensure!(
@@ -74,19 +98,6 @@ pub fn session_workspace_tag() -> Result<String> {
         "Workspace name '{workspace}' has no usable tag characters."
     );
     Ok(t)
-}
-
-/// This shell's tmux session name, or `None` outside tmux.
-fn tmux_session() -> Option<String> {
-    // $TMUX is set inside a session; asking tmux itself then resolves which
-    // one, without this having to parse the socket path.
-    std::env::var_os("TMUX")?;
-    let out = std::process::Command::new("tmux")
-        .args(["display-message", "-p", "#S"])
-        .output()
-        .ok()?;
-    let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (out.status.success() && !name.is_empty()).then_some(name)
 }
 
 /// Name workspace 1 if it has no name.

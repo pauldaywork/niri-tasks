@@ -4,7 +4,7 @@
 #   bash tests/all.sh
 #
 # There are four suites and they do not have the same prerequisites: one needs
-# only cargo and taskwarrior, one needs a tmux server, one needs Pillow and a
+# only cargo and taskwarrior, one needs niri, one needs Pillow and a
 # compositor that will take screenshots, one needs wtype and a Wayland display.
 # A machine missing any of them is the normal case — an SSH session has no
 # Wayland display, a fresh checkout has no wtype — and that is the whole reason
@@ -23,7 +23,7 @@
 # silent, and the right way round for a mistake like that to land.
 #
 # They run in order of how much they take over the machine: cargo test touches
-# nothing, e2e-tag.sh makes tmux sessions, e2e-overlay.sh takes screenshots and
+# nothing, e2e-tag.sh at most names a spare workspace, e2e-overlay.sh takes screenshots and
 # with them the clipboard, and e2e-box.sh types into whatever has focus. So the
 # cheap suites have already reported by the time you have to leave the keyboard
 # alone, and a failure in the fast half does not cost you a minute of not
@@ -48,7 +48,6 @@ why_cargo() {
 }
 why_tag() {
     command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
-    command -v tmux >/dev/null || { echo "no tmux"; return; }
     command -v niri >/dev/null || { echo "no niri"; return; }
     [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)"; return; }
 }

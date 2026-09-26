@@ -44,8 +44,13 @@ copy to keep in sync.
 
 ### Requirements
 
-`niri`, `taskwarrior`, `fuzzel`, `tmux`, and a Rust toolchain to build with.
-`notify-send` is used for feedback and degrades to stderr without it.
+`niri`, `taskwarrior`, `fuzzel`, `ghostty` 1.2 or later (for `+new-window`),
+and a Rust toolchain to build with. `notify-send` is used for feedback and
+degrades to stderr without it.
+
+[herdr](https://herdr.dev) is optional. With it on `$PATH`, `niritasks project
+open` runs the workspace's herdr session in the project terminal; without it the
+terminal is a plain shell in the project folder.
 
 VS Code is optional. `niritasks project open` starts one on the project folder when
 `code` is on `$PATH`, and starts only the terminal when it is not — the lookup
@@ -61,6 +66,7 @@ Tested against niri 26.04 and taskwarrior 2.6.2.
 ```
 niritasks tag                      # the focused workspace's tag
 niritasks tag --session            # the tag of the workspace this terminal was opened on
+                                   #   (its herdr session, else its ~/Projects folder)
 niritasks task active              # the active task's description, or nothing
 niritasks task list                # the picker
 niritasks task list --dry-run      # the rows it would show, for scripting and testing
@@ -69,7 +75,7 @@ niritasks task edit <uuid> <text>  # replaces the description; attributes stay l
 niritasks task note <uuid> <text>  # attaches an annotation
 niritasks workspace new|rename|default
 niritasks project open
-niritasks tmux-session             # ghostty's `command =`
+niritasks terminal                 # a terminal in the focused workspace's ~/Projects folder (Mod+Return)
 ```
 
 ### Two rules that look alike and are not
@@ -133,7 +139,7 @@ still works, it is just flat.
 bash tests/all.sh           # everything this machine can run       ~105s
 
 cargo test                  # unit, differential, write-path        ~2s
-bash tests/e2e-tag.sh       # `niritasks tag --session`, against real tmux ~2s
+bash tests/e2e-tag.sh       # `niritasks tag --session`, against real niri ~1s
 bash tests/e2e-overlay.sh   # the pill, measured in pixels          ~35s
 bash tests/e2e-box.sh       # the task box, driven by real keys     ~65s
 ```
@@ -142,7 +148,7 @@ Each exits non-zero on failure, so any of them can go in a loop or a hook.
 
 `tests/all.sh` is the four in one command, run cheapest-and-quietest first. It
 checks each suite's prerequisites itself and reports one it cannot run as a
-**skip, with the reason** — no tmux, no Pillow, no Wayland display — rather than
+**skip, with the reason** — no niri, no Pillow, no Wayland display — rather than
 letting it fail. A skip is not a failure: it exits non-zero only when a suite
 that actually ran said no, which is what makes it safe on a machine that can
 only run half of it. It warns you before the two that take the machine over.
@@ -151,7 +157,7 @@ only run half of it. It warns you before the two that take the machine over.
 |---|---|---|
 | `tests/all.sh` | Nothing of its own — whatever is missing is skipped and named | Whatever the suites it ends up running touch |
 | `cargo test` | `taskwarrior` on `$PATH`, and `bash` for the differential suite | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
-| `tests/e2e-tag.sh` | `tmux`, and niri running with **two named workspaces** — one focused, one not | tmux sessions named `<workspace>_91` and up, killed as it goes. No task database at all |
+| `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the name of that spare workspace, taken off again. No herdr session and no task database at all |
 | `tests/e2e-overlay.sh` | niri, `python3-pil`, taskwarrior | Screenshots, so **your clipboard**; and the `niri-tasks` daemon. It removes every screenshot it takes and leaves the rest of the directory alone |
 | `tests/e2e-box.sh` | `wtype`, a Wayland session, niri | **Your keyboard**, and the `niri-tasks` daemon |
 
@@ -216,12 +222,12 @@ propagation phase, so the focused text view swallowed Return before the window
 saw it. Both only exist once a compositor is involved.
 
 `tests/e2e-tag.sh` is a script for the same reason: it needs niri to ask for
-workspaces and a tmux server to make sessions in. It pins the property
-`--session` exists for, which no unit test can see — that the tag follows the
-terminal rather than the focus. It makes sessions named after real workspaces
-with suffixes well clear of yours (`_91` and up), addresses them with tmux's
-exact-match `=name` so a prefix cannot match one of your real ones, and never
-touches the task database.
+workspaces. It pins the property `--session` exists for, which no unit test can
+see — that the tag follows the terminal rather than the focus. It hands the
+binary a session the way herdr hands one to a pane (`HERDR_SESSION`, with
+`HERDR_SOCKET_PATH` as the backup) rather than starting herdr, so none of your
+sessions is attached to or created; the folder cases run under a throwaway
+`$HOME`. It never touches the task database.
 
 `tests/e2e-overlay.sh` is the third, and the least obvious. The overlay is a
 layer-shell surface, so its behaviour is what the compositor puts on screen: the
@@ -240,6 +246,5 @@ bugs were reintroduced on purpose to confirm the checks catch them.
 
 `tests/differential.rs` runs the original shell pipelines this was ported from
 and compares them against the Rust functions over a corpus of awkward workspace
-names. It is there because the tag-folding, tmux-sanitising and project-name
-rules are subtly different from each other, and the shell versions were the
-specification.
+names. It is there because the tag-folding and project-name rules are subtly
+different from each other, and the shell versions were the specification.

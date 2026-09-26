@@ -111,42 +111,52 @@ fn found_in(path: &std::ffi::OsStr, bin: &str) -> bool {
 /// The session manager the project terminal runs, one session per workspace.
 pub const SESSION_MANAGER: &str = "herdr";
 
-/// What to launch on a project workspace that is starting empty.
+/// A new terminal window whose shell starts in `dir`.
 ///
-/// The terminal runs `herdr --session <project>`, so each project workspace
-/// gets its own persistent herdr session, started in the project folder. The
-/// workspace is named after the project, so the session is too. Without herdr
-/// on `$PATH` it falls back to a bare `ghostty`, whose own `command =` finds
-/// `~/Projects/<workspace>` from the workspace name.
+/// `+new-window`, not a bare `ghostty --working-directory=…`. ghostty runs as
+/// one process for every window (single-instance, over D-Bus), and a second
+/// `ghostty` launched with arguments either hands off to it and loses them, or
+/// — with `-e` — starts a whole separate ghostty process. `+new-window` asks
+/// the running one for a window and hands it the directory and command; D-Bus
+/// starts ghostty first if nothing is running. It resolves `dir` before asking
+/// and fails on one that does not exist, which `session::start_dir` rules out.
+pub fn terminal_command(dir: &std::path::Path) -> Vec<String> {
+    vec![
+        "ghostty".to_string(),
+        "+new-window".to_string(),
+        format!("--working-directory={}", dir.display()),
+    ]
+}
+
+/// The project terminal: `herdr --session <session>` in `dir`, or a plain
+/// terminal there when herdr is not installed.
+///
+/// herdr attaches to the session if it is running — whatever was running in it
+/// still is — restores its layout and folders if it was stopped, and otherwise
+/// creates it with its first pane in `dir`. `session` is the workspace name
+/// already made safe for herdr (`session::herdr_session_name`).
+pub fn project_terminal_command(dir: &std::path::Path, session: &str, herdr: bool) -> Vec<String> {
+    let mut cmd = terminal_command(dir);
+    if herdr {
+        cmd.extend(["-e", SESSION_MANAGER, "--session", session].map(String::from));
+    }
+    cmd
+}
+
+/// What to launch on a project workspace that is starting empty.
 ///
 /// `code <dir>` deliberately, not `code -n <dir>`: VS Code reuses an existing
 /// window already holding that folder. That is the right trade — `-n` would
 /// stack a duplicate window every time — but it does mean that if the project's
 /// editor window is parked on some *other* workspace, opening the project
 /// focuses that window instead of putting a new one here.
-pub fn startup_commands(dir: &std::path::Path) -> Vec<Vec<String>> {
-    let mut commands = vec![terminal_command(dir)];
+pub fn startup_commands(dir: &std::path::Path, workspace: &str) -> Vec<Vec<String>> {
+    let session = crate::session::herdr_session_name(workspace);
+    let mut commands = vec![project_terminal_command(dir, &session, on_path(SESSION_MANAGER))];
     if on_path(EDITOR) {
         commands.push(vec![EDITOR.to_string(), dir.display().to_string()]);
     }
     commands
-}
-
-/// The project terminal: a herdr session named after the project when herdr is
-/// installed, a plain ghostty otherwise.
-fn terminal_command(dir: &std::path::Path) -> Vec<String> {
-    let name = dir.file_name().map(|n| n.to_string_lossy().into_owned());
-    match name {
-        Some(name) if on_path(SESSION_MANAGER) => vec![
-            "ghostty".to_string(),
-            format!("--working-directory={}", dir.display()),
-            "-e".to_string(),
-            SESSION_MANAGER.to_string(),
-            "--session".to_string(),
-            name,
-        ],
-        _ => vec!["ghostty".to_string()],
-    }
 }
 
 #[cfg(test)]
@@ -280,27 +290,24 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// The terminal is unconditional; the editor is only added when installed,
-    /// so a machine without VS Code opens a project without a failed spawn.
+    /// A plain terminal asks the running ghostty for a window in the folder.
     #[test]
-    fn startup_commands_always_include_the_terminal() {
-        let cmds = startup_commands(std::path::Path::new("/home/x/Projects/alpha"));
-        assert_eq!(cmds[0][0], "ghostty");
-        assert!(cmds.len() <= 2);
+    fn a_terminal_is_a_new_ghostty_window_in_the_folder() {
+        assert_eq!(
+            terminal_command(std::path::Path::new("/home/x/Projects/my project")),
+            vec!["ghostty", "+new-window", "--working-directory=/home/x/Projects/my project"]
+        );
     }
 
-    /// With herdr installed, the terminal opens the project's own herdr
-    /// session, named after the project and started in its folder.
+    /// With herdr, the project terminal opens the workspace's own session, in
+    /// the same window-in-the-folder a plain terminal gets.
     #[test]
-    fn the_terminal_opens_a_herdr_session_named_after_the_project() {
-        if !on_path(SESSION_MANAGER) {
-            return; // falls back to plain ghostty, covered above
-        }
-        let cmds = startup_commands(std::path::Path::new("/home/x/Projects/alpha"));
+    fn the_project_terminal_opens_the_workspace_session() {
         assert_eq!(
-            cmds[0],
+            project_terminal_command(std::path::Path::new("/home/x/Projects/alpha"), "alpha", true),
             vec![
                 "ghostty",
+                "+new-window",
                 "--working-directory=/home/x/Projects/alpha",
                 "-e",
                 "herdr",
@@ -310,6 +317,25 @@ mod tests {
         );
     }
 
+    /// Without herdr it is just the plain terminal, still in the folder.
+    #[test]
+    fn without_herdr_the_project_terminal_is_a_plain_one() {
+        let dir = std::path::Path::new("/home/x/Projects/alpha");
+        assert_eq!(project_terminal_command(dir, "alpha", false), terminal_command(dir));
+    }
+
+    /// The session is named from the workspace, made safe for herdr, while the
+    /// folder keeps its raw name.
+    #[test]
+    fn startup_commands_name_the_session_from_the_workspace() {
+        let cmds = startup_commands(std::path::Path::new("/home/x/Projects/my project"), "my project");
+        assert_eq!(cmds[0][2], "--working-directory=/home/x/Projects/my project");
+        if on_path(SESSION_MANAGER) {
+            assert_eq!(cmds[0].last().unwrap(), "my_project");
+        }
+        assert!(cmds.len() <= 2, "terminal, and the editor only when installed");
+    }
+
     /// When the editor is there, it is handed the project path — the terminal
     /// finds its own via the workspace name, the editor cannot.
     #[test]
@@ -317,7 +343,7 @@ mod tests {
         if !on_path(EDITOR) {
             return; // nothing to assert on a machine without it
         }
-        let cmds = startup_commands(std::path::Path::new("/home/x/Projects/alpha"));
+        let cmds = startup_commands(std::path::Path::new("/home/x/Projects/alpha"), "alpha");
         assert_eq!(
             cmds[1],
             vec![EDITOR.to_string(), "/home/x/Projects/alpha".to_string()]

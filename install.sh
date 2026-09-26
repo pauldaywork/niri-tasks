@@ -109,7 +109,7 @@ fi
 
 # ─── 7. dependencies ──────────────────────────────────────────────────────────
 missing=()
-for dep in niri task fuzzel tmux; do
+for dep in niri task fuzzel ghostty; do
     command -v "$dep" >/dev/null || missing+=("$dep")
 done
 if [ "${#missing[@]}" -gt 0 ]; then
