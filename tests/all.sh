@@ -23,7 +23,7 @@
 # silent, and the right way round for a mistake like that to land.
 #
 # They run in order of how much they take over the machine: cargo test touches
-# nothing, e2e-tag.sh at most names a spare workspace, e2e-overlay.sh takes screenshots and
+# nothing, e2e-tag.sh at most names a spare workspace, e2e-panel.sh takes screenshots and
 # with them the clipboard, and e2e-box.sh types into whatever has focus. So the
 # cheap suites have already reported by the time you have to leave the keyboard
 # alone, and a failure in the fast half does not cost you a minute of not
@@ -51,7 +51,7 @@ why_tag() {
     command -v niri >/dev/null || { echo "no niri"; return; }
     [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)"; return; }
 }
-why_overlay() {
+why_panel() {
     command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
     command -v niri >/dev/null || { echo "no niri"; return; }
     command -v task >/dev/null || { echo "no taskwarrior on \$PATH"; return; }
@@ -87,13 +87,13 @@ echo "niritasks $(command -v "$NIRITASKS" 2>/dev/null || echo "not found ($NIRIT
 suite "cargo test"           "$(why_cargo)"   cargo test
 suite "tests/e2e-tag.sh"     "$(why_tag)"     bash tests/e2e-tag.sh
 
-if [ -z "$(why_overlay)" ]; then
+if [ -z "$(why_panel)" ]; then
     echo
     echo "  ! the next two suites take the machine over: screenshots use the"
     echo "    clipboard, and the box test types into whatever has focus."
     echo "    Leave the keyboard alone until they finish."
 fi
-suite "tests/e2e-overlay.sh" "$(why_overlay)" bash tests/e2e-overlay.sh
+suite "tests/e2e-panel.sh" "$(why_panel)" bash tests/e2e-panel.sh
 suite "tests/e2e-box.sh"     "$(why_box)"     bash tests/e2e-box.sh
 
 echo

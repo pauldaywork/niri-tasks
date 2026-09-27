@@ -78,7 +78,7 @@ link "$REPO/fuzzel/picker.ini" "$CONFIG/fuzzel/picker.ini"
 CLAUDE_SKILLS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
 link "$REPO/.claude/skills/workspace-tasks/SKILL.md" "$CLAUDE_SKILLS/workspace-tasks/SKILL.md"
 
-# ─── 5. the overlay daemon ────────────────────────────────────────────────────
+# ─── 5. the daemon ───────────────────────────────────────────────────────────
 # A copy rather than a symlink: systemd reads unit files as root-ish early in
 # session startup and does not follow links out of its search path reliably.
 UNIT_DIR="$CONFIG/systemd/user"
@@ -97,7 +97,7 @@ systemctl --user enable niri-tasks.service 2>/dev/null \
     || warn "Could not enable niri-tasks.service — it will not start on login"
 
 if systemctl --user restart niri-tasks.service 2>/dev/null; then
-    info "Overlay daemon restarted on the new binary"
+    info "Daemon restarted on the new binary"
 else
     warn "Could not start niri-tasks.service — start it with: systemctl --user start niri-tasks"
 fi

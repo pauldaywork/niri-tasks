@@ -58,7 +58,7 @@ enum Command {
     /// Open a terminal in the focused workspace's ~/Projects folder (Mod+Return)
     Terminal,
 
-    /// Run the active-task overlay (long-running; started by a systemd user unit)
+    /// Run the task panels and the task-box server (long-running; started by a systemd user unit)
     Daemon,
 }
 
@@ -127,7 +127,7 @@ fn run() -> Result<()> {
         Command::Workspace(c) => return workspace_command(c),
         Command::Project(ProjectCommand::Open) => return project_open(),
         Command::Terminal => return terminal(),
-        Command::Daemon => return niri_tasks::overlay::run(),
+        Command::Daemon => return niri_tasks::daemon::run(),
     }
     Ok(())
 }

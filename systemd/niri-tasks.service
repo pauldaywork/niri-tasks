@@ -1,7 +1,7 @@
 [Unit]
-Description=niri-tasks active-task overlay
+Description=niri-tasks task panels
 Documentation=https://github.com/pauldaywork/niri-tasks
-# The overlay is a layer-shell surface, so it needs a Wayland session to attach
+# The task panels are layer-shell surfaces, so they need a Wayland session to attach
 # to. graphical-session.target is what niri's session pulls in.
 PartOf=graphical-session.target
 After=graphical-session.target
@@ -12,20 +12,11 @@ StartLimitIntervalSec=60
 [Service]
 Type=simple
 ExecStart=%h/.cargo/bin/niritasks daemon
-# The overlay is a readout: if it dies, bring it back, but do not fight a crash
+# The panels are a readout: if they die, bring it back, but do not fight a crash
 # loop that would spam the journal.
 Restart=on-failure
 RestartSec=3
 
-# Set NIRITASKS_OVERLAY_MARGIN to move it up or down; it is a preference, not a
-# measurement of anyone's bar.
-# Environment=NIRITASKS_OVERLAY_MARGIN=56
-#
-# NIRITASKS_OVERLAY_MAX_WIDTH_CHARS is the widest the pill may get, in characters. It
-# is a ceiling, not a width: the pill hugs whatever the task says, and only a
-# description longer than this is ellipsised.
-# Environment=NIRITASKS_OVERLAY_MAX_WIDTH_CHARS=80
-#
 # Environment=NIRITASKS_DEBUG=1
 
 [Install]

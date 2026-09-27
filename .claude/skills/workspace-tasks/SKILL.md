@@ -15,7 +15,7 @@ The niri workspace **is** the task filter. Every task carries the workspace's
 name as a tag, so "my tasks" always means "the tasks for the project I am
 looking at". This skill reads that list, works it top to bottom, and keeps the
 Taskwarrior state honest while it does — because the active task is shown on
-screen by the `niri-tasks` overlay, a wrong `start`/`stop` is visible to the
+screen by the `niri-tasks` task panel, a wrong `start`/`stop` is visible to the
 user, not just wrong in a database.
 
 Tasks are raised from the desktop in a one-line box, so they are often terse.
@@ -141,9 +141,9 @@ retry, and do not stop their claim to take it.
 **Stop only your own.** Before claiming the next task, stop the one you just
 finished or gave up on — never another active task on the tag, even though the
 desktop's own "set active" does clear the whole tag. Other active tasks are
-other agents' claims; stopping one pulls work out from under them. The overlay
-shows one active task per workspace, so with several agents running it shows
-one of theirs — that is expected.
+other agents' claims; stopping one pulls work out from under them. The task
+panel marks every started task ▶, so with several agents running it shows each
+of their claims at the top — that is expected.
 
 `<tag>` is the value captured in Phase 1, here and everywhere below.
 
@@ -217,7 +217,7 @@ uuid=$(task "+<tag>" status:pending export | python3 -c "
 import json,sys
 print(next(t['uuid'] for t in json.load(sys.stdin) if t['description'] == sys.argv[1]))
 " "$finding")
-task "$uuid" annotate -- "src/overlay.rs:410 — what you saw, and why it matters"
+task "$uuid" annotate -- "src/daemon.rs:120 — what you saw, and why it matters"
 ```
 
 Using the tag **captured in Phase 1**, not a freshly resolved one — see the

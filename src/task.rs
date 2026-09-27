@@ -132,6 +132,18 @@ pub fn active_for_tag(tag: &str) -> Result<Option<Task>> {
         .next())
 }
 
+/// The uuids of `tag`'s pending tasks that are waiting on another pending task.
+///
+/// Asked of taskwarrior rather than worked out from each task's `depends`:
+/// whether a dependency still blocks depends on *its* status, which may sit on
+/// another tag entirely, and `+BLOCKED` already knows.
+pub fn blocked_uuids_for_tag(tag: &str) -> Result<Vec<String>> {
+    Ok(export(&[&format!("+{tag}"), "+BLOCKED", "status:pending"])?
+        .into_iter()
+        .map(|t| t.uuid)
+        .collect())
+}
+
 pub fn get(uuid: &str) -> Result<Option<Task>> {
     Ok(export(&[uuid])?.into_iter().next())
 }
@@ -258,7 +270,7 @@ pub fn complete(uuid: &str) -> Result<()> {
 /// to append to the description.
 ///
 /// A moved task is stopped on the way out. "One active task per tag" is what
-/// lets the overlay and `niritasks task active` have a single answer, and a task that
+/// lets the task panel and `niritasks task active` have a single answer, and a task that
 /// carried its `start` across would either hand the destination a second active
 /// task or quietly claim to be the work in progress on a workspace nobody is
 /// looking at. `stop` exits non-zero when the task was not started, which is

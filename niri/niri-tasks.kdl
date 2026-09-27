@@ -16,27 +16,11 @@
 // workspace has no tasks.
 spawn-at-startup "niritasks" "workspace" "default"
 
-// Blur behind the active-task overlay.
-//
-// The overlay draws a half-transparent background and nothing else; the blur is
-// the other half of that effect and only a compositor can do it. Without this
-// rule the overlay still works, it is just flat — the same trade the fuzzel
-// picker theme documents for the "launcher" namespace.
-//
-// The namespace is set by the overlay itself (overlay.rs NAMESPACE), which is
-// why it is not the crate default of "gtk4-layer-shell" — that would match any
-// GTK layer-shell app on the system.
-layer-rule {
-    match namespace="^niri-tasks$"
-    background-effect {
-        blur true
-        // Blur the wallpaper rather than whatever window happens to be under
-        // the text, so the readout looks the same wherever it is shown.
-        xray true
-        noise 0.05
-        saturation 1.4
-    }
-}
+// No layer-rule for the task panel (namespace "niri-tasks-panel"), on purpose.
+// niri applies a background effect to a layer surface's whole rectangle, and
+// the panel's surface is mostly transparent space the cards slide through — a
+// blur would draw a box around them. The cards are translucent the way mako's
+// notifications are, and like those they go unblurred.
 
 // One of the binds below is guarded against opening twice, and only one needs
 // to be.

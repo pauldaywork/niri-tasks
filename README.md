@@ -21,6 +21,25 @@ from — opening one, or moving a task to another workspace.
 | `Mod+Alt+W` | Create a new workspace and name it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
 
+## Task panel
+
+Each monitor shows the pending tasks of the workspace it is displaying, as a
+stack of cards on the right edge — the active task first (▶), then the rest most
+urgent first (○, or 🔒 for one blocked on another task). Up to eight, then a
+"+N more" card.
+
+The panel sits tucked away with only a 60px peek of each card showing. Move the
+pointer onto it and the cards slide out to full width; move away and they slide
+back. The space around the cards is click-through, so the panel never gets in
+the way of the windows beneath, and a fullscreen window covers it. An unnamed
+workspace, or one with nothing pending, shows no panel at all.
+
+The cards are styled as mako notifications (`src/panel/style.rs` names the mako
+values it copies), and deliberately get no niri blur: niri blurs a layer
+surface's whole rectangle, which here is mostly empty space. See
+`docs/adr/0001-task-panel-in-gtk-not-quickshell.md` for why it is drawn the way
+it is.
+
 ## Install
 
 ```bash
@@ -36,7 +55,7 @@ include "niri-tasks.kdl"
 ```
 
 `install.sh` builds `niritasks`, symlinks the niri include, the fuzzel picker theme and
-the `workspace-tasks` skill into `~/.claude/skills`, restarts the overlay daemon
+the `workspace-tasks` skill into `~/.claude/skills`, restarts the daemon
 onto the new binary, and reloads niri. Updating is `git pull && bash install.sh`.
 
 The symlinks mean editing a file in this repo is immediately live — there is no
@@ -121,15 +140,9 @@ layer-rule {
 
 Without it the picker still works, it is just flatter.
 
-The active-task overlay makes the same trade and comes with its own layer rule
-already written, in `niri-tasks.kdl`, matching the namespace `^niri-tasks$` —
-same four settings as above, so the two surfaces read alike. The overlay sets
-that namespace itself (`overlay.rs`, `NAMESPACE`) rather than taking the crate
-default of `gtk4-layer-shell`, which would match every GTK layer-shell app on
-the system. The rule blurs with `xray true`, so what is blurred is the
-wallpaper rather than whichever window happens to be under the text, and the
-readout looks the same wherever it is shown. Drop the rule and the overlay
-still works, it is just flat.
+The task panel is the opposite case: it has a namespace of its own,
+`niri-tasks-panel`, and deliberately no rule. Its surface is wider than the
+cards so they have room to slide, and a blur would fill all of it.
 
 ## Development
 
@@ -140,7 +153,7 @@ bash tests/all.sh           # everything this machine can run       ~105s
 
 cargo test                  # unit, differential, write-path        ~2s
 bash tests/e2e-tag.sh       # `niritasks tag --session`, against real niri ~1s
-bash tests/e2e-overlay.sh   # the pill, measured in pixels          ~35s
+bash tests/e2e-panel.sh     # the task panel, measured in pixels    ~35s
 bash tests/e2e-box.sh       # the task box, driven by real keys     ~65s
 ```
 
@@ -158,37 +171,30 @@ only run half of it. It warns you before the two that take the machine over.
 | `tests/all.sh` | Nothing of its own — whatever is missing is skipped and named | Whatever the suites it ends up running touch |
 | `cargo test` | `taskwarrior` on `$PATH`, and `bash` for the differential suite | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
 | `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the name of that spare workspace, taken off again. No herdr session and no task database at all |
-| `tests/e2e-overlay.sh` | niri, `python3-pil`, taskwarrior | Screenshots, so **your clipboard**; and the `niri-tasks` daemon. It removes every screenshot it takes and leaves the rest of the directory alone |
+| `tests/e2e-panel.sh` | niri, `python3-pil`, taskwarrior | Screenshots, so **your clipboard**; and the `niri-tasks` daemon. It removes every screenshot it takes and leaves the rest of the directory alone |
 | `tests/e2e-box.sh` | `wtype`, a Wayland session, niri | **Your keyboard**, and the `niri-tasks` daemon |
 
 Narrowing `cargo test` works as usual — `cargo test --lib`, `cargo test --test
 write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
 
-`e2e-overlay.sh` needs the bottom of the screen to hold still — it works by
+`e2e-panel.sh` needs the middle of the right edge to hold still — it works by
 comparing frames — so it checks that first and tells you what to move rather
-than reporting a flaky answer. Don't switch workspaces while it runs: the
-overlay follows the focused workspace, and so does the tag it files its tasks
-under. `NIRITASKS_E2E_KEEP=1` leaves the frames on disk when you need to see what a
-failure actually looked like.
+than reporting a flaky answer. Don't switch workspaces while it runs: the panel
+follows the workspace, and so does the tag it files its tasks under. And not
+over a fullscreen window, which covers the panel. `NIRITASKS_E2E_KEEP=1` leaves
+the frames on disk when you need to see what a failure actually looked like.
 
-It measures a strip of screen, so it follows `NIRITASKS_OVERLAY_MARGIN` rather than
-assuming the default — set the same value you set in the unit file and it moves
-the strip and the daemon it starts together:
-
-```bash
-NIRITASKS_OVERLAY_MARGIN=56 bash tests/e2e-overlay.sh
-```
-
-Left unset, both sit at the default 10. Note that a larger margin puts the strip
-over whatever window is there, and the stillness check will refuse to run if
-that window is redrawing.
+It cannot move the pointer, so the hover is checked by hand after a change to
+`src/panel/surface.rs`: the peek slides out when the pointer reaches it and back
+about 0.4s after it leaves, the slide is smooth, and a click just left of the
+peek, or between two cards, lands on the window beneath.
 
 Two things about `e2e-box.sh` in particular. It **types into whatever has
 focus**, so start it and leave the keyboard alone until it finishes; anything
 you type lands in the box alongside it. And it stops `niri-tasks.service`, runs
 its own daemon for the first half, then starts the service again if it was
 running — that is deliberate, since the point is to prove both the daemon path
-and the fallback, but it means the overlay blinks out for a minute.
+and the fallback, but it means the task panel blinks out for a minute.
 
 > [!IMPORTANT]
 > All three scripts run `niritasks` **from `$PATH`** — the installed binary, not the one you
@@ -203,7 +209,7 @@ and the fallback, but it means the overlay blinks out for a minute.
 > And to try a change by hand rather than under test, either `bash install.sh`,
 > which restarts the daemon for you, or `cargo install --path .` followed by
 > `systemctl --user restart niri-tasks` — `cargo install` alone leaves the
-> running daemon on the previous binary, so overlay changes will not show up.
+> running daemon on the previous binary, so panel changes will not show up.
 
 ### Why the three scripts are not cargo tests
 
@@ -229,20 +235,21 @@ binary a session the way herdr hands one to a pane (`HERDR_SESSION`, with
 sessions is attached to or created; the folder cases run under a throwaway
 `$HOME`. It never touches the task database.
 
-`tests/e2e-overlay.sh` is the third, and the least obvious. The overlay is a
+`tests/e2e-panel.sh` is the third, and the least obvious. The task panel is a
 layer-shell surface, so its behaviour is what the compositor puts on screen: the
-window can only report the size it *asked* for, which is exactly what has been
-wrong twice — once pinned to 80 characters whatever the task said, once keeping
-the previous task's width so a long description ellipsised to "mak…" inside a
-short pill. Both passed every unit test. So it screenshots the pill and measures
-it, against a baseline taken with no task active.
+window can only report the size it *asked* for, and a surface that was never
+mapped reports nothing wrong while showing nothing — the overlay the panel
+replaced was invisible for whole sessions that way, past every unit test. So it
+screenshots the right edge and measures the panel against a baseline taken with
+no tasks: the peek's width, the stack's height as tasks are added, nothing for
+another tag's task, nothing once they are done, and a daemon cold-started with
+nothing to show.
 
-It counts columns rather than pixels. The pill is translucent, so most of it
+It counts lines rather than pixels. The cards are translucent, so much of them
 differs from the wallpaper by only a few levels while a window repainting
-elsewhere differs by a lot — but the pill is a solid band ~33px tall, so every
-column inside it changes down most of its height and noise never does. The
-distance between the first and last such column is the pill's width. Both old
-bugs were reintroduced on purpose to confirm the checks catch them.
+elsewhere differs by a lot — but a card is a solid block, so every column and
+row through it changes over most of its run and noise never does. The spans of
+such columns and rows are the panel's width and height.
 
 `tests/differential.rs` runs the original shell pipelines this was ported from
 and compares them against the Rust functions over a corpus of awkward workspace

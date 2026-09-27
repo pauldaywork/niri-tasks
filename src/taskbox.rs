@@ -471,8 +471,8 @@ fn build_window(
     window.present();
 
     // The Wayland app_id comes from the GtkApplication, and inside the daemon
-    // that application is the overlay's — so a box opened there arrived as
-    // dev.niri-tasks.overlay while one opened by the CLI was dev.niri-tasks.box.
+    // that application is the daemon's — so a box opened there arrived as
+    // dev.niri-tasks.daemon while one opened by the CLI was dev.niri-tasks.box.
     // Two ids for one window defeats the point of having a stable one at all,
     // and it is set per-toplevel rather than per-application, so set it here
     // once the surface exists.

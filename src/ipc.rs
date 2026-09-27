@@ -2,7 +2,7 @@
 //!
 //! The box is a GTK window, and building one costs about 2.6s on a cold start
 //! and 0.6s warm — every time, because each `niritasks task add` was its own process.
-//! The daemon is already a warm GTK process holding the overlay, so it can put
+//! The daemon is already a warm GTK process holding the task panels, so it can put
 //! the window up immediately instead.
 //!
 //! This is the same shape as the `dms ipc call taskBox` boundary that used to

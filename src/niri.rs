@@ -32,6 +32,20 @@ pub fn focused_workspace() -> Result<Option<Workspace>> {
     Ok(workspaces()?.into_iter().find(|w| w.is_focused))
 }
 
+/// The name of the workspace each monitor is showing, keyed by connector.
+///
+/// Every monitor has an active workspace; `None` means it is unnamed, so it has
+/// no workspace tag and nothing to list.
+pub fn active_workspace_by_output(
+    workspaces: &[Workspace],
+) -> std::collections::BTreeMap<String, Option<String>> {
+    workspaces
+        .iter()
+        .filter(|w| w.is_active)
+        .filter_map(|w| Some((w.output.clone()?, w.name.clone())))
+        .collect()
+}
+
 /// How many windows are on a given workspace.
 ///
 /// Used to decide whether re-picking an already-open project should spawn a
@@ -114,6 +128,19 @@ mod tests {
             is_focused: false,
             active_window_id: None,
         }
+    }
+
+    #[test]
+    fn active_workspace_is_per_output() {
+        let mut a = ws(1, 1, Some("alpha"), Some("eDP-1"));
+        a.is_active = true;
+        let b = ws(2, 2, Some("beta"), Some("eDP-1"));
+        let mut c = ws(3, 1, None, Some("HDMI-1"));
+        c.is_active = true;
+        let map = active_workspace_by_output(&[a, b, c]);
+        assert_eq!(map.len(), 2);
+        assert_eq!(map["eDP-1"].as_deref(), Some("alpha"));
+        assert_eq!(map["HDMI-1"], None, "an unnamed active workspace is still listed");
     }
 
     #[test]
