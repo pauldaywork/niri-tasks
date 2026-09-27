@@ -31,7 +31,9 @@ impl Card {
         match self.status {
             Status::Active => "▶",
             Status::Pending => "○",
-            Status::Blocked => "🔒",
+            // Font Awesome's lock, from the Nerd Font waybar already uses: flat
+            // and one colour, where the emoji lock is a picture.
+            Status::Blocked => "\u{f023}",
             // The count is the text, so the peek reads "+3".
             Status::More => "",
         }
@@ -117,7 +119,7 @@ mod tests {
     fn blocked_tasks_are_marked() {
         let got = cards(&[task("waits", 1.0, false)], &["waits".into()], CAP);
         assert_eq!(got[0].status, Status::Blocked);
-        assert_eq!(got[0].icon(), "🔒");
+        assert_eq!(got[0].icon(), "\u{f023}");
     }
 
     #[test]

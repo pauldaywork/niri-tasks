@@ -22,8 +22,9 @@
 //! the cards move under it, and shrinks only *after* a slide back finishes, so
 //! a pointer returning mid-slide still counts as hovering.
 
+use super::blur::{self, Blur};
 use super::model::{Card, Status};
-use super::style::{CARD_WIDTH_PX, GAP_PX};
+use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX};
 use gtk4::prelude::*;
 use gtk4::{cairo, gdk, glib, Application, ApplicationWindow};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
@@ -62,6 +63,9 @@ pub struct Panel {
     base: gtk4::Box,
     slide: Rc<Slide>,
     shown: RefCell<Vec<Card>>,
+    /// Each card's height, top to bottom, for the blur region.
+    heights: RefCell<Vec<i32>>,
+    blur: RefCell<Option<Blur>>,
 }
 
 /// Where the cards are and where they are going.
@@ -115,6 +119,8 @@ impl Panel {
                 cards_h: Cell::new(0),
             }),
             shown: RefCell::new(Vec::new()),
+            heights: RefCell::new(Vec::new()),
+            blur: RefCell::new(None),
         });
 
         {
@@ -160,12 +166,17 @@ impl Panel {
         // it is inside the input region, and goes no further — no handler
         // needed to stop it reaching the window beneath.
 
-        // GTK may reset the input region when the surface maps or resizes.
+        // GTK may reset the input region when the surface maps or resizes, and
+        // a surface shown again may be a new wl_surface, which needs its own
+        // blur object — the old one goes first, since niri allows one each.
         {
             let weak = Rc::downgrade(&panel);
             panel.window.connect_map(move |_| {
                 if let Some(p) = weak.upgrade() {
                     p.set_region(p.slide.x.get());
+                    drop(p.blur.borrow_mut().take());
+                    *p.blur.borrow_mut() = Blur::new(&p.window);
+                    p.update_blur(p.slide.x.get());
                 }
             });
         }
@@ -204,6 +215,16 @@ impl Panel {
         for card in cards {
             self.column.append(&card_label(card));
         }
+        // Measured only once they are in the window: a label outside it has no
+        // stylesheet, so it measures without its padding, and GTK keeps that
+        // wrong size for the column's own measurement too.
+        let mut heights = Vec::with_capacity(cards.len());
+        let mut child = self.column.first_child();
+        while let Some(c) = child {
+            heights.push(c.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX).1);
+            child = c.next_sibling();
+        }
+        *self.heights.borrow_mut() = heights;
 
         let (_, cards_h, _, _) = self.column.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX);
         self.slide.cards_h.set(cards_h);
@@ -217,6 +238,7 @@ impl Panel {
         // present(), not set_visible(true): see new().
         self.window.present();
         self.set_region(self.slide.x.get().min(self.slide.to.get()));
+        self.update_blur(self.slide.x.get());
     }
 
     pub fn close(&self) {
@@ -236,6 +258,22 @@ impl Panel {
         let x = x.round() as i32;
         let rect = cairo::RectangleInt::new(x, SHADOW_PX, SURFACE_WIDTH - x, self.slide.cards_h.get());
         surface.set_input_region(Some(&cairo::Region::create_rectangle(&rect)));
+    }
+
+    /// Blur behind the cards where they are now, corners and all.
+    fn update_blur(&self, x: f64) {
+        let mut blur = self.blur.borrow_mut();
+        let Some(blur) = blur.as_mut() else { return };
+        let x = x.round() as i32;
+        let width = CARD_WIDTH_PX.min(SURFACE_WIDTH - x);
+        let on_screen = x + CARD_WIDTH_PX <= SURFACE_WIDTH;
+        let mut y = SHADOW_PX;
+        let mut rects = Vec::new();
+        for &h in self.heights.borrow().iter() {
+            rects.extend(blur::card_region((x, y, width, h), RADIUS_PX, on_screen));
+            y += h + GAP_PX;
+        }
+        blur.set(&rects);
     }
 
     fn slide_to(self: &Rc<Self>, target: f64) {
@@ -263,6 +301,7 @@ impl Panel {
             if let Some(child) = w.child() {
                 child.queue_allocate();
             }
+            p.update_blur(s.x.get());
             if t >= 1.0 {
                 // Tucked away (or fully out): only now fit the region to
                 // where the cards ended up.
@@ -276,11 +315,13 @@ impl Panel {
 }
 
 fn card_label(card: &Card) -> gtk4::Label {
-    let text = match card.icon() {
-        "" => card.text.clone(),
-        icon => format!("{icon}  {}", card.text),
+    let text = glib::markup_escape_text(&card.text);
+    let markup = match card.icon() {
+        "" => text.to_string(),
+        icon => format!("{icon}  {text}"),
     };
-    let label = gtk4::Label::new(Some(&text));
+    let label = gtk4::Label::new(None);
+    label.set_markup(&markup);
     label.add_css_class("task-card");
     match card.status {
         Status::Active => label.add_css_class("active"),

@@ -16,11 +16,23 @@
 // workspace has no tasks.
 spawn-at-startup "niritasks" "workspace" "default"
 
-// No layer-rule for the task panel (namespace "niri-tasks-panel"), on purpose.
-// niri applies a background effect to a layer surface's whole rectangle, and
-// the panel's surface is mostly transparent space the cards slide through — a
-// blur would draw a box around them. The cards are translucent the way mako's
-// notifications are, and like those they go unblurred.
+// How the blur behind the task panel's cards looks. The same settings as the
+// windows' background-effect, so a card reads like a terminal.
+//
+// Deliberately no `blur true`. A rule's blur covers the layer surface's whole
+// rectangle, and the panel's surface is mostly empty space the cards slide
+// through. Instead the panel asks for blur itself, over ext-background-effect,
+// with a region the shape of its cards — niri turns blur on for exactly that,
+// and takes the rest of the effect from here. The namespace is the panel's
+// own (src/panel/surface.rs, NAMESPACE).
+layer-rule {
+    match namespace="^niri-tasks-panel$"
+    background-effect {
+        xray true
+        noise 0.05
+        saturation 1.4
+    }
+}
 
 // One of the binds below is guarded against opening twice, and only one needs
 // to be.

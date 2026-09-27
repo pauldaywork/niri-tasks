@@ -24,9 +24,9 @@ from — opening one, or moving a task to another workspace.
 ## Task panel
 
 Each monitor shows the pending tasks of the workspace it is displaying, as a
-stack of cards on the right edge — the active task first (▶), then the rest most
-urgent first (○, or 🔒 for one blocked on another task). Up to eight, then a
-"+N more" card.
+stack of cards on the right edge — the active task first, its ▶ and text in
+green, then the rest most urgent first (○, or a dimmed lock for one blocked on
+another task). Up to eight, then a "+N more" card.
 
 The panel sits tucked away with only a 60px peek of each card showing. Move the
 pointer onto it and the cards slide out to full width; move away and they slide
@@ -34,9 +34,12 @@ back. The space around the cards is click-through, so the panel never gets in
 the way of the windows beneath, and a fullscreen window covers it. An unnamed
 workspace, or one with nothing pending, shows no panel at all.
 
-The cards are styled as mako notifications (`src/panel/style.rs` names the mako
-values it copies), and deliberately get no niri blur: niri blurs a layer
-surface's whole rectangle, which here is mostly empty space. See
+The cards are shaped like mako notifications and coloured like a terminal
+window: a dark tint over blurred wallpaper, with niri's faint focus-ring outline
+(`src/panel/style.rs` names the configs it copies). The blur is asked for by the
+panel itself, over `ext-background-effect-v1`, in the exact shape of the cards;
+a compositor without that protocol shows them unblurred. The lock icon comes
+from a Nerd Font (JetBrainsMono Nerd Font here). See
 `docs/adr/0001-task-panel-in-gtk-not-quickshell.md` for why it is drawn the way
 it is.
 
@@ -140,9 +143,11 @@ layer-rule {
 
 Without it the picker still works, it is just flatter.
 
-The task panel is the opposite case: it has a namespace of its own,
-`niri-tasks-panel`, and deliberately no rule. Its surface is wider than the
-cards so they have room to slide, and a blur would fill all of it.
+The task panel's rule, also in `niri-tasks.kdl`, works differently: it matches
+the panel's own namespace, `niri-tasks-panel`, and sets how the blur looks but
+never `blur true`. A rule's blur would fill the panel's whole surface, which is
+wider than the cards so they have room to slide. The panel asks for blur behind
+the cards alone instead, and niri takes noise and saturation from the rule.
 
 ## Development
 

@@ -22,6 +22,10 @@
 # and says so rather than producing a flaky answer. Do not switch workspaces
 # while it runs: the panel follows the workspace, and so does the tag its tasks
 # are filed under. And not over a fullscreen window, which covers the panel.
+#
+# Park the pointer away from the right edge first. A pointer resting against
+# the edge is inside the panel once it grows tall enough, and the panel slides
+# out for it exactly as it should — which reads here as a peek 300px wide.
 set -uo pipefail
 
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
@@ -196,7 +200,9 @@ else
 fi
 delta=$(( three_w > one_w ? three_w - one_w : one_w - three_w ))
 [ "$delta" -le 6 ] && ok "and the peek stays the same width (${three_w}px)" \
-    || bad "the peek changed width with the task count: ${three_w}px vs ${one_w}px"
+    || bad "the peek changed width with the task count: ${three_w}px vs ${one_w}px —
+      if it is ~300px the panel slid out, which is what it does when the pointer
+      is resting against the right edge; move the pointer away and run again"
 
 # ─── a task on another tag stays off this panel ──────────────────────────────
 task rc.verbose=nothing rc.confirmation=no add +niritasks_e2e_elsewhere -- "not here" >/dev/null 2>&1

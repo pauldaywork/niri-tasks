@@ -27,3 +27,10 @@ A spike on niri 26.04 confirmed that niri honours a layer surface's input
 region: clicks beside the peek reach the window beneath, and pointer enter/leave
 follows the region as it grows and shrinks. If a future niri stops doing that,
 Quickshell would break in the same way, since it relies on the same protocol.
+
+Blur needed the same kind of care. A niri `layer-rule` blurs a layer surface's
+whole rectangle, which here is mostly empty, so the panel sets its own blur
+region over `ext-background-effect-v1` (`src/panel/blur.rs`), borrowing GTK's
+Wayland connection. niri does not round a client's region off for layer
+surfaces, so each card's corners are built from 1px strips, and the region is
+resent every frame of a slide.
