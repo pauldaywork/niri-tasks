@@ -48,8 +48,10 @@ use std::time::Duration;
 /// can target the panel.
 pub const NAMESPACE: &str = "niri-tasks-panel";
 
-/// How much of each card shows while the panel is tucked away.
-pub const PEEK_PX: i32 = 60;
+/// How much of each card shows while the panel is tucked away: the card's
+/// 12px padding plus about one glyph, so the status icon peeks out and the
+/// text stays hidden.
+pub const PEEK_PX: i32 = 30;
 
 /// Room around the cards for their CSS shadow, which the surface has to
 /// contain or it is cut off square.
