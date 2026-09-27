@@ -276,6 +276,8 @@ fn build_window(
     // Equal minimum and maximum is what makes niri float this rather than tile
     // it into the column layout.
     window.set_size_request(WIDTH, height);
+    // What every rule in the box's stylesheet is scoped to (theme.rs).
+    window.add_css_class("task-box");
 
     let provider = CssProvider::new();
     // load_from_data, not load_from_string: the latter is gated behind gtk4's

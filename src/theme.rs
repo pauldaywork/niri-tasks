@@ -114,18 +114,23 @@ impl Theme {
     }
 
     /// The box's stylesheet.
+    /// The task box's stylesheet. Every rule is scoped to `.task-box`: the
+    /// provider is installed for the whole display, and in the daemon that
+    /// display also holds the task panels. GTK ranks providers of equal
+    /// priority by which was added last, not by how specific a selector is, so
+    /// an unscoped `window` or `button` here restyles the panel's cards.
     pub fn css(&self) -> String {
         format!(
             "
-window {{ background-color: {bg}; }}
-label {{ color: {fg}; }}
-label.dim {{ color: {dim}; font-size: 90%; }}
-textview {{ background-color: {variant}; color: {fg}; padding: 8px; border-radius: 8px; }}
-textview text {{ background-color: transparent; color: {fg}; }}
-scrolledwindow.notes {{ background-color: {variant}; border-radius: 8px; }}
-button {{ background-image: none; background-color: {variant}; color: {fg};
+window.task-box {{ background-color: {bg}; }}
+.task-box label {{ color: {fg}; }}
+.task-box label.dim {{ color: {dim}; font-size: 90%; }}
+.task-box textview {{ background-color: {variant}; color: {fg}; padding: 8px; border-radius: 8px; }}
+.task-box textview text {{ background-color: transparent; color: {fg}; }}
+.task-box scrolledwindow.notes {{ background-color: {variant}; border-radius: 8px; }}
+.task-box button {{ background-image: none; background-color: {variant}; color: {fg};
           border: 0; border-radius: 8px; padding: 6px 16px; }}
-button.suggested {{ background-color: {primary}; color: {bg}; font-weight: bold; }}
+.task-box button.suggested {{ background-color: {primary}; color: {bg}; font-weight: bold; }}
 ",
             bg = self.surface_container,
             fg = self.surface_text,
@@ -235,6 +240,16 @@ mod tests {
         // GTK parse error and a default-looking box.
         for placeholder in ["{bg}", "{fg}", "{dim}", "{variant}", "{primary}"] {
             assert!(!css.contains(placeholder), "css left {placeholder} unsubstituted");
+        }
+    }
+
+    /// Unscoped, these rules would reach the task panels the daemon also
+    /// draws — a `window` rule painted the panel's clear surface black.
+    #[test]
+    fn every_rule_is_scoped_to_the_box() {
+        let css = Theme::from_json(REAL).expect("parses").css();
+        for line in css.lines().filter(|l| l.contains('{')) {
+            assert!(line.contains("task-box"), "rule escapes the box: {line}");
         }
     }
 }
