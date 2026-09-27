@@ -26,7 +26,7 @@
 //!
 //! Mod+Alt+Ctrl+T slides the panel out and hands it the keyboard. The cards
 //! are buttons so GTK does the rest: the arrow keys move focus between them,
-//! Enter clicks the focused one, and `:focus-visible` draws its border. A
+//! Enter clicks the focused one, and `:focus` draws its border. A
 //! click and Enter are then the same `clicked`. Escape, or a click on a card,
 //! hands the keyboard back.
 //!
@@ -252,7 +252,6 @@ impl Panel {
         self.cancel_grace();
         self.window.set_keyboard_mode(KeyboardMode::Exclusive);
         self.slide_to(EXPANDED_X);
-        self.window.set_focus_visible(true);
         if let Some(first) = self.column.first_child() {
             first.grab_focus();
         }
@@ -370,6 +369,8 @@ impl Panel {
             Status::Pending => {}
         }
         button.set_size_request(CARD_WIDTH_PX, -1);
+        // A mouse click opens the menu without leaving the card bordered.
+        button.set_focus_on_click(false);
         button.set_widget_name(card.uuid.as_deref().unwrap_or("more"));
         let weak = Rc::downgrade(self);
         let uuid = card.uuid.clone();

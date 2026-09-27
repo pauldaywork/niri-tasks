@@ -67,7 +67,9 @@ window.task-panel {{ background-color: transparent; }}
     outline: none;
     transition: none;
 }}
-.task-panel .task-card:focus-visible {{ outline: {FOCUS}; outline-offset: -1px; }}
+/* :focus, not :focus-visible: GTK clears focus-visible 3s after the last key
+   press (VISIBLE_FOCUS_DURATION), and the border would vanish mid-pick. */
+.task-panel .task-card:focus {{ outline: {FOCUS}; outline-offset: -1px; }}
 .task-panel .task-card.active {{ color: {ACTIVE}; }}
 .task-panel .task-card.blocked,
 .task-panel .task-card.more {{ color: alpha({TEXT}, 0.55); }}
@@ -92,7 +94,7 @@ mod tests {
             ".task-card.active { color: #8cd283; }",
             "padding: 12px",
             "font: 10pt \"Iosevka Term Extended\"",
-            ".task-card:focus-visible { outline: 1px solid #ffffff; outline-offset: -1px; }",
+            ".task-card:focus { outline: 1px solid #ffffff; outline-offset: -1px; }",
         ] {
             assert!(css.contains(want), "missing `{want}`");
         }
