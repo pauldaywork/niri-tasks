@@ -10,7 +10,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
-    ipc, niri, notify, picker::Picker, project, require_workspace_tag, session, task, taskbox, text,
+    github, ipc, niri, notify, picker::Picker, project, require_workspace_tag, session, task,
+    taskbox, text,
 };
 
 /// Hand the box to the daemon if one is listening.
@@ -492,26 +493,48 @@ fn prompt_for_name(prompt: &str, prefill: &str) -> Result<Option<String>> {
 fn project_open() -> Result<()> {
     let (projects_dir, names) = projects()?;
 
-    let longest = names.iter().map(|n| n.chars().count()).max().unwrap_or(0);
+    // Under the local folders, the account's GitHub repos that are not cloned
+    // yet. The rows come from the cache; the refresh fired here feeds the
+    // *next* open, so the popup never waits on the network.
+    let remote = match github::cache_path() {
+        Some(cache) => {
+            github::spawn_refresh(&cache);
+            github::remote_only(&github::read_cache(&cache), &names)
+        }
+        None => Vec::new(),
+    };
+
+    let mut entries = names.clone();
+    entries.extend(remote.iter().map(|n| github::mark(n)));
+
+    let longest = entries.iter().map(|n| n.chars().count()).max().unwrap_or(0);
 
     // An empty ~/Projects is not an error: fuzzel shows a bare input box and
     // whatever you type becomes the first project.
     let selected = Picker::new()
         .arg("--no-sort")
-        .lines(niri_tasks::picker::clamp_lines(names.len()))
+        .lines(niri_tasks::picker::clamp_lines(entries.len()))
         .width(niri_tasks::picker::clamp_project_width(longest))
-        .run(&names)?;
+        .run(&entries)?;
 
     let Some(selected) = selected else { return Ok(()) };
 
-    let name = match project::resolve(&selected, &names) {
-        project::Resolved::Nothing => return Ok(()),
-        project::Resolved::Rejected(msg) => anyhow::bail!(msg),
-        project::Resolved::Existing(n) => n,
-        project::Resolved::Create(n) => {
+    let name = match github::choose(&selected, &names, &remote) {
+        github::Choice::Nothing => return Ok(()),
+        github::Choice::Rejected(msg) => anyhow::bail!(msg),
+        github::Choice::Local(n) => n,
+        github::Choice::Create(n) => {
             std::fs::create_dir(projects_dir.join(&n))
                 .with_context(|| format!("Could not create {}/{n}", projects_dir.display()))?;
             notify::project(&format!("Created {}/{n}", projects_dir.display()));
+            n
+        }
+        github::Choice::Clone(n) => {
+            // The clone blocks this keybind, not the compositor; the
+            // notifications are what says it started and finished.
+            notify::project(&format!("Cloning {n}…"));
+            github::clone(&n, &projects_dir.join(&n))?;
+            notify::project(&format!("Cloned {}/{n}", projects_dir.display()));
             n
         }
     };

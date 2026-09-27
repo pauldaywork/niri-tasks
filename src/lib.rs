@@ -5,6 +5,7 @@
 //! pure functions against the shell pipelines they were ported from.
 
 pub mod daemon;
+pub mod github;
 pub mod ipc;
 pub mod niri;
 pub mod notify;
