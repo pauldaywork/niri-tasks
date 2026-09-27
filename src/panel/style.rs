@@ -1,10 +1,10 @@
 //! How a task card looks: shaped like a mako notification, coloured like a
 //! terminal window.
 //!
-//! The shape — radius, padding, font, width, gap — is mako's, copied from
-//! `config/mako/config` in the ubuntu-setup repo. The fill and the outline are
-//! a ghostty window's under niri, from the same repo: `config/ghostty/` and
-//! `config/niri/window-rules/`. Change them together.
+//! The shape — radius, padding, width, gap — is mako's, copied from
+//! `config/mako/config` in the ubuntu-setup repo. The font, the fill and the
+//! outline are a ghostty window's under niri, from the same repo:
+//! `config/ghostty/` and `config/niri/window-rules/`. Change them together.
 //!
 //! No card has a border. The active task is marked by colour alone: its ▶ and
 //! its text are green.
@@ -32,8 +32,8 @@ pub const ACTIVE: &str = "#8cd283";
 pub const RADIUS_PX: i32 = 8;
 /// mako `padding`.
 pub const PADDING_PX: i32 = 12;
-/// mako `font`.
-pub const FONT: &str = "10pt \"Noto Sans\"";
+/// ghostty `font-family` and `font-size`, which is in points too.
+pub const FONT: &str = "10pt \"Iosevka Term Extended\"";
 /// mako `margin=0,0,8`: the gap between stacked notifications.
 pub const GAP_PX: i32 = 8;
 /// mako `width`.
@@ -62,11 +62,11 @@ window.task-panel {{ background-color: transparent; }}
 mod tests {
     use super::*;
 
-    /// The card is a mako notification in a terminal's colours. If this fails,
+    /// The card is a mako notification in a terminal's font and colours. If this fails,
     /// either those configs changed and these should follow, or they drifted
     /// apart by accident.
     #[test]
-    fn cards_carry_makos_shape_and_the_terminals_colours() {
+    fn cards_carry_makos_shape_and_the_terminals_font_and_colours() {
         let css = css();
         for want in [
             "background-color: rgba(0, 0, 0, 0.375)",
@@ -74,7 +74,7 @@ mod tests {
             "border-radius: 8px",
             ".task-card.active { color: #8cd283; }",
             "padding: 12px",
-            "font: 10pt \"Noto Sans\"",
+            "font: 10pt \"Iosevka Term Extended\"",
         ] {
             assert!(css.contains(want), "missing `{want}`");
         }

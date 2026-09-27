@@ -34,8 +34,8 @@ back. The space around the cards is click-through, so the panel never gets in
 the way of the windows beneath, and a fullscreen window covers it. An unnamed
 workspace, or one with nothing pending, shows no panel at all.
 
-The cards are shaped like mako notifications and coloured like a terminal
-window: a dark tint over blurred wallpaper, with niri's faint focus-ring outline
+The cards are shaped like mako notifications and take a terminal window's font
+and colours: a dark tint over blurred wallpaper, with niri's faint focus-ring outline
 (`src/panel/style.rs` names the configs it copies). The blur is asked for by the
 panel itself, over `ext-background-effect-v1`, in the exact shape of the cards;
 a compositor without that protocol shows them unblurred. The lock icon comes
