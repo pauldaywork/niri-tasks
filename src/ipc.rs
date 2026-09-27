@@ -1,4 +1,5 @@
-//! Asking the running daemon to open the task box.
+//! Asking the running daemon to open the task box, or to hand the task panel
+//! the keyboard.
 //!
 //! The box is a GTK window, and building one costs about 2.6s on a cold start
 //! and 0.6s warm — every time, because each `niritasks task add` was its own process.
@@ -18,6 +19,7 @@
 //! add
 //! edit <uuid>
 //! note <uuid>
+//! panel
 //! ```
 
 use anyhow::{Context, Result};
@@ -31,6 +33,8 @@ pub enum Request {
     Add,
     Edit(String),
     Note(String),
+    /// Slide out the focused monitor's task panel and give it the keyboard.
+    Panel,
 }
 
 impl Request {
@@ -39,6 +43,7 @@ impl Request {
             Request::Add => "add".into(),
             Request::Edit(uuid) => format!("edit {uuid}"),
             Request::Note(uuid) => format!("note {uuid}"),
+            Request::Panel => "panel".into(),
         }
     }
 
@@ -46,6 +51,7 @@ impl Request {
         let mut parts = line.trim().splitn(2, ' ');
         match (parts.next()?, parts.next()) {
             ("add", _) => Some(Request::Add),
+            ("panel", _) => Some(Request::Panel),
             ("edit", Some(uuid)) if !uuid.is_empty() => Some(Request::Edit(uuid.to_string())),
             ("note", Some(uuid)) if !uuid.is_empty() => Some(Request::Note(uuid.to_string())),
             _ => None,
@@ -118,6 +124,7 @@ mod tests {
             Request::Add,
             Request::Edit("abc-123".into()),
             Request::Note("def-456".into()),
+            Request::Panel,
         ] {
             assert_eq!(Request::decode(&req.encode()), Some(req));
         }

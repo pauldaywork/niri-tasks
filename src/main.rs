@@ -74,6 +74,10 @@ enum TaskCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Slide out the task panel and pick a task with the keyboard (Mod+Alt+Ctrl+T)
+    Panel,
+    /// Open the action menu for one task (clicking its task card)
+    Menu { uuid: String },
     /// Add a task
     Add { text: Vec<String> },
     /// Print a task's description by uuid
@@ -151,6 +155,20 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         }
 
         TaskCommand::List { dry_run } => return task_list(dry_run),
+
+        // The daemon draws the panel; without one, the fuzzel list does the job.
+        TaskCommand::Panel => {
+            if !delegate_to_daemon(ipc::Request::Panel) {
+                return task_list(false);
+            }
+        }
+
+        TaskCommand::Menu { uuid } => {
+            let tag = require_workspace_tag()?;
+            let t = task::get(&uuid)?.context("task not found")?;
+            let width = niri_tasks::picker::clamp_task_width(t.description.chars().count());
+            return task_menu(&tag, uuid, &t.description, width);
+        }
 
         // With no text, open the box. With text, add straight away — which is
         // what makes `niritasks task add ship it due:friday` work from a shell.
@@ -309,7 +327,12 @@ fn task_list(dry_run: bool) -> Result<()> {
         .map(|t| t.description.clone())
         .unwrap_or_default();
 
-    let width = niri_tasks::picker::clamp_task_width(longest);
+    task_menu(&tag, selected, &description, niri_tasks::picker::clamp_task_width(longest))
+}
+
+/// The actions for one task, and doing the one picked. `width` is the delete
+/// confirmation's, matched to the list it was reached from.
+fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Result<()> {
     let action = Picker::new()
         .lines(6)
         .width(20)
@@ -345,10 +368,10 @@ fn task_list(dry_run: bool) -> Result<()> {
             notify::tasks(&format!("Completed: {description}"));
         }
         Some("Set active") => {
-            task::set_active(&tag, &selected)?;
+            task::set_active(tag, &selected)?;
             notify::tasks(&format!("Active: {description}"));
         }
-        Some("Move to workspace") => return task_move(&tag, &selected, &description),
+        Some("Move to workspace") => return task_move(tag, &selected, description),
         _ => {}
     }
     Ok(())

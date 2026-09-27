@@ -33,6 +33,12 @@ const TICK: Duration = Duration::from_millis(700);
 
 type Panels = Rc<RefCell<HashMap<String, Rc<Panel>>>>;
 
+thread_local! {
+    /// The panels, where an IPC request can reach them. Only ever touched on
+    /// the GTK main thread, which is the one thread they may be.
+    static PANELS: Panels = Panels::default();
+}
+
 /// What the last tick saw, so a tick that changes nothing does nothing.
 #[derive(Default)]
 struct State {
@@ -54,7 +60,8 @@ fn task_db_mtime() -> Option<SystemTime> {
     std::fs::metadata(pending_data_path()?).ok()?.modified().ok()
 }
 
-/// The task cards for a workspace, or none when it is unnamed or empty.
+/// Every task card for a workspace, or none when it is unnamed or empty. The
+/// panel does the capping.
 fn cards_for_workspace(name: Option<&str>) -> Vec<model::Card> {
     let t = tag::workspace_tag(name.unwrap_or_default());
     if t.is_empty() {
@@ -67,7 +74,7 @@ fn cards_for_workspace(name: Option<&str>) -> Vec<model::Card> {
         return Vec::new();
     }
     let blocked = task::blocked_uuids_for_tag(&t).unwrap_or_default();
-    model::cards(&tasks, &blocked, model::CAP)
+    model::cards(&tasks, &blocked)
 }
 
 pub fn run() -> anyhow::Result<()> {
@@ -104,7 +111,7 @@ fn build(app: &Application) {
 
     // One panel per monitor, keyed by connector name — which is also niri's
     // output name, so it is what ties a panel to the workspace it shows.
-    let panels: Panels = Rc::new(RefCell::new(HashMap::new()));
+    let panels: Panels = PANELS.with(Rc::clone);
     let state = Rc::new(RefCell::new(State::default()));
 
     sync_monitors(app, &display, &panels);
@@ -170,11 +177,27 @@ fn debug(msg: &str) {
 }
 
 /// Open the box for a request from the CLI, and do the taskwarrior work when it
-/// is submitted — the CLI has already exited by then, so this side owns it.
+/// is submitted — the CLI has already exited by then, so this side owns it. Or
+/// hand the focused monitor's panel the keyboard.
 fn serve_box_request(app: &Application, req: crate::ipc::Request) {
     use crate::{ipc::Request, notify, task, taskbox, text};
 
     match req {
+        Request::Panel => {
+            let output = niri::focused_workspace().ok().flatten().and_then(|w| w.output);
+            let panel = output
+                .as_ref()
+                .and_then(|o| PANELS.with(|p| p.borrow().get(o).cloned()));
+            if !panel.is_some_and(|p| p.take_keyboard()) {
+                // No cards to pick from: the fuzzel list instead, with its
+                // "Add task" row, or its "name this workspace" error.
+                crate::panel::surface::open_menu(
+                    output.as_deref().unwrap_or_default(),
+                    &["task".into(), "list".into()],
+                );
+            }
+        }
+
         Request::Add => {
             let tag = match crate::require_workspace_tag() {
                 Ok(t) => t,

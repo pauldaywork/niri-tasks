@@ -32,7 +32,8 @@ _Avoid_: current task, in-progress task
 
 **Task panel**:
 The list of task cards on a monitor's right edge, showing the pending tasks of
-that monitor's active workspace. It is tucked away to a peek until hovered.
+that monitor's active workspace. It is tucked away to a peek until hovered,
+or until Mod+Alt+Ctrl+T slides it out and hands it the keyboard.
 _Avoid_: pill, overlay, widget, sidebar, drawer
 
 **Task card**:
@@ -46,7 +47,7 @@ _Avoid_: sliver, handle, tab
 
 **Picker**:
 The fuzzel list of a workspace's tasks, opened from a keybind, for acting on
-one.
+one. Picking a task, or clicking its task card, opens its action menu.
 _Avoid_: menu, launcher
 
 **Task box**:

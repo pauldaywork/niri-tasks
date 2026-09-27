@@ -23,6 +23,9 @@ pub enum Status {
 pub struct Card {
     pub status: Status,
     pub text: String,
+    /// The task a click on the card acts on. `None` on the "+N more" card,
+    /// which stands for no one task.
+    pub uuid: Option<String>,
 }
 
 impl Card {
@@ -40,13 +43,13 @@ impl Card {
     }
 }
 
-/// The task cards for one workspace tag: the active task first, then the rest
-/// most urgent first, capped at `cap` plus a "+N more" card.
+/// The task cards for one workspace tag, every one of them: the active task
+/// first, then the rest most urgent first.
 ///
 /// Active first even when something else is more urgent: it is the work in
 /// progress, and the one card worth reading without hovering. Being started
 /// outranks being blocked, since you started it anyway.
-pub fn cards(tasks: &[Task], blocked: &[String], cap: usize) -> Vec<Card> {
+pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
     let mut sorted: Vec<&Task> = tasks.iter().collect();
     sorted.sort_by(|a, b| {
         b.is_active().cmp(&a.is_active()).then(
@@ -56,9 +59,8 @@ pub fn cards(tasks: &[Task], blocked: &[String], cap: usize) -> Vec<Card> {
         )
     });
 
-    let mut cards: Vec<Card> = sorted
+    sorted
         .iter()
-        .take(cap)
         .map(|t| Card {
             status: if t.is_active() {
                 Status::Active
@@ -68,16 +70,25 @@ pub fn cards(tasks: &[Task], blocked: &[String], cap: usize) -> Vec<Card> {
                 Status::Pending
             },
             text: crate::text::collapse_whitespace(&t.description),
+            uuid: Some(t.uuid.clone()),
         })
-        .collect();
+        .collect()
+}
 
-    if sorted.len() > cap {
-        cards.push(Card {
+/// The first `n` cards, and past that one "+N more" card for the rest.
+///
+/// Kept apart from `cards` because the panel holds every card and caps them
+/// itself: the "+N more" card shows the rest in place.
+pub fn cap(cards: &[Card], n: usize) -> Vec<Card> {
+    let mut shown = cards[..n.min(cards.len())].to_vec();
+    if cards.len() > n {
+        shown.push(Card {
             status: Status::More,
-            text: format!("+{} more", sorted.len() - cap),
+            text: format!("+{} more", cards.len() - n),
+            uuid: None,
         });
     }
-    cards
+    shown
 }
 
 #[cfg(test)]
@@ -100,7 +111,7 @@ mod tests {
 
     #[test]
     fn no_tasks_no_cards() {
-        assert!(cards(&[], &[], CAP).is_empty());
+        assert!(cards(&[], &[]).is_empty());
     }
 
     #[test]
@@ -108,42 +119,43 @@ mod tests {
         let got = cards(
             &[task("low", 1.0, false), task("started", 2.0, true), task("high", 9.0, false)],
             &[],
-            CAP,
         );
         assert_eq!(texts(&got), vec!["started", "high", "low"]);
+        assert_eq!(got[0].uuid.as_deref(), Some("started"), "a card knows its task");
         assert_eq!(got[0].status, Status::Active);
         assert_eq!(got[1].status, Status::Pending);
     }
 
     #[test]
     fn blocked_tasks_are_marked() {
-        let got = cards(&[task("waits", 1.0, false)], &["waits".into()], CAP);
+        let got = cards(&[task("waits", 1.0, false)], &["waits".into()]);
         assert_eq!(got[0].status, Status::Blocked);
         assert_eq!(got[0].icon(), "\u{f023}");
     }
 
     #[test]
     fn started_outranks_blocked() {
-        let got = cards(&[task("both", 1.0, true)], &["both".into()], CAP);
+        let got = cards(&[task("both", 1.0, true)], &["both".into()]);
         assert_eq!(got[0].status, Status::Active);
     }
 
     #[test]
     fn past_the_cap_the_rest_fold_into_one_card() {
         let many: Vec<Task> = (0..11).map(|i| task(&format!("t{i}"), i as f64, false)).collect();
-        let got = cards(&many, &[], CAP);
+        let got = cap(&cards(&many, &[]), CAP);
         assert_eq!(got.len(), CAP + 1);
         assert_eq!(got[0].text, "t10", "the cap keeps the most urgent");
         let last = got.last().unwrap();
         assert_eq!(last.status, Status::More);
         assert_eq!(last.text, "+3 more");
         assert_eq!(last.icon(), "");
+        assert_eq!(last.uuid, None);
     }
 
     #[test]
     fn exactly_the_cap_has_no_more_card() {
         let many: Vec<Task> = (0..CAP).map(|i| task(&format!("t{i}"), 1.0, false)).collect();
-        let got = cards(&many, &[], CAP);
+        let got = cap(&cards(&many, &[]), CAP);
         assert_eq!(got.len(), CAP);
         assert!(got.iter().all(|c| c.status != Status::More));
     }
@@ -152,6 +164,6 @@ mod tests {
     fn descriptions_are_one_line() {
         let mut t = task("x", 1.0, false);
         t.description = "two\nlines".into();
-        assert_eq!(cards(&[t], &[], CAP)[0].text, "two lines");
+        assert_eq!(cards(&[t], &[])[0].text, "two lines");
     }
 }

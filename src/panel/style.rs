@@ -6,8 +6,13 @@
 //! outline are a ghostty window's under niri, from the same repo:
 //! `config/ghostty/` and `config/niri/window-rules/`. Change them together.
 //!
-//! No card has a border. The active task is marked by colour alone: its ▶ and
-//! its text are green.
+//! No card has a border, except the one the keyboard is on, which gets a 1px
+//! white one. The active task is marked by colour alone: its ▶ and its text
+//! are green.
+//!
+//! The cards are buttons, so the keyboard can move between them, and the
+//! theme's button look — border, gradient, minimum height, hover and press
+//! colours — is reset away so a card looks the same as a plain label would.
 //!
 //! Every rule is scoped to `.task-panel`, because the provider is installed for
 //! the whole display and the daemon also opens task boxes, which must not pick
@@ -38,19 +43,31 @@ pub const FONT: &str = "10pt \"Iosevka Term Extended\"";
 pub const GAP_PX: i32 = 8;
 /// mako `width`.
 pub const CARD_WIDTH_PX: i32 = 380;
+/// The border on the card the keyboard is on.
+pub const FOCUS: &str = "1px solid #ffffff";
 
 pub fn css() -> String {
     format!(
         "
 window.task-panel {{ background-color: transparent; }}
-.task-panel .task-card {{
+.task-panel .task-card,
+.task-panel .task-card:hover,
+.task-panel .task-card:active {{
     background-color: {BACKGROUND};
+    background-image: none;
     color: {TEXT};
+    border: none;
     border-radius: {RADIUS_PX}px;
     padding: {PADDING_PX}px;
+    min-height: 0;
+    min-width: 0;
     font: {FONT};
+    font-weight: normal;
     box-shadow: {OUTLINE};
+    outline: none;
+    transition: none;
 }}
+.task-panel .task-card:focus-visible {{ outline: {FOCUS}; outline-offset: -1px; }}
 .task-panel .task-card.active {{ color: {ACTIVE}; }}
 .task-panel .task-card.blocked,
 .task-panel .task-card.more {{ color: alpha({TEXT}, 0.55); }}
@@ -75,6 +92,7 @@ mod tests {
             ".task-card.active { color: #8cd283; }",
             "padding: 12px",
             "font: 10pt \"Iosevka Term Extended\"",
+            ".task-card:focus-visible { outline: 1px solid #ffffff; outline-offset: -1px; }",
         ] {
             assert!(css.contains(want), "missing `{want}`");
         }

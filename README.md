@@ -16,7 +16,7 @@ from — opening one, or moving a task to another workspace.
 | Key | Does |
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — one annotation per line |
-| `Mod+Alt+Ctrl+T` | List this workspace's tasks — edit, note, delete, complete, set active, move to another workspace |
+| `Mod+Alt+Ctrl+T` | Pick one of this workspace's tasks on the task panel — edit, note, delete, complete, set active, move to another workspace. With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+W` | Create a new workspace and name it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
@@ -33,6 +33,14 @@ pointer onto it and the cards slide out to full width; move away and they slide
 back. The space around the cards is click-through, so the panel never gets in
 the way of the windows beneath, and a fullscreen window covers it. An unnamed
 workspace, or one with nothing pending, shows no panel at all.
+
+Click a card to open that task's actions in fuzzel — the same menu the picker
+shows once you pick a task — on the monitor you clicked. The "+N more" card
+shows the rest of the tasks in the panel.
+
+`Mod+Alt+Ctrl+T` does the same from the keyboard: the panel slides out and
+takes the keyboard, the arrow keys move a 1px white border between cards, and
+Enter acts as a click. Escape tucks it away again.
 
 The cards are shaped like mako notifications and take a terminal window's font
 and colours: a dark tint over blurred wallpaper, with niri's faint focus-ring outline
@@ -91,7 +99,9 @@ niritasks tag --session            # the tag of the workspace this terminal was 
                                    #   (its herdr session, else its ~/Projects folder)
 niritasks task active              # the active task's description, or nothing
 niritasks task list                # the picker
+niritasks task panel               # hand the task panel the keyboard (Mod+Alt+Ctrl+T)
 niritasks task list --dry-run      # the rows it would show, for scripting and testing
+niritasks task menu <uuid>         # one task's actions, as a task card click opens them
 niritasks task add <text>          # honours taskwarrior attributes: due:friday, priority:H
 niritasks task edit <uuid> <text>  # replaces the description; attributes stay literal
 niritasks task note <uuid> <text>  # attaches an annotation
@@ -192,7 +202,11 @@ the frames on disk when you need to see what a failure actually looked like.
 It cannot move the pointer, so the hover is checked by hand after a change to
 `src/panel/surface.rs`: the peek slides out when the pointer reaches it and back
 about 0.4s after it leaves, the slide is smooth, and a click just left of the
-peek, or between two cards, lands on the window beneath.
+peek, or between two cards, lands on the window beneath, while a click on a
+card opens its actions on that monitor. And the keyboard: `Mod+Alt+Ctrl+T`
+slides the panel out with the first card bordered, the arrows move the border,
+Enter opens the menu, Enter on "+N more" shows the rest, and Escape tucks it
+away.
 
 Two things about `e2e-box.sh` in particular. It **types into whatever has
 focus**, so start it and leave the keyboard alone until it finishes; anything

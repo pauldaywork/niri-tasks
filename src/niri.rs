@@ -82,6 +82,10 @@ pub fn set_workspace_name(name: &str, workspace: Option<WorkspaceReferenceArg>) 
     })
 }
 
+pub fn focus_monitor(output: &str) -> Result<()> {
+    action(Action::FocusMonitor { output: output.to_string() })
+}
+
 pub fn spawn(command: Vec<String>) -> Result<()> {
     action(Action::Spawn { command })
 }
