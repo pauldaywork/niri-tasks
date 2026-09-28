@@ -72,8 +72,30 @@ Show the proposal in your reply, then ask with AskUserQuestion — one question,
 3. **Before** — the current description and notes, so the user can see nothing
    was dropped.
 
+Then, as the last thing in your reply before the question, print **exactly
+what will be sent** — the JSON payload step 5 passes to the write, in a `json`
+code block under the heading **Will be written to the task**, one note per
+line:
+
+```json
+{
+  "description": "Show each Claude agent's topic in herdr's sidebar",
+  "notes": [
+    "Goal: …",
+    "Done when: …"
+  ]
+}
+```
+
+and under it, in one line: the task's uuid, that these notes **replace** all
+existing ones, and that `+planned` is added with the other tags left as they
+are. This block is the payload itself, not a summary of it: step 5 sends it
+character for character. The user is approving this block, so it must be
+valid JSON and must match the proposal above it.
+
 On **Change something** (or any other answer), take their feedback, revise,
-and ask again. Only **Write it to the task** leads to step 5.
+print the block again, and ask again. Only **Write it to the task** leads to
+step 5.
 
 ## 5. Write
 
@@ -82,8 +104,10 @@ notes differ from what you read in step 1, show the difference and ask before
 writing — someone else changed it meanwhile.
 
 Otherwise write the description, the notes and the tag in **one** import, so the
-task is never half-updated. Put the approved text in the heredoc — JSON-escaped —
-and run:
+task is never half-updated. Put the **Will be written to the task** block the
+user approved into the heredoc exactly as printed — no rewording, no
+reordering, nothing added. If anything needs to change after approval, go back
+to step 4 and print the block again instead. Then run:
 
 ```bash
 task rc.json.array=on <uuid> export | python3 -c '

@@ -99,6 +99,9 @@ Arguments: `<uuid> [grill]`.
    - the old description and notes beside them, so nothing is dropped
      silently.
 
+   Last before the question comes **Will be written to the task**: the exact
+   JSON payload step 5 sends, which the write then uses character for
+   character, so what the user approves is the write itself, not a summary.
    **Change something** sends it back to revise — the approve-or-refine loop.
    The skill never carries out the task; its only write is step 5.
 5. **Write.** Re-export the task. If it changed since step 1, show what changed
