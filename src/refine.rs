@@ -5,7 +5,7 @@
 //! nothing needs quoting through two CLIs and it always sees the current
 //! version rather than the one the menu was opened on.
 
-use crate::{herdr, niri, project, session, text};
+use crate::{herdr, niri, notify, project, session, text};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::path::Path;
@@ -60,6 +60,54 @@ pub fn tab_label(mode: Mode, description: &str) -> String {
     format!("{verb}: {short}")
 }
 
+/// A niri window's id, app_id and title — the columns [`find_session_window`]
+/// needs, kept as a tuple rather than `niri_ipc::Window` so a test can build
+/// one without niri_ipc's layout fields.
+type WindowInfo<'a> = (u64, Option<&'a str>, Option<&'a str>);
+
+/// The ghostty window already showing `label`'s session, if niri has one open.
+///
+/// herdr sets the outer terminal's title to its `window_title`, default
+/// `"{hostname}: {workspace}"` — so a project session's ghostty window's title
+/// ends with `": <label>"`, where `label` is that herdr workspace's own label.
+/// This depends on that default: a user who changes `window_title` just costs
+/// themselves an extra attached terminal window rather than a focus, which is
+/// harmless.
+fn find_session_window(windows: &[WindowInfo], label: &str) -> Option<u64> {
+    let suffix = format!(": {label}");
+    windows
+        .iter()
+        .find(|(_, app_id, title)| {
+            *app_id == Some("com.mitchellh.ghostty") && title.is_some_and(|t| t.ends_with(&suffix))
+        })
+        .map(|(id, _, _)| *id)
+}
+
+/// Bring the window showing `s`'s session into view: focus it if niri still
+/// has one open, or attach another client to the running session if the user
+/// closed it — herdr allows more than one client on a session, so a second
+/// attach is harmless. Without this, closing the project terminal window
+/// leaves the herdr server running and any refine opened afterwards invisible.
+///
+/// A session that answers `workspace list` but has no herdr workspace yet has
+/// no title to look for; `launch` creates one right after this call, and that
+/// create takes `--focus` itself.
+fn show_session_window(dir: &Path, s: &str, list: &Value) -> Result<()> {
+    let Some(label) = herdr::first_workspace_label(list) else {
+        return Ok(());
+    };
+    let windows = niri::windows()?;
+    let info: Vec<WindowInfo> = windows
+        .iter()
+        .map(|w| (w.id, w.app_id.as_deref(), w.title.as_deref()))
+        .collect();
+    match find_session_window(&info, &label) {
+        Some(id) => niri::focus_window(id)?,
+        None => niri::spawn(project::project_terminal_command(dir, s, true))?,
+    }
+    Ok(())
+}
+
 /// Open Claude on a task in `workspace`'s herdr session.
 ///
 /// Opens the project terminal first if the session is not running, and goes
@@ -70,6 +118,11 @@ pub fn launch(workspace: &str, uuid: &str, description: &str, mode: Mode) -> Res
     let s = session::herdr_session_name(workspace);
     let name = agent_name(uuid);
 
+    // Whether the session was already running when we asked. A session we
+    // spawn ourselves below already has a window in front of the user; one
+    // that was already running might have had its window closed while the
+    // herdr server it belongs to kept going.
+    let mut already_running = true;
     let list = match herdr::run(&herdr::workspace_list(&s)) {
         Ok(list) => list,
         Err(_) => {
@@ -80,24 +133,39 @@ pub fn launch(workspace: &str, uuid: &str, description: &str, mode: Mode) -> Res
             // Through niri, so the window lands on the focused workspace —
             // the one the task belongs to — as the project picker's does.
             niri::spawn(project::project_terminal_command(&dir, &s, true))?;
+            already_running = false;
             wait_for_session(&s)?
         }
     };
 
+    if already_running {
+        show_session_window(&dir, &s, &list)?;
+    }
+
     if herdr::run(&herdr::agent_get(&s, &name)).is_ok() {
         herdr::run(&herdr::agent_focus(&s, &name))?;
+        notify::tasks("Already being refined — switched to its tab.");
         return Ok(());
     }
 
     let label = tab_label(mode, description);
     let created = match herdr::first_workspace_id(&list) {
         Some(id) => herdr::run(&herdr::tab_create(&s, &id, &dir, &label))?,
-        None => herdr::run(&herdr::workspace_create(&s, &dir, &label))?,
+        // The workspace itself is named after the project, not this tab.
+        None => herdr::run(&herdr::workspace_create(&s, &dir, workspace))?,
     };
     let pane = herdr::root_pane_id(&created).context("herdr did not say which pane it made")?;
 
-    herdr::run(&herdr::agent_start_claude_plan(&s, &name, &pane))?;
-    herdr::run(&herdr::agent_prompt(&s, &name, &prompt(uuid, mode)))?;
+    if let Err(e) = herdr::run(&herdr::agent_start_claude_plan(&s, &name, &pane)) {
+        // Best-effort: a retry should not find a pile of bare-shell tabs from
+        // every failed attempt, but a failure here must not hide the real error.
+        if let Some(tab_id) = herdr::created_tab_id(&created) {
+            let _ = herdr::run(&herdr::tab_close(&s, &tab_id));
+        }
+        return Err(e);
+    }
+    herdr::run(&herdr::agent_prompt(&s, &name, &prompt(uuid, mode)))
+        .context("Claude started, but the prompt was not delivered.")?;
     Ok(())
 }
 
@@ -154,5 +222,33 @@ mod tests {
         let label = tab_label(Mode::Quick, &"é".repeat(40));
         assert_eq!(label, format!("Refine: {}…", "é".repeat(29)));
         assert_eq!(tab_label(Mode::Quick, "two\n lines"), "Refine: two lines");
+    }
+
+    const GHOSTTY: &str = "com.mitchellh.ghostty";
+
+    #[test]
+    fn finds_the_ghostty_window_whose_title_ends_with_the_label() {
+        let windows = [(1, Some(GHOSTTY), Some("paul-msi-ubuntu: hansard"))];
+        assert_eq!(find_session_window(&windows, "hansard"), Some(1));
+    }
+
+    #[test]
+    fn no_window_matches_a_different_label() {
+        let windows = [(1, Some(GHOSTTY), Some("paul-msi-ubuntu: other"))];
+        assert_eq!(find_session_window(&windows, "hansard"), None);
+    }
+
+    #[test]
+    fn a_different_app_id_with_the_matching_title_does_not_match() {
+        let windows = [(1, Some("org.wezfurlong.wezterm"), Some("paul-msi-ubuntu: hansard"))];
+        assert_eq!(find_session_window(&windows, "hansard"), None);
+    }
+
+    /// "tasks" must not match a title ending "niri-tasks" — a label that is a
+    /// suffix of another workspace's label is not the same workspace.
+    #[test]
+    fn a_label_that_is_a_suffix_of_another_label_does_not_match() {
+        let windows = [(1, Some(GHOSTTY), Some("paul-msi-ubuntu: niri-tasks"))];
+        assert_eq!(find_session_window(&windows, "tasks"), None);
     }
 }

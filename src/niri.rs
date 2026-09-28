@@ -4,7 +4,7 @@
 //! through `jq`. This replaces both: one socket connection, typed responses.
 
 use anyhow::{bail, Context, Result};
-use niri_ipc::{socket::Socket, Action, Request, Response, Workspace, WorkspaceReferenceArg};
+use niri_ipc::{socket::Socket, Action, Request, Response, Window, Workspace, WorkspaceReferenceArg};
 
 /// Ask niri for the current workspace list.
 pub fn workspaces() -> Result<Vec<Workspace>> {
@@ -46,20 +46,25 @@ pub fn active_workspace_by_output(
         .collect()
 }
 
+/// Every open window, across every workspace.
+///
+/// Used to find the ghostty window already showing a herdr session before
+/// `refine` opens another one over it.
+pub fn windows() -> Result<Vec<Window>> {
+    let mut socket = Socket::connect().context("niri is not running")?;
+    match socket.send(Request::Windows).context("niri request failed")? {
+        Ok(Response::Windows(windows)) => Ok(windows),
+        Ok(other) => bail!("unexpected reply to Windows: {other:?}"),
+        Err(e) => bail!("niri refused the Windows request: {e}"),
+    }
+}
+
 /// How many windows are on a given workspace.
 ///
 /// Used to decide whether re-picking an already-open project should spawn a
 /// terminal or just switch to it.
 pub fn window_count(workspace_id: u64) -> Result<usize> {
-    let mut socket = Socket::connect().context("niri is not running")?;
-    match socket.send(Request::Windows).context("niri request failed")? {
-        Ok(Response::Windows(windows)) => Ok(windows
-            .iter()
-            .filter(|w| w.workspace_id == Some(workspace_id))
-            .count()),
-        Ok(other) => bail!("unexpected reply to Windows: {other:?}"),
-        Err(e) => bail!("niri refused the Windows request: {e}"),
-    }
+    Ok(windows()?.iter().filter(|w| w.workspace_id == Some(workspace_id)).count())
 }
 
 fn action(action: Action) -> Result<()> {
@@ -88,6 +93,13 @@ pub fn focus_monitor(output: &str) -> Result<()> {
 
 pub fn spawn(command: Vec<String>) -> Result<()> {
     action(Action::Spawn { command })
+}
+
+/// Focus a window by id — brings an already-open window back into view,
+/// instead of `refine` spawning a second one over a session whose window is
+/// merely unfocused rather than closed.
+pub fn focus_window(id: u64) -> Result<()> {
+    action(Action::FocusWindow { id })
 }
 
 /// The highest workspace index on a given output.
