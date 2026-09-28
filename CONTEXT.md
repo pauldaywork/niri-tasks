@@ -28,6 +28,12 @@ _Avoid_: visible workspace, current workspace
 The started pending task on a workspace tag. There is at most one per tag.
 _Avoid_: current task, in-progress task
 
+**Planned task**:
+A pending task the `refine-task` skill has worked up into a plan — a sharper
+description and a consolidated set of notes — marked with the `+planned` tag
+and a clipboard-check icon on its task card and picker row.
+_Avoid_: ready (Taskwarrior's `+READY` means something else), refined, groomed
+
 ### On screen
 
 **Task panel**:

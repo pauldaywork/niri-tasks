@@ -19,9 +19,9 @@ pub const ADD_LABEL: &str = "＋ Add a task…";
 
 /// Build the picker rows for a set of tasks, most urgent first.
 ///
-/// The leading marker flags the active task; the trailing `¶` flags a task
-/// carrying notes, which are otherwise invisible here — the row shows a
-/// description, and an annotation is not one.
+/// The leading marker flags the active task, or failing that a planned one;
+/// the trailing `¶` flags a task carrying notes, which are otherwise invisible
+/// here — the row shows a description, and an annotation is not one.
 pub fn build(tasks: &[Task]) -> Vec<(String, String)> {
     let mut sorted: Vec<&Task> = tasks.iter().collect();
     sorted.sort_by(|a, b| {
@@ -33,7 +33,13 @@ pub fn build(tasks: &[Task]) -> Vec<(String, String)> {
     let mut rows: Vec<(String, String)> = sorted
         .into_iter()
         .map(|t| {
-            let mark = if t.is_active() { "▶ " } else { "  " };
+            let mark = if t.is_active() {
+                "▶ "
+            } else if t.is_planned() {
+                "\u{f014e} "
+            } else {
+                "  "
+            };
             let notes = if t.has_notes() { " ¶" } else { "" };
             (t.uuid.clone(), format!("{mark}{}{notes}", t.description))
         })
@@ -128,5 +134,25 @@ mod tests {
         assert_eq!(rows[0].1.chars().count(), 7);
         assert!(rows[0].1.len() > 7, "fixture should be multi-byte");
         assert_eq!(longest(&rows), ADD_LABEL.chars().count().max(7));
+    }
+
+    #[test]
+    fn planned_task_gets_the_clipboard_marker() {
+        let mut t = task("a", "planned", 1.0, false, 0);
+        t.tags = vec![crate::task::PLANNED_TAG.into()];
+        let rows = build(&[t]);
+        assert_eq!(rows[0].1, "\u{f014e} planned");
+        assert_eq!(
+            rows[0].1.chars().count(),
+            "  planned".chars().count(),
+            "the marker keeps the padding's width"
+        );
+    }
+
+    #[test]
+    fn the_active_marker_wins_over_planned() {
+        let mut t = task("a", "both", 1.0, true, 0);
+        t.tags = vec![crate::task::PLANNED_TAG.into()];
+        assert_eq!(build(&[t])[0].1, "▶ both");
     }
 }

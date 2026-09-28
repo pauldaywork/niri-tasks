@@ -38,6 +38,10 @@ Click a card to open that task's actions in fuzzel — the same menu the picker
 shows once you pick a task — on the monitor you clicked. The "+N more" card
 shows the rest of the tasks in the panel.
 
+A card's icon says where the task is: `▶` for the active task, a lock for one
+blocked by another, a clipboard-check for a planned one — worked up with Claude
+from the menu's **Refine** or **Grill me** — and `○` for the rest.
+
 `Mod+Alt+Ctrl+T` does the same from the keyboard: the panel slides out and
 takes the keyboard, the arrow keys move a 1px white border between cards, and
 Enter acts as a click. Escape tucks it away again.

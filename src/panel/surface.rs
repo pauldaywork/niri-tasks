@@ -367,6 +367,7 @@ impl Panel {
         match card.status {
             Status::Active => button.add_css_class("active"),
             Status::Blocked => button.add_css_class("blocked"),
+            Status::Planned => button.add_css_class("planned"),
             Status::More => button.add_css_class("more"),
             Status::Pending => {}
         }

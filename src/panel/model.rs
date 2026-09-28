@@ -15,6 +15,8 @@ pub enum Status {
     Active,
     Pending,
     Blocked,
+    /// Worked up into a plan by the `refine-task` skill.
+    Planned,
     /// The "+N more" card standing in for everything past the cap.
     More,
 }
@@ -37,6 +39,9 @@ impl Card {
             // Font Awesome's lock, from the Nerd Font waybar already uses: flat
             // and one colour, where the emoji lock is a picture.
             Status::Blocked => "\u{f023}",
+            // Material Design's clipboard-check, from the same Nerd Font as the
+            // lock: flat and one colour, so it reads as a sibling of it.
+            Status::Planned => "\u{f014e}",
             // The count is the text, so the peek reads "+3".
             Status::More => "",
         }
@@ -48,7 +53,8 @@ impl Card {
 ///
 /// Active first even when something else is more urgent: it is the work in
 /// progress, and the one card worth reading without hovering. Being started
-/// outranks being blocked, since you started it anyway.
+/// outranks being blocked, since you started it anyway. Blocked outranks planned:
+/// a plan does not make a task you cannot start yet startable.
 pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
     let mut sorted: Vec<&Task> = tasks.iter().collect();
     sorted.sort_by(|a, b| {
@@ -66,6 +72,8 @@ pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
                 Status::Active
             } else if blocked.contains(&t.uuid) {
                 Status::Blocked
+            } else if t.is_planned() {
+                Status::Planned
             } else {
                 Status::Pending
             },
@@ -108,6 +116,12 @@ mod tests {
 
     fn texts(cards: &[Card]) -> Vec<&str> {
         cards.iter().map(|c| c.text.as_str()).collect()
+    }
+
+    fn planned(uuid: &str, active: bool) -> Task {
+        let mut t = task(uuid, 1.0, active);
+        t.tags = vec![crate::task::PLANNED_TAG.into()];
+        t
     }
 
     #[test]
@@ -166,5 +180,34 @@ mod tests {
         let mut t = task("x", 1.0, false);
         t.description = "two\nlines".into();
         assert_eq!(cards(&[t], &[])[0].text, "two lines");
+    }
+
+    #[test]
+    fn planned_tasks_get_the_clipboard() {
+        let got = cards(&[planned("p", false)], &[]);
+        assert_eq!(got[0].status, Status::Planned);
+        assert_eq!(got[0].icon(), "\u{f014e}");
+    }
+
+    #[test]
+    fn started_outranks_planned() {
+        let got = cards(&[planned("p", true)], &[]);
+        assert_eq!(got[0].status, Status::Active);
+    }
+
+    /// A planned task that is waiting on another still cannot be started, and
+    /// the lock is what says so.
+    #[test]
+    fn blocked_outranks_planned() {
+        let got = cards(&[planned("p", false)], &["p".into()]);
+        assert_eq!(got[0].status, Status::Blocked);
+    }
+
+    #[test]
+    fn planned_does_not_change_the_order() {
+        let mut low = planned("low", false);
+        low.urgency = 1.0;
+        let got = cards(&[low, task("high", 9.0, false)], &[]);
+        assert_eq!(texts(&got), vec!["high", "low"]);
     }
 }
