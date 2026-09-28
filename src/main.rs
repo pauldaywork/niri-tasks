@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
     github, ipc, niri, notify, picker::Picker, project, refine, require_workspace_tag, session,
-    task, taskbox, text,
+    task, taskbox, text, work,
 };
 
 /// Hand the box to the daemon if one is listening.
@@ -95,6 +95,18 @@ enum TaskCommand {
         /// Interview first, via the `grilling` skill, rather than drafting straight away
         #[arg(long)]
         grill: bool,
+    },
+    /// Start working on a task in its own git worktree, with Claude planning it
+    Start {
+        uuid: String,
+        /// The setup step, run inside the tab `task start` opens: make the
+        /// worktree, open it, start Claude, close the tab
+        #[arg(long, requires = "workspace")]
+        here: bool,
+        /// The workspace the task belongs to (only with --here, which runs
+        /// inside herdr where niri's focus says nothing about it)
+        #[arg(long)]
+        workspace: Option<String>,
     },
 }
 
@@ -279,6 +291,19 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             task::annotate(&uuid, &note)?;
         }
 
+        TaskCommand::Start { uuid, here, workspace } => {
+            if here {
+                // clap's `requires` guarantees it; the context is for the type.
+                let workspace = workspace.context("--here needs --workspace")?;
+                return work::set_up_here(&workspace, &uuid);
+            }
+            require_workspace_tag()?;
+            let workspace = niri::focused_workspace_name()?.unwrap_or_default();
+            let t = task::get(&uuid)?.context("task not found")?;
+            anyhow::ensure!(t.status == "pending", "Only a pending task can be started.");
+            work::launch(&workspace, &uuid, &t.description)?;
+        }
+
         TaskCommand::Refine { uuid, grill } => {
             // The same refusal every entry point makes: a task refined on an
             // unnamed workspace would have no session to open in.
@@ -355,7 +380,7 @@ fn task_list(dry_run: bool) -> Result<()> {
 /// confirmation's, matched to the list it was reached from.
 fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Result<()> {
     let action = Picker::new()
-        .lines(6)
+        .lines(7)
         .width(20)
         .prompt("")
         .run(&[
@@ -363,6 +388,7 @@ fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Re
             "Note".into(),
             "Refine".into(),
             "Grill me".into(),
+            "Start working".into(),
             "Update status".into(),
             "Move to workspace".into(),
         ])?;
@@ -377,6 +403,10 @@ fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Re
         // in whether it interviews you before drafting.
         Some("Refine") => return task_command(TaskCommand::Refine { uuid: selected, grill: false }),
         Some("Grill me") => return task_command(TaskCommand::Refine { uuid: selected, grill: true }),
+        // Its own worktree and a Claude to plan it; picked again, back to both.
+        Some("Start working") => {
+            return task_command(TaskCommand::Start { uuid: selected, here: false, workspace: None })
+        }
         Some("Update status") => return task_status(tag, &selected, description, width),
         Some("Move to workspace") => return task_move(tag, &selected, description),
         _ => {}

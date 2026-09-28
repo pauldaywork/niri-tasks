@@ -16,7 +16,7 @@ from — opening one, or moving a task to another workspace.
 | Key | Does |
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — one annotation per line |
-| `Mod+Alt+Ctrl+T` | Pick one of this workspace's tasks on the task panel — edit, note, refine or grill it into a plan with Claude, update its status (active, stopped, waiting, completed, deleted), move to another workspace. With no tasks, or no daemon, the fuzzel list instead |
+| `Mod+Alt+Ctrl+T` | Pick one of this workspace's tasks on the task panel — edit, note, refine or grill it into a plan with Claude, start working on it in its own worktree, update its status (active, stopped, waiting, completed, deleted), move to another workspace. With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+W` | Create a new workspace and name it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
@@ -87,7 +87,11 @@ terminal is a plain shell in the project folder. The menu's **Refine** and
 Claude inside that session — plus `bubblewrap` and `socat` for the Bash
 sandbox that keeps that Claude to reading the project and writing only the
 task (`sudo apt install bubblewrap socat`). Without them Claude refuses to
-start rather than run unfenced.
+start rather than run unfenced. **Start working** needs herdr, Claude Code and
+[worktrunk](https://worktrunk.dev) (`wt`), and the workspace's `~/Projects`
+folder to be a git repository: worktrunk makes the task's worktree and runs the
+repo's `.config/wt.toml` hooks, asking in a herdr tab the first time a repo's
+hooks need approving.
 
 VS Code is optional. `niritasks project open` starts one on the project folder when
 `code` is on `$PATH`, and starts only the terminal when it is not — the lookup
@@ -114,6 +118,8 @@ niritasks task edit <uuid> <text>  # replaces the description; attributes stay l
 niritasks task note <uuid> <text>  # attaches an annotation
 niritasks task refine <uuid>       # work it up into a plan with Claude, in the workspace's herdr session
 niritasks task refine <uuid> --grill  #   the same, interviewing you first
+niritasks task start <uuid>        # its own worktree (task/<slug>-<uuid8>), opened in the herdr session,
+                                   #   with Claude planning it; picked again, back to both
 niritasks workspace new|rename|default
 niritasks project open
 niritasks terminal                 # a terminal in the focused workspace's ~/Projects folder (Mod+Return)

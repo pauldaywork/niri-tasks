@@ -4,8 +4,14 @@
 //! The worktree is found again by the task's uuid, never its description, so
 //! a description reworded since (by Refine, say) cannot fork a second one.
 
+use crate::{herdr, notify, project, refine, session, tag, task, text};
+use anyhow::{Context, Result};
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+/// Longest description, in characters, the setup tab's label carries.
+const LABEL_DESCRIPTION_MAX: usize = 30;
 
 /// A task's branch and the worktree it is checked out in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,6 +111,157 @@ pub fn switch_result(result: &Value) -> Option<TaskWorktree> {
 /// is typed into one, and a workspace name may hold spaces or quotes.
 pub fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// The repository a workspace's tasks are worked in: its `~/Projects` folder,
+/// which has to be a git repository for there to be worktrees at all.
+fn repo_for(workspace: &str) -> Result<PathBuf> {
+    let home = std::env::var("HOME").context("HOME is unset")?;
+    let repo = session::start_dir(Path::new(&home), workspace);
+    anyhow::ensure!(
+        repo.join(".git").exists(),
+        "{} is not a git repository, so there is no worktree to make.",
+        repo.display()
+    );
+    Ok(repo)
+}
+
+/// worktrunk's list of the repository's branches and worktrees.
+fn wt_list(repo: &Path) -> Result<Value> {
+    let out = Command::new("wt")
+        .arg("-C")
+        .arg(repo)
+        .args(["list", "--format=json"])
+        .output()
+        .context("could not run `wt` — is worktrunk installed?")?;
+    anyhow::ensure!(out.status.success(), "`wt list` failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+    serde_json::from_slice(&out.stdout).context("could not parse `wt list` output as JSON")
+}
+
+/// Start the working Claude in `pane`, hand it the task to plan, and mark the
+/// task active — the one it is working on now, as Update status → Active
+/// would, stopping any other on the workspace.
+fn start_claude(s: &str, name: &str, pane: &str, uuid: &str, workspace: &str) -> Result<()> {
+    herdr::run(&herdr::agent_start_claude(s, name, pane))?;
+    herdr::run(&herdr::agent_prompt(s, name, &plan_prompt(uuid)))
+        .context("Claude started, but the prompt was not delivered.")?;
+    task::set_active(&tag::workspace_tag(workspace), uuid)
+}
+
+/// Start working on a task from its menu: back to its worktree if it has one,
+/// otherwise a short-lived tab in the project's session that makes one.
+///
+/// Making it happens in that tab rather than here because worktrunk asks the
+/// user to approve a repo's hooks before running them the first time, and
+/// refuses outright without a terminal to ask on; the tab is also where the
+/// hooks' output — a database clone, say — can be read.
+pub fn launch(workspace: &str, uuid: &str, description: &str) -> Result<()> {
+    let repo = repo_for(workspace)?;
+    anyhow::ensure!(project::on_path("wt"), "worktrunk (wt) is not installed.");
+    let s = session::herdr_session_name(workspace);
+    let name = work_agent_name(uuid);
+
+    let list = refine::open_session(&repo, &s)?;
+
+    if let Some(wt) = find_task_worktree(&wt_list(&repo)?, uuid) {
+        let opened = herdr::run(&herdr::worktree_open(&s, &repo, &wt.path, &wt.branch))?;
+        if herdr::run(&herdr::agent_get(&s, &name)).is_ok() {
+            herdr::run(&herdr::agent_focus(&s, &name))?;
+            notify::tasks("Back to its worktree.");
+            return Ok(());
+        }
+        // The worktree outlived its Claude: a fresh one, in a tab of its own
+        // so whatever the workspace's first pane is doing is left alone.
+        let ws = herdr::opened_workspace_id(&opened).context("herdr did not say which workspace it opened")?;
+        let created = herdr::run(&herdr::tab_create(&s, &ws, &wt.path, "Claude"))?;
+        let pane = herdr::root_pane_id(&created).context("herdr did not say which pane it made")?;
+        return start_claude(&s, &name, &pane, uuid, workspace);
+    }
+
+    let label = format!("Start: {}", short(description));
+    let created = match herdr::first_workspace_id(&list) {
+        Some(id) => herdr::run(&herdr::tab_create(&s, &id, &repo, &label))?,
+        None => herdr::run(&herdr::workspace_create(&s, &repo, workspace))?,
+    };
+    let pane = herdr::root_pane_id(&created).context("herdr did not say which pane it made")?;
+    let exe = std::env::current_exe().context("could not find the niritasks binary")?;
+    let command = format!(
+        "{} task start --here --workspace {} {}",
+        sh_quote(&exe.display().to_string()),
+        sh_quote(workspace),
+        sh_quote(uuid)
+    );
+    herdr::run(&herdr::pane_run(&s, &pane, &command))?;
+    Ok(())
+}
+
+/// The setup step, run inside the tab [`launch`] opened: make the worktree
+/// (approval and hook output land here), open it as its own workspace, start
+/// Claude there, then close this tab. On failure the tab stays, with the
+/// error, until the user has read it.
+pub fn set_up_here(workspace: &str, uuid: &str) -> Result<()> {
+    match set_up(workspace, uuid) {
+        Ok(()) => {
+            // Best effort: closing our own tab ends this process, and a tab
+            // left open is only untidy.
+            if let Ok(tab) = std::env::var("HERDR_TAB_ID") {
+                let s = session::herdr_session_name(workspace);
+                let _ = herdr::run(&herdr::tab_close(&s, &tab));
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("\n{e:#}\n\nPress Enter to close this tab.");
+            let _ = std::io::stdin().read_line(&mut String::new());
+            Err(e)
+        }
+    }
+}
+
+fn set_up(workspace: &str, uuid: &str) -> Result<()> {
+    let t = task::get(uuid)?.context("task not found")?;
+    let repo = repo_for(workspace)?;
+    let s = session::herdr_session_name(workspace);
+
+    // Found again first: a retry after a run that made the worktree but
+    // failed later must not try to make it twice.
+    let wt = match find_task_worktree(&wt_list(&repo)?, uuid) {
+        Some(wt) => wt,
+        None => create_worktree(&repo, &branch_name(&t.description, uuid))?,
+    };
+
+    let opened = herdr::run(&herdr::worktree_open(&s, &repo, &wt.path, &wt.branch))?;
+    let pane = herdr::root_pane_id(&opened).context("herdr did not say which pane it opened")?;
+    start_claude(&s, &work_agent_name(uuid), &pane, uuid, workspace)
+}
+
+/// `wt switch --create`, with this tab's terminal on stdin and stderr so
+/// worktrunk can ask to approve the repo's hooks and show what they print; only
+/// stdout, the JSON result, is captured. Never `--yes`: approving hook text is
+/// the user's call (ADR 0002 in ubuntu-setup).
+fn create_worktree(repo: &Path, branch: &str) -> Result<TaskWorktree> {
+    let out = Command::new("wt")
+        .arg("-C")
+        .arg(repo)
+        .args(["switch", "--create", branch, "--no-cd", "--format=json"])
+        .stdin(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .output()
+        .context("could not run `wt` — is worktrunk installed?")?;
+    anyhow::ensure!(out.status.success(), "`wt switch --create {branch}` failed (see above).");
+    let result: Value = serde_json::from_slice(&out.stdout).context("could not parse `wt switch` output as JSON")?;
+    switch_result(&result).context("worktrunk did not say which worktree it made")
+}
+
+/// A description cut to fit a tab label, by characters, with an ellipsis.
+fn short(description: &str) -> String {
+    let d = text::collapse_whitespace(description);
+    if d.chars().count() > LABEL_DESCRIPTION_MAX {
+        let cut: String = d.chars().take(LABEL_DESCRIPTION_MAX - 1).collect();
+        format!("{cut}…")
+    } else {
+        d
+    }
 }
 
 #[cfg(test)]
