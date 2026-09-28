@@ -159,7 +159,7 @@ pub fn launch(workspace: &str, uuid: &str, description: &str, mode: Mode) -> Res
     };
     let pane = herdr::root_pane_id(&created).context("herdr did not say which pane it made")?;
 
-    if let Err(e) = herdr::run(&herdr::agent_start_claude_plan(&s, &name, &pane)) {
+    if let Err(e) = herdr::run(&herdr::agent_start_claude_refiner(&s, &name, &pane)) {
         // Best-effort: a retry should not find a pile of bare-shell tabs from
         // every failed attempt, but a failure here must not hide the real error.
         if let Some(tab_id) = herdr::created_tab_id(&created) {

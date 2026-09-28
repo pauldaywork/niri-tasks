@@ -52,15 +52,26 @@ pub fn agent_focus(session: &str, name: &str) -> Vec<String> {
     cmd(session, &["agent", "focus", name])
 }
 
-/// Claude, in plan mode, as a named agent in `pane`. The timeout is doubled
-/// from herdr's 30s default: a cold Claude Code start with hooks and plugins
-/// has been seen near 4s, and a slow disk should not turn that into an error.
-pub fn agent_start_claude_plan(session: &str, name: &str, pane: &str) -> Vec<String> {
+/// Claude as a named agent in `pane`, fenced in to refining a task rather
+/// than doing it.
+///
+/// Not plan mode: approving a plan there means "go and implement it", and a
+/// refined task's notes read exactly like a plan — so approval started the
+/// task instead of saving it. The skill asks its own question instead, and the
+/// file-editing tools are taken away so it cannot start the work either way.
+/// `default` is explicit because the user's own default may be a mode that
+/// runs commands unasked; here anything that changes something asks first.
+///
+/// The timeout is doubled from herdr's 30s default: a cold Claude Code start
+/// with hooks and plugins has been seen near 4s, and a slow disk should not
+/// turn that into an error.
+pub fn agent_start_claude_refiner(session: &str, name: &str, pane: &str) -> Vec<String> {
     cmd(
         session,
         &[
             "agent", "start", name, "--kind", "claude", "--pane", pane, "--timeout", "60000",
-            "--", "--permission-mode", "plan",
+            "--", "--permission-mode", "default",
+            "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode",
         ],
     )
 }
@@ -165,15 +176,17 @@ mod tests {
     }
 
     /// Claude's own arguments go after `--`, which is how herdr tells them
-    /// from its own.
+    /// from its own. No plan mode, and no tools that edit files: see
+    /// [`agent_start_claude_refiner`] for why.
     #[test]
-    fn claude_starts_in_plan_mode() {
+    fn claude_starts_unable_to_edit_files_or_plan() {
         assert_eq!(
-            agent_start_claude_plan("alpha", "task-0123abcd", "w1:p3"),
+            agent_start_claude_refiner("alpha", "task-0123abcd", "w1:p3"),
             vec![
                 "herdr", "--session", "alpha", "agent", "start", "task-0123abcd",
                 "--kind", "claude", "--pane", "w1:p3", "--timeout", "60000",
-                "--", "--permission-mode", "plan",
+                "--", "--permission-mode", "default",
+                "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode",
             ]
         );
     }

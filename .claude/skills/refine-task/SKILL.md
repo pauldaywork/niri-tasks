@@ -15,8 +15,15 @@ Arguments: `$ARGUMENTS` — a task uuid, then optionally `grill`.
 Tasks are typed into a one-line box, so they are terse. Your job is to turn one
 into something an agent or the user could pick up cold: a description that
 still fits a task card, and notes that carry the goal, the decisions and what
-"done" means. You are in plan mode; the plan you present **is** the proposed
-task. Approving it is what lets you write.
+"done" means.
+
+**You refine the task; you never do it.** However concrete the steps you write
+into its notes, do not carry out any of them — no file edits, no config
+changes, no commands beyond reading. Your one write is the Taskwarrior update in
+step 5, and only after the user says so in step 4. The session was started
+without file-editing tools and without plan mode for exactly this reason:
+approving a plan in plan mode means "implement it", which is not what the user
+is approving here.
 
 ## 1. Read the task
 
@@ -32,7 +39,8 @@ Show the user the description and every note before going further.
 
 Read enough of the project to understand what the task touches: `CONTEXT.md`,
 `AGENTS.md`/`CLAUDE.md`, the docs and the code the task names. Facts you can look
-up are yours to find; never ask the user for one.
+up are yours to find; never ask the user for one. Read only — nothing here
+changes a file.
 
 ## 3. Work it up
 
@@ -44,7 +52,9 @@ up are yours to find; never ask the user for one.
 
 ## 4. Propose
 
-Present the proposal with ExitPlanMode. The plan contains:
+Show the proposal in your reply, then ask with AskUserQuestion — one question,
+"Write this to the task?", with two options: **Write it to the task** and
+**Change something**. The proposal contains:
 
 1. **New description** — one line, about 50 characters or fewer: the card and
    picker row show one line at that width. Imperative, specific.
@@ -55,7 +65,8 @@ Present the proposal with ExitPlanMode. The plan contains:
 3. **Before** — the current description and notes, so the user can see nothing
    was dropped.
 
-If the user rejects it with feedback, revise and propose again.
+On **Change something** (or any other answer), take their feedback, revise,
+and ask again. Only **Write it to the task** leads to step 5.
 
 ## 5. Write
 
@@ -90,7 +101,8 @@ the status, start, other tags or any other field.
 
 Export once more and check: the description matches, the notes are exactly the
 new list, `planned` is in `tags`, and the other tags are unchanged. Tell the user
-what was written. Leave the session open — they may want to carry on.
+what was written, and stop. Leave the session open — if the user then asks you
+to start on the task, that is a new request of theirs, not part of this skill.
 
 Always address the task by uuid, never its numeric id: ids are renumbered as
 tasks complete.

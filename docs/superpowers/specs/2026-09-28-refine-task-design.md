@@ -60,7 +60,8 @@ Steps:
    --cwd <folder> --label "<Refine|Grill>: <description, elided>" --focus`;
    read the root pane from `.result.root_pane`.
 5. **Agent.** `herdr --session S agent start <name> --kind claude --pane <pane>
-   -- --permission-mode plan`.
+   -- --permission-mode default --disallowedTools Edit Write NotebookEdit
+   EnterPlanMode ExitPlanMode`. See *Revision: no plan mode* below.
 6. **Prompt.** `herdr --session S agent prompt <name> "/refine-task <uuid>"`,
    with ` grill` appended in grill mode. Only the uuid is passed: the skill
    reads the task itself, so nothing needs quoting and it always sees the
@@ -84,20 +85,22 @@ Arguments: `<uuid> [grill]`.
 1. **Read.** `task <uuid> export`. Stop if it is missing or not pending. Show
    the description and notes.
 2. **Ground.** Read enough of the project (CONTEXT.md, docs, the code the task
-   touches) to understand it. Plan mode keeps this read-only.
+   touches) to understand it, read-only.
 3. **Work it up.**
    - Quick: draft immediately. Ask only questions the code cannot answer —
      zero to three, one round.
    - Grill: invoke the `grilling` skill on the task and continue until its
      frontier is empty.
-4. **Propose** via plan-mode approval (ExitPlanMode). The plan shows:
+4. **Propose** in the reply, then ask with AskUserQuestion — **Write it to the
+   task** or **Change something**. The proposal shows:
    - the new description: one line, ≤ ~50 characters, so it fits a card;
    - the new notes: one line each, each becoming one annotation, folding in
      everything the old notes said;
    - the old description and notes beside them, so nothing is dropped
      silently.
 
-   Rejecting with feedback sends it back to revise — the approve-or-refine loop.
+   **Change something** sends it back to revise — the approve-or-refine loop.
+   The skill never carries out the task; its only write is step 5.
 5. **Write.** Re-export the task. If it changed since step 1, show what changed
    and ask before continuing. Otherwise edit the exported JSON — description,
    `annotations` replaced, `planned` added to `tags` — and `task import` it:
@@ -130,8 +133,22 @@ Arguments: `<uuid> [grill]`.
 
 ## To verify during implementation
 
-- Whether, after plan approval, Claude asks permission again to run `task`. If
-  so, suggest allowing `Bash(task:*)`.
-- Whether `herdr agent start` is happy with Claude started with
-  `--permission-mode plan`.
+- Whether Claude asks permission to run the step-5 write. In default mode it
+  does, once, after the user has chosen **Write it to the task**.
 - How to identify and focus the niri window showing a given herdr session.
+
+## Revision: no plan mode (2026-09-28)
+
+The first version started Claude with `--permission-mode plan` and used plan
+approval as the go-ahead for the write. In use, Claude Code's approval screen
+reads "ready to execute — would you like to proceed?" and every yes option
+means *implement the plan*. A refined task's notes read exactly like a plan
+(Steps, Done when), so approving would have started the task instead of saving
+it, and there was no option that only saved it.
+
+So the session now starts in `default` permission mode with the file-editing
+tools (`Edit`, `Write`, `NotebookEdit`) and the plan-mode tools disallowed: it
+cannot start the work, and the implement-this screen never appears. The skill
+asks its own two-option question for approval, and says in plain terms that it
+refines the task and never does it. `default` is explicit because the user's
+own default may run commands unasked.
