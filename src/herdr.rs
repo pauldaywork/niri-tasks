@@ -52,6 +52,15 @@ pub fn agent_focus(session: &str, name: &str) -> Vec<String> {
     cmd(session, &["agent", "focus", name])
 }
 
+/// The standing instruction a refine session starts with, in Claude's system
+/// prompt rather than only in the skill: it carries more weight there, and it
+/// survives the conversation being summarised, which a skill's text may not.
+/// It steers; the sandbox in `settings` is what enforces.
+pub const REFINER_SYSTEM_PROMPT: &str = "You are refining a Taskwarrior task, not doing it. \
+Never carry out its steps, however concrete they are — no file edits, no config changes, \
+no commands that change anything. Your only write is the task update, and only after the \
+user approves it.";
+
 /// Claude as a named agent in `pane`, fenced in to refining a task rather
 /// than doing it.
 ///
@@ -77,6 +86,7 @@ pub fn agent_start_claude_refiner(session: &str, name: &str, pane: &str, setting
             "agent", "start", name, "--kind", "claude", "--pane", pane, "--timeout", "60000",
             "--", "--permission-mode", "default",
             "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode",
+            "--append-system-prompt", REFINER_SYSTEM_PROMPT,
             "--settings", settings,
         ],
     )
@@ -193,9 +203,20 @@ mod tests {
                 "--kind", "claude", "--pane", "w1:p3", "--timeout", "60000",
                 "--", "--permission-mode", "default",
                 "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode",
+                "--append-system-prompt", REFINER_SYSTEM_PROMPT,
                 "--settings", "{\"sandbox\":{}}",
             ]
         );
+    }
+
+    /// The standing instruction says the three things that matter: refine,
+    /// never do; the one write; and only once the user approves.
+    #[test]
+    fn the_standing_instruction_forbids_doing_the_task() {
+        assert!(REFINER_SYSTEM_PROMPT.contains("not doing it"));
+        assert!(REFINER_SYSTEM_PROMPT.contains("Never carry out"));
+        assert!(REFINER_SYSTEM_PROMPT.contains("only write is the task update"));
+        assert!(REFINER_SYSTEM_PROMPT.contains("approves"));
     }
 
     #[test]
