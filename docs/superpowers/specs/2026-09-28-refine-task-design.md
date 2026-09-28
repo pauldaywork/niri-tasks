@@ -171,9 +171,22 @@ session runs with Claude Code's Bash sandbox (`--settings`,
 
 On Ubuntu 24.04+, the sandbox's socket filter cannot load (Ubuntu's
 `bwrap-userns-restrict` AppArmor profile denies the capability it needs), so
-Unix sockets are allowed and the dangerous ones are hidden with `denyRead`
-instead: `$XDG_RUNTIME_DIR` (niri, the session bus), `/run/docker.sock` and
-`~/.config/herdr`.
+Unix sockets are allowed and hidden with `denyRead` instead — by whole folder,
+not by name: `/run` (the session's and the system's, `/var/run` included),
+`/tmp` (X11, VS Code, Chrome; the sandbox keeps its own temp folder under it),
+`/var/snap` and `~/.config/herdr`. A first version hid named sockets and
+missed Xwayland and VS Code's IPC socket, which is why. Abstract sockets need
+nothing: sandboxed commands get their own network namespace. Before starting,
+the launcher reads `/proc/net/unix` and refuses to open Claude if any socket
+on the machine sits outside those folders (or inside the sandbox's temp
+folder), naming it.
+
+Alternatives weighed (2026-09-28): Landlock tools such as landrun only block
+pathname sockets from Landlock ABI v9, and this kernel (7.0) has v8; wrapping
+all of Claude in bubblewrap breaks its inner sandbox under the same AppArmor
+profile and cuts herdr's status hooks off; restoring the socket filter means
+overriding Ubuntu's bwrap hardening system-wide; containers or VMs cost the
+most plumbing. The built-in sandbox with folder-level hiding was kept.
 
 The session also searches and fetches from the web unasked (`WebSearch`,
 `WebFetch` allowed). Because a fetched page could try to talk it into sending

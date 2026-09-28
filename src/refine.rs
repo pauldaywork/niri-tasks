@@ -136,16 +136,87 @@ fn credential_paths(home: &Path) -> Vec<PathBuf> {
 }
 
 /// Every path [`session_settings`] hides from sandboxed Bash, of those that
-/// exist here: the sockets that could run something outside the sandbox, and
-/// the credentials.
+/// exist here: the folders the machine's sockets live in, and the credentials.
+///
+/// Whole folders, not a list of known sockets: a socket is a way to make some
+/// other, unsandboxed process act — niri spawns, D-Bus starts units, Docker is
+/// root, VS Code runs commands, Xwayland takes keystrokes — and a hand-picked
+/// list misses whichever one nobody thought of. `/run` holds the system's and
+/// the session's (`/var/run` is the same folder), `/tmp` the X11 and app
+/// sockets — the sandbox keeps its own temp folder under it regardless —
+/// `/var/snap` the snaps', and herdr keeps its own under its config.
+/// [`exposed_sockets`] checks the result against the live socket table.
 fn hidden_paths(home: &Path) -> Vec<PathBuf> {
-    let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
-    runtime
-        .into_iter()
-        .chain([PathBuf::from("/run/docker.sock"), home.join(".config/herdr")])
-        .filter(|p| p.exists())
-        .chain(credential_paths(home))
+    [
+        PathBuf::from("/run"),
+        PathBuf::from("/tmp"),
+        PathBuf::from("/var/snap"),
+        home.join(".config/herdr"),
+    ]
+    .into_iter()
+    .filter(|p| p.exists())
+    .chain(credential_paths(home))
+    .collect()
+}
+
+/// The pathname sockets in a `/proc/net/unix` table. Abstract ones (`@…`)
+/// are left out: the sandbox gives commands their own network namespace, and
+/// abstract sockets do not cross it.
+fn socket_paths(table: &str) -> Vec<PathBuf> {
+    table
+        .lines()
+        .skip(1)
+        .filter_map(|line| line.split_whitespace().nth(7))
+        .filter(|p| p.starts_with('/'))
+        .map(PathBuf::from)
         .collect()
+}
+
+/// The sockets a refine session could still reach: those under none of
+/// `hidden`, or under one of `visible` — folders the sandbox shows inside a
+/// hidden one. By path component, so hiding `/run` does not hide `/runner`.
+fn exposed_sockets(sockets: &[PathBuf], hidden: &[PathBuf], visible: &[PathBuf]) -> Vec<PathBuf> {
+    sockets
+        .iter()
+        .filter(|s| !hidden.iter().any(|h| s.starts_with(h)) || visible.iter().any(|v| s.starts_with(v)))
+        .cloned()
+        .collect()
+}
+
+/// The sandbox's own temp folder, which it keeps visible inside a hidden
+/// `/tmp`: `CLAUDE_CODE_TMPDIR` if set, else `/tmp/claude-<uid>`.
+fn sandbox_temp() -> Result<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    if let Some(dir) = std::env::var_os("CLAUDE_CODE_TMPDIR") {
+        return Ok(PathBuf::from(dir));
+    }
+    let uid = std::fs::metadata("/proc/self").context("could not read /proc/self")?.uid();
+    Ok(PathBuf::from(format!("/tmp/claude-{uid}")))
+}
+
+/// Refuse to start a refine while any socket on the machine would be left in
+/// its sandbox's reach — so a new app's socket somewhere unexpected stops the
+/// feature loudly instead of quietly becoming a way out.
+///
+/// Paths are resolved first, since a socket bound under `/var/run` is really
+/// under `/run`; one that no longer exists cannot be connected to and is
+/// skipped.
+fn ensure_no_exposed_sockets(hidden: &[PathBuf]) -> Result<()> {
+    let table = std::fs::read_to_string("/proc/net/unix").context("could not read /proc/net/unix")?;
+    let sockets: Vec<PathBuf> = socket_paths(&table)
+        .iter()
+        .filter_map(|p| std::fs::canonicalize(p).ok())
+        .collect();
+    let exposed = exposed_sockets(&sockets, hidden, &[sandbox_temp()?]);
+    if !exposed.is_empty() {
+        let list: Vec<String> = exposed.iter().map(|p| p.display().to_string()).collect();
+        bail!(
+            "Refine would leave these sockets in reach of its sandbox, so it did not start: {}. \
+             Hide their folder in refine::hidden_paths.",
+            list.join(", ")
+        );
+    }
+    Ok(())
 }
 
 /// A niri window's id, app_id and title — the columns [`find_session_window`]
@@ -202,9 +273,15 @@ fn show_session_window(dir: &Path, s: &str, list: &Value) -> Result<()> {
 /// back to the task's existing tab if it is already being refined.
 pub fn launch(workspace: &str, uuid: &str, description: &str, mode: Mode) -> Result<()> {
     let home = std::env::var("HOME").context("HOME is unset")?;
-    let dir = session::start_dir(Path::new(&home), workspace);
+    let home = Path::new(&home);
+    let dir = session::start_dir(home, workspace);
     let s = session::herdr_session_name(workspace);
     let name = agent_name(uuid);
+
+    // Before anything opens: a refused refine should leave nothing behind.
+    let hidden = hidden_paths(home);
+    ensure_no_exposed_sockets(&hidden)?;
+    let settings = session_settings(&dir, &crate::task::data_location()?, &hidden);
 
     // Whether the session was already running when we asked. A session we
     // spawn ourselves below already has a window in front of the user; one
@@ -244,8 +321,6 @@ pub fn launch(workspace: &str, uuid: &str, description: &str, mode: Mode) -> Res
     };
     let pane = herdr::root_pane_id(&created).context("herdr did not say which pane it made")?;
 
-    let home = Path::new(&home);
-    let settings = session_settings(&dir, &crate::task::data_location()?, &hidden_paths(home));
     if let Err(e) = herdr::run(&herdr::agent_start_claude_refiner(&s, &name, &pane, &settings)) {
         // Best-effort: a retry should not find a pile of bare-shell tabs from
         // every failed attempt, but a failure here must not hide the real error.
@@ -319,6 +394,56 @@ mod tests {
         assert!(deny.iter().any(|d| d == "Read(~/.ssh/**)"));
         assert!(deny.iter().any(|d| d == "Read(~/.claude/.credentials.json)"));
         assert_eq!(deny.len(), CREDENTIALS.len());
+    }
+
+    /// Listening sockets come from `/proc/net/unix`: the path is the last
+    /// column when there is one, abstract names start with `@` and are left
+    /// out — the sandbox's own network namespace already cuts those off.
+    #[test]
+    fn socket_paths_are_read_from_proc_net_unix() {
+        let table = "\
+Num       RefCount Protocol Flags    Type St Inode Path
+0000000000000000: 00000002 00000000 00010000 0001 01 20779 /run/user/1000/bus
+0000000000000000: 00000002 00000000 00010000 0001 01 20780 @/tmp/.X11-unix/X0
+0000000000000000: 00000003 00000000 00000000 0001 03 20781
+0000000000000000: 00000002 00000000 00010000 0001 01 20782 /tmp/vscode-ipc.sock
+";
+        assert_eq!(
+            socket_paths(table),
+            vec![PathBuf::from("/run/user/1000/bus"), PathBuf::from("/tmp/vscode-ipc.sock")]
+        );
+    }
+
+    /// The check that stops a refine starting next to a socket the sandbox
+    /// would leave in reach: anything not under a hidden path is exposed.
+    #[test]
+    fn a_socket_outside_every_hidden_path_is_exposed() {
+        let hidden = [PathBuf::from("/run"), PathBuf::from("/tmp"), PathBuf::from("/home/x/.config/herdr")];
+        let sockets = [
+            PathBuf::from("/run/docker.sock"),
+            PathBuf::from("/tmp/.X11-unix/X0"),
+            PathBuf::from("/home/x/.config/herdr/sessions/a/herdr.sock"),
+            PathBuf::from("/var/snap/cups/common/run/cups.sock"),
+            PathBuf::from("/runner/other.sock"),
+        ];
+        assert_eq!(
+            exposed_sockets(&sockets, &hidden, &[]),
+            vec![PathBuf::from("/var/snap/cups/common/run/cups.sock"), PathBuf::from("/runner/other.sock")],
+            "hidden by path component, not by string prefix"
+        );
+    }
+
+    /// The sandbox keeps its own temp folder visible inside a hidden `/tmp`,
+    /// so a socket there is exposed even though `/tmp` is hidden.
+    #[test]
+    fn a_socket_in_the_sandboxes_own_temp_folder_is_exposed() {
+        let hidden = [PathBuf::from("/tmp")];
+        let visible = [PathBuf::from("/tmp/claude-1000")];
+        let sockets = [PathBuf::from("/tmp/claude-1000/x.sock"), PathBuf::from("/tmp/.X11-unix/X0")];
+        assert_eq!(
+            exposed_sockets(&sockets, &hidden, &visible),
+            vec![PathBuf::from("/tmp/claude-1000/x.sock")]
+        );
     }
 
     /// Credentials are hidden from sandboxed Bash by the same list, as paths
