@@ -6,6 +6,7 @@
 
 pub mod daemon;
 pub mod github;
+pub mod herdr;
 pub mod ipc;
 pub mod niri;
 pub mod notify;
