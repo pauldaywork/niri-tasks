@@ -101,6 +101,49 @@ pub fn agent_start_claude(session: &str, name: &str, pane: &str) -> Vec<String> 
     )
 }
 
+/// Wait for an agent to be ready for a prompt — for the user to answer what
+/// it asked while starting, such as Claude's folder-trust question on a new
+/// worktree. Ten minutes, since a person is the one being waited on.
+pub fn agent_wait_ready(session: &str, name: &str) -> Vec<String> {
+    cmd(session, &["agent", "wait", name, "--until", "idle", "--timeout", "600000"])
+}
+
+/// A prompt herdr confirms Claude started on: `--wait` fails with
+/// `agent_prompt_stalled` when no activity follows within five seconds — a
+/// prompt swallowed by a Claude still finishing its start-up. The timeout only
+/// bounds how long we watch it work; running past it means it arrived.
+pub fn agent_prompt_confirmed(session: &str, name: &str, text: &str) -> Vec<String> {
+    cmd(session, &["agent", "prompt", name, text, "--wait", "--timeout", "15000"])
+}
+
+/// herdr's error code out of its stderr JSON — `agent_prompt_stalled`,
+/// `timeout` and the like — for callers that act on which error it was.
+pub fn error_code(stderr: &[u8]) -> Option<String> {
+    serde_json::from_slice::<Value>(stderr)
+        .ok()
+        .and_then(|v| v["error"]["code"].as_str().map(str::to_string))
+}
+
+/// Like [`run`], but a herdr failure comes back with its code rather than as
+/// an error: `Ok(Err((code, message)))`. Only failing to run herdr at all is
+/// an `Err`.
+pub fn run_coded(argv: &[String]) -> Result<std::result::Result<Value, (Option<String>, String)>> {
+    let out = std::process::Command::new(&argv[0])
+        .args(&argv[1..])
+        .output()
+        .with_context(|| format!("could not run `{}` — is herdr installed?", argv[0]))?;
+    if !out.status.success() {
+        return Ok(Err((error_code(&out.stderr), error_message(&out.stderr))));
+    }
+    Ok(Ok(serde_json::from_slice(&out.stdout).unwrap_or(Value::Null)))
+}
+
+/// An agent's lifecycle state from an `agent get` response: `idle`,
+/// `working`, `blocked`, `done` or `unknown`.
+pub fn agent_status(got: &Value) -> Option<String> {
+    got["result"]["agent"]["agent_status"].as_str().map(str::to_string)
+}
+
 /// Open an existing git worktree as its own herdr workspace, grouped under
 /// the repository's — the same registration the herdr-worktrunk plugin does
 /// after worktrunk has made the checkout, so a worktree opened from a task
@@ -265,6 +308,42 @@ mod tests {
                 "--kind", "claude", "--pane", "w2:p1", "--timeout", "60000",
             ]
         );
+    }
+
+    /// Waiting on the user to answer whatever Claude asked at startup: ten
+    /// minutes, and only `idle` counts as ready.
+    #[test]
+    fn waiting_for_an_agent_is_until_idle_with_a_long_timeout() {
+        assert_eq!(
+            agent_wait_ready("alpha", "work-1234abcd"),
+            vec!["herdr", "--session", "alpha", "agent", "wait", "work-1234abcd", "--until", "idle", "--timeout", "600000"]
+        );
+    }
+
+    /// `--wait` makes herdr confirm Claude actually started on the prompt;
+    /// the short timeout only bounds how long we watch it work.
+    #[test]
+    fn a_confirmed_prompt_waits_briefly() {
+        assert_eq!(
+            agent_prompt_confirmed("alpha", "work-1", "go"),
+            vec!["herdr", "--session", "alpha", "agent", "prompt", "work-1", "go", "--wait", "--timeout", "15000"]
+        );
+    }
+
+    /// herdr puts a machine-readable code beside the message on stderr.
+    #[test]
+    fn a_herdr_error_code_is_read_from_stderr() {
+        let stderr = br#"{"id":"cli:agent:prompt","error":{"code":"agent_prompt_stalled","message":"no activity"}}"#;
+        assert_eq!(error_code(stderr).as_deref(), Some("agent_prompt_stalled"));
+        assert_eq!(error_code(b"usage: herdr"), None);
+    }
+
+    /// Shape from herdr 0.9.1's `agent get`.
+    #[test]
+    fn an_agents_status_is_read_from_agent_get() {
+        let v: Value = serde_json::from_str(r#"{"result":{"agent":{"agent_status":"blocked","name":"work-1"}}}"#).unwrap();
+        assert_eq!(agent_status(&v).as_deref(), Some("blocked"));
+        assert_eq!(agent_status(&Value::Null), None);
     }
 
     #[test]
