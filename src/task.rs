@@ -33,6 +33,11 @@ pub struct Task {
     /// Absent rather than empty on a task with no tags, hence the default.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// `task export`'s status string ("pending", "completed", "deleted", …).
+    /// `task::get` is unfiltered by status, so a caller that only makes sense
+    /// on a pending task — `refine`, say — has to check this itself.
+    #[serde(default)]
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -455,6 +460,15 @@ mod tests {
         let t: Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
         assert!(t.tags.is_empty());
         assert!(!t.is_planned());
+    }
+
+    /// `refine` refuses a task that is not pending; this is the field it
+    /// reads to know.
+    #[test]
+    fn status_is_read_from_export() {
+        let json = r#"[{"uuid":"abc","description":"x","urgency":1.0,"status":"pending"}]"#;
+        let tasks: Vec<Task> = serde_json::from_str(json).unwrap();
+        assert_eq!(tasks[0].status, "pending");
     }
 
     #[test]

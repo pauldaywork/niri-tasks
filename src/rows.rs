@@ -74,6 +74,7 @@ mod tests {
                 })
                 .collect(),
             tags: Vec::new(),
+            status: "pending".into(),
         }
     }
 

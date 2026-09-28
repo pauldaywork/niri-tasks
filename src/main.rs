@@ -285,6 +285,9 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             require_workspace_tag()?;
             let workspace = niri::focused_workspace_name()?.unwrap_or_default();
             let t = task::get(&uuid)?.context("task not found")?;
+            // task::get is unfiltered by status; a completed or deleted task
+            // has nothing left to work up into a plan.
+            anyhow::ensure!(t.status == "pending", "Only a pending task can be refined.");
             let mode = if grill { refine::Mode::Grill } else { refine::Mode::Quick };
             refine::launch(&workspace, &uuid, &t.description, mode)?;
         }
