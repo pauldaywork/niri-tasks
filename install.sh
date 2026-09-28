@@ -65,7 +65,7 @@ fi
 # Passed to fuzzel with --config=, so fuzzel.ini itself is left alone.
 link "$REPO/fuzzel/picker.ini" "$CONFIG/fuzzel/picker.ini"
 
-# ─── 4. the workspace-tasks skill ─────────────────────────────────────────────
+# ─── 4. the Claude Code skills ───────────────────────────────────────────────
 # The skill Claude Code loads to work this list. It is carried in the repo
 # because it is part of the tool, and linked for the same reason as everything
 # else here: a copy is a thing to keep in sync, and this one was being synced by
@@ -77,6 +77,9 @@ link "$REPO/fuzzel/picker.ini" "$CONFIG/fuzzel/picker.ini"
 # skills claiming one name. A displaced SKILL.md is inert.
 CLAUDE_SKILLS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
 link "$REPO/.claude/skills/workspace-tasks/SKILL.md" "$CLAUDE_SKILLS/workspace-tasks/SKILL.md"
+
+# refine-task: what the menu's Refine and Grill me rows open Claude with.
+link "$REPO/.claude/skills/refine-task/SKILL.md" "$CLAUDE_SKILLS/refine-task/SKILL.md"
 
 # ─── 5. the daemon ───────────────────────────────────────────────────────────
 # A copy rather than a symlink: systemd reads unit files as root-ish early in
