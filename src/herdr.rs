@@ -31,6 +31,8 @@ pub fn workspace_create(session: &str, dir: &Path, label: &str) -> Vec<String> {
     cmd(session, &["workspace", "create", "--cwd", &dir, "--label", label, "--focus"])
 }
 
+/// Open a tab in the project folder. Takes `--focus` because the user just
+/// asked for this tab from a menu and should land in it.
 pub fn tab_create(session: &str, workspace_id: &str, dir: &Path, label: &str) -> Vec<String> {
     let dir = dir.display().to_string();
     cmd(
@@ -39,10 +41,13 @@ pub fn tab_create(session: &str, workspace_id: &str, dir: &Path, label: &str) ->
     )
 }
 
+/// Check if an agent is already running. Used as the "already being refined?"
+/// check — an error means no agent by that name.
 pub fn agent_get(session: &str, name: &str) -> Vec<String> {
     cmd(session, &["agent", "get", name])
 }
 
+/// Return the user to an existing refine tab instead of opening a duplicate.
 pub fn agent_focus(session: &str, name: &str) -> Vec<String> {
     cmd(session, &["agent", "focus", name])
 }
@@ -60,6 +65,8 @@ pub fn agent_start_claude_plan(session: &str, name: &str, pane: &str) -> Vec<Str
     )
 }
 
+/// Send a prompt to the agent. Goes by agent name, which herdr validates, so
+/// the prompt can't land in the wrong pane.
 pub fn agent_prompt(session: &str, name: &str, text: &str) -> Vec<String> {
     cmd(session, &["agent", "prompt", name, text])
 }
