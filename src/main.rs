@@ -10,8 +10,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
-    github, ipc, niri, notify, picker::Picker, project, require_workspace_tag, session, task,
-    taskbox, text,
+    github, ipc, niri, notify, picker::Picker, project, refine, require_workspace_tag, session,
+    task, taskbox, text,
 };
 
 /// Hand the box to the daemon if one is listening.
@@ -89,6 +89,13 @@ enum TaskCommand {
     GetNotes { uuid: String },
     /// Attach a note to a task
     Note { uuid: String, text: Vec<String> },
+    /// Work a task up into a plan with Claude, in a new tab of the workspace's herdr session
+    Refine {
+        uuid: String,
+        /// Interview first (/grill-me) rather than drafting straight away
+        #[arg(long)]
+        grill: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -271,6 +278,16 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             }
             task::annotate(&uuid, &note)?;
         }
+
+        TaskCommand::Refine { uuid, grill } => {
+            // The same refusal every entry point makes: a task refined on an
+            // unnamed workspace would have no session to open in.
+            require_workspace_tag()?;
+            let workspace = niri::focused_workspace_name()?.unwrap_or_default();
+            let t = task::get(&uuid)?.context("task not found")?;
+            let mode = if grill { refine::Mode::Grill } else { refine::Mode::Quick };
+            refine::launch(&workspace, &uuid, &t.description, mode)?;
+        }
     }
     Ok(())
 }
@@ -335,12 +352,14 @@ fn task_list(dry_run: bool) -> Result<()> {
 /// confirmation's, matched to the list it was reached from.
 fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Result<()> {
     let action = Picker::new()
-        .lines(4)
+        .lines(6)
         .width(20)
         .prompt("")
         .run(&[
             "Edit".into(),
             "Note".into(),
+            "Refine".into(),
+            "Grill me".into(),
             "Update status".into(),
             "Move to workspace".into(),
         ])?;
@@ -351,6 +370,10 @@ fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Re
         // nowhere to show existing notes in a single row.
         Some("Edit") => return task_command(TaskCommand::Edit { uuid: selected, text: vec![] }),
         Some("Note") => return task_command(TaskCommand::Note { uuid: selected, text: vec![] }),
+        // Both open Claude in the workspace's herdr session; they differ only
+        // in whether it interviews you before drafting.
+        Some("Refine") => return task_command(TaskCommand::Refine { uuid: selected, grill: false }),
+        Some("Grill me") => return task_command(TaskCommand::Refine { uuid: selected, grill: true }),
         Some("Update status") => return task_status(tag, &selected, description, width),
         Some("Move to workspace") => return task_move(tag, &selected, description),
         _ => {}

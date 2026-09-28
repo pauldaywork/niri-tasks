@@ -109,6 +109,8 @@ niritasks task menu <uuid>         # one task's actions, as a task card click op
 niritasks task add <text>          # honours taskwarrior attributes: due:friday, priority:H
 niritasks task edit <uuid> <text>  # replaces the description; attributes stay literal
 niritasks task note <uuid> <text>  # attaches an annotation
+niritasks task refine <uuid>       # work it up into a plan with Claude, in the workspace's herdr session
+niritasks task refine <uuid> --grill  #   the same, interviewing you first
 niritasks workspace new|rename|default
 niritasks project open
 niritasks terminal                 # a terminal in the focused workspace's ~/Projects folder (Mod+Return)

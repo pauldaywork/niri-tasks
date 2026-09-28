@@ -13,6 +13,7 @@ pub mod notify;
 pub mod panel;
 pub mod picker;
 pub mod project;
+pub mod refine;
 pub mod rows;
 pub mod session;
 pub mod tag;
