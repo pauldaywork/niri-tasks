@@ -12,6 +12,11 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::process::Command;
 
+/// The tag the `refine-task` skill puts on a task once it has been worked up
+/// into a plan. Not `ready`: Taskwarrior already has a virtual `+READY`
+/// meaning something else, one Shift key away.
+pub const PLANNED_TAG: &str = "planned";
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Task {
     pub uuid: String,
@@ -25,6 +30,9 @@ pub struct Task {
     /// Absent rather than empty on a task with no notes, hence the default.
     #[serde(default)]
     pub annotations: Vec<Annotation>,
+    /// Absent rather than empty on a task with no tags, hence the default.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -40,6 +48,11 @@ impl Task {
 
     pub fn has_notes(&self) -> bool {
         !self.annotations.is_empty()
+    }
+
+    /// Worked up into a plan by the `refine-task` skill.
+    pub fn is_planned(&self) -> bool {
+        self.tags.iter().any(|t| t == PLANNED_TAG)
     }
 
     /// Every note, one per line — what the note box lists above its input and
@@ -433,5 +446,29 @@ mod tests {
         assert!(tasks[0].is_active());
         assert!(tasks[0].has_notes());
         assert_eq!(tasks[0].annotations[0].description, "a note");
+    }
+
+    /// `task export` leaves `tags` out entirely on an untagged task, so the
+    /// field must default rather than fail to parse.
+    #[test]
+    fn tags_absent_from_export_are_empty() {
+        let t: Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
+        assert!(t.tags.is_empty());
+        assert!(!t.is_planned());
+    }
+
+    #[test]
+    fn the_planned_tag_marks_a_task_planned() {
+        let t: Task =
+            serde_json::from_str(r#"{"uuid":"u","description":"d","tags":["proj","planned"]}"#).unwrap();
+        assert!(t.is_planned());
+    }
+
+    /// Tags are case-sensitive, and `+PLANNED` is not ours.
+    #[test]
+    fn planned_is_matched_exactly() {
+        let t: Task =
+            serde_json::from_str(r#"{"uuid":"u","description":"d","tags":["PLANNED","planned_x"]}"#).unwrap();
+        assert!(!t.is_planned());
     }
 }

@@ -102,6 +102,7 @@ mod tests {
             urgency,
             start: active.then(|| "20260927T080000Z".to_string()),
             annotations: Vec::new(),
+            tags: Vec::new(),
         }
     }
 

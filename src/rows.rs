@@ -67,6 +67,7 @@ mod tests {
                     description: format!("note {i}"),
                 })
                 .collect(),
+            tags: Vec::new(),
         }
     }
 
