@@ -16,7 +16,7 @@ from — opening one, or moving a task to another workspace.
 | Key | Does |
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — one annotation per line |
-| `Mod+Alt+Ctrl+T` | Pick one of this workspace's tasks on the task panel — edit, note, delete, complete, set active, move to another workspace. With no tasks, or no daemon, the fuzzel list instead |
+| `Mod+Alt+Ctrl+T` | Pick one of this workspace's tasks on the task panel — edit, note, refine or grill it into a plan with Claude, update its status (active, stopped, waiting, completed, deleted), move to another workspace. With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+W` | Create a new workspace and name it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
