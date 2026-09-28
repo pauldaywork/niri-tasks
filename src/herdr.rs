@@ -92,6 +92,34 @@ pub fn agent_start_claude_refiner(session: &str, name: &str, pane: &str, setting
     )
 }
 
+/// Claude as a named agent in `pane`, with no flags of ours: this session is
+/// meant to do the work, so it runs in whatever mode the user runs Claude in.
+pub fn agent_start_claude(session: &str, name: &str, pane: &str) -> Vec<String> {
+    cmd(
+        session,
+        &["agent", "start", name, "--kind", "claude", "--pane", pane, "--timeout", "60000"],
+    )
+}
+
+/// Open an existing git worktree as its own herdr workspace, grouped under
+/// the repository's — the same registration the herdr-worktrunk plugin does
+/// after worktrunk has made the checkout, so a worktree opened from a task
+/// sits in the sidebar exactly like one opened from the plugin.
+pub fn worktree_open(session: &str, repo: &Path, path: &Path, label: &str) -> Vec<String> {
+    let repo = repo.display().to_string();
+    let path = path.display().to_string();
+    cmd(
+        session,
+        &["worktree", "open", "--cwd", &repo, "--path", &path, "--label", label, "--focus", "--json"],
+    )
+}
+
+/// Type a command into a pane's shell and run it. How a step that needs a
+/// terminal — worktrunk asking to approve a repo's hooks — gets one.
+pub fn pane_run(session: &str, pane: &str, command: &str) -> Vec<String> {
+    cmd(session, &["pane", "run", pane, command])
+}
+
 /// Send a prompt to the agent. Goes by agent name, which herdr validates, so
 /// the prompt can't land in the wrong pane.
 pub fn agent_prompt(session: &str, name: &str, text: &str) -> Vec<String> {
@@ -135,6 +163,14 @@ pub fn first_workspace_id(list: &Value) -> Option<String> {
 /// The new pane in a `tab create` or `workspace create` response.
 pub fn root_pane_id(created: &Value) -> Option<String> {
     created["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .map(str::to_string)
+}
+
+/// The workspace a `worktree open` response opened (or found already open) —
+/// read so another tab can be opened in it.
+pub fn opened_workspace_id(opened: &Value) -> Option<String> {
+    opened["result"]["workspace"]["workspace_id"]
         .as_str()
         .map(str::to_string)
 }
@@ -207,6 +243,47 @@ mod tests {
                 "--settings", "{\"sandbox\":{}}",
             ]
         );
+    }
+
+    #[test]
+    fn a_worktree_opens_as_its_own_focused_workspace() {
+        assert_eq!(
+            worktree_open("alpha", Path::new("/p/alpha"), Path::new("/w/alpha/task-x-1234abcd"), "task/x-1234abcd"),
+            vec![
+                "herdr", "--session", "alpha", "worktree", "open", "--cwd", "/p/alpha",
+                "--path", "/w/alpha/task-x-1234abcd", "--label", "task/x-1234abcd", "--focus", "--json",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_working_claude_starts_with_no_extra_flags() {
+        assert_eq!(
+            agent_start_claude("alpha", "work-1234abcd", "w2:p1"),
+            vec![
+                "herdr", "--session", "alpha", "agent", "start", "work-1234abcd",
+                "--kind", "claude", "--pane", "w2:p1", "--timeout", "60000",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_command_is_run_in_a_pane_by_id() {
+        assert_eq!(
+            pane_run("alpha", "w1:p4", "echo hi"),
+            vec!["herdr", "--session", "alpha", "pane", "run", "w1:p4", "echo hi"]
+        );
+    }
+
+    /// Shape from herdr 0.9.1's `worktree open --json`.
+    #[test]
+    fn an_opened_worktrees_workspace_is_read_from_the_response() {
+        let v: Value = serde_json::from_str(
+            r#"{"result":{"already_open":false,"root_pane":{"pane_id":"w2:p1"},"workspace":{"workspace_id":"w2"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(opened_workspace_id(&v).as_deref(), Some("w2"));
+        assert_eq!(root_pane_id(&v).as_deref(), Some("w2:p1"));
     }
 
     /// The standing instruction says the three things that matter: refine,
