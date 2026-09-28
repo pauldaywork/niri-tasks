@@ -335,15 +335,13 @@ fn task_list(dry_run: bool) -> Result<()> {
 /// confirmation's, matched to the list it was reached from.
 fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Result<()> {
     let action = Picker::new()
-        .lines(6)
+        .lines(4)
         .width(20)
         .prompt("")
         .run(&[
             "Edit".into(),
             "Note".into(),
-            "Delete".into(),
-            "Complete".into(),
-            "Set active".into(),
+            "Update status".into(),
             "Move to workspace".into(),
         ])?;
 
@@ -353,26 +351,61 @@ fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Re
         // nowhere to show existing notes in a single row.
         Some("Edit") => return task_command(TaskCommand::Edit { uuid: selected, text: vec![] }),
         Some("Note") => return task_command(TaskCommand::Note { uuid: selected, text: vec![] }),
-        Some("Delete") => {
+        Some("Update status") => return task_status(tag, &selected, description, width),
+        Some("Move to workspace") => return task_move(tag, &selected, description),
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Move one task to a picked state.
+///
+/// Active and Stopped drive taskwarrior's start/stop flag; Waiting, Completed
+/// and Deleted are its real statuses. One list rather than that distinction,
+/// because from the menu they are all just "where is this task now". Deleted
+/// is the one destructive pick, so it alone keeps a confirmation.
+fn task_status(tag: &str, uuid: &str, description: &str, width: usize) -> Result<()> {
+    let state = Picker::new()
+        .arg("--no-sort")
+        .lines(5)
+        .width(20)
+        .prompt("status ")
+        .run(&[
+            "Active".into(),
+            "Stopped".into(),
+            "Waiting".into(),
+            "Completed".into(),
+            "Deleted".into(),
+        ])?;
+
+    match state.as_deref() {
+        Some("Active") => {
+            task::set_active(tag, uuid)?;
+            notify::tasks(&format!("Active: {description}"));
+        }
+        Some("Stopped") => {
+            task::stop(uuid)?;
+            notify::tasks(&format!("Stopped: {description}"));
+        }
+        Some("Waiting") => {
+            task::wait(uuid)?;
+            notify::tasks(&format!("Waiting: {description}"));
+        }
+        Some("Completed") => {
+            task::complete(uuid)?;
+            notify::tasks(&format!("Completed: {description}"));
+        }
+        Some("Deleted") => {
             let confirm = Picker::new()
                 .lines(2)
                 .width(width)
                 .prompt("delete? ")
                 .run(&["No".into(), "Yes, delete".into()])?;
             if confirm.as_deref() == Some("Yes, delete") {
-                task::delete(&selected)?;
+                task::delete(uuid)?;
                 notify::tasks(&format!("Deleted: {description}"));
             }
         }
-        Some("Complete") => {
-            task::complete(&selected)?;
-            notify::tasks(&format!("Completed: {description}"));
-        }
-        Some("Set active") => {
-            task::set_active(tag, &selected)?;
-            notify::tasks(&format!("Active: {description}"));
-        }
-        Some("Move to workspace") => return task_move(tag, &selected, description),
         _ => {}
     }
     Ok(())

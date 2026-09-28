@@ -263,6 +263,33 @@ pub fn complete(uuid: &str) -> Result<()> {
     Ok(())
 }
 
+/// Stop a task without starting another. `stop` exits non-zero when the task
+/// was not started, and stopped is then already true, so its status is
+/// deliberately ignored.
+pub fn stop(uuid: &str) -> Result<()> {
+    let _ = base().arg(uuid).arg("stop").status();
+    Ok(())
+}
+
+/// Park a task as waiting.
+///
+/// Taskwarrior's waiting status is really a wait date; `someday` is far enough
+/// out to mean "parked until picked up by hand". A started task is stopped on
+/// the way, for the same reason `move_to_tag` stops one: a task coming back
+/// from waiting should not quietly still claim to be the work in progress.
+pub fn wait(uuid: &str) -> Result<()> {
+    let _ = base().arg(uuid).arg("stop").status();
+
+    let status = base()
+        .arg(uuid)
+        .arg("modify")
+        .arg("wait:someday")
+        .status()
+        .context("could not run `task modify`")?;
+    anyhow::ensure!(status.success(), "`task modify wait:someday` failed");
+    Ok(())
+}
+
 /// Move a task from one workspace's tag to another.
 ///
 /// The two tags go as separate arguments, each one entirely `-tag` or `+tag`,

@@ -193,6 +193,41 @@ fn write_path_lifecycle() {
          `niritasks task active` unambiguous"
     );
 
+    // ---- stop leaves the tag with no active task --------------------------
+    task::stop(&second).expect("stop");
+    assert!(
+        task::active_for_tag(TAG).expect("active").is_none(),
+        "stopping the active task must leave the tag with none"
+    );
+    task::stop(&second).expect("stopping an already-stopped task is a no-op");
+
+    // ---- wait parks the task, and stops it on the way ---------------------
+    task::add(TAG, &text::add_args("park me")).expect("add");
+    let parked = task::pending_for_tag(TAG)
+        .expect("list")
+        .into_iter()
+        .find(|t| t.description == "park me")
+        .expect("find the task to park")
+        .uuid;
+    task::set_active(TAG, &parked).expect("start it first");
+
+    // Taskwarrior 2.6 dropped the stored `waiting` status: the task keeps
+    // `status:pending` plus a `wait` date, and `status:pending` filters
+    // exclude it. So the wait date and the pending list are what to assert.
+    task::wait(&parked).expect("wait");
+    assert!(!raw(&parked, "wait").is_empty(), "wait date should be set");
+    assert!(
+        raw(&parked, "start").is_empty(),
+        "a task must not come back from waiting still claiming to be in progress"
+    );
+    assert!(
+        !task::pending_for_tag(TAG)
+            .expect("list")
+            .iter()
+            .any(|t| t.uuid == parked),
+        "a waiting task must drop out of the pending list"
+    );
+
     // ---- complete and delete --------------------------------------------
     let before = task::pending_for_tag(TAG).expect("list").len();
     task::complete(&first).expect("complete");
