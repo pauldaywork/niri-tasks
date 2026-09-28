@@ -8,7 +8,7 @@
 use crate::{herdr, niri, notify, project, session, text};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Which of the menu's two entries opened Claude. The two differ only in the
@@ -61,6 +61,49 @@ pub fn tab_label(mode: Mode, description: &str) -> String {
         d
     };
     format!("{verb}: {short}")
+}
+
+/// The Claude Code settings that fence a refine session in, as the JSON
+/// `--settings` takes.
+///
+/// A Bash sandbox, so the session can work without a prompt per command yet
+/// cannot start on the task: sandboxed commands run unasked, the OS keeps them
+/// out of `project` (writes only — reading it is the point), and the one place
+/// they may write is `task_data`, for the skill's final import. No retrying a
+/// blocked command outside the sandbox, and no starting at all without one.
+///
+/// Unix sockets are allowed because the sandbox's socket filter cannot load
+/// under Ubuntu's bwrap AppArmor profile, which denies it the capability it
+/// needs. `hidden` makes up for it: the sockets that could run something
+/// outside the sandbox — niri's spawn, the session bus, docker, herdr's panes —
+/// are hidden from it instead.
+pub fn sandbox_settings(project: &Path, task_data: &Path, hidden: &[PathBuf]) -> String {
+    serde_json::json!({
+        "sandbox": {
+            "enabled": true,
+            "autoAllowBashIfSandboxed": true,
+            "allowUnsandboxedCommands": false,
+            "failIfUnavailable": true,
+            "network": { "allowAllUnixSockets": true },
+            "filesystem": {
+                "denyWrite": [project],
+                "allowWrite": [task_data],
+                "denyRead": hidden,
+            },
+        }
+    })
+    .to_string()
+}
+
+/// The paths [`sandbox_settings`] hides, of those that exist here: the sandbox
+/// refuses to start on a path it cannot find.
+fn hidden_sockets(home: &Path) -> Vec<PathBuf> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    runtime
+        .into_iter()
+        .chain([PathBuf::from("/run/docker.sock"), home.join(".config/herdr")])
+        .filter(|p| p.exists())
+        .collect()
 }
 
 /// A niri window's id, app_id and title — the columns [`find_session_window`]
@@ -159,7 +202,9 @@ pub fn launch(workspace: &str, uuid: &str, description: &str, mode: Mode) -> Res
     };
     let pane = herdr::root_pane_id(&created).context("herdr did not say which pane it made")?;
 
-    if let Err(e) = herdr::run(&herdr::agent_start_claude_refiner(&s, &name, &pane)) {
+    let home = Path::new(&home);
+    let settings = sandbox_settings(&dir, &crate::task::data_location()?, &hidden_sockets(home));
+    if let Err(e) = herdr::run(&herdr::agent_start_claude_refiner(&s, &name, &pane, &settings)) {
         // Best-effort: a retry should not find a pile of bare-shell tabs from
         // every failed attempt, but a failure here must not hide the real error.
         if let Some(tab_id) = herdr::created_tab_id(&created) {
@@ -198,6 +243,25 @@ fn wait_for_session(s: &str) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The fence the refine session runs in: every command sandboxed with no
+    /// way out, the project read-only, the task database writable, and the
+    /// sockets that could start a process outside the sandbox hidden.
+    #[test]
+    fn the_sandbox_fences_the_session_to_the_task_database() {
+        let hidden = [PathBuf::from("/run/user/1000"), PathBuf::from("/run/docker.sock")];
+        let json = sandbox_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        let sb = &v["sandbox"];
+        assert_eq!(sb["enabled"], true);
+        assert_eq!(sb["autoAllowBashIfSandboxed"], true);
+        assert_eq!(sb["allowUnsandboxedCommands"], false, "no retrying outside the sandbox");
+        assert_eq!(sb["failIfUnavailable"], true, "never run unfenced");
+        assert_eq!(sb["filesystem"]["denyWrite"], serde_json::json!(["/home/x/Projects/alpha"]));
+        assert_eq!(sb["filesystem"]["allowWrite"], serde_json::json!(["/home/x/.task"]));
+        assert_eq!(sb["filesystem"]["denyRead"], serde_json::json!(["/run/user/1000", "/run/docker.sock"]));
+        assert_eq!(sb["network"]["allowAllUnixSockets"], true);
+    }
 
     /// herdr names must match `[a-z][a-z0-9_-]{0,31}`; a uuid's first eight
     /// characters are hex, and enough to tell one task's session from another.

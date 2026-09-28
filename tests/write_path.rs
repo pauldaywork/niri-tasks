@@ -63,8 +63,13 @@ fn raw(uuid: &str, field: &str) -> String {
 
 #[test]
 fn write_path_lifecycle() {
-    let _sandbox = Sandbox::new();
+    let sandbox = Sandbox::new();
     const TAG: &str = "sandbox";
+
+    // ---- data location --------------------------------------------------
+    // The refine sandbox's one writable path: it must be where taskwarrior
+    // really writes, which here is the sandbox, not ~/.task.
+    assert_eq!(task::data_location().expect("data location"), sandbox.dir.join("data"));
 
     // ---- add ------------------------------------------------------------
     task::add(TAG, &text::add_args("write the thing")).expect("add");

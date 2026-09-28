@@ -166,6 +166,19 @@ pub fn get(uuid: &str) -> Result<Option<Task>> {
     Ok(export(&[uuid])?.into_iter().next())
 }
 
+/// Where taskwarrior keeps its database, as taskwarrior itself resolves it —
+/// `TASKDATA`, `.taskrc`'s `data.location` and its `$HOME` expansion included.
+/// The refine sandbox lets writes through to here and nowhere else.
+pub fn data_location() -> Result<std::path::PathBuf> {
+    let out = base()
+        .args(["_get", "rc.data.location"])
+        .output()
+        .context("could not run `task` — is taskwarrior installed?")?;
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    anyhow::ensure!(!path.is_empty(), "taskwarrior did not say where its data is");
+    Ok(std::path::PathBuf::from(path))
+}
+
 /// Add a task, returning the uuid of the task created.
 ///
 /// `description_args` is deliberately pre-split by [`crate::text::add_args`] so

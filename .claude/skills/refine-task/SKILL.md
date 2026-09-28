@@ -25,6 +25,11 @@ without file-editing tools and without plan mode for exactly this reason:
 approving a plan in plan mode means "implement it", which is not what the user
 is approving here.
 
+Your Bash commands run in a sandbox that can read anything but write only to
+the task database. A command that fails with `Read-only file system` or
+`Operation not permitted` hit that fence on purpose: do not look for a way
+around it, and do not ask the user to lift it.
+
 ## 1. Read the task
 
 ```bash

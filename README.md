@@ -84,7 +84,10 @@ degrades to stderr without it.
 open` runs the workspace's herdr session in the project terminal; without it the
 terminal is a plain shell in the project folder. The menu's **Refine** and
 **Grill me** need both herdr and Claude Code (`claude`) on `$PATH` — they open
-Claude inside that session.
+Claude inside that session — plus `bubblewrap` and `socat` for the Bash
+sandbox that keeps that Claude to reading the project and writing only the
+task (`sudo apt install bubblewrap socat`). Without them Claude refuses to
+start rather than run unfenced.
 
 VS Code is optional. `niritasks project open` starts one on the project folder when
 `code` is on `$PATH`, and starts only the terminal when it is not — the lookup

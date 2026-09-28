@@ -152,3 +152,28 @@ cannot start the work, and the implement-this screen never appears. The skill
 asks its own two-option question for approval, and says in plain terms that it
 refines the task and never does it. `default` is explicit because the user's
 own default may run commands unasked.
+
+## Revision: a Bash sandbox instead of prompts (2026-09-28)
+
+Manual mode asked about nearly every command while Claude researched. Auto
+mode would stop the prompts, but its guard against starting the task is a
+classifier's judgement, which the Claude Code docs say is not a rule. So the
+session runs with Claude Code's Bash sandbox (`--settings`,
+`refine::sandbox_settings`):
+
+- `autoAllowBashIfSandboxed` — sandboxed commands run without asking;
+- `denyWrite` the project folder, `allowWrite` only taskwarrior's data
+  location (`task _get rc.data.location`);
+- `allowUnsandboxedCommands: false`, `failIfUnavailable: true` — no escape
+  hatch, and no session at all without a working sandbox;
+- `allowedTools` `Bash(task *)` and `Bash(python3 *)` — Claude Code still asks
+  for these two inside the sandbox, and the skill's write is exactly them.
+
+On Ubuntu 24.04+, the sandbox's socket filter cannot load (Ubuntu's
+`bwrap-userns-restrict` AppArmor profile denies the capability it needs), so
+Unix sockets are allowed and the dangerous ones are hidden with `denyRead`
+instead: `$XDG_RUNTIME_DIR` (niri, the session bus), `/run/docker.sock` and
+`~/.config/herdr`. Verified: with that fence, `niri msg`, `busctl --user`,
+`docker ps` and herdr all fail to connect, a write to the project fails with
+`Read-only file system`, and the full export | python3 | import write succeeds
+with no prompt. The sandbox needs `bubblewrap` and `socat` installed.
