@@ -11,11 +11,14 @@ use serde_json::Value;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+/// Which of the menu's two entries opened Claude. The two differ only in the
+/// prompt [`prompt`] sends — the skill on the other end reads it to decide
+/// whether to interview before drafting or draft straight away.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     /// Draft straight away; ask only what the code cannot answer.
     Quick,
-    /// A full `/grill-me` interview before the draft.
+    /// A full interview, via the `grilling` skill, before the draft.
     Grill,
 }
 

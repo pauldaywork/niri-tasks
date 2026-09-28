@@ -92,7 +92,7 @@ enum TaskCommand {
     /// Work a task up into a plan with Claude, in a new tab of the workspace's herdr session
     Refine {
         uuid: String,
-        /// Interview first (/grill-me) rather than drafting straight away
+        /// Interview first, via the `grilling` skill, rather than drafting straight away
         #[arg(long)]
         grill: bool,
     },

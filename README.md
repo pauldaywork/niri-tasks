@@ -25,8 +25,10 @@ from — opening one, or moving a task to another workspace.
 
 Each monitor shows the pending tasks of the workspace it is displaying, as a
 stack of cards on the right edge — the active task first, its ▶ and text in
-green, then the rest most urgent first (○, or a dimmed lock for one blocked on
-another task). Up to eight, then a "+N more" card.
+green, then the rest most urgent first: ○, a dimmed lock for one blocked on
+another task, or a clipboard-check for one already worked up into a plan with
+Claude from the menu's **Refine** or **Grill me**. Up to eight, then a "+N
+more" card.
 
 The panel sits tucked away with only a 60px peek of each card showing. Move the
 pointer onto it and the cards slide out to full width; move away and they slide
@@ -37,10 +39,6 @@ workspace, or one with nothing pending, shows no panel at all.
 Click a card to open that task's actions in fuzzel — the same menu the picker
 shows once you pick a task — on the monitor you clicked. The "+N more" card
 shows the rest of the tasks in the panel.
-
-A card's icon says where the task is: `▶` for the active task, a lock for one
-blocked by another, a clipboard-check for a planned one — worked up with Claude
-from the menu's **Refine** or **Grill me** — and `○` for the rest.
 
 `Mod+Alt+Ctrl+T` does the same from the keyboard: the panel slides out and
 takes the keyboard, the arrow keys move a 1px white border between cards, and
@@ -84,7 +82,9 @@ degrades to stderr without it.
 
 [herdr](https://herdr.dev) is optional. With it on `$PATH`, `niritasks project
 open` runs the workspace's herdr session in the project terminal; without it the
-terminal is a plain shell in the project folder.
+terminal is a plain shell in the project folder. The menu's **Refine** and
+**Grill me** need both herdr and Claude Code (`claude`) on `$PATH` — they open
+Claude inside that session.
 
 VS Code is optional. `niritasks project open` starts one on the project folder when
 `code` is on `$PATH`, and starts only the terminal when it is not — the lookup

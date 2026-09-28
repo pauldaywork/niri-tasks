@@ -65,7 +65,7 @@ fi
 # Passed to fuzzel with --config=, so fuzzel.ini itself is left alone.
 link "$REPO/fuzzel/picker.ini" "$CONFIG/fuzzel/picker.ini"
 
-# ─── 4. the Claude Code skills ───────────────────────────────────────────────
+# ─── 4. the Claude Code skills ────────────────────────────────────────────────
 # The skill Claude Code loads to work this list. It is carried in the repo
 # because it is part of the tool, and linked for the same reason as everything
 # else here: a copy is a thing to keep in sync, and this one was being synced by
