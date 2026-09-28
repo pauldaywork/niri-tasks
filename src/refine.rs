@@ -267,6 +267,28 @@ fn show_session_window(dir: &Path, s: &str, list: &Value) -> Result<()> {
     Ok(())
 }
 
+/// Make `s`'s herdr session running and in front of the user, and return its
+/// workspace list: start the project terminal if the session is stopped (a
+/// window then comes with it), otherwise focus the window showing it or attach
+/// another — a running session may have had its window closed while its herdr
+/// server kept going. Shared by every launcher that opens something in a
+/// project's session.
+pub(crate) fn open_session(dir: &Path, s: &str) -> Result<Value> {
+    match herdr::run(&herdr::workspace_list(s)) {
+        Ok(list) => {
+            show_session_window(dir, s, &list)?;
+            Ok(list)
+        }
+        Err(_) => {
+            anyhow::ensure!(project::on_path(project::SESSION_MANAGER), "herdr is not installed.");
+            // Through niri, so the window lands on the focused workspace —
+            // the one the task belongs to — as the project picker's does.
+            niri::spawn(project::project_terminal_command(dir, s, true))?;
+            wait_for_session(s)
+        }
+    }
+}
+
 /// Open Claude on a task in `workspace`'s herdr session.
 ///
 /// Opens the project terminal first if the session is not running, and goes
@@ -283,29 +305,7 @@ pub fn launch(workspace: &str, uuid: &str, description: &str, mode: Mode) -> Res
     ensure_no_exposed_sockets(&hidden)?;
     let settings = session_settings(&dir, &crate::task::data_location()?, &hidden);
 
-    // Whether the session was already running when we asked. A session we
-    // spawn ourselves below already has a window in front of the user; one
-    // that was already running might have had its window closed while the
-    // herdr server it belongs to kept going.
-    let mut already_running = true;
-    let list = match herdr::run(&herdr::workspace_list(&s)) {
-        Ok(list) => list,
-        Err(_) => {
-            anyhow::ensure!(
-                project::on_path(project::SESSION_MANAGER),
-                "herdr is not installed, so there is no session to refine in."
-            );
-            // Through niri, so the window lands on the focused workspace —
-            // the one the task belongs to — as the project picker's does.
-            niri::spawn(project::project_terminal_command(&dir, &s, true))?;
-            already_running = false;
-            wait_for_session(&s)?
-        }
-    };
-
-    if already_running {
-        show_session_window(&dir, &s, &list)?;
-    }
+    let list = open_session(&dir, &s)?;
 
     if herdr::run(&herdr::agent_get(&s, &name)).is_ok() {
         herdr::run(&herdr::agent_focus(&s, &name))?;
