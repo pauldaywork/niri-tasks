@@ -62,12 +62,10 @@ pub fn agent_focus(session: &str, name: &str) -> Vec<String> {
 /// `default` is explicit because the user's own default may be auto mode, whose
 /// guard against starting the task is a classifier's judgement, not a rule.
 ///
-/// What keeps it from prompting instead is `settings`, a Bash sandbox (see
-/// `refine::sandbox_settings`): sandboxed commands run unasked, and the OS
-/// stops them writing anywhere but the task database. `task` and `python3` are
-/// allowed by name because Claude Code asks for them even inside the sandbox —
-/// `task` for reasons it does not log, `python3 -c` because inline interpreter
-/// code always asks — and the skill's write is exactly those two.
+/// What keeps it from prompting instead is `settings` (see
+/// `refine::session_settings`): a Bash sandbox whose commands run unasked while
+/// the OS stops them writing anywhere but the task database, plus the few
+/// allow and deny rules that go with it.
 ///
 /// The timeout is doubled from herdr's 30s default: a cold Claude Code start
 /// with hooks and plugins has been seen near 4s, and a slow disk should not
@@ -79,7 +77,6 @@ pub fn agent_start_claude_refiner(session: &str, name: &str, pane: &str, setting
             "agent", "start", name, "--kind", "claude", "--pane", pane, "--timeout", "60000",
             "--", "--permission-mode", "default",
             "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode",
-            "--allowedTools", "Bash(task *)", "Bash(python3 *)",
             "--settings", settings,
         ],
     )
@@ -196,7 +193,6 @@ mod tests {
                 "--kind", "claude", "--pane", "w1:p3", "--timeout", "60000",
                 "--", "--permission-mode", "default",
                 "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode",
-                "--allowedTools", "Bash(task *)", "Bash(python3 *)",
                 "--settings", "{\"sandbox\":{}}",
             ]
         );

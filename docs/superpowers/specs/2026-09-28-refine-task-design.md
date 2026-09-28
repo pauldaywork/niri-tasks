@@ -173,7 +173,15 @@ On Ubuntu 24.04+, the sandbox's socket filter cannot load (Ubuntu's
 `bwrap-userns-restrict` AppArmor profile denies the capability it needs), so
 Unix sockets are allowed and the dangerous ones are hidden with `denyRead`
 instead: `$XDG_RUNTIME_DIR` (niri, the session bus), `/run/docker.sock` and
-`~/.config/herdr`. Verified: with that fence, `niri msg`, `busctl --user`,
+`~/.config/herdr`.
+
+The session also searches and fetches from the web unasked (`WebSearch`,
+`WebFetch` allowed). Because a fetched page could try to talk it into sending
+a secret out in a URL, credentials (`refine::CREDENTIALS`: `~/.ssh`,
+`~/.gnupg`, `~/.config/gh`, Claude's own credentials and the like) are hidden
+from both of its readers — `Read(...)` deny rules for the Read tool, and
+`denyRead` for sandboxed Bash. All the rules travel in the one `--settings`
+object (`refine::session_settings`). Verified: with that fence, `niri msg`, `busctl --user`,
 `docker ps` and herdr all fail to connect, a write to the project fails with
 `Read-only file system`, and the full export | python3 | import write succeeds
 with no prompt. The sandbox needs `bubblewrap` and `socat` installed.

@@ -63,6 +63,25 @@ pub fn tab_label(mode: Mode, description: &str) -> String {
     format!("{verb}: {short}")
 }
 
+/// Credential files and folders, as `Read` rule patterns relative to home.
+///
+/// The session searches and fetches from the web unasked, so a page it reads
+/// could try to talk it into sending a secret out in a URL. Hiding these from
+/// every reader it has — the `Read` tool by deny rule, sandboxed Bash by
+/// [`credential_paths`] — leaves nothing of that kind to send.
+pub const CREDENTIALS: &[&str] = &[
+    "~/.ssh/**",
+    "~/.gnupg/**",
+    "~/.aws/**",
+    "~/.config/gh/**",
+    "~/.docker/**",
+    "~/.kube/**",
+    "~/.netrc",
+    "~/.git-credentials",
+    "~/.claude/.credentials.json",
+    "~/.local/share/keyrings/**",
+];
+
 /// The Claude Code settings that fence a refine session in, as the JSON
 /// `--settings` takes.
 ///
@@ -76,9 +95,20 @@ pub fn tab_label(mode: Mode, description: &str) -> String {
 /// under Ubuntu's bwrap AppArmor profile, which denies it the capability it
 /// needs. `hidden` makes up for it: the sockets that could run something
 /// outside the sandbox — niri's spawn, the session bus, docker, herdr's panes —
-/// are hidden from it instead.
-pub fn sandbox_settings(project: &Path, task_data: &Path, hidden: &[PathBuf]) -> String {
+/// are hidden from it instead, along with the credentials.
+///
+/// Allowed unasked on top: web search and fetch, which write nothing; and
+/// `task` and `python3`, which Claude Code asks about even inside the sandbox
+/// (`task` for reasons it does not log, `python3 -c` because inline
+/// interpreter code always asks) — the skill's write is exactly those two, and
+/// they still run sandboxed.
+pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf]) -> String {
+    let deny: Vec<String> = CREDENTIALS.iter().map(|c| format!("Read({c})")).collect();
     serde_json::json!({
+        "permissions": {
+            "allow": ["WebSearch", "WebFetch", "Bash(task *)", "Bash(python3 *)"],
+            "deny": deny,
+        },
         "sandbox": {
             "enabled": true,
             "autoAllowBashIfSandboxed": true,
@@ -95,14 +125,26 @@ pub fn sandbox_settings(project: &Path, task_data: &Path, hidden: &[PathBuf]) ->
     .to_string()
 }
 
-/// The paths [`sandbox_settings`] hides, of those that exist here: the sandbox
+/// [`CREDENTIALS`] as paths under `home`, of those that exist: the sandbox
 /// refuses to start on a path it cannot find.
-fn hidden_sockets(home: &Path) -> Vec<PathBuf> {
+fn credential_paths(home: &Path) -> Vec<PathBuf> {
+    CREDENTIALS
+        .iter()
+        .map(|c| home.join(c.trim_start_matches("~/").trim_end_matches("/**")))
+        .filter(|p| p.exists())
+        .collect()
+}
+
+/// Every path [`session_settings`] hides from sandboxed Bash, of those that
+/// exist here: the sockets that could run something outside the sandbox, and
+/// the credentials.
+fn hidden_paths(home: &Path) -> Vec<PathBuf> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
     runtime
         .into_iter()
         .chain([PathBuf::from("/run/docker.sock"), home.join(".config/herdr")])
         .filter(|p| p.exists())
+        .chain(credential_paths(home))
         .collect()
 }
 
@@ -203,7 +245,7 @@ pub fn launch(workspace: &str, uuid: &str, description: &str, mode: Mode) -> Res
     let pane = herdr::root_pane_id(&created).context("herdr did not say which pane it made")?;
 
     let home = Path::new(&home);
-    let settings = sandbox_settings(&dir, &crate::task::data_location()?, &hidden_sockets(home));
+    let settings = session_settings(&dir, &crate::task::data_location()?, &hidden_paths(home));
     if let Err(e) = herdr::run(&herdr::agent_start_claude_refiner(&s, &name, &pane, &settings)) {
         // Best-effort: a retry should not find a pile of bare-shell tabs from
         // every failed attempt, but a failure here must not hide the real error.
@@ -250,7 +292,7 @@ mod tests {
     #[test]
     fn the_sandbox_fences_the_session_to_the_task_database() {
         let hidden = [PathBuf::from("/run/user/1000"), PathBuf::from("/run/docker.sock")];
-        let json = sandbox_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden);
+        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden);
         let v: Value = serde_json::from_str(&json).unwrap();
         let sb = &v["sandbox"];
         assert_eq!(sb["enabled"], true);
@@ -261,6 +303,38 @@ mod tests {
         assert_eq!(sb["filesystem"]["allowWrite"], serde_json::json!(["/home/x/.task"]));
         assert_eq!(sb["filesystem"]["denyRead"], serde_json::json!(["/run/user/1000", "/run/docker.sock"]));
         assert_eq!(sb["network"]["allowAllUnixSockets"], true);
+    }
+
+    /// The web and the skill's write run unasked; credentials cannot be read
+    /// through the Read tool, the one reader the Bash sandbox does not cover.
+    #[test]
+    fn the_session_may_search_the_web_but_not_read_credentials() {
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[]);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        let allow = &v["permissions"]["allow"];
+        for tool in ["WebSearch", "WebFetch", "Bash(task *)", "Bash(python3 *)"] {
+            assert!(allow.as_array().unwrap().iter().any(|a| a == tool), "{tool} allowed");
+        }
+        let deny = v["permissions"]["deny"].as_array().unwrap();
+        assert!(deny.iter().any(|d| d == "Read(~/.ssh/**)"));
+        assert!(deny.iter().any(|d| d == "Read(~/.claude/.credentials.json)"));
+        assert_eq!(deny.len(), CREDENTIALS.len());
+    }
+
+    /// Credentials are hidden from sandboxed Bash by the same list, as paths
+    /// under home — but only those that exist, since the sandbox will not
+    /// start on a path it cannot find.
+    #[test]
+    fn credential_paths_resolve_under_home_and_skip_what_is_absent() {
+        let home = std::env::temp_dir().join(format!("niritasks-cred-{}", std::process::id()));
+        std::fs::create_dir_all(home.join(".ssh")).unwrap();
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::write(home.join(".claude/.credentials.json"), "{}").unwrap();
+
+        let got = credential_paths(&home);
+        assert_eq!(got, vec![home.join(".ssh"), home.join(".claude/.credentials.json")]);
+
+        std::fs::remove_dir_all(&home).ok();
     }
 
     /// herdr names must match `[a-z][a-z0-9_-]{0,31}`; a uuid's first eight

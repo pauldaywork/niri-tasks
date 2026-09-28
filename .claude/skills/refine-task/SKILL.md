@@ -44,8 +44,10 @@ Show the user the description and every note before going further.
 
 Read enough of the project to understand what the task touches: `CONTEXT.md`,
 `AGENTS.md`/`CLAUDE.md`, the docs and the code the task names. Facts you can look
-up are yours to find; never ask the user for one. Read only — nothing here
-changes a file.
+up are yours to find; never ask the user for one. When the task turns on
+something outside the project — a tool's options, a library's API, how others
+solve it — search the web and read the primary sources. Read only — nothing
+here changes a file.
 
 ## 3. Work it up
 
