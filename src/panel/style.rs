@@ -23,6 +23,13 @@
 /// also gets niri's blur, which the cards cannot: niri blurs a layer surface's
 /// whole rectangle, and the panel's is mostly empty space.
 pub const BACKGROUND: &str = "rgba(0, 0, 0, 0.375)";
+/// A terminal window's own fill, before niri touches it: ghostty's black
+/// `background` at `background-opacity = 0.5`. For the task box, which is a
+/// window rather than a layer surface, niri adds the rest itself — the window
+/// `opacity 0.75` that turns this into [`BACKGROUND`], the blur, and the 4px
+/// focus ring [`OUTLINE`] imitates — so the box fills with this and draws no
+/// outline of its own.
+pub const WINDOW_BACKGROUND: &str = "rgba(0, 0, 0, 0.5)";
 /// A terminal window's outline: niri's 4px focus ring, `#00000020`, drawn as a
 /// spread shadow so it sits outside the card the way the ring sits outside the
 /// window.

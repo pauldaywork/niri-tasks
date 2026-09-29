@@ -17,6 +17,7 @@
 
 pub mod form;
 pub mod keys;
+pub mod style;
 
 use crate::theme::Theme;
 use gtk4::gdk;
