@@ -57,5 +57,11 @@ one. Picking a task, or clicking its task card, opens its action menu.
 _Avoid_: menu, launcher
 
 **Task box**:
-The GTK window for writing a task's description or notes.
+The GTK window for adding a task or editing one — its description and its
+note rows. Edit and Note open the same box.
 _Avoid_: dialog, prompt
+
+**Note row**:
+One note in the task box: its text, wrapping and editable in place, its date,
+and an × to delete it.
+_Avoid_: line, annotation (Taskwarrior's word for what a note row is saved as)

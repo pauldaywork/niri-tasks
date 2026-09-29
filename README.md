@@ -15,7 +15,7 @@ from — opening one, or moving a task to another workspace.
 
 | Key | Does |
 |---|---|
-| `Mod+Alt+T` | Add a task to this workspace, with notes — one annotation per line |
+| `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
 | `Mod+Alt+Ctrl+T` | Pick one of this workspace's tasks on the task panel — edit, note, refine or grill it into a plan with Claude, start working on it in its own worktree, update its status (active, stopped, waiting, completed, deleted), move to another workspace. With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+W` | Create a new workspace and name it |
@@ -136,11 +136,31 @@ argument, so a typed `due:` stays literal text.
 Both are covered by tests in `tests/write_path.rs`, against a sandboxed task
 database. Getting them backwards fails silently, which is why they are pinned.
 
-There is a third rule, in the add box's notes area: **line breaks are kept**,
-and each line becomes its own annotation. A description collapses its newlines
-away because taskwarrior descriptions are one line; notes are a list, so the
-breaks are what say where one note ends and the next begins. Blank lines are
-dropped rather than filed as empty notes.
+The task box follows the same split. Adding word-splits the description, so
+`due:friday` in it is a due date; editing an existing task in the box keeps it
+literal.
+
+### The task box
+
+One window adds a task and edits one. Edit opens it on the task's description
+and every note, and the menu's Note opens it the same way with the cursor in a
+new empty row at the end. Each note is a row: it wraps, you edit it in place,
+its date sits small at its right end, and × deletes it. "+ Add note" appends a
+row.
+
+| Key | Does |
+|---|---|
+| Enter in the description | Moves to the first note (making one if there are none) |
+| Enter in a note | Adds a row below and moves to it |
+| Backspace in an empty row | Deletes it and moves up |
+| Ctrl+Enter | Saves, from anywhere |
+| Esc | Discards everything, without asking |
+
+Saving an existing task writes its description and whole note list back in
+one `task import`. Untouched and edited notes keep the date they were first
+written; new ones are dated when saved, and a save that changed nothing writes
+nothing. Taskwarrior keeps notes in date order, so a note typed between two
+old ones moves to the end once saved. Empty rows are dropped.
 
 ## Notes
 
@@ -229,6 +249,11 @@ you type lands in the box alongside it. And it stops `niri-tasks.service`, runs
 its own daemon for the first half, then starts the service again if it was
 running — that is deliberate, since the point is to prove both the daemon path
 and the fallback, but it means the task panel blinks out for a minute.
+
+It cannot click, so after a change to `src/taskbox.rs` check the pointer half by
+hand: × deletes its row, "+ Add note" appends an empty row with the cursor in
+it, and a long note list scrolls, keeping a row made by Enter at the bottom in
+view.
 
 > [!IMPORTANT]
 > All three scripts run `niritasks` **from `$PATH`** — the installed binary, not the one you
