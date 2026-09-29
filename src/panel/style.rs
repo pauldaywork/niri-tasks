@@ -1,7 +1,7 @@
 //! How a task card looks: shaped like a mako notification, coloured like a
 //! terminal window.
 //!
-//! The shape — radius, padding, width, gap — is mako's, copied from
+//! The shape — radius, padding, gap — is mako's, copied from
 //! `config/mako/config` in the ubuntu-setup repo. The font, the fill and the
 //! outline are a ghostty window's under niri, from the same repo:
 //! `config/ghostty/` and `config/niri/window-rules/`. Change them together.
@@ -41,8 +41,10 @@ pub const PADDING_PX: i32 = 12;
 pub const FONT: &str = "10pt \"Iosevka Term Extended\"";
 /// mako `margin=0,0,8`: the gap between stacked notifications.
 pub const GAP_PX: i32 = 8;
-/// mako `width`.
-pub const CARD_WIDTH_PX: i32 = 380;
+/// Twice mako `width`, so a long description fits on one line. The peek is
+/// measured from the screen edge, so this does not change how much shows while
+/// tucked away.
+pub const CARD_WIDTH_PX: i32 = 760;
 /// The border on the card the keyboard is on.
 pub const FOCUS: &str = "1px solid #ffffff";
 
