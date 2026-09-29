@@ -61,24 +61,10 @@ impl Task {
     pub fn is_planned(&self) -> bool {
         self.tags.iter().any(|t| t == PLANNED_TAG)
     }
-
-    /// Every note, one per line — what the note box lists above its input and
-    /// what `niritasks task get-notes` prints.
-    ///
-    /// One definition, because there are three callers and they must agree:
-    /// notes are invisible from the picker, which shows a description, so this
-    /// listing is the only place they are read.
-    pub fn notes_list(&self) -> String {
-        self.annotations
-            .iter()
-            .map(Annotation::line)
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
 }
 
 impl Annotation {
-    /// One note as every surface shows it: the date it was added, then the text.
+    /// One note as `niritasks task get-notes` prints it: the date it was added, then the text.
     pub fn line(&self) -> String {
         format!(
             "{}  {}",
@@ -87,13 +73,13 @@ impl Annotation {
         )
     }
 
-    /// The `entry` stamp as a date a person reads.
+    /// The `entry` stamp as a date a person reads — a task box row's date, and the front of [`Annotation::line`].
     ///
     /// Taskwarrior stores it as `20260816T130710Z`; the first eight characters
     /// are the day, and hyphens are what make them read as one. Anything that
     /// is not that shape is passed through untouched rather than sliced into
     /// nonsense — the stamp is taskwarrior's to define, not ours.
-    fn date(&self) -> String {
+    pub fn date(&self) -> String {
         // Characters, not bytes: `&self.entry[..8]` panics when the eighth byte
         // lands inside a multi-byte character, and this runs inside a
         // long-lived daemon.
@@ -238,13 +224,12 @@ fn parse_new_uuid(stdout: &str) -> Option<String> {
         })
 }
 
-/// Add a task and attach one annotation per note line.
+/// Add a task and attach one annotation per note.
 ///
-/// The notes come from the add box's second text area, already split one per
-/// line by [`crate::text::note_lines`]. They are attached one at a time rather
-/// than joined, because separate annotations are what the picker's `¶` marker
-/// and the note box's list are counting — a single annotation holding three
-/// lines would read as one note everywhere afterwards.
+/// The notes are the add box's rows, in order, empty ones already dropped.
+/// They are attached one at a time rather than joined, because separate
+/// annotations are what the picker's `¶` marker and the box's rows are
+/// counting.
 ///
 /// A note that cannot be attached fails the whole call: the task is already
 /// added by then, so the caller is told rather than left believing the notes
@@ -493,29 +478,6 @@ mod tests {
         assert!(!tasks[0].is_active());
     }
 
-    /// One listing, used by the note box, the CLI and the daemon alike. It was
-    /// three copies of this format string before, free to drift apart.
-    #[test]
-    fn notes_list_is_one_line_per_note() {
-        let json = r#"[{
-            "uuid":"abc","description":"x","urgency":1.0,
-            "annotations":[
-                {"entry":"20260815T080000Z","description":"first"},
-                {"entry":"20260816T091500Z","description":"second  note   wrapped"}
-            ]
-        }]"#;
-        let tasks: Vec<Task> = serde_json::from_str(json).unwrap();
-        let listing = tasks[0].notes_list();
-        let lines: Vec<&str> = listing.lines().collect();
-
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].ends_with("  first"));
-        assert!(
-            lines[1].ends_with("  second note wrapped"),
-            "a note's own whitespace is collapsed for the listing"
-        );
-    }
-
     /// The stamp taskwarrior stores is not a date anyone reads.
     #[test]
     fn note_dates_read_as_dates() {
@@ -538,13 +500,6 @@ mod tests {
             };
             assert_eq!(a.line(), format!("{stamp}  x"));
         }
-    }
-
-    #[test]
-    fn a_task_with_no_notes_lists_nothing() {
-        let json = r#"[{"uuid":"abc","description":"x","urgency":1.0}]"#;
-        let tasks: Vec<Task> = serde_json::from_str(json).unwrap();
-        assert_eq!(tasks[0].notes_list(), "");
     }
 
     /// The uuid comes off `rc.verbose=new-uuid`'s line, not off the id in the

@@ -1,4 +1,4 @@
-//! The multi-line task box.
+//! The task box: one window for adding a task and for editing one.
 //!
 //! This is the one surface fuzzel cannot be: fuzzel is a single-line picker,
 //! and the box exists so a task description can be seen and edited whole. Every
@@ -8,6 +8,11 @@
 //! whose minimum and maximum sizes are equal, so setting both is all it takes
 //! to get a floating box — no window rule needed. (The QML modal this replaces
 //! relied on exactly the same behaviour.)
+//!
+//! Its description is a wrapping text area and its notes are a list of rows,
+//! one per note, each editable in place with its date at its right end and an
+//! × to delete it. Add, Edit and the menu's Note all open this same window;
+//! they differ only in what is filled in and where the cursor starts.
 //!
 //! Replaces `TaskBoxDaemon.qml` and `TaskBoxModal.qml`, and with them the
 //! `dms ipc call taskBox` boundary: there is no daemon, no IPC, and no uuid
@@ -19,114 +24,85 @@ pub mod form;
 pub mod keys;
 pub mod style;
 
-use crate::theme::Theme;
+pub use form::Submission;
+
+use crate::task::{Annotation, Task};
 use gtk4::gdk;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, CssProvider};
+use keys::{KeyAction, Place};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// Which of the three jobs the box is doing.
+/// Which job the box is doing. Edit and Note are the same window on the same
+/// task; Note only starts the cursor in a new empty note row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Add,
     Edit,
-    Annotate,
+    Note,
 }
 
 impl Mode {
     pub fn title(self) -> &'static str {
         match self {
             Mode::Add => "Add Task",
-            Mode::Edit => "Edit Task",
-            Mode::Annotate => "Add Note",
+            Mode::Edit | Mode::Note => "Edit Task",
         }
     }
 
     fn submit_label(self) -> &'static str {
         match self {
             Mode::Add => "Add",
-            Mode::Edit => "Save",
-            Mode::Annotate => "Add note",
+            Mode::Edit | Mode::Note => "Save",
         }
     }
 }
 
-/// What a keypress in the box means.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyAction {
-    Submit,
-    Cancel,
-    /// Pass it through to the text view — ordinary typing, including a bare
-    /// Return, which must insert a newline for a multi-line box to be worth
-    /// having at all.
-    Ignore,
-}
-
-/// Map a keypress to what it should do.
-///
-/// Separated from the controller so the mapping is testable. Note this does not
-/// cover the propagation phase, which is the other half of making Ctrl+Enter
-/// work and the half that was actually broken — see where the controller is
-/// created.
-pub fn key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
-    match key {
-        gdk::Key::Escape => KeyAction::Cancel,
-        gdk::Key::Return | gdk::Key::KP_Enter if ctrl => KeyAction::Submit,
-        _ => KeyAction::Ignore,
-    }
-}
-
-/// Whether accepted text is worth acting on.
-///
-/// Pulled out of the submit closure so it can be tested: it is the rule that
-/// decides whether anything reaches taskwarrior at all, and inside a GTK
-/// callback it could only be checked by typing into a window by hand.
-pub fn is_worth_submitting(mode: Mode, text: &str, original: &str) -> bool {
-    if text.is_empty() {
-        return false;
-    }
-    // Only an edit is compared against what was there before: re-adding a task
-    // worded like an existing one is legitimate, and so is a note that repeats
-    // the description it hangs off.
-    mode != Mode::Edit || text != original
-}
-
 /// Fixed, because a resizable window here would be a decision to make every
-/// time rather than a box that is always the same shape — except when there are
-/// notes to list above the input, which need the room. Same dimensions the QML
-/// modal used.
-const WIDTH: i32 = 560;
-const HEIGHT: i32 = 300;
-const HEIGHT_WITH_NOTES: i32 = 440;
-
-/// The notes variant has to be the taller of the two, or the list it exists to
-/// make room for does not fit. Checked when the crate compiles rather than when
-/// the suite runs: these are constants, so there is no input that could make it
-/// false later, and a build is a stricter place to find out than a test.
-const _: () = assert!(HEIGHT_WITH_NOTES > HEIGHT);
+/// time rather than a box that is always the same shape. Big enough that a
+/// planned task's ten long notes read as a list rather than a keyhole.
+const WIDTH: i32 = 800;
+const HEIGHT: i32 = 760;
+/// About three lines of the terminal font plus the field's padding: room to
+/// see a long description whole, while the notes keep the rest.
+const DESCRIPTION_HEIGHT: i32 = 84;
 
 /// Stable, so `window-rule { match app-id="dev.niri-tasks.box" }` works.
 pub const APP_ID: &str = "dev.niri-tasks.box";
 
 pub struct BoxConfig {
     pub mode: Mode,
-    /// Shown in the header: the tag for Add, the nothing-useful case aside.
+    /// A dim line above the description — the tag a new task goes to. Hidden
+    /// when empty.
     pub subtitle: String,
-    /// Pre-filled text — the current description when editing.
-    pub initial: String,
-    /// Existing notes, listed above the input when annotating.
-    pub notes: String,
+    pub description: String,
+    /// The task's notes, shown as stored and in stored order.
+    pub notes: Vec<Annotation>,
 }
 
-/// What the box hands back when it is accepted.
-pub struct Submission {
-    /// The description, when adding or editing; the note, when annotating.
-    /// Whitespace collapsed, because all three are single-line to taskwarrior.
-    pub text: String,
-    /// Add only: the second text area, one annotation per line. Empty for every
-    /// other mode, which have nowhere to type them.
-    pub notes: Vec<String>,
+impl BoxConfig {
+    /// An empty box for a new task on `tag`.
+    pub fn add(tag: &str) -> Self {
+        Self {
+            mode: Mode::Add,
+            subtitle: format!("+{tag}"),
+            description: String::new(),
+            notes: Vec::new(),
+        }
+    }
+
+    /// The box for an existing task. It fetches the description and notes
+    /// itself, rather than taking them as arguments: the ones you open the box
+    /// to fix are the long ones, which a picker row shows a fraction of.
+    pub fn for_task(mode: Mode, task: Task) -> Self {
+        Self {
+            mode,
+            subtitle: String::new(),
+            description: task.description,
+            notes: task.annotations,
+        }
+    }
 }
 
 /// Open the box inside an Application that is already running, calling
@@ -137,14 +113,10 @@ pub struct Submission {
 /// `build_window`, so the two paths cannot drift apart in appearance or in
 /// which keys do what.
 pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission) + 'static) {
-    let theme = Theme::load();
-    build_window(app, &cfg, &theme, Rc::new(on_submit));
+    build_window(app, &cfg, Rc::new(on_submit));
 }
 
-/// Show the box and return what was submitted.
-///
-/// `None` means cancelled, submitted empty, or (when editing) submitted text
-/// identical to what was already there — all of which mean "do nothing".
+
 /// Ask GTK for the cheap startup path, unless something already asked for
 /// another one.
 ///
@@ -155,7 +127,7 @@ pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission)
 ///
 /// GSK_RENDERER=cairo. GTK4 defaults to the Vulkan renderer, and creating a
 /// device and warming a shader cache is where the multi-second first open goes.
-/// The box is a text entry on a solid background at 560x440 — software
+/// The box is a text entry on a solid background at 800x760 — software
 /// rendering draws that without breaking a sweat, and it deletes the cold-start
 /// spike outright rather than shortening it. Measured ~620ms -> ~400ms warm.
 ///
@@ -215,9 +187,12 @@ fn screen_reader_enabled() -> bool {
 
 const A11Y_SCHEMA: &str = "org.gnome.desktop.a11y.applications";
 
+/// Show the box and return what was submitted.
+///
+/// `None` means discarded, or nothing worth saving: an empty description, or
+/// text and notes identical to what was already there.
 pub fn show(cfg: BoxConfig) -> Option<Submission> {
     prefer_fast_startup();
-    let theme = Theme::load();
     let result: Rc<RefCell<Option<Submission>>> = Rc::new(RefCell::new(None));
 
     // Stable app id, so niri window rules can match the box. NON_UNIQUE is what
@@ -237,7 +212,6 @@ pub fn show(cfg: BoxConfig) -> Option<Submission> {
             build_window(
                 app,
                 &cfg,
-                &theme,
                 Rc::new(move |submission| *result.borrow_mut() = Some(submission)),
             );
         });
@@ -250,43 +224,27 @@ pub fn show(cfg: BoxConfig) -> Option<Submission> {
     taken
 }
 
-/// Build and show the window. `on_submit` fires with the accepted text, and
-/// only when there is something to do: never on cancel, never on empty input,
-/// and never on an edit that changed nothing.
-fn build_window(
-    app: &Application,
-    cfg: &BoxConfig,
-    theme: &Theme,
-    on_submit: Rc<dyn Fn(Submission)>,
-) {
-    let has_notes = cfg.mode == Mode::Annotate && !cfg.notes.is_empty();
-    // Adding gets a second text area to type notes into. Both variants need the
-    // taller box: one to list notes that exist, the other to write new ones.
-    let takes_note_lines = cfg.mode == Mode::Add;
-    let height = if has_notes || takes_note_lines {
-        HEIGHT_WITH_NOTES
-    } else {
-        HEIGHT
-    };
 
+/// Build and show the window. `on_submit` fires only with something worth
+/// saving: never on Esc, never with an empty description.
+fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submission)>) {
     let window = ApplicationWindow::builder()
         .application(app)
         .title(cfg.mode.title())
         .default_width(WIDTH)
-        .default_height(height)
+        .default_height(HEIGHT)
         .resizable(false)
         .build();
-
     // Equal minimum and maximum is what makes niri float this rather than tile
     // it into the column layout.
-    window.set_size_request(WIDTH, height);
-    // What every rule in the box's stylesheet is scoped to (theme.rs).
+    window.set_size_request(WIDTH, HEIGHT);
+    // What every rule in the box's stylesheet is scoped to (style.rs).
     window.add_css_class("task-box");
 
     let provider = CssProvider::new();
     // load_from_data, not load_from_string: the latter is gated behind gtk4's
     // v4_12 feature, and this needs no minimum beyond what the crate requires.
-    provider.load_from_data(&theme.css());
+    provider.load_from_data(&style::css());
     if let Some(display) = gdk::Display::default() {
         gtk4::style_context_add_provider_for_display(
             &display,
@@ -306,127 +264,81 @@ fn build_window(
     header.add_css_class("dim");
     header.set_xalign(0.0);
     header.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    header.set_visible(!cfg.subtitle.is_empty());
     root.append(&header);
 
-    // ─── existing notes, when annotating ──────────────────────────────────
-    if has_notes {
-        let notes = gtk4::Label::new(Some(&cfg.notes));
-        notes.add_css_class("dim");
-        notes.set_xalign(0.0);
-        notes.set_yalign(0.0);
-        // Notes wrap, so there is never anything to scroll to sideways — and a
-        // horizontal bar would imply there was.
-        notes.set_wrap(true);
-        notes.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-
-        let scroll = gtk4::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk4::PolicyType::Never)
-            .vscrollbar_policy(gtk4::PolicyType::Automatic)
-            .height_request(130)
-            .child(&notes)
-            .build();
-        scroll.add_css_class("notes");
-        root.append(&scroll);
-    }
-
-    // ─── input ────────────────────────────────────────────────────────────
-    let buffer = gtk4::TextBuffer::new(None);
-    buffer.set_text(&cfg.initial);
-
-    let input = gtk4::TextView::with_buffer(&buffer);
-    input.set_wrap_mode(gtk4::WrapMode::WordChar);
-    input.set_accepts_tab(false);
-
-    let input_scroll = gtk4::ScrolledWindow::builder()
+    // ─── description ──────────────────────────────────────────────────────
+    let description = text_view(&cfg.description);
+    let description_scroll = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
-        // The description takes the slack, unless there is a notes area below
-        // it — a description is one line and the notes are the list that grows.
-        .vexpand(!takes_note_lines)
-        .child(&input)
+        .height_request(DESCRIPTION_HEIGHT)
+        .child(&description)
         .build();
-    if takes_note_lines {
-        input_scroll.set_height_request(72);
-    }
-    root.append(&input_scroll);
+    description_scroll.add_css_class("field");
+    root.append(&description_scroll);
 
-    // ─── note lines, when adding ──────────────────────────────────────────
-    //
-    // One annotation per line, so a task can be raised with its detail already
-    // on it instead of being reopened through the Note action afterwards.
-    let note_buffer = takes_note_lines.then(|| {
-        let label = gtk4::Label::new(Some("Notes — one per line"));
-        label.add_css_class("dim");
-        label.set_xalign(0.0);
-        root.append(&label);
+    // ─── notes ────────────────────────────────────────────────────────────
+    let notes_label = gtk4::Label::new(Some("Notes"));
+    notes_label.add_css_class("dim");
+    notes_label.set_xalign(0.0);
+    root.append(&notes_label);
 
-        let buffer = gtk4::TextBuffer::new(None);
-        let view = gtk4::TextView::with_buffer(&buffer);
-        view.set_wrap_mode(gtk4::WrapMode::WordChar);
-        view.set_accepts_tab(false);
+    let list = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    // Rows wrap, so there is never anything to scroll to sideways. Scrolling to
+    // the focus is what keeps a row made by Enter at the bottom in view.
+    let viewport = gtk4::Viewport::builder()
+        .scroll_to_focus(true)
+        .child(&list)
+        .build();
+    let notes_scroll = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vexpand(true)
+        .child(&viewport)
+        .build();
+    root.append(&notes_scroll);
 
-        let scroll = gtk4::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk4::PolicyType::Never)
-            .vexpand(true)
-            .child(&view)
-            .build();
-        root.append(&scroll);
-        buffer
+    let notes = Rc::new(Notes {
+        list,
+        description: description.clone(),
+        rows: RefCell::new(Vec::new()),
     });
+    for note in &cfg.notes {
+        notes.insert(notes.len(), Some(note));
+    }
 
-    let hint = gtk4::Label::new(Some("Ctrl+Enter to save · Esc to cancel"));
+    let add_note = gtk4::Button::with_label("+ Add note");
+    add_note.set_halign(gtk4::Align::Start);
+    root.append(&add_note);
+
+    // ─── footer ───────────────────────────────────────────────────────────
+    let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let hint = gtk4::Label::new(Some("Enter: next note · Ctrl+Enter: save · Esc: discard"));
     hint.add_css_class("dim");
     hint.set_xalign(0.0);
-    root.append(&hint);
-
-    // ─── buttons ──────────────────────────────────────────────────────────
-    let buttons = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    buttons.set_halign(gtk4::Align::End);
+    hint.set_hexpand(true);
     let cancel = gtk4::Button::with_label("Cancel");
     let submit = gtk4::Button::with_label(cfg.mode.submit_label());
-    submit.add_css_class("suggested");
-    buttons.append(&cancel);
-    buttons.append(&submit);
-    root.append(&buttons);
+    footer.append(&hint);
+    footer.append(&cancel);
+    footer.append(&submit);
+    root.append(&footer);
 
     window.set_child(Some(&root));
 
-    // ─── submit / cancel ──────────────────────────────────────────────────
-    let original = cfg.initial.clone();
-    let mode = cfg.mode;
-
+    // ─── save / discard ───────────────────────────────────────────────────
     let do_submit = {
-        let buffer = buffer.clone();
-        let note_buffer = note_buffer.clone();
+        let loaded_description = cfg.description.clone();
         let window = window.clone();
-        let on_submit = on_submit.clone();
+        let notes = notes.clone();
         move || {
-            let text = buffer
-                .text(&buffer.start_iter(), &buffer.end_iter(), false)
-                .to_string();
-
-            // The notes area is the one place a newline survives: it is what
-            // separates one annotation from the next.
-            let notes = note_buffer
-                .as_ref()
-                .map(|b| {
-                    crate::text::note_lines(&b.text(&b.start_iter(), &b.end_iter(), false))
-                })
-                .unwrap_or_default();
-
-            // Taskwarrior descriptions are single-line, and the picker renders
-            // rows through a tab-separated format where a newline would show as
-            // a literal escape. The extra room here is for seeing what you
-            // type, not for storing shape — so whitespace collapses on the way
-            // out.
-            let text = crate::text::collapse_whitespace(&text);
-
-            // Nothing typed, or an edit that changed nothing, means do nothing.
-            // Notes alone are not enough: they are annotations on a task, and
-            // an empty description would give them nothing to hang off.
-            let worth_doing = is_worth_submitting(mode, &text, &original);
+            let submission = form::submission(
+                &loaded_description,
+                &buffer_text(&notes.description),
+                &notes.rows(),
+            );
             window.close();
-            if worth_doing {
-                on_submit(Submission { text, notes });
+            if let Some(submission) = submission {
+                on_submit(submission);
             }
         }
     };
@@ -439,37 +351,34 @@ fn build_window(
         let window = window.clone();
         cancel.connect_clicked(move |_| window.close());
     }
+    {
+        let notes = notes.clone();
+        add_note.connect_clicked(move |_| focus_end(&notes.insert(notes.len(), None)));
+    }
 
-    // Enter has to insert a newline for a multi-line box to be worth having, so
-    // submitting moves to Ctrl+Enter. Escape cancels.
-    //
-    // The phase matters and defaulting to it was a bug: an EventControllerKey on
-    // the window bubbles, so the focused TextView saw Return first, inserted a
-    // newline and stopped propagation — Ctrl+Enter did nothing at all. Escape
-    // kept working the whole time, because a TextView does not consume that,
-    // which is exactly the shape of "only one of the two shortcuts is broken".
-    //
-    // Capture phase gets the window in first. Everything except the two keys
-    // handled here still returns Proceed, so ordinary typing reaches the
-    // TextView untouched.
+    // Capture phase, so the window sees a key before the focused text view
+    // does. Defaulting to bubble was a bug once: the view took Return,
+    // inserted a newline and stopped it there, so Ctrl+Enter did nothing while
+    // Escape — which a text view does not consume — kept working. Everything
+    // `key_action` does not claim still returns Proceed and reaches the view.
     let keys = gtk4::EventControllerKey::new();
     keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
     {
         let window = window.clone();
-        let do_submit = do_submit.clone();
+        let notes = notes.clone();
         keys.connect_key_pressed(move |_, key, _, state| {
             let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
-            match key_action(key, ctrl) {
-                KeyAction::Cancel => {
-                    window.close();
-                    gtk4::glib::Propagation::Stop
-                }
-                KeyAction::Submit => {
-                    do_submit();
-                    gtk4::glib::Propagation::Stop
-                }
-                KeyAction::Ignore => gtk4::glib::Propagation::Proceed,
+            // GtkWindowExt and RootExt both have a `focus()`; either answers.
+            let place = GtkWindowExt::focus(&window).and_then(|w| notes.place_of(&w));
+            match keys::key_action(key, ctrl, place) {
+                KeyAction::Cancel => window.close(),
+                KeyAction::Save => do_submit(),
+                KeyAction::ToFirstNote => focus_end(&notes.first_or_new()),
+                KeyAction::NewNoteBelow(i) => focus_end(&notes.insert(i + 1, None)),
+                KeyAction::DeleteNote(i) => notes.remove(i),
+                KeyAction::Ignore => return gtk4::glib::Propagation::Proceed,
             }
+            gtk4::glib::Propagation::Stop
         });
     }
     window.add_controller(keys);
@@ -479,21 +388,170 @@ fn build_window(
     // The Wayland app_id comes from the GtkApplication, and inside the daemon
     // that application is the daemon's — so a box opened there arrived as
     // dev.niri-tasks.daemon while one opened by the CLI was dev.niri-tasks.box.
-    // Two ids for one window defeats the point of having a stable one at all,
-    // and it is set per-toplevel rather than per-application, so set it here
-    // once the surface exists.
+    // It is set per-toplevel rather than per-application, so set it here once
+    // the surface exists.
     if let Some(surface) = window.surface() {
         if let Ok(toplevel) = surface.downcast::<gdk4_wayland::WaylandToplevel>() {
             toplevel.set_application_id(APP_ID);
         }
     }
 
-    input.grab_focus();
+    // Where the cursor starts is what tells Note from Edit. At the end of the
+    // text, so typing carries on rather than landing in front of it.
+    match cfg.mode {
+        Mode::Note => focus_end(&notes.insert(notes.len(), None)),
+        Mode::Add | Mode::Edit => focus_end(&description),
+    }
+}
 
-    // Put the cursor at the end, so editing starts where you would keep typing
-    // rather than in front of the existing text.
-    let end = buffer.end_iter();
-    buffer.place_cursor(&end);
+/// The note rows on screen, in order, and the box that holds them.
+struct Notes {
+    list: gtk4::Box,
+    /// Where the cursor goes when the first row is deleted.
+    description: gtk4::TextView,
+    rows: RefCell<Vec<NoteRow>>,
+}
+
+struct NoteRow {
+    entry: Option<String>,
+    loaded: String,
+    container: gtk4::Box,
+    view: gtk4::TextView,
+}
+
+impl Notes {
+    fn len(&self) -> usize {
+        self.rows.borrow().len()
+    }
+
+    /// Put a row at `index` — `note`'s, or an empty new one — and return its
+    /// text view, for the caller to focus if it should.
+    fn insert(self: &Rc<Self>, index: usize, note: Option<&Annotation>) -> gtk4::TextView {
+        let text = note.map(|n| n.description.clone()).unwrap_or_default();
+        let view = text_view(&text);
+        view.set_hexpand(true);
+
+        let container = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        container.add_css_class("field");
+        container.append(&view);
+
+        // Small and dim at the right end. A new row has no date until
+        // taskwarrior gives it one on save.
+        if let Some(note) = note {
+            let date = gtk4::Label::new(Some(&note.date()));
+            date.add_css_class("date");
+            date.set_valign(gtk4::Align::Start);
+            container.append(&date);
+        }
+
+        let delete = gtk4::Button::with_label("×");
+        delete.add_css_class("delete");
+        delete.set_valign(gtk4::Align::Start);
+        delete.set_tooltip_text(Some("Delete this note"));
+        container.append(&delete);
+        {
+            // Weak, both of them: the row's own button holding the list that
+            // holds the row is a cycle, and in the daemon it would keep every
+            // closed box's rows alive.
+            let notes = Rc::downgrade(self);
+            let view = view.downgrade();
+            delete.connect_clicked(move |_| {
+                if let (Some(notes), Some(view)) = (notes.upgrade(), view.upgrade()) {
+                    if let Some(i) = notes.index_of(&view) {
+                        notes.remove(i);
+                    }
+                }
+            });
+        }
+
+        let mut rows = self.rows.borrow_mut();
+        match index.checked_sub(1).and_then(|above| rows.get(above)) {
+            Some(above) => self.list.insert_child_after(&container, Some(&above.container)),
+            None => self.list.prepend(&container),
+        }
+        rows.insert(
+            index,
+            NoteRow {
+                entry: note.map(|n| n.entry.clone()),
+                loaded: text,
+                container,
+                view: view.clone(),
+            },
+        );
+        view
+    }
+
+    /// Delete the row at `index` and put the cursor at the end of the row
+    /// above it — or of the description, when it was the first.
+    fn remove(&self, index: usize) {
+        let row = self.rows.borrow_mut().remove(index);
+        self.list.remove(&row.container);
+        let above = match index.checked_sub(1) {
+            Some(i) => self.rows.borrow()[i].view.clone(),
+            None => self.description.clone(),
+        };
+        focus_end(&above);
+    }
+
+    /// The first row's text view, making an empty row when there is none, so
+    /// Enter in the description always has somewhere to go.
+    fn first_or_new(self: &Rc<Self>) -> gtk4::TextView {
+        let first = self.rows.borrow().first().map(|r| r.view.clone());
+        first.unwrap_or_else(|| self.insert(0, None))
+    }
+
+    fn index_of(&self, view: &gtk4::TextView) -> Option<usize> {
+        self.rows.borrow().iter().position(|r| &r.view == view)
+    }
+
+    /// Where `focus` is, in the terms `keys::key_action` asks about.
+    fn place_of(&self, focus: &gtk4::Widget) -> Option<Place> {
+        if focus == self.description.upcast_ref::<gtk4::Widget>() {
+            return Some(Place::Description);
+        }
+        self.rows
+            .borrow()
+            .iter()
+            .enumerate()
+            .find(|(_, r)| r.view.upcast_ref::<gtk4::Widget>() == focus)
+            .map(|(index, r)| Place::Note {
+                index,
+                empty: r.view.buffer().char_count() == 0,
+            })
+    }
+
+    fn rows(&self) -> Vec<form::Row> {
+        self.rows
+            .borrow()
+            .iter()
+            .map(|r| form::Row {
+                entry: r.entry.clone(),
+                loaded: r.loaded.clone(),
+                text: buffer_text(&r.view),
+            })
+            .collect()
+    }
+}
+
+/// A wrapping text field. Tab is left to move the focus, so the keyboard can
+/// reach a row's × and the buttons.
+fn text_view(text: &str) -> gtk4::TextView {
+    let view = gtk4::TextView::new();
+    view.set_wrap_mode(gtk4::WrapMode::WordChar);
+    view.set_accepts_tab(false);
+    view.buffer().set_text(text);
+    view
+}
+
+fn buffer_text(view: &gtk4::TextView) -> String {
+    let buffer = view.buffer();
+    buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string()
+}
+
+fn focus_end(view: &gtk4::TextView) {
+    view.grab_focus();
+    let buffer = view.buffer();
+    buffer.place_cursor(&buffer.end_iter());
 }
 
 #[cfg(test)]
@@ -531,73 +589,26 @@ mod tests {
         );
     }
 
+    /// One window for an existing task, whichever menu row opened it; only
+    /// adding reads differently.
     #[test]
     fn titles_match_the_mode() {
         assert_eq!(Mode::Add.title(), "Add Task");
         assert_eq!(Mode::Edit.title(), "Edit Task");
-        assert_eq!(Mode::Annotate.title(), "Add Note");
+        assert_eq!(Mode::Note.title(), "Edit Task");
     }
 
     #[test]
-    fn submit_labels_are_distinct() {
-        assert_ne!(Mode::Add.submit_label(), Mode::Edit.submit_label());
-        assert_ne!(Mode::Edit.submit_label(), Mode::Annotate.submit_label());
-    }
-
-    #[test]
-    fn ctrl_enter_submits_and_bare_enter_does_not() {
-        assert_eq!(key_action(gdk::Key::Return, true), KeyAction::Submit);
-        assert_eq!(key_action(gdk::Key::KP_Enter, true), KeyAction::Submit);
-        // A bare Return has to reach the text view, or the box cannot be
-        // multi-line, which is its only reason to exist.
-        assert_eq!(key_action(gdk::Key::Return, false), KeyAction::Ignore);
-        assert_eq!(key_action(gdk::Key::KP_Enter, false), KeyAction::Ignore);
-    }
-
-    #[test]
-    fn escape_cancels_with_or_without_ctrl() {
-        assert_eq!(key_action(gdk::Key::Escape, false), KeyAction::Cancel);
-        assert_eq!(key_action(gdk::Key::Escape, true), KeyAction::Cancel);
-    }
-
-    #[test]
-    fn ordinary_typing_is_passed_through() {
-        for k in [gdk::Key::a, gdk::Key::space, gdk::Key::Tab, gdk::Key::BackSpace] {
-            assert_eq!(key_action(k, false), KeyAction::Ignore);
-            // Ctrl+A and friends must still reach the text view, or select-all
-            // and the usual editing keys stop working inside the box.
-            assert_eq!(key_action(k, true), KeyAction::Ignore);
-        }
-    }
-
-    #[test]
-    fn empty_input_never_submits() {
-        for mode in [Mode::Add, Mode::Edit, Mode::Annotate] {
-            assert!(!is_worth_submitting(mode, "", "anything"));
-        }
-    }
-
-    #[test]
-    fn an_edit_that_changed_nothing_does_nothing() {
-        assert!(!is_worth_submitting(Mode::Edit, "same text", "same text"));
-        assert!(is_worth_submitting(Mode::Edit, "new text", "same text"));
-    }
-
-    /// Only Edit compares against the original. Re-adding a task whose wording
-    /// matches an existing one is a legitimate thing to do, and a note repeating
-    /// the description it is attached to is too.
-    #[test]
-    fn add_and_annotate_ignore_the_original() {
-        assert!(is_worth_submitting(Mode::Add, "same text", "same text"));
-        assert!(is_worth_submitting(Mode::Annotate, "same text", "same text"));
-    }
-
-    /// The box is fixed-size specifically so niri floats it; if the two
-    /// variants ever differ in width the window tiles instead and the whole
-    /// point is lost. That the notes variant is the taller one is asserted at
-    /// compile time, where the constants are.
-    #[test]
-    fn both_variants_share_one_width() {
-        assert_eq!(WIDTH, 560, "width is shared by both variants");
+    fn a_task_opens_with_its_description_and_every_note() {
+        let t: crate::task::Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[
+                {"entry":"20260801T000000Z","description":"Goal: one"},
+                {"entry":"20260802T000000Z","description":"Decided: two"}]}"#,
+        )
+        .unwrap();
+        let cfg = BoxConfig::for_task(Mode::Note, t);
+        assert_eq!(cfg.description, "d");
+        let notes: Vec<&str> = cfg.notes.iter().map(|a| a.description.as_str()).collect();
+        assert_eq!(notes, ["Goal: one", "Decided: two"], "as stored, in stored order");
     }
 }

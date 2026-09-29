@@ -125,10 +125,10 @@ fn write_path_lifecycle() {
     );
 
     // ---- add with notes --------------------------------------------------
-    // The add box's second text area: one annotation per line, attached to the
+    // The add box's note rows: one annotation each, attached to the
     // task that was just created. The uuid comes back from `task add` itself,
     // so the notes cannot land on somebody else's task.
-    let notes = text::note_lines("first note\n\nsecond note with due:2026-09-01\n");
+    let notes = vec!["first note".to_string(), "second note with due:2026-09-01".to_string()];
     task::add_with_notes(TAG, &text::add_args("raised with notes"), &notes)
         .expect("add with notes");
 
@@ -141,7 +141,7 @@ fn write_path_lifecycle() {
     assert_eq!(
         with_notes.annotations.len(),
         2,
-        "each line is its own annotation, and the blank line is not one"
+        "each note is its own annotation"
     );
     assert_eq!(with_notes.annotations[0].description, "first note");
     assert_eq!(

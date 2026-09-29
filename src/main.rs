@@ -156,6 +156,16 @@ fn run() -> Result<()> {
     Ok(())
 }
 
+/// Open the task box on an existing task and save what comes back. Edit and
+/// Note are one window; the mode only says where the cursor starts.
+fn edit_in_box(uuid: &str, mode: taskbox::Mode) -> Result<()> {
+    let t = task::get(uuid)?.context("task not found")?;
+    if let Some(s) = taskbox::show(taskbox::BoxConfig::for_task(mode, t)) {
+        task::replace_text(uuid, &s.description, &s.notes)?;
+    }
+    Ok(())
+}
+
 fn task_command(cmd: TaskCommand) -> Result<()> {
     match cmd {
         // "Nothing" covers every uninteresting case identically (unnamed
@@ -200,13 +210,11 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
                 if delegate_to_daemon(ipc::Request::Add) {
                     return Ok(());
                 }
-                match taskbox::show(taskbox::BoxConfig {
-                    mode: taskbox::Mode::Add,
-                    subtitle: format!("+{tag}"),
-                    initial: String::new(),
-                    notes: String::new(),
-                }) {
-                    Some(s) => (s.text, s.notes),
+                match taskbox::show(taskbox::BoxConfig::add(&tag)) {
+                    Some(s) => {
+                        let notes = s.note_texts();
+                        (s.description, notes)
+                    }
                     None => return Ok(()),
                 }
             } else {
@@ -226,28 +234,13 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         }
 
         TaskCommand::Edit { uuid, text: words } => {
-            let description = if words.is_empty() {
+            if words.is_empty() {
                 if delegate_to_daemon(ipc::Request::Edit(uuid.clone())) {
                     return Ok(());
                 }
-                // The box fetches the description itself rather than taking it
-                // as an argument — the descriptions you reach for the edit box
-                // to fix are the long ones, and those are exactly the ones a
-                // single picker row showed you a fraction of.
-                let current = task::get(&uuid)?.context("task not found")?.description;
-                match taskbox::show(taskbox::BoxConfig {
-                    mode: taskbox::Mode::Edit,
-                    subtitle: String::new(),
-                    initial: current,
-                    notes: String::new(),
-                }) {
-                    Some(s) => s.text,
-                    None => return Ok(()),
-                }
-            } else {
-                text::collapse_whitespace(&words.join(" "))
-            };
-
+                return edit_in_box(&uuid, taskbox::Mode::Edit);
+            }
+            let description = text::collapse_whitespace(&words.join(" "));
             if description.is_empty() {
                 return Ok(());
             }
@@ -262,29 +255,13 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         }
 
         TaskCommand::Note { uuid, text: words } => {
-            let note = if words.is_empty() {
+            if words.is_empty() {
                 if delegate_to_daemon(ipc::Request::Note(uuid.clone())) {
                     return Ok(());
                 }
-                // Existing notes are listed above the input: they are otherwise
-                // invisible from the picker, which shows a description, and an
-                // annotation is not one.
-                let t = task::get(&uuid)?.context("task not found")?;
-                let notes = t.notes_list();
-
-                match taskbox::show(taskbox::BoxConfig {
-                    mode: taskbox::Mode::Annotate,
-                    subtitle: t.description,
-                    initial: String::new(),
-                    notes,
-                }) {
-                    Some(s) => s.text,
-                    None => return Ok(()),
-                }
-            } else {
-                text::collapse_whitespace(&words.join(" "))
-            };
-
+                return edit_in_box(&uuid, taskbox::Mode::Note);
+            }
+            let note = text::collapse_whitespace(&words.join(" "));
             if note.is_empty() {
                 return Ok(());
             }

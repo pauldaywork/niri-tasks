@@ -208,71 +208,44 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
             let tag_for_submit = tag.clone();
             taskbox::open_in(
                 app,
-                taskbox::BoxConfig {
-                    mode: taskbox::Mode::Add,
-                    subtitle: format!("+{tag}"),
-                    initial: String::new(),
-                    notes: String::new(),
-                },
+                taskbox::BoxConfig::add(&tag),
                 move |sub: taskbox::Submission| {
                     if let Err(e) = task::add_with_notes(
                         &tag_for_submit,
-                        &text::add_args(&sub.text),
-                        &sub.notes,
+                        &text::add_args(&sub.description),
+                        &sub.note_texts(),
                     ) {
                         notify::tasks(&e.to_string());
                     } else {
-                        notify::tasks(&format!("Added to +{tag_for_submit}: {}", sub.text));
+                        notify::tasks(&format!("Added to +{tag_for_submit}: {}", sub.description));
                     }
                 },
             );
         }
 
-        Request::Edit(uuid) => {
-            let Ok(Some(t)) = task::get(&uuid) else {
-                notify::tasks("Task not found");
-                return;
-            };
-            let uuid_for_submit = uuid.clone();
-            taskbox::open_in(
-                app,
-                taskbox::BoxConfig {
-                    mode: taskbox::Mode::Edit,
-                    subtitle: String::new(),
-                    initial: t.description,
-                    notes: String::new(),
-                },
-                move |sub: taskbox::Submission| {
-                    if let Err(e) = task::modify_description(&uuid_for_submit, &sub.text) {
-                        notify::tasks(&e.to_string());
-                    }
-                },
-            );
-        }
-
-        Request::Note(uuid) => {
-            let Ok(Some(t)) = task::get(&uuid) else {
-                notify::tasks("Task not found");
-                return;
-            };
-            let notes = t.notes_list();
-            let uuid_for_submit = uuid.clone();
-            taskbox::open_in(
-                app,
-                taskbox::BoxConfig {
-                    mode: taskbox::Mode::Annotate,
-                    subtitle: t.description,
-                    initial: String::new(),
-                    notes,
-                },
-                move |sub: taskbox::Submission| {
-                    if let Err(e) = task::annotate(&uuid_for_submit, &sub.text) {
-                        notify::tasks(&e.to_string());
-                    }
-                },
-            );
-        }
+        Request::Edit(uuid) => open_task_box(app, uuid, taskbox::Mode::Edit),
+        Request::Note(uuid) => open_task_box(app, uuid, taskbox::Mode::Note),
     }
+}
+
+/// Open the task box on an existing task, and save what comes back. Edit and
+/// Note are one window; the mode only says where the cursor starts.
+fn open_task_box(app: &Application, uuid: String, mode: crate::taskbox::Mode) {
+    use crate::{notify, task, taskbox};
+
+    let Ok(Some(t)) = task::get(&uuid) else {
+        notify::tasks("Task not found");
+        return;
+    };
+    taskbox::open_in(
+        app,
+        taskbox::BoxConfig::for_task(mode, t),
+        move |sub: taskbox::Submission| {
+            if let Err(e) = task::replace_text(&uuid, &sub.description, &sub.notes) {
+                notify::tasks(&e.to_string());
+            }
+        },
+    );
 }
 
 fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {

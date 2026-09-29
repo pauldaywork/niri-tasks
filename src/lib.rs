@@ -20,7 +20,6 @@ pub mod tag;
 pub mod taskbox;
 pub mod task;
 pub mod text;
-pub mod theme;
 pub mod work;
 
 use anyhow::{Context, Result};
