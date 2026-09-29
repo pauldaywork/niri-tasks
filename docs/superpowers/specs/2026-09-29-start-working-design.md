@@ -65,12 +65,15 @@ a database clone.
 
 ## Found in the live run
 
-- **Claude asks to trust every new worktree.** Each worktree is a new folder,
-  so Claude's folder-trust question blocks its start and `herdr agent start`
-  returns `agent_not_ready`. That answer is the user's: when the agent is
-  `blocked`, the setup tab says so, a notification points to the worktree,
-  and `herdr agent wait --until idle` (10 min) carries on once it is answered.
-  A "No" exits Claude and the wait fails with herdr's reason.
+- **Claude asks to trust a project it has never been trusted in.** Trust is
+  keyed on the main checkout's root, so a worktree of a trusted project starts
+  without asking (verified), and trusting `~/.worktrees` would not help — a
+  parent folder's trust never extends into a nested git repository. The probe
+  asked only because its repo was brand new. When it does ask, `herdr agent
+  start` returns `agent_not_ready`; that answer is the user's, so the setup
+  tab says so, a notification points to the worktree, and `herdr agent wait
+  --until idle` (10 min) carries on once it is answered. A "No" exits Claude
+  and the wait fails with herdr's reason.
 - **A prompt sent just after that answer can vanish.** herdr reports Claude
   idle a moment before it takes input; a plain `agent prompt` then returns
   success and nothing arrives. So the prompt goes with `--wait --timeout
