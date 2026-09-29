@@ -106,7 +106,7 @@ impl BoxConfig {
 }
 
 /// Open the box inside an Application that is already running, calling
-/// `on_submit` with the text when it is accepted.
+/// `on_submit` with the submission when it is accepted.
 ///
 /// This is what the daemon uses. The standalone `show` below wraps the same
 /// window in a throwaway Application; the window itself is built once, in
@@ -326,9 +326,14 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
     window.set_child(Some(&root));
 
     // ─── save / discard ───────────────────────────────────────────────────
+    // Every handler below holds the window weakly, and the row handlers hold
+    // their rows weakly: the window owns its children and their handlers, so a
+    // strong reference back to it is a cycle, and in the daemon that would keep
+    // every closed box in memory. `notes` is safe to hold strongly — it reaches
+    // only the list, which is below the window, never the window itself.
     let do_submit = {
         let loaded_description = cfg.description.clone();
-        let window = window.clone();
+        let window = window.downgrade();
         let notes = notes.clone();
         move || {
             let submission = form::submission(
@@ -336,7 +341,9 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
                 &buffer_text(&notes.description),
                 &notes.rows(),
             );
-            window.close();
+            if let Some(window) = window.upgrade() {
+                window.close();
+            }
             if let Some(submission) = submission {
                 on_submit(submission);
             }
@@ -348,8 +355,12 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
         submit.connect_clicked(move |_| do_submit());
     }
     {
-        let window = window.clone();
-        cancel.connect_clicked(move |_| window.close());
+        let window = window.downgrade();
+        cancel.connect_clicked(move |_| {
+            if let Some(window) = window.upgrade() {
+                window.close();
+            }
+        });
     }
     {
         let notes = notes.clone();
@@ -364,9 +375,12 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
     let keys = gtk4::EventControllerKey::new();
     keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
     {
-        let window = window.clone();
+        let window = window.downgrade();
         let notes = notes.clone();
         keys.connect_key_pressed(move |_, key, _, state| {
+            let Some(window) = window.upgrade() else {
+                return gtk4::glib::Propagation::Proceed;
+            };
             let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
             // GtkWindowExt and RootExt both have a `focus()`; either answers.
             let place = GtkWindowExt::focus(&window).and_then(|w| notes.place_of(&w));
@@ -451,8 +465,8 @@ impl Notes {
         container.append(&delete);
         {
             // Weak, both of them: the row's own button holding the list that
-            // holds the row is a cycle, and in the daemon it would keep every
-            // closed box's rows alive.
+            // holds the row is a cycle. See the note above `do_submit` for why
+            // a closed box must not be kept alive.
             let notes = Rc::downgrade(self);
             let view = view.downgrade();
             delete.connect_clicked(move |_| {
