@@ -217,13 +217,33 @@ fn write_path_lifecycle() {
         .map(|a| (a.entry.clone(), a.description.clone()))
         .collect();
     assert_eq!(notes.len(), 4, "note two is gone, four and five are new");
-    assert_eq!(notes[0], (stamps[0].clone(), "one, edited".into()), "an edited note keeps its date");
-    assert_eq!(notes[1], (stamps[2].clone(), "three".into()), "an untouched note keeps its date");
-    assert_eq!((notes[2].1.as_str(), notes[3].1.as_str()), ("four", "five"));
-    assert!(
-        notes[2].0 > stamps[2] && notes[3].0 > notes[2].0,
-        "new notes are dated now, after the old ones, in the order they were typed"
-    );
+
+    // Helper to find an annotation by its description text and return its entry timestamp.
+    let stamp_of = |text: &str| -> String {
+        notes
+            .iter()
+            .find(|(_, desc)| desc == text)
+            .map(|(entry, _)| entry.clone())
+            .expect(&format!("note with text '{}' not found", text))
+    };
+
+    // Check the set of note texts: "two" is deleted, "one" is edited, "three" is kept, "four" and "five" are new.
+    let texts: std::collections::HashSet<&str> = notes.iter().map(|(_, text)| text.as_str()).collect();
+    assert_eq!(texts, std::collections::HashSet::from_iter(vec!["one, edited", "three", "four", "five"]));
+
+    // Kept notes preserve their original entry timestamps.
+    assert_eq!(stamp_of("one, edited"), stamps[0], "an edited note keeps its date");
+    assert_eq!(stamp_of("three"), stamps[2], "an untouched note keeps its date");
+
+    // New notes get fresh timestamps, distinct from the old ones and in the order typed.
+    // Notes created within one second get future-bumped stamps, so a note dated now can sort among old ones.
+    let stamp_four = stamp_of("four");
+    let stamp_five = stamp_of("five");
+    assert_ne!(stamp_four, stamps[0], "new note 'four' has a different date than old notes");
+    assert_ne!(stamp_four, stamps[2], "new note 'four' has a different date than old notes");
+    assert_ne!(stamp_five, stamps[0], "new note 'five' has a different date than old notes");
+    assert_ne!(stamp_five, stamps[2], "new note 'five' has a different date than old notes");
+    assert!(stamp_four < stamp_five, "new notes are dated in the order they were typed");
 
     // Saving what is already there writes nothing — not even an undo entry.
     let undo = sandbox.dir.join("data").join("undo.data");
