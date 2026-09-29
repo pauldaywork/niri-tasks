@@ -15,10 +15,10 @@
 //! they differ only in what is filled in and where the cursor starts.
 //!
 //! Replaces `TaskBoxDaemon.qml` and `TaskBoxModal.qml`, and with them the
-//! `dms ipc call taskBox` boundary: there is no daemon, no IPC, and no uuid
-//! being passed between processes. It also means the box works when DMS is not
-//! running, which is what retired the one-line fuzzel fallback the shell
-//! version kept for that case.
+//! `dms ipc call taskBox` boundary: no DMS and no IPC are involved. The daemon
+//! serves the box when it is running, and the CLI builds its own when it is
+//! not, so the box works either way. That is what retired the one-line fuzzel
+//! fallback the shell version kept for when DMS was not running.
 
 pub mod form;
 pub mod keys;
@@ -44,6 +44,8 @@ pub enum Mode {
 }
 
 impl Mode {
+    /// The window title, which niri shows and window rules can match. Edit and
+    /// Note share one, being the same window on the same task.
     pub fn title(self) -> &'static str {
         match self {
             Mode::Add => "Add Task",
@@ -71,6 +73,9 @@ const DESCRIPTION_HEIGHT: i32 = 84;
 /// Stable, so `window-rule { match app-id="dev.niri-tasks.box" }` works.
 pub const APP_ID: &str = "dev.niri-tasks.box";
 
+/// Everything that varies between one box and the next: the job, the line
+/// above the description, and what is filled in. Built by `add` or `for_task`
+/// so the daemon and the CLI open identical windows.
 pub struct BoxConfig {
     pub mode: Mode,
     /// A dim line above the description — the tag a new task goes to. Hidden
@@ -115,7 +120,6 @@ impl BoxConfig {
 pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission) + 'static) {
     build_window(app, &cfg, Rc::new(on_submit));
 }
-
 
 /// Ask GTK for the cheap startup path, unless something already asked for
 /// another one.
@@ -189,8 +193,10 @@ const A11Y_SCHEMA: &str = "org.gnome.desktop.a11y.applications";
 
 /// Show the box and return what was submitted.
 ///
-/// `None` means discarded, or nothing worth saving: an empty description, or
-/// text and notes identical to what was already there.
+/// `None` means discarded with Esc or Cancel. Saving with an empty description
+/// does not close the box, so it never gets here. Text and notes identical to
+/// what was already there still come back as `Some`; `task::replace_text`
+/// makes that a no-op.
 pub fn show(cfg: BoxConfig) -> Option<Submission> {
     prefer_fast_startup();
     let result: Rc<RefCell<Option<Submission>>> = Rc::new(RefCell::new(None));
@@ -224,9 +230,9 @@ pub fn show(cfg: BoxConfig) -> Option<Submission> {
     taken
 }
 
-
 /// Build and show the window. `on_submit` fires only with something worth
-/// saving: never on Esc, never with an empty description.
+/// saving: never on Esc, and never with an empty description, which keeps the
+/// window open instead.
 fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submission)>) {
     let window = ApplicationWindow::builder()
         .application(app)
@@ -341,12 +347,17 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
                 &buffer_text(&notes.description),
                 &notes.rows(),
             );
+            // An empty description saves nothing, and closing anyway would
+            // throw the note edits away without a word: stay open, with the
+            // cursor where the fix is. Esc and Cancel are what discard.
+            let Some(submission) = submission else {
+                focus_end(&notes.description);
+                return;
+            };
             if let Some(window) = window.upgrade() {
                 window.close();
             }
-            if let Some(submission) = submission {
-                on_submit(submission);
-            }
+            on_submit(submission);
         }
     };
 

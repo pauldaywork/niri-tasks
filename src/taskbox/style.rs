@@ -14,6 +14,9 @@ use crate::panel::style::{FOCUS, FONT, PADDING_PX, RADIUS_PX, TEXT, WINDOW_BACKG
 /// so each reads as its own block without drawing a border.
 pub const FIELD: &str = "rgba(255, 255, 255, 0.06)";
 
+/// The box's whole stylesheet. It is a function rather than a constant so the
+/// panel's style constants are spliced in, and a change there follows here;
+/// every rule is scoped to `.task-box` for the reason in the module doc.
 pub fn css() -> String {
     format!(
         "
