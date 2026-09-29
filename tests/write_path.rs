@@ -224,7 +224,7 @@ fn write_path_lifecycle() {
             .iter()
             .find(|(_, desc)| desc == text)
             .map(|(entry, _)| entry.clone())
-            .expect(&format!("note with text '{}' not found", text))
+            .unwrap_or_else(|| panic!("note with text '{}' not found", text))
     };
 
     // Check the set of note texts: "two" is deleted, "one" is edited, "three" is kept, "four" and "five" are new.
@@ -235,8 +235,9 @@ fn write_path_lifecycle() {
     assert_eq!(stamp_of("one, edited"), stamps[0], "an edited note keeps its date");
     assert_eq!(stamp_of("three"), stamps[2], "an untouched note keeps its date");
 
-    // New notes get fresh timestamps, distinct from the old ones and in the order typed.
-    // Notes created within one second get future-bumped stamps, so a note dated now can sort among old ones.
+    // New notes are dated now, in the order typed. Only the kept stamps are
+    // compared above and below: a new note dated within a second of a kept one
+    // can be bumped past it, so its exact stamp is not worth pinning down.
     let stamp_four = stamp_of("four");
     let stamp_five = stamp_of("five");
     assert_ne!(stamp_four, stamps[0], "new note 'four' has a different date than old notes");
@@ -267,6 +268,60 @@ fn write_path_lifecycle() {
     // Deleting every note leaves a task with none.
     assert!(task::replace_text(&target, "rewritten due:2026-09-01", &[]).expect("clear notes"));
     assert!(!task::get(&target).expect("get").expect("exists").has_notes());
+
+    // A new note placed above kept ones must not take their dates. The notes
+    // here are written just now, so their stamps are at or after "now" — the
+    // case where taskwarrior, resolving a stamp collision in array order,
+    // would hand the new note the kept note's stamp and bump the kept one.
+    task::add(TAG, &text::add_args("fresh notes")).expect("add");
+    let fresh = task::pending_for_tag(TAG)
+        .expect("list")
+        .into_iter()
+        .find(|t| t.description == "fresh notes")
+        .expect("find the fresh task")
+        .uuid;
+    for note in ["kept a", "kept b"] {
+        task::annotate(&fresh, note).expect("annotate");
+    }
+    let fresh_stamps: Vec<String> = task::get(&fresh)
+        .expect("get")
+        .expect("exists")
+        .annotations
+        .iter()
+        .map(|a| a.entry.clone())
+        .collect();
+    assert!(task::replace_text(
+        &fresh,
+        "fresh notes",
+        &[
+            NoteEdit { entry: None, text: "brand new".into() },
+            NoteEdit { entry: Some(fresh_stamps[0].clone()), text: "kept a".into() },
+            NoteEdit { entry: Some(fresh_stamps[1].clone()), text: "kept b".into() },
+        ],
+    )
+    .expect("replace with a new note first"));
+    let after: Vec<(String, String)> = task::get(&fresh)
+        .expect("get")
+        .expect("exists")
+        .annotations
+        .iter()
+        .map(|a| (a.description.clone(), a.entry.clone()))
+        .collect();
+    for (text, stamp) in [("kept a", &fresh_stamps[0]), ("kept b", &fresh_stamps[1])] {
+        let now = after.iter().find(|(d, _)| d == text).map(|(_, e)| e);
+        assert_eq!(now, Some(stamp), "'{text}' keeps its date under a new note placed above it");
+    }
+
+    // A uuid that only starts like the task's is not the task: a short prefix
+    // on the command line could match a different one, and import would then
+    // overwrite it.
+    let err = task::replace_text(&fresh[..8], "prefix write", &[]).expect_err("prefix must not match");
+    assert!(err.to_string().contains("uuid"), "unexpected error: {err}");
+    assert_eq!(
+        task::get(&fresh).expect("get").expect("exists").description,
+        "fresh notes",
+        "a refused write changes nothing"
+    );
 
     // ---- empty input is a no-op, not an error ---------------------------
     task::add(TAG, &text::add_args("   ")).expect("empty add is a no-op");

@@ -73,7 +73,8 @@ impl Annotation {
         )
     }
 
-    /// The `entry` stamp as a date a person reads — a task box row's date, and the front of [`Annotation::line`].
+    /// The `entry` stamp as a date a person reads — a task box row's date, and
+    /// the front of [`Annotation::line`].
     ///
     /// Taskwarrior stores it as `20260816T130710Z`; the first eight characters
     /// are the day, and hyphens are what make them read as one. Anything that
@@ -313,6 +314,12 @@ pub fn replace_text(uuid: &str, description: &str, notes: &[NoteEdit]) -> Result
         .into_iter()
         .next()
         .context("task not found")?;
+    // A short uuid prefix can match a different task than the one meant, and
+    // import would overwrite that one, so only an exact match is written.
+    anyhow::ensure!(
+        current.get("uuid").and_then(Value::as_str) == Some(uuid),
+        "task uuid does not match `{uuid}`; refusing to overwrite another task"
+    );
     let Some(updated) = with_text(current, description, notes) else {
         return Ok(false);
     };
@@ -351,8 +358,17 @@ pub fn replace_text(uuid: &str, description: &str, notes: &[NoteEdit]) -> Result
 /// `annotations` key rather than an empty list, so the key is removed, not
 /// emptied, when every note is deleted, and a missing key compares as none.
 fn with_text(mut task: Value, description: &str, notes: &[NoteEdit]) -> Option<Value> {
-    let annotations: Vec<Value> = notes
-        .iter()
+    // Kept notes go first, new ones after, each group in the order given.
+    // Taskwarrior settles two notes with the same stamp in array order, so a
+    // new note ahead of a kept one whose stamp is at or after now would be
+    // dated with that stamp and push the kept note a second on — changing a
+    // date that must not change. It sorts by stamp anyway, so what the box
+    // shows is unaffected. An unchanged save has no new notes and its kept
+    // ones arrive in stored order, so the comparison below still holds.
+    let (kept, new): (Vec<&NoteEdit>, Vec<&NoteEdit>) = notes.iter().partition(|n| n.entry.is_some());
+    let annotations: Vec<Value> = kept
+        .into_iter()
+        .chain(new)
         .map(|n| match &n.entry {
             Some(entry) => serde_json::json!({ "entry": entry, "description": n.text }),
             None => serde_json::json!({ "description": n.text }),
@@ -602,6 +618,28 @@ mod tests {
                 {"description": "three"}
             ]),
             "a kept note keeps its stamp; a new one has none, so taskwarrior dates it now"
+        );
+    }
+
+    /// Taskwarrior settles a stamp collision in array order, so a new note
+    /// ahead of a kept one could be dated with the kept note's stamp.
+    #[test]
+    fn with_text_puts_kept_notes_before_new_ones() {
+        let out = with_text(
+            exported(),
+            "old",
+            &[
+                NoteEdit { entry: None, text: "new".into() },
+                kept("20260801T000000Z", "one"),
+            ],
+        )
+        .expect("changed");
+        assert_eq!(
+            out["annotations"],
+            serde_json::json!([
+                {"entry": "20260801T000000Z", "description": "one"},
+                {"description": "new"}
+            ])
         );
     }
 
