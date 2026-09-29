@@ -114,19 +114,18 @@ fn build(app: &Application) {
     let panels: Panels = PANELS.with(Rc::clone);
     let state = Rc::new(RefCell::new(State::default()));
 
-    sync_monitors(app, &display, &panels);
+    sync_monitors(app, &display, &panels, &state);
 
     // Hotplug: plugging in the external monitor, or Super+Alt+Comma blanking
-    // the built-in one, changes this list. A new panel starts empty, so forget
-    // what was drawn and let the next tick fill it.
+    // the built-in one, changes this list. A new panel starts empty;
+    // sync_monitors forgets what was drawn so the next tick fills it.
     {
         let app = app.clone();
         let display2 = display.clone();
         let panels = panels.clone();
         let state = state.clone();
         display.monitors().connect_items_changed(move |_, _, _, _| {
-            sync_monitors(&app, &display2, &panels);
-            state.borrow_mut().outputs = None;
+            sync_monitors(&app, &display2, &panels, &state);
         });
     }
 
@@ -307,7 +306,17 @@ fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {
     s.task_mtime = mtime;
 }
 
-fn sync_monitors(app: &Application, display: &gdk::Display, panels: &Panels) {
+/// Give every monitor a panel, keyed by its connector, and drop panels whose
+/// monitor went away. Forgets what was drawn afterwards, so the next tick
+/// fills any new panel even though niri's outputs have not changed.
+///
+/// A monitor GTK lists before it knows its connector gets no panel yet: on
+/// Wayland a reconnected display is added a moment before its name arrives,
+/// and a panel keyed any other way matches no niri output — so it stayed
+/// empty, which is how the external monitor's panel vanished after a
+/// hotplug until the daemon restarted. Its `connector` arriving runs this
+/// again instead.
+fn sync_monitors(app: &Application, display: &gdk::Display, panels: &Panels, state: &Rc<RefCell<State>>) {
     let monitors = display.monitors();
     let mut live: Vec<String> = Vec::new();
 
@@ -316,10 +325,11 @@ fn sync_monitors(app: &Application, display: &gdk::Display, panels: &Panels) {
         let Ok(monitor) = obj.downcast::<gdk::Monitor>() else {
             continue;
         };
-        let key = monitor
-            .connector()
-            .map(|c| c.to_string())
-            .unwrap_or_else(|| format!("monitor-{i}"));
+        let Some(key) = monitor.connector().map(|c| c.to_string()) else {
+            let (app, display, panels, state) = (app.clone(), display.clone(), panels.clone(), state.clone());
+            monitor.connect_connector_notify(move |_| sync_monitors(&app, &display, &panels, &state));
+            continue;
+        };
         live.push(key.clone());
 
         if panels.borrow().contains_key(&key) {
@@ -338,6 +348,8 @@ fn sync_monitors(app: &Application, display: &gdk::Display, panels: &Panels) {
         }
         keep
     });
+    debug(&format!("panels: {:?}", panels.borrow().keys().collect::<Vec<_>>()));
+    state.borrow_mut().outputs = None;
 }
 
 #[cfg(test)]
