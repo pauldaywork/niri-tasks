@@ -10,7 +10,9 @@
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::process::Command;
+use serde_json::Value;
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 /// The tag the `refine-task` skill puts on a task once it has been worked up
 /// into a plan. Not `ready`: Taskwarrior already has a virtual `+READY`
@@ -116,6 +118,16 @@ fn base() -> Command {
 /// `export` exits non-zero when the filter matches nothing, which is a normal
 /// case rather than an error — an empty list is returned instead.
 fn export(filter: &[&str]) -> Result<Vec<Task>> {
+    export_values(filter)?
+        .into_iter()
+        .map(|v| serde_json::from_value(v).context("could not parse a task from `task export`"))
+        .collect()
+}
+
+/// [`export`] without the parse: each task exactly as taskwarrior wrote it.
+/// [`replace_text`] needs this form, because `task import` drops any field it
+/// is not handed back, and [`Task`] only models the fields this tool reads.
+fn export_values(filter: &[&str]) -> Result<Vec<Value>> {
     let out = base()
         .args(filter)
         .arg("export")
@@ -280,6 +292,108 @@ pub fn annotate(uuid: &str, note: &str) -> Result<()> {
         .context("could not run `task annotate`")?;
     anyhow::ensure!(status.success(), "`task annotate` failed");
     Ok(())
+}
+
+/// One note as the task box hands it back.
+///
+/// `entry` is the stamp of the note it was loaded from, which is what lets an
+/// edited note keep the date it was first written. A note typed in the box has
+/// none, and taskwarrior dates it when it is imported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoteEdit {
+    pub entry: Option<String>,
+    pub text: String,
+}
+
+/// Replace a task's description and its whole list of notes, in one write.
+///
+/// Taskwarrior has no command to edit or delete one annotation by position,
+/// but `task import` of a uuid that already exists replaces that task. So this
+/// exports the task as it stands *now* — not as it was when the box opened,
+/// because import drops any field it is not given, and a stale copy would undo
+/// whatever changed in between — swaps in the two fields the box edits, and
+/// imports it back.
+///
+/// The description goes through as JSON, so it stays literal the way
+/// [`modify_description`] keeps it: a typed `due:` is text, not a due date.
+///
+/// Returns whether anything was written. Nothing is when the description is
+/// empty — a task has to be called something — or when nothing changed, so
+/// opening the box and saving leaves no trace in the undo log.
+pub fn replace_text(uuid: &str, description: &str, notes: &[NoteEdit]) -> Result<bool> {
+    if description.is_empty() {
+        return Ok(false);
+    }
+    let current = export_values(&[uuid])?
+        .into_iter()
+        .next()
+        .context("task not found")?;
+    let Some(updated) = with_text(current, description, notes) else {
+        return Ok(false);
+    };
+
+    let mut child = base()
+        .arg("import")
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("could not run `task import`")?;
+    // Taken, so it is dropped — and the pipe closed — before the wait: import
+    // reads to end of input. taskwarrior's import expects an array of tasks.
+    let json_array = serde_json::json!([updated]).to_string();
+    child
+        .stdin
+        .take()
+        .context("`task import` has no stdin")?
+        .write_all(json_array.as_bytes())
+        .context("could not write to `task import`")?;
+    let out = child.wait_with_output().context("`task import` did not finish")?;
+    anyhow::ensure!(
+        out.status.success(),
+        "`task import` failed: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    Ok(true)
+}
+
+/// `task` with its description and notes swapped for these, or `None` when
+/// that would change nothing.
+///
+/// Split out from [`replace_text`] so the one part that decides what reaches
+/// the database can be tested without one. A task with no notes exports no
+/// `annotations` key rather than an empty list, so the key is removed, not
+/// emptied, when every note is deleted, and a missing key compares as none.
+fn with_text(mut task: Value, description: &str, notes: &[NoteEdit]) -> Option<Value> {
+    let annotations: Vec<Value> = notes
+        .iter()
+        .map(|n| match &n.entry {
+            Some(entry) => serde_json::json!({ "entry": entry, "description": n.text }),
+            None => serde_json::json!({ "description": n.text }),
+        })
+        .collect();
+
+    let same_description = task.get("description").and_then(Value::as_str) == Some(description);
+    let current = task
+        .get("annotations")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if same_description && current == annotations {
+        return None;
+    }
+
+    // `task export` always emits objects; anything else is not a task this
+    // could write back, and "nothing to do" is the safe reading of it.
+    let fields = task.as_object_mut()?;
+    fields.insert("description".into(), description.into());
+    if annotations.is_empty() {
+        fields.remove("annotations");
+    } else {
+        fields.insert("annotations".into(), Value::Array(annotations));
+    }
+    Some(task)
 }
 
 pub fn delete(uuid: &str) -> Result<()> {
@@ -497,5 +611,64 @@ mod tests {
         let t: Task =
             serde_json::from_str(r#"{"uuid":"u","description":"d","tags":["PLANNED","planned_x"]}"#).unwrap();
         assert!(!t.is_planned());
+    }
+
+    fn exported() -> serde_json::Value {
+        serde_json::json!({
+            "uuid": "u", "description": "old", "status": "pending", "tags": ["x"],
+            "annotations": [
+                {"entry": "20260801T000000Z", "description": "one"},
+                {"entry": "20260802T000000Z", "description": "two"}
+            ]
+        })
+    }
+
+    fn kept(entry: &str, text: &str) -> NoteEdit {
+        NoteEdit { entry: Some(entry.into()), text: text.into() }
+    }
+
+    /// `task import` replaces the whole task, so everything but the two
+    /// fields the box edits has to go back exactly as it came out.
+    #[test]
+    fn with_text_changes_only_the_description_and_notes() {
+        let out = with_text(
+            exported(),
+            "new",
+            &[kept("20260802T000000Z", "two, edited"), NoteEdit { entry: None, text: "three".into() }],
+        )
+        .expect("changed");
+        assert_eq!(out["description"], "new");
+        assert_eq!(out["tags"], serde_json::json!(["x"]));
+        assert_eq!(out["status"], "pending");
+        assert_eq!(
+            out["annotations"],
+            serde_json::json!([
+                {"entry": "20260802T000000Z", "description": "two, edited"},
+                {"description": "three"}
+            ]),
+            "a kept note keeps its stamp; a new one has none, so taskwarrior dates it now"
+        );
+    }
+
+    #[test]
+    fn with_text_is_none_when_nothing_changed() {
+        let same = [kept("20260801T000000Z", "one"), kept("20260802T000000Z", "two")];
+        assert!(with_text(exported(), "old", &same).is_none());
+    }
+
+    /// A task with no notes exports no `annotations` key at all, so "no notes
+    /// before, none now" must compare equal rather than `[]` vs missing.
+    #[test]
+    fn with_text_treats_a_missing_notes_key_as_no_notes() {
+        let bare = serde_json::json!({"uuid": "u", "description": "old"});
+        assert!(with_text(bare, "old", &[]).is_none());
+    }
+
+    /// Deleting every note has to remove the key: import keeps whatever
+    /// list it is given, and an empty one is not what taskwarrior exports.
+    #[test]
+    fn with_text_drops_the_notes_key_when_every_note_is_deleted() {
+        let out = with_text(exported(), "old", &[]).expect("changed");
+        assert!(out.get("annotations").is_none());
     }
 }

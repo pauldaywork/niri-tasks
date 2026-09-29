@@ -15,7 +15,7 @@
 //! Everything runs in one test function, sequentially, because the sandbox is
 //! process-global state.
 
-use niri_tasks::{task, text};
+use niri_tasks::{task, task::NoteEdit, text};
 use std::path::PathBuf;
 
 struct Sandbox {
@@ -164,6 +164,89 @@ fn write_path_lifecycle() {
             .expect("find it")
             .has_notes()
     );
+
+    // ---- replace description and notes in one import ---------------------
+    // The task box's save for an existing task. Taskwarrior cannot edit or
+    // delete one annotation in place, so the whole list goes back through
+    // `task import` — which makes it the write most able to lose something:
+    // an unchanged note's date, a tag, or the literal-description rule.
+    task::add(TAG, &text::add_args("to be rewritten")).expect("add");
+    let target = task::pending_for_tag(TAG)
+        .expect("list")
+        .into_iter()
+        .find(|t| t.description == "to be rewritten")
+        .expect("find the task to rewrite")
+        .uuid;
+    for note in ["one", "two", "three"] {
+        task::annotate(&target, note).expect("annotate");
+    }
+    let stamps: Vec<String> = task::get(&target)
+        .expect("get")
+        .expect("exists")
+        .annotations
+        .iter()
+        .map(|a| a.entry.clone())
+        .collect();
+    assert_eq!(stamps.len(), 3, "three notes, each with its own stamp");
+
+    let wrote = task::replace_text(
+        &target,
+        "rewritten due:2026-09-01",
+        &[
+            NoteEdit { entry: Some(stamps[0].clone()), text: "one, edited".into() },
+            NoteEdit { entry: Some(stamps[2].clone()), text: "three".into() },
+            NoteEdit { entry: None, text: "four".into() },
+            NoteEdit { entry: None, text: "five".into() },
+        ],
+    )
+    .expect("replace");
+    assert!(wrote, "a changed task is written");
+
+    let rewritten = task::get(&target).expect("get").expect("exists");
+    assert_eq!(rewritten.description, "rewritten due:2026-09-01");
+    assert!(
+        raw(&target, "due").is_empty(),
+        "the description goes through import literally, like an edit"
+    );
+    assert!(rewritten.tags.iter().any(|t| t == TAG), "import must not drop the tag");
+    assert_eq!(rewritten.status, "pending");
+
+    let notes: Vec<(String, String)> = rewritten
+        .annotations
+        .iter()
+        .map(|a| (a.entry.clone(), a.description.clone()))
+        .collect();
+    assert_eq!(notes.len(), 4, "note two is gone, four and five are new");
+    assert_eq!(notes[0], (stamps[0].clone(), "one, edited".into()), "an edited note keeps its date");
+    assert_eq!(notes[1], (stamps[2].clone(), "three".into()), "an untouched note keeps its date");
+    assert_eq!((notes[2].1.as_str(), notes[3].1.as_str()), ("four", "five"));
+    assert!(
+        notes[2].0 > stamps[2] && notes[3].0 > notes[2].0,
+        "new notes are dated now, after the old ones, in the order they were typed"
+    );
+
+    // Saving what is already there writes nothing — not even an undo entry.
+    let undo = sandbox.dir.join("data").join("undo.data");
+    let undo_lines = || std::fs::read_to_string(&undo).unwrap_or_default().lines().count();
+    let before_noop = undo_lines();
+    let unchanged: Vec<NoteEdit> = rewritten
+        .annotations
+        .iter()
+        .map(|a| NoteEdit { entry: Some(a.entry.clone()), text: a.description.clone() })
+        .collect();
+    assert!(
+        !task::replace_text(&target, &rewritten.description, &unchanged).expect("no-op"),
+        "an unchanged save reports that it wrote nothing"
+    );
+    assert_eq!(undo_lines(), before_noop, "and leaves nothing in the undo log");
+
+    // An empty description is not a task: nothing is written.
+    assert!(!task::replace_text(&target, "", &[]).expect("empty description"));
+    assert_eq!(task::get(&target).expect("get").expect("exists").annotations.len(), 4);
+
+    // Deleting every note leaves a task with none.
+    assert!(task::replace_text(&target, "rewritten due:2026-09-01", &[]).expect("clear notes"));
+    assert!(!task::get(&target).expect("get").expect("exists").has_notes());
 
     // ---- empty input is a no-op, not an error ---------------------------
     task::add(TAG, &text::add_args("   ")).expect("empty add is a no-op");
