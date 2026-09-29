@@ -15,6 +15,9 @@
 //! running, which is what retired the one-line fuzzel fallback the shell
 //! version kept for that case.
 
+pub mod form;
+pub mod keys;
+
 use crate::theme::Theme;
 use gtk4::gdk;
 use gtk4::prelude::*;
