@@ -68,7 +68,7 @@ include "niri-tasks.kdl"
 ```
 
 `install.sh` builds `niritasks`, symlinks the niri include, the fuzzel picker theme and
-the `workspace-tasks` skill into `~/.claude/skills`, restarts the daemon
+the Claude skills (`workspace-tasks`, `refine-task`, `finish-worktree`) into `~/.claude/skills`, restarts the daemon
 onto the new binary, and reloads niri. Updating is `git pull && bash install.sh`.
 
 The symlinks mean editing a file in this repo is immediately live — there is no
@@ -92,6 +92,12 @@ start rather than run unfenced. **Start working** needs herdr, Claude Code and
 folder to be a git repository: worktrunk makes the task's worktree and runs the
 repo's `.config/wt.toml` hooks, asking in a herdr tab the first time a repo's
 hooks need approving.
+
+When the work is done, `/finish-worktree` in that worktree's Claude lands it:
+it syncs `main` with origin, rebases the branch and tests the result, then
+fast-forwards `main`, pushes, marks the task completed with `niritasks task status`,
+and removes the worktree. It stops to ask only for a conflict with no obvious
+resolution, red tests, or `main` holding commits origin doesn't have.
 
 VS Code is optional. `niritasks project open` starts one on the project folder when
 `code` is on `$PATH`, and starts only the terminal when it is not — the lookup

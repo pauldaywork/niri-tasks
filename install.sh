@@ -81,6 +81,10 @@ link "$REPO/.claude/skills/workspace-tasks/SKILL.md" "$CLAUDE_SKILLS/workspace-t
 # refine-task: what the menu's Refine and Grill me rows open Claude with.
 link "$REPO/.claude/skills/refine-task/SKILL.md" "$CLAUDE_SKILLS/refine-task/SKILL.md"
 
+# finish-worktree: the other end of Start working — lands a task's worktree
+# branch on main, pushes, and marks the task completed through niritasks.
+link "$REPO/.claude/skills/finish-worktree/SKILL.md" "$CLAUDE_SKILLS/finish-worktree/SKILL.md"
+
 # ─── 5. the daemon ───────────────────────────────────────────────────────────
 # A copy rather than a symlink: systemd reads unit files as root-ish early in
 # session startup and does not follow links out of its search path reliably.
