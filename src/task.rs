@@ -405,6 +405,18 @@ pub fn complete(uuid: &str) -> Result<()> {
     Ok(())
 }
 
+/// `task stop`, with its output dropped. On a task that was never started it
+/// exits non-zero and prints "not started", and every caller counts that as
+/// already stopped, so neither the status nor the words mean anything to them.
+fn stop_quietly(uuid: &str) {
+    let _ = base()
+        .arg(uuid)
+        .arg("stop")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 /// Put a task on the list, not being worked on: stop it, and clear any wait
 /// date so a parked task comes back. Waiting hides a task from the panel, so
 /// this is the one way back for it.
@@ -413,7 +425,7 @@ pub fn complete(uuid: &str) -> Result<()> {
 /// already true, so its status is deliberately ignored. Clearing a wait that
 /// was never set succeeds.
 pub fn stop(uuid: &str) -> Result<()> {
-    let _ = base().arg(uuid).arg("stop").status();
+    stop_quietly(uuid);
     let status = base()
         .arg(uuid)
         .arg("modify")
@@ -431,7 +443,7 @@ pub fn stop(uuid: &str) -> Result<()> {
 /// the way, for the same reason `move_to_tag` stops one: a task coming back
 /// from waiting should not quietly still claim to be the work in progress.
 pub fn wait(uuid: &str) -> Result<()> {
-    let _ = base().arg(uuid).arg("stop").status();
+    stop_quietly(uuid);
 
     let status = base()
         .arg(uuid)
@@ -454,7 +466,7 @@ pub fn wait(uuid: &str) -> Result<()> {
 /// exits non-zero when the task was not started, which is the normal case, so
 /// only the retag's status is checked.
 pub fn move_to_tag(uuid: &str, from: &str, to: &str) -> Result<()> {
-    let _ = base().arg(uuid).arg("stop").status();
+    stop_quietly(uuid);
 
     let status = base()
         .arg(uuid)
