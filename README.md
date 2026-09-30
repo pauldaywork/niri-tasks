@@ -24,8 +24,8 @@ from — opening one, or moving a task to another workspace.
 ## Task panel
 
 Each monitor shows the pending tasks of the workspace it is displaying, as a
-stack of cards on the right edge — the active task first, its ▶ and text in
-green, then the rest most urgent first: ○, a dimmed lock for one blocked on
+stack of cards on the right edge — the active tasks first (there can be
+several, one per worktree being worked), each ▶ and text in green, then the rest most urgent first: ○, a dimmed lock for one blocked on
 another task, or a clipboard-check for one already worked up into a plan with
 Claude from the menu's **Refine** or **Grill me**. Up to eight, then a "+N
 more" card.
@@ -114,12 +114,13 @@ Tested against niri 26.04 and taskwarrior 2.6.2.
 niritasks tag                      # the focused workspace's tag
 niritasks tag --session            # the tag of the workspace this terminal was opened on
                                    #   (its herdr session, else its ~/Projects folder)
-niritasks task active              # the active task's description, or nothing
+niritasks task active              # each active task's description, one per line, or nothing
 niritasks task list                # the picker
 niritasks task panel               # hand the task panel the keyboard (Mod+Alt+Ctrl+T)
 niritasks task list --dry-run      # the rows it would show, for scripting and testing
 niritasks task menu <uuid>         # one task's actions, as a task card click opens them
 niritasks task status <uuid> <state>  # the menu's Update status: active|stopped|waiting|completed|deleted
+                                   #   (stopped also brings back a waiting task)
                                    #   (uuid or its first 8 chars; deleted needs --yes)
 niritasks task add <text>          # honours taskwarrior attributes: due:friday, priority:H
 niritasks task edit <uuid> <text>  # replaces the description; attributes stay literal

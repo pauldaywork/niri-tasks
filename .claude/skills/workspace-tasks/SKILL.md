@@ -139,8 +139,7 @@ after you read the list: say so, skip it, and move on to the next. Do not
 retry, and do not stop their claim to take it.
 
 **Stop only your own.** Before claiming the next task, stop the one you just
-finished or gave up on — never another active task on the tag, even though the
-desktop's own "set active" does clear the whole tag. Other active tasks are
+finished or gave up on — never another active task on the tag. Other active tasks are
 other agents' claims; stopping one pulls work out from under them. The task
 panel marks every started task ▶, so with several agents running it shows each
 of their claims at the top — that is expected.

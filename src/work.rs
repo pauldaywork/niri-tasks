@@ -4,7 +4,7 @@
 //! The worktree is found again by the task's uuid, never its description, so
 //! a description reworded since (by Refine, say) cannot fork a second one.
 
-use crate::{herdr, notify, project, refine, session, tag, task, text};
+use crate::{herdr, notify, project, refine, session, task, text};
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -182,9 +182,9 @@ fn deliver_prompt(s: &str, name: &str, text: &str) -> Result<()> {
 }
 
 /// Start the working Claude in `pane`, hand it the task to plan, and mark the
-/// task active — the one it is working on now, as Update status → Active
-/// would, stopping any other on the workspace.
-fn start_claude(s: &str, name: &str, pane: &str, uuid: &str, workspace: &str) -> Result<()> {
+/// task active, as Update status → Active would. Other active tasks on the
+/// workspace stay active: they are other worktrees' agents at work.
+fn start_claude(s: &str, name: &str, pane: &str, uuid: &str) -> Result<()> {
     if let Err(e) = herdr::run(&herdr::agent_start_claude(s, name, pane)) {
         // Blocked while starting is Claude asking something first — on a new
         // worktree, whether to trust the folder. That answer is the user's, so
@@ -202,7 +202,7 @@ fn start_claude(s: &str, name: &str, pane: &str, uuid: &str, workspace: &str) ->
         herdr::run(&herdr::agent_wait_ready(s, name)).context("Claude did not become ready")?;
     }
     deliver_prompt(s, name, &plan_prompt(uuid))?;
-    task::set_active(&tag::workspace_tag(workspace), uuid)
+    task::set_active(uuid)
 }
 
 /// Start working on a task from its menu: back to its worktree if it has one,
@@ -232,7 +232,7 @@ pub fn launch(workspace: &str, uuid: &str, description: &str) -> Result<()> {
         let ws = herdr::opened_workspace_id(&opened).context("herdr did not say which workspace it opened")?;
         let created = herdr::run(&herdr::tab_create(&s, &ws, &wt.path, "Claude"))?;
         let pane = herdr::root_pane_id(&created).context("herdr did not say which pane it made")?;
-        return start_claude(&s, &name, &pane, uuid, workspace);
+        return start_claude(&s, &name, &pane, uuid);
     }
 
     let label = format!("Start: {}", short(description));
@@ -289,7 +289,7 @@ fn set_up(workspace: &str, uuid: &str) -> Result<()> {
 
     let opened = herdr::run(&herdr::worktree_open(&s, &repo, &wt.path, &wt.branch))?;
     let pane = herdr::root_pane_id(&opened).context("herdr did not say which pane it opened")?;
-    start_claude(&s, &work_agent_name(uuid), &pane, uuid, workspace)
+    start_claude(&s, &work_agent_name(uuid), &pane, uuid)
 }
 
 /// `wt switch --create`, with this tab's terminal on stdin and stderr so

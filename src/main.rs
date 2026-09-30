@@ -65,7 +65,7 @@ enum Command {
 
 #[derive(Subcommand)]
 enum TaskCommand {
-    /// Print the active task's description, or nothing
+    /// Print each active task's description, one per line, or nothing
     Active,
     /// Pick a task from this workspace and act on it
     List {
@@ -194,7 +194,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             if t.is_empty() {
                 return Ok(());
             }
-            if let Some(active) = task::active_for_tag(&t)? {
+            for active in task::active_for_tag(&t)? {
                 println!("{}", active.description);
             }
         }
@@ -221,13 +221,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
                 "Deleting a task needs --yes, the menu's confirmation."
             );
             let t = task::get(&uuid)?.context("task not found")?;
-            // Active replaces the workspace's one active task, so it needs the
-            // workspace, as it does from the menu. Nothing else does.
-            let tag = match state {
-                task::Status::Active => Some(require_workspace_tag()?),
-                _ => None,
-            };
-            apply_status(tag.as_deref(), &t.uuid, &t.description, state)?;
+            apply_status(&t.uuid, &t.description, state)?;
         }
 
         // With no text, open the box. With text, add straight away — which is
@@ -414,7 +408,7 @@ fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Re
         Some("Start working") => {
             return task_command(TaskCommand::Start { uuid: selected, here: false, workspace: None })
         }
-        Some("Update status") => return task_status(tag, &selected, description, width),
+        Some("Update status") => return task_status(&selected, description, width),
         Some("Move to workspace") => return task_move(tag, &selected, description),
         _ => {}
     }
@@ -427,7 +421,7 @@ fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Re
 /// and Deleted are its real statuses. One list rather than that distinction,
 /// because from the menu they are all just "where is this task now". Deleted
 /// is the one destructive pick, so it alone keeps a confirmation.
-fn task_status(tag: &str, uuid: &str, description: &str, width: usize) -> Result<()> {
+fn task_status(uuid: &str, description: &str, width: usize) -> Result<()> {
     let rows: Vec<String> = task::Status::ALL
         .iter()
         .map(|s| s.label().to_string())
@@ -452,19 +446,14 @@ fn task_status(tag: &str, uuid: &str, description: &str, width: usize) -> Result
             return Ok(());
         }
     }
-    apply_status(Some(tag), uuid, description, status)
+    apply_status(uuid, description, status)
 }
 
 /// Move a task and say so. The one place both the menu and `task status` do
 /// it, so a task marked done from a script looks exactly like one marked done
 /// from its card.
-fn apply_status(
-    tag: Option<&str>,
-    uuid: &str,
-    description: &str,
-    status: task::Status,
-) -> Result<()> {
-    task::set_status(uuid, status, tag)?;
+fn apply_status(uuid: &str, description: &str, status: task::Status) -> Result<()> {
+    task::set_status(uuid, status)?;
     notify::tasks(&format!("{}: {description}", status.label()));
     Ok(())
 }

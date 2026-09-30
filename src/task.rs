@@ -139,14 +139,10 @@ pub fn pending_for_tag(tag: &str) -> Result<Vec<Task>> {
     Ok(tasks)
 }
 
-/// The active (started) pending task for `tag`, if any.
-///
-/// `set_active` keeps at most one per tag, but take the first regardless — a
-/// task started by hand in a terminal should not produce two answers.
-pub fn active_for_tag(tag: &str) -> Result<Option<Task>> {
-    Ok(export(&[&format!("+{tag}"), "+ACTIVE", "status:pending"])?
-        .into_iter()
-        .next())
+/// The active (started) pending tasks for `tag`. Several at once is normal:
+/// each agent working a task in its own worktree has one.
+pub fn active_for_tag(tag: &str) -> Result<Vec<Task>> {
+    export(&[&format!("+{tag}"), "+ACTIVE", "status:pending"])
 }
 
 /// The uuids of `tag`'s pending tasks that are waiting on another pending task.
@@ -409,11 +405,22 @@ pub fn complete(uuid: &str) -> Result<()> {
     Ok(())
 }
 
-/// Stop a task without starting another. `stop` exits non-zero when the task
-/// was not started, and stopped is then already true, so its status is
-/// deliberately ignored.
+/// Put a task on the list, not being worked on: stop it, and clear any wait
+/// date so a parked task comes back. Waiting hides a task from the panel, so
+/// this is the one way back for it.
+///
+/// `stop` exits non-zero when the task was not started, and stopped is then
+/// already true, so its status is deliberately ignored. Clearing a wait that
+/// was never set succeeds.
 pub fn stop(uuid: &str) -> Result<()> {
     let _ = base().arg(uuid).arg("stop").status();
+    let status = base()
+        .arg(uuid)
+        .arg("modify")
+        .arg("wait:")
+        .status()
+        .context("could not run `task modify`")?;
+    anyhow::ensure!(status.success(), "`task modify wait:` failed");
     Ok(())
 }
 
@@ -442,12 +449,10 @@ pub fn wait(uuid: &str) -> Result<()> {
 /// which is what makes taskwarrior read them as metadata rather than as words
 /// to append to the description.
 ///
-/// A moved task is stopped on the way out. "One active task per tag" is what
-/// lets the task panel and `niritasks task active` have a single answer, and a task that
-/// carried its `start` across would either hand the destination a second active
-/// task or quietly claim to be the work in progress on a workspace nobody is
-/// looking at. `stop` exits non-zero when the task was not started, which is
-/// the normal case, so only the retag's status is checked.
+/// A moved task is stopped on the way out: one that carried its `start` across
+/// would claim to be in progress on a workspace nobody is working in. `stop`
+/// exits non-zero when the task was not started, which is the normal case, so
+/// only the retag's status is checked.
 pub fn move_to_tag(uuid: &str, from: &str, to: &str) -> Result<()> {
     let _ = base().arg(uuid).arg("stop").status();
 
@@ -462,19 +467,17 @@ pub fn move_to_tag(uuid: &str, from: &str, to: &str) -> Result<()> {
     Ok(())
 }
 
-/// Make `uuid` the one active task for `tag`.
+/// Mark a task as being worked on. Other active tasks stay active: several
+/// tasks run at once, one per worktree, and starting one must not pull another
+/// agent's claim out from under it.
 ///
-/// Clears the tag's current active task first, so a tag never has two — which
-/// is what lets `niritasks task active` have a single unambiguous answer. `stop` exits
-/// non-zero when nothing matches, which is the normal case, so its status is
-/// deliberately ignored.
-pub fn set_active(tag: &str, uuid: &str) -> Result<()> {
-    let _ = base()
-        .arg(format!("+{tag}"))
-        .arg("+ACTIVE")
-        .arg("stop")
-        .status();
-
+/// Taskwarrior refuses to start a task twice, so an already active one is left
+/// as it is.
+pub fn set_active(uuid: &str) -> Result<()> {
+    let current = get(uuid)?.with_context(|| format!("no task {uuid}"))?;
+    if current.is_active() {
+        return Ok(());
+    }
     let status = base().arg(uuid).arg("start").status()?;
     anyhow::ensure!(status.success(), "`task start` failed");
     Ok(())
@@ -524,21 +527,17 @@ impl Status {
 
 /// Move a task to `status`.
 ///
-/// `tag` is the workspace whose one active task Active replaces, and nothing
-/// else needs it. A task already completed or deleted is left as it is and
-/// this returns Ok: taskwarrior refuses to complete a task twice, and a script
-/// retrying after a half-finished run should not fail on the half that worked.
-pub fn set_status(uuid: &str, status: Status, tag: Option<&str>) -> Result<()> {
+/// A task already completed or deleted is left as it is and this returns Ok:
+/// taskwarrior refuses to complete a task twice, and a script retrying after a
+/// half-finished run should not fail on the half that worked.
+pub fn set_status(uuid: &str, status: Status) -> Result<()> {
     let current = get(uuid)?.with_context(|| format!("no task {uuid}"))?;
     match (status, current.status.as_str()) {
         (Status::Completed, "completed") | (Status::Deleted, "deleted") => return Ok(()),
         _ => {}
     }
     match status {
-        Status::Active => {
-            let tag = tag.context("making a task active needs its workspace's tag")?;
-            set_active(tag, uuid)
-        }
+        Status::Active => set_active(uuid),
         Status::Stopped => stop(uuid),
         Status::Waiting => wait(uuid),
         Status::Completed => complete(uuid),

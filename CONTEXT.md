@@ -25,7 +25,9 @@ them is also the focused workspace.
 _Avoid_: visible workspace, current workspace
 
 **Active task**:
-The started pending task on a workspace tag. There is at most one per tag.
+A started pending task on a workspace tag. A tag can have several at once,
+one per agent working a task in its own worktree; making one active leaves the
+others alone.
 _Avoid_: current task, in-progress task
 
 **Planned task**:

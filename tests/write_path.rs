@@ -331,38 +331,41 @@ fn write_path_lifecycle() {
     assert_eq!(unchanged.description, edited.description);
     assert_eq!(unchanged.annotations.len(), 1);
 
-    // ---- set_active keeps exactly one active per tag ---------------------
+    // ---- several tasks can be active at once -----------------------------
+    // One agent per worktree means one active task each, all on the same tag.
     let all = task::pending_for_tag(TAG).expect("list");
-    assert!(all.len() >= 2, "need two tasks to test exclusivity");
+    assert!(all.len() >= 2, "need two tasks to have two active");
     let (first, second) = (all[0].uuid.clone(), all[1].uuid.clone());
 
-    task::set_active(TAG, &first).expect("set active");
-    assert_eq!(
-        task::active_for_tag(TAG).expect("active").map(|t| t.uuid),
-        Some(first.clone())
-    );
-
-    task::set_active(TAG, &second).expect("switch active");
-    let active_now: Vec<String> = task::pending_for_tag(TAG)
-        .expect("list")
+    task::set_active(&first).expect("set active");
+    task::set_active(&second).expect("set a second active");
+    let mut active_now: Vec<String> = task::active_for_tag(TAG)
+        .expect("active")
         .into_iter()
-        .filter(|t| t.is_active())
         .map(|t| t.uuid)
         .collect();
+    active_now.sort();
+    let mut both = vec![first.clone(), second.clone()];
+    both.sort();
     assert_eq!(
-        active_now,
-        vec![second.clone()],
-        "setting a second task active must stop the first — this is what makes \
-         `niritasks task active` unambiguous"
+        active_now, both,
+        "making a task active must leave the other active tasks alone"
     );
+    task::set_active(&second).expect("making an active task active is a no-op");
 
-    // ---- stop leaves the tag with no active task --------------------------
+    // ---- stop stops only that task ----------------------------------------
     task::stop(&second).expect("stop");
-    assert!(
-        task::active_for_tag(TAG).expect("active").is_none(),
-        "stopping the active task must leave the tag with none"
+    assert_eq!(
+        task::active_for_tag(TAG)
+            .expect("active")
+            .into_iter()
+            .map(|t| t.uuid)
+            .collect::<Vec<_>>(),
+        vec![first.clone()],
+        "stopping one task must leave the others active"
     );
     task::stop(&second).expect("stopping an already-stopped task is a no-op");
+    task::stop(&first).expect("stop");
 
     // ---- wait parks the task, and stops it on the way ---------------------
     task::add(TAG, &text::add_args("park me")).expect("add");
@@ -372,7 +375,7 @@ fn write_path_lifecycle() {
         .find(|t| t.description == "park me")
         .expect("find the task to park")
         .uuid;
-    task::set_active(TAG, &parked).expect("start it first");
+    task::set_active(&parked).expect("start it first");
 
     // Taskwarrior 2.6 dropped the stored `waiting` status: the task keeps
     // `status:pending` plus a `wait` date, and `status:pending` filters
@@ -389,6 +392,19 @@ fn write_path_lifecycle() {
             .iter()
             .any(|t| t.uuid == parked),
         "a waiting task must drop out of the pending list"
+    );
+
+    // ---- stop brings a waiting task back ------------------------------------
+    // Stopped means "on the list, not being worked on", so it is also how a
+    // parked task comes back: the panel cannot show it to pick otherwise.
+    task::stop(&parked).expect("stop the waiting task");
+    assert!(raw(&parked, "wait").is_empty(), "stop should clear the wait date");
+    assert!(
+        task::pending_for_tag(TAG)
+            .expect("list")
+            .iter()
+            .any(|t| t.uuid == parked),
+        "a stopped task must be back on the pending list"
     );
 
     // ---- complete and delete --------------------------------------------
@@ -412,26 +428,23 @@ fn write_path_lifecycle() {
         .uuid;
     let st8 = &st[..8];
 
-    task::set_status(st8, Status::Active, Some(TAG)).expect("active");
+    task::set_status(st8, Status::Active).expect("active");
     assert!(!raw(&st, "start").is_empty(), "active should start it");
-    assert!(
-        task::set_status(&st, Status::Active, None).is_err(),
-        "active without a tag cannot know which task it replaces"
-    );
-    task::set_status(&st, Status::Stopped, None).expect("stopped");
+    task::set_status(&st, Status::Active).expect("active twice is a no-op");
+    task::set_status(&st, Status::Stopped).expect("stopped");
     assert!(
         raw(&st, "start").is_empty(),
         "stopped should clear the start"
     );
-    task::set_status(st8, Status::Waiting, None).expect("waiting");
+    task::set_status(st8, Status::Waiting).expect("waiting");
     assert!(
         !raw(&st, "wait").is_empty(),
         "waiting should set a wait date"
     );
 
-    task::set_status(st8, Status::Completed, None).expect("completed");
+    task::set_status(st8, Status::Completed).expect("completed");
     assert_eq!(raw(&st, "status"), "completed");
-    task::set_status(st8, Status::Completed, None).expect("completing twice is a no-op");
+    task::set_status(st8, Status::Completed).expect("completing twice is a no-op");
     assert_eq!(raw(&st, "status"), "completed");
 
     task::add(TAG, &text::add_args("delete me by status")).expect("add");
@@ -441,12 +454,12 @@ fn write_path_lifecycle() {
         .find(|t| t.description == "delete me by status")
         .expect("find the task to delete")
         .uuid;
-    task::set_status(&del, Status::Deleted, None).expect("deleted");
+    task::set_status(&del, Status::Deleted).expect("deleted");
     assert_eq!(raw(&del, "status"), "deleted");
-    task::set_status(&del, Status::Deleted, None).expect("deleting twice is a no-op");
+    task::set_status(&del, Status::Deleted).expect("deleting twice is a no-op");
 
     assert!(
-        task::set_status("00000000", Status::Completed, None).is_err(),
+        task::set_status("00000000", Status::Completed).is_err(),
         "an unknown uuid is an error, not a silent success"
     );
 
