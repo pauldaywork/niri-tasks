@@ -237,6 +237,8 @@ fn open_task_box(app: &Application, uuid: String, mode: crate::taskbox::Mode) {
         notify::tasks("Task not found");
         return;
     };
+    // The full uuid, not the one asked for, which may be a prefix.
+    let uuid = t.uuid.clone();
     taskbox::open_in(
         app,
         taskbox::BoxConfig::for_task(mode, t),

@@ -160,8 +160,11 @@ fn run() -> Result<()> {
 /// Note are one window; the mode only says where the cursor starts.
 fn edit_in_box(uuid: &str, mode: taskbox::Mode) -> Result<()> {
     let t = task::get(uuid)?.context("task not found")?;
+    // The uuid the task was found under, not the one typed: `task edit 4a3f`
+    // is a prefix, and replace_text insists on the exact task it opened.
+    let uuid = t.uuid.clone();
     if let Some(s) = taskbox::show(taskbox::BoxConfig::for_task(mode, t)) {
-        task::replace_text(uuid, &s.description, &s.notes)?;
+        task::replace_text(&uuid, &s.description, &s.notes)?;
     }
     Ok(())
 }
