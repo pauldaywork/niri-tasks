@@ -37,7 +37,7 @@ python3 -c "import PIL" 2>/dev/null || {
 NIRITASKS="${NIRITASKS:-niritasks}"
 
 # Mirrors PEEK_PX in src/panel/surface.rs.
-PEEK=60
+PEEK=30
 
 SB="$(mktemp -d)"
 mkdir -p "$SB/data" "$SB/shots"
