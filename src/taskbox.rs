@@ -31,7 +31,7 @@ use gtk4::gdk;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, CssProvider};
 use keys::{KeyAction, Place};
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::rc::Rc;
 
 /// Which job the box is doing. Edit and Note are the same window on the same
@@ -230,6 +230,42 @@ pub fn show(cfg: BoxConfig) -> Option<Submission> {
     taken
 }
 
+thread_local! {
+    /// The box's stylesheet, once it is on the display. The daemon opens a box
+    /// for every keypress over a process that runs for days, and a provider
+    /// added per box would stay on the display for good, so every style
+    /// lookup, the panels' included, would walk one more each time. Only ever
+    /// touched on the GTK main thread.
+    static STYLE: OnceCell<CssProvider> = const { OnceCell::new() };
+}
+
+/// Put the box's stylesheet on the display, unless it is already there.
+///
+/// It is never taken off again: `style::css()` is built from constants, so no
+/// box ever needs a different one.
+fn install_style() {
+    STYLE.with(|installed| {
+        if installed.get().is_some() {
+            return;
+        }
+        // No display means nothing to style yet. The cell stays empty, so the
+        // next box tries again.
+        let Some(display) = gdk::Display::default() else {
+            return;
+        };
+        let provider = CssProvider::new();
+        // load_from_data, not load_from_string: the latter is gated behind gtk4's
+        // v4_12 feature, and this needs no minimum beyond what the crate requires.
+        provider.load_from_data(&style::css());
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+        let _ = installed.set(provider);
+    });
+}
+
 /// Build and show the window. `on_submit` fires only with something worth
 /// saving: never on Esc, and never with an empty description, which keeps the
 /// window open instead.
@@ -247,17 +283,7 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
     // What every rule in the box's stylesheet is scoped to (style.rs).
     window.add_css_class("task-box");
 
-    let provider = CssProvider::new();
-    // load_from_data, not load_from_string: the latter is gated behind gtk4's
-    // v4_12 feature, and this needs no minimum beyond what the crate requires.
-    provider.load_from_data(&style::css());
-    if let Some(display) = gdk::Display::default() {
-        gtk4::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
+    install_style();
 
     let root = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
     root.set_margin_top(16);
