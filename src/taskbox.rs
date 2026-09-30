@@ -290,10 +290,12 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
     root.append(&notes_label);
 
     let list = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
-    // Rows wrap, so there is never anything to scroll to sideways. Scrolling to
-    // the focus is what keeps a row made by Enter at the bottom in view.
+    // Rows wrap, so there is never anything to scroll to sideways. The
+    // viewport's own scroll-to-focus is off: it measured a row made by Enter
+    // before that row had a place, read it as sitting at the top, and jumped
+    // the list there. `follow_focus` does the job instead, after layout.
     let viewport = gtk4::Viewport::builder()
-        .scroll_to_focus(true)
+        .scroll_to_focus(false)
         .child(&list)
         .build();
     let notes_scroll = gtk4::ScrolledWindow::builder()
@@ -409,6 +411,8 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
     window.add_controller(keys);
 
     window.present();
+    settle_after_opening(&window, &notes.list);
+    follow_focus(&window, &notes_scroll, &notes.list);
 
     // The Wayland app_id comes from the GtkApplication, and inside the daemon
     // that application is the daemon's — so a box opened there arrived as
@@ -426,6 +430,118 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
     match cfg.mode {
         Mode::Note => focus_end(&notes.insert(notes.len(), None)),
         Mode::Add | Mode::Edit => focus_end(&description),
+    }
+}
+
+/// Have every note row measure itself again once the window has been drawn.
+///
+/// A text view does not size itself to the width it is given: it answers a
+/// height from the width its layout last had, and before its first allocation
+/// that is one line. So on opening, every note showed as a single cut-off line,
+/// and only filled out once scrolling happened to make the list lay out again.
+/// By the end of the first frame each view has been allocated and has laid its
+/// text out at the real width, so asking the rows once more gets the true
+/// heights. Once is enough: the box is a fixed width, and a row that grows or
+/// shrinks while being typed in asks for its own resize.
+fn settle_after_opening(window: &ApplicationWindow, list: &gtk4::Box) {
+    let list = list.downgrade();
+    after_next_paint(window, move || {
+        let Some(list) = list.upgrade() else {
+            return;
+        };
+        let mut row = list.first_child();
+        while let Some(widget) = row {
+            widget.queue_resize();
+            row = widget.next_sibling();
+        }
+    });
+}
+
+/// Keep the row with the cursor in view, wherever the cursor goes — Enter,
+/// Tab, a deleted row, or the empty row Note opens with.
+///
+/// Scrolling waits for the frame after the move, because a row just made has
+/// no place in the list until it has been laid out; and on opening, until
+/// [`settle_after_opening`] has given the rows their real heights, which is a
+/// frame later still — so the first scroll is simply the one those resizes
+/// cause, when the focus has not moved at all.
+fn follow_focus(window: &ApplicationWindow, scroll: &gtk4::ScrolledWindow, list: &gtk4::Box) {
+    let (scroll, list) = (scroll.downgrade(), list.downgrade());
+    let follow = move |window: &ApplicationWindow| {
+        let (scroll, list) = (scroll.clone(), list.clone());
+        let weak = window.downgrade();
+        after_next_paint(window, move || {
+            if let (Some(window), Some(scroll), Some(list)) =
+                (weak.upgrade(), scroll.upgrade(), list.upgrade())
+            {
+                scroll_focus_into_view(&window, &scroll, &list);
+            }
+        });
+    };
+    window.connect_notify_local(Some("focus-widget"), {
+        let follow = follow.clone();
+        move |window, _| follow(window)
+    });
+    // Once for the opening: the focus is placed before this is connected, and
+    // the rows only reach their real heights two frames in.
+    let weak = window.downgrade();
+    after_next_paint(window, move || {
+        if let Some(window) = weak.upgrade() {
+            follow(&window);
+        }
+    });
+}
+
+/// Run `f` once, after the window's next frame has been painted — by which
+/// point everything queued before it has been measured and placed.
+fn after_next_paint(window: &ApplicationWindow, f: impl FnOnce() + 'static) {
+    let Some(clock) = window.frame_clock() else {
+        return;
+    };
+    let handler = Rc::new(RefCell::new(None));
+    // The signal wants a Fn; the cell is what lets it run `f` only once.
+    let f = RefCell::new(Some(f));
+    let id = clock.connect_after_paint({
+        let handler = handler.clone();
+        move |clock| {
+            if let Some(id) = handler.borrow_mut().take() {
+                clock.disconnect(id);
+            }
+            if let Some(f) = f.borrow_mut().take() {
+                f();
+            }
+        }
+    });
+    *handler.borrow_mut() = Some(id);
+    // A focus move that changes nothing on screen would not otherwise bring
+    // the next frame.
+    clock.request_phase(gdk::FrameClockPhase::AFTER_PAINT);
+}
+
+/// Scroll the notes list just enough to show the whole row the cursor is in,
+/// if it is in one.
+fn scroll_focus_into_view(window: &ApplicationWindow, scroll: &gtk4::ScrolledWindow, list: &gtk4::Box) {
+    // GtkWindowExt and RootExt both have a `focus()`; either answers.
+    let Some(mut row) = GtkWindowExt::focus(window) else {
+        return;
+    };
+    // Up from the text view to the row that holds it, so the row's padding
+    // and date come into view along with the text.
+    while row.parent().as_ref() != Some(list.upcast_ref()) {
+        let Some(parent) = row.parent() else {
+            return;
+        };
+        row = parent;
+    }
+    let Some(bounds) = row.compute_bounds(list) else {
+        return;
+    };
+    let adjustment = scroll.vadjustment();
+    let (top, bottom) = (bounds.y() as f64, (bounds.y() + bounds.height()) as f64);
+    if bottom > adjustment.value() + adjustment.page_size() {
+        adjustment.set_value(bottom - adjustment.page_size());
+    } else if top < adjustment.value() {
+        adjustment.set_value(top);
     }
 }
 
