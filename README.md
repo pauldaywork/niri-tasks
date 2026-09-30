@@ -113,6 +113,8 @@ niritasks task list                # the picker
 niritasks task panel               # hand the task panel the keyboard (Mod+Alt+Ctrl+T)
 niritasks task list --dry-run      # the rows it would show, for scripting and testing
 niritasks task menu <uuid>         # one task's actions, as a task card click opens them
+niritasks task status <uuid> <state>  # the menu's Update status: active|stopped|waiting|completed|deleted
+                                   #   (uuid or its first 8 chars; deleted needs --yes)
 niritasks task add <text>          # honours taskwarrior attributes: due:friday, priority:H
 niritasks task edit <uuid> <text>  # replaces the description; attributes stay literal
 niritasks task note <uuid> <text>  # attaches an annotation

@@ -399,6 +399,57 @@ fn write_path_lifecycle() {
     task::delete(&second).expect("delete");
     assert_eq!(task::pending_for_tag(TAG).expect("list").len(), before - 2);
 
+    // ---- set_status: the menu's states, by uuid or its 8-char prefix -----
+    // A finished worktree marks its task done from the branch's uuid8, so the
+    // prefix has to work as well as the full uuid.
+    use task::Status;
+    task::add(TAG, &text::add_args("status me")).expect("add");
+    let st = task::pending_for_tag(TAG)
+        .expect("list")
+        .into_iter()
+        .find(|t| t.description == "status me")
+        .expect("find the status task")
+        .uuid;
+    let st8 = &st[..8];
+
+    task::set_status(st8, Status::Active, Some(TAG)).expect("active");
+    assert!(!raw(&st, "start").is_empty(), "active should start it");
+    assert!(
+        task::set_status(&st, Status::Active, None).is_err(),
+        "active without a tag cannot know which task it replaces"
+    );
+    task::set_status(&st, Status::Stopped, None).expect("stopped");
+    assert!(
+        raw(&st, "start").is_empty(),
+        "stopped should clear the start"
+    );
+    task::set_status(st8, Status::Waiting, None).expect("waiting");
+    assert!(
+        !raw(&st, "wait").is_empty(),
+        "waiting should set a wait date"
+    );
+
+    task::set_status(st8, Status::Completed, None).expect("completed");
+    assert_eq!(raw(&st, "status"), "completed");
+    task::set_status(st8, Status::Completed, None).expect("completing twice is a no-op");
+    assert_eq!(raw(&st, "status"), "completed");
+
+    task::add(TAG, &text::add_args("delete me by status")).expect("add");
+    let del = task::pending_for_tag(TAG)
+        .expect("list")
+        .into_iter()
+        .find(|t| t.description == "delete me by status")
+        .expect("find the task to delete")
+        .uuid;
+    task::set_status(&del, Status::Deleted, None).expect("deleted");
+    assert_eq!(raw(&del, "status"), "deleted");
+    task::set_status(&del, Status::Deleted, None).expect("deleting twice is a no-op");
+
+    assert!(
+        task::set_status("00000000", Status::Completed, None).is_err(),
+        "an unknown uuid is an error, not a silent success"
+    );
+
     // ---- tags scope the list --------------------------------------------
     task::add("othertag", &text::add_args("not mine")).expect("add to other tag");
     assert!(

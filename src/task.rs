@@ -480,9 +480,90 @@ pub fn set_active(tag: &str, uuid: &str) -> Result<()> {
     Ok(())
 }
 
+/// Where a task can be moved to: the menu's "Update status" list, and
+/// `niritasks task status`'s argument. One list for both, so a script and the
+/// menu can never offer different states.
+///
+/// Active and Stopped drive taskwarrior's start/stop flag; Waiting, Completed
+/// and Deleted are its real statuses. From the menu they are all just "where
+/// is this task now".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Status {
+    Active,
+    Stopped,
+    Waiting,
+    Completed,
+    Deleted,
+}
+
+impl Status {
+    /// In the order the menu lists them.
+    pub const ALL: [Status; 5] = [
+        Status::Active,
+        Status::Stopped,
+        Status::Waiting,
+        Status::Completed,
+        Status::Deleted,
+    ];
+
+    /// The word the menu shows, and the one its notification starts with.
+    pub fn label(self) -> &'static str {
+        match self {
+            Status::Active => "Active",
+            Status::Stopped => "Stopped",
+            Status::Waiting => "Waiting",
+            Status::Completed => "Completed",
+            Status::Deleted => "Deleted",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Status> {
+        Status::ALL.into_iter().find(|s| s.label() == label)
+    }
+}
+
+/// Move a task to `status`.
+///
+/// `tag` is the workspace whose one active task Active replaces, and nothing
+/// else needs it. A task already completed or deleted is left as it is and
+/// this returns Ok: taskwarrior refuses to complete a task twice, and a script
+/// retrying after a half-finished run should not fail on the half that worked.
+pub fn set_status(uuid: &str, status: Status, tag: Option<&str>) -> Result<()> {
+    let current = get(uuid)?.with_context(|| format!("no task {uuid}"))?;
+    match (status, current.status.as_str()) {
+        (Status::Completed, "completed") | (Status::Deleted, "deleted") => return Ok(()),
+        _ => {}
+    }
+    match status {
+        Status::Active => {
+            let tag = tag.context("making a task active needs its workspace's tag")?;
+            set_active(tag, uuid)
+        }
+        Status::Stopped => stop(uuid),
+        Status::Waiting => wait(uuid),
+        Status::Completed => complete(uuid),
+        Status::Deleted => delete(uuid),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The CLI takes the menu's words, lower-cased, and the menu's rows read
+    /// back to the same state — so `task status <uuid> completed` and picking
+    /// "Completed" are the same thing.
+    #[test]
+    fn a_status_is_the_same_word_in_the_menu_and_on_the_command_line() {
+        use clap::ValueEnum;
+        for s in Status::ALL {
+            let cli = s.to_possible_value().unwrap();
+            assert_eq!(cli.get_name(), s.label().to_lowercase());
+            assert_eq!(Status::from_label(s.label()), Some(s));
+        }
+        assert_eq!(Status::value_variants().len(), Status::ALL.len());
+        assert_eq!(Status::from_label("Done"), None);
+    }
 
     #[test]
     fn parses_a_task_without_annotations() {

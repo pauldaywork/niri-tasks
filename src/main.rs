@@ -79,6 +79,18 @@ enum TaskCommand {
     Panel,
     /// Open the action menu for one task (clicking its task card)
     Menu { uuid: String },
+    /// Move a task to a state, as the menu's "Update status" does
+    ///
+    /// The same states, code and notification as the menu, for scripts and for
+    /// finishing a task's worktree. The uuid can be the full one or its first
+    /// 8 characters, as in a `task/<slug>-<uuid8>` branch.
+    Status {
+        uuid: String,
+        state: task::Status,
+        /// Confirm `deleted`, which the menu asks about and a script cannot be asked
+        #[arg(long)]
+        yes: bool,
+    },
     /// Add a task
     Add { text: Vec<String> },
     /// Print a task's description by uuid
@@ -201,6 +213,21 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             let t = task::get(&uuid)?.context("task not found")?;
             let width = niri_tasks::picker::clamp_task_width(t.description.chars().count());
             return task_menu(&tag, uuid, &t.description, width);
+        }
+
+        TaskCommand::Status { uuid, state, yes } => {
+            anyhow::ensure!(
+                yes || state != task::Status::Deleted,
+                "Deleting a task needs --yes, the menu's confirmation."
+            );
+            let t = task::get(&uuid)?.context("task not found")?;
+            // Active replaces the workspace's one active task, so it needs the
+            // workspace, as it does from the menu. Nothing else does.
+            let tag = match state {
+                task::Status::Active => Some(require_workspace_tag()?),
+                _ => None,
+            };
+            apply_status(tag.as_deref(), &t.uuid, &t.description, state)?;
         }
 
         // With no text, open the box. With text, add straight away — which is
@@ -401,49 +428,44 @@ fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Re
 /// because from the menu they are all just "where is this task now". Deleted
 /// is the one destructive pick, so it alone keeps a confirmation.
 fn task_status(tag: &str, uuid: &str, description: &str, width: usize) -> Result<()> {
-    let state = Picker::new()
+    let rows: Vec<String> = task::Status::ALL
+        .iter()
+        .map(|s| s.label().to_string())
+        .collect();
+    let picked = Picker::new()
         .arg("--no-sort")
         .lines(5)
         .width(20)
         .prompt("status ")
-        .run(&[
-            "Active".into(),
-            "Stopped".into(),
-            "Waiting".into(),
-            "Completed".into(),
-            "Deleted".into(),
-        ])?;
+        .run(&rows)?;
+    let Some(status) = picked.as_deref().and_then(task::Status::from_label) else {
+        return Ok(());
+    };
 
-    match state.as_deref() {
-        Some("Active") => {
-            task::set_active(tag, uuid)?;
-            notify::tasks(&format!("Active: {description}"));
+    if status == task::Status::Deleted {
+        let confirm = Picker::new()
+            .lines(2)
+            .width(width)
+            .prompt("delete? ")
+            .run(&["No".into(), "Yes, delete".into()])?;
+        if confirm.as_deref() != Some("Yes, delete") {
+            return Ok(());
         }
-        Some("Stopped") => {
-            task::stop(uuid)?;
-            notify::tasks(&format!("Stopped: {description}"));
-        }
-        Some("Waiting") => {
-            task::wait(uuid)?;
-            notify::tasks(&format!("Waiting: {description}"));
-        }
-        Some("Completed") => {
-            task::complete(uuid)?;
-            notify::tasks(&format!("Completed: {description}"));
-        }
-        Some("Deleted") => {
-            let confirm = Picker::new()
-                .lines(2)
-                .width(width)
-                .prompt("delete? ")
-                .run(&["No".into(), "Yes, delete".into()])?;
-            if confirm.as_deref() == Some("Yes, delete") {
-                task::delete(uuid)?;
-                notify::tasks(&format!("Deleted: {description}"));
-            }
-        }
-        _ => {}
     }
+    apply_status(Some(tag), uuid, description, status)
+}
+
+/// Move a task and say so. The one place both the menu and `task status` do
+/// it, so a task marked done from a script looks exactly like one marked done
+/// from its card.
+fn apply_status(
+    tag: Option<&str>,
+    uuid: &str,
+    description: &str,
+    status: task::Status,
+) -> Result<()> {
+    task::set_status(uuid, status, tag)?;
+    notify::tasks(&format!("{}: {description}", status.label()));
     Ok(())
 }
 
