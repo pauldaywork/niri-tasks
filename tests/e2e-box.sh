@@ -116,6 +116,17 @@ pending() {
     task rc.verbose=nothing rc.json.array=on status:pending export 2>/dev/null \
       | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0
 }
+# Make a freshly opened box read wtype's keys right. wtype hands each call its
+# own keymap, and a box process that has just started can read the first
+# virtual key it gets with the real keyboard's keymap instead — where wtype's
+# first keycode is Escape. A Return sent first to a new box arrived as Escape:
+# the box closed, and the steps after it typed into whatever had focus next.
+# Typed text is read right, so a character typed and deleted at the end of the
+# description (where every box opens its cursor) settles it and changes nothing.
+settle_keys() {
+    wtype "x"; wtype -k BackSpace
+    sleep 0.2
+}
 close_any_box() {
     for id in $(box_id); do niri msg action close-window --id "$id" >/dev/null 2>&1; done
     sleep 0.5
@@ -186,12 +197,21 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
         bad "box did not reopen"
     fi
 
-    # Submitting an empty box is a no-op rather than an empty task.
+    # Saving with no description writes nothing, and keeps the box open rather
+    # than throwing away whatever notes were typed — only Escape discards. It
+    # has to be closed here, or the next open_box finds it still up and the
+    # keys meant for the next box land in this one.
     before=$(pending)
     if open_box add; then
+        settle_keys
         wtype -M ctrl -k Return -m ctrl; sleep 1.2
         [ "$(pending)" -eq "$before" ] && ok "empty submit wrote nothing" \
             || bad "empty submit wrote a task"
+        [ -n "$(box_id)" ] && ok "and left the box open" \
+            || bad "empty submit closed the box"
+        wtype -k Escape; sleep 1.2
+        [ -z "$(box_id)" ] && ok "Escape then closed it" \
+            || bad "box still open after Escape"
     else
         bad "box did not reopen"
     fi
@@ -254,6 +274,7 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
     if [ -n "$uuid" ] && open_box edit "$uuid"; then
         [ "$(box_title)" = "Edit Task" ] && ok "edit opens the one box" \
             || bad "edit box title was \"$(box_title)\""
+        settle_keys
         wtype -k Return                      # description -> note A, cursor at end
         wtype " edited"
         wtype -k Tab; wtype -k Tab           # note A's ×, then note B
@@ -277,6 +298,7 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
     local undo_before
     undo_before=$(undo_count)
     if [ -n "$uuid" ] && open_box edit "$uuid"; then
+        settle_keys                          # or an Escape here would pass too
         wtype -M ctrl -k Return -m ctrl
         sleep 1.5
         [ "$(undo_count)" -eq "$undo_before" ] && ok "an unchanged save wrote nothing" \
