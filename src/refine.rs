@@ -224,20 +224,25 @@ fn ensure_no_exposed_sockets(hidden: &[PathBuf]) -> Result<()> {
 /// one without niri_ipc's layout fields.
 type WindowInfo<'a> = (u64, Option<&'a str>, Option<&'a str>);
 
-/// The ghostty window already showing `label`'s session, if niri has one open.
+/// The ghostty window already showing session `labels` belongs to, if niri
+/// has one open.
 ///
 /// herdr sets the outer terminal's title to its `window_title`, default
-/// `"{hostname}: {workspace}"` — so a project session's ghostty window's title
-/// ends with `": <label>"`, where `label` is that herdr workspace's own label.
-/// This depends on that default: a user who changes `window_title` just costs
-/// themselves an extra attached terminal window rather than a focus, which is
-/// harmless.
-fn find_session_window(windows: &[WindowInfo], label: &str) -> Option<u64> {
-    let suffix = format!(": {label}");
+/// `"{hostname}: {workspace}"`, where `{workspace}` is the label of whichever
+/// herdr workspace that client has focused: the project's, or a task's
+/// worktree after Start working. So a session's ghostty window's title ends
+/// with `": <label>"` for one of `labels`, the session's workspace labels.
+/// The process tree can't say which window a client is in, because ghostty
+/// runs every window from one process. This depends on herdr's default title:
+/// a user who changes `window_title` just costs themselves an extra attached
+/// terminal window rather than a focus, which is harmless.
+fn find_session_window(windows: &[WindowInfo], labels: &[String]) -> Option<u64> {
+    let suffixes: Vec<String> = labels.iter().map(|l| format!(": {l}")).collect();
     windows
         .iter()
         .find(|(_, app_id, title)| {
-            *app_id == Some("com.mitchellh.ghostty") && title.is_some_and(|t| t.ends_with(&suffix))
+            *app_id == Some("com.mitchellh.ghostty")
+                && title.is_some_and(|t| suffixes.iter().any(|s| t.ends_with(s)))
         })
         .map(|(id, _, _)| *id)
 }
@@ -252,15 +257,16 @@ fn find_session_window(windows: &[WindowInfo], label: &str) -> Option<u64> {
 /// no title to look for; `launch` creates one right after this call, and that
 /// create takes `--focus` itself.
 fn show_session_window(dir: &Path, s: &str, list: &Value) -> Result<()> {
-    let Some(label) = herdr::first_workspace_label(list) else {
+    let labels = herdr::workspace_labels(list);
+    if labels.is_empty() {
         return Ok(());
-    };
+    }
     let windows = niri::windows()?;
     let info: Vec<WindowInfo> = windows
         .iter()
         .map(|w| (w.id, w.app_id.as_deref(), w.title.as_deref()))
         .collect();
-    match find_session_window(&info, &label) {
+    match find_session_window(&info, &labels) {
         Some(id) => niri::focus_window(id)?,
         None => niri::spawn(project::project_terminal_command(dir, s, true))?,
     }
@@ -492,22 +498,50 @@ Num       RefCount Protocol Flags    Type St Inode Path
 
     const GHOSTTY: &str = "com.mitchellh.ghostty";
 
+    fn labels(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| n.to_string()).collect()
+    }
+
     #[test]
     fn finds_the_ghostty_window_whose_title_ends_with_the_label() {
         let windows = [(1, Some(GHOSTTY), Some("paul-msi-ubuntu: hansard"))];
-        assert_eq!(find_session_window(&windows, "hansard"), Some(1));
+        assert_eq!(find_session_window(&windows, &labels(&["hansard"])), Some(1));
+    }
+
+    /// After Start working, herdr's title names the task's worktree
+    /// workspace, not the project's: the window is still the session's.
+    #[test]
+    fn finds_the_window_showing_a_worktree_workspace() {
+        let windows = [(4, Some(GHOSTTY), Some("paul-msi-ubuntu: task/fix-it-6a970973"))];
+        let session = labels(&["niri-tasks", "task/fix-it-6a970973"]);
+        assert_eq!(find_session_window(&windows, &session), Some(4));
+    }
+
+    /// Another session's worktree is not this session's window, even though
+    /// both titles start with `task/`.
+    #[test]
+    fn a_worktree_of_another_session_does_not_match() {
+        let windows = [(4, Some(GHOSTTY), Some("paul-msi-ubuntu: task/other-1234abcd"))];
+        let session = labels(&["niri-tasks", "task/fix-it-6a970973"]);
+        assert_eq!(find_session_window(&windows, &session), None);
     }
 
     #[test]
     fn no_window_matches_a_different_label() {
         let windows = [(1, Some(GHOSTTY), Some("paul-msi-ubuntu: other"))];
-        assert_eq!(find_session_window(&windows, "hansard"), None);
+        assert_eq!(find_session_window(&windows, &labels(&["hansard"])), None);
+    }
+
+    #[test]
+    fn a_session_with_no_workspaces_matches_no_window() {
+        let windows = [(1, Some(GHOSTTY), Some("paul-msi-ubuntu: hansard"))];
+        assert_eq!(find_session_window(&windows, &[]), None);
     }
 
     #[test]
     fn a_different_app_id_with_the_matching_title_does_not_match() {
         let windows = [(1, Some("org.wezfurlong.wezterm"), Some("paul-msi-ubuntu: hansard"))];
-        assert_eq!(find_session_window(&windows, "hansard"), None);
+        assert_eq!(find_session_window(&windows, &labels(&["hansard"])), None);
     }
 
     /// "tasks" must not match a title ending "niri-tasks" — a label that is a
@@ -515,6 +549,6 @@ Num       RefCount Protocol Flags    Type St Inode Path
     #[test]
     fn a_label_that_is_a_suffix_of_another_label_does_not_match() {
         let windows = [(1, Some(GHOSTTY), Some("paul-msi-ubuntu: niri-tasks"))];
-        assert_eq!(find_session_window(&windows, "tasks"), None);
+        assert_eq!(find_session_window(&windows, &labels(&["tasks"])), None);
     }
 }

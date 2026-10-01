@@ -252,14 +252,20 @@ pub fn created_tab_id(created: &Value) -> Option<String> {
     created["result"]["tab"]["tab_id"].as_str().map(str::to_string)
 }
 
-/// The session's first herdr workspace's label.
+/// Every herdr workspace's label in the session, in herdr's order.
 ///
-/// A project session names its one workspace after the project, and this is
-/// also the string herdr's default `window_title` puts after `": "` in the
-/// outer terminal's title — which is how `refine` tells whether that terminal
-/// is still open.
-pub fn first_workspace_label(list: &Value) -> Option<String> {
-    list["result"]["workspaces"].get(0)?["label"].as_str().map(str::to_string)
+/// herdr's default `window_title` is `"{hostname}: {workspace}"`, where
+/// `{workspace}` is the label of the herdr workspace that client has focused:
+/// the project's own workspace, or a task's worktree after Start working.
+/// `refine` looks for the outer terminal by any of these labels, because
+/// which one the title shows depends on what the user last focused.
+pub fn workspace_labels(list: &Value) -> Vec<String> {
+    list["result"]["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|w| w["label"].as_str().map(str::to_string))
+        .collect()
 }
 
 /// Close a tab. Used, best-effort, to clean up a bare-shell tab left behind
@@ -442,16 +448,16 @@ mod tests {
 
     /// Shapes copied from herdr 0.9.1's real responses, like `ids_are_read_…` above.
     #[test]
-    fn workspace_label_and_tab_id_are_read_from_herdr_responses() {
+    fn workspace_labels_and_tab_id_are_read_from_herdr_responses() {
         let list: Value = serde_json::from_str(
-            r#"{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w1","label":"hansard"}]}}"#,
+            r#"{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w1","label":"niri-tasks","focused":false},{"workspace_id":"wF","label":"task/fix-it-6a970973","focused":true}]}}"#,
         ).unwrap();
-        assert_eq!(first_workspace_label(&list).as_deref(), Some("hansard"));
+        assert_eq!(workspace_labels(&list), vec!["niri-tasks", "task/fix-it-6a970973"]);
 
         let empty: Value = serde_json::from_str(
             r#"{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[]}}"#,
         ).unwrap();
-        assert_eq!(first_workspace_label(&empty), None);
+        assert!(workspace_labels(&empty).is_empty());
 
         let created: Value = serde_json::from_str(
             r#"{"id":"cli:tab:create","result":{"root_pane":{"pane_id":"w1:p2","tab_id":"w1:t2"},"tab":{"tab_id":"w1:t2"},"type":"tab_created"}}"#,
