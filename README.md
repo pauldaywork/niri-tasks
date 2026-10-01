@@ -109,6 +109,11 @@ folder to be a git repository: worktrunk makes the task's worktree and runs the
 repo's `.config/wt.toml` hooks, asking in a herdr tab the first time a repo's
 hooks need approving.
 
+A Claude you start by hand in a herdr pane is linked to a task when it marks
+that task active (`niritasks task status <uuid> active`): its agent is named
+`work-<uuid8>`, the name Start working gives its own, so the task's menu can
+find it. An agent already named by Refine or Start working keeps its name.
+
 When the work is done, `/finish-worktree` in that worktree's Claude lands it:
 it syncs `main` with origin, rebases the branch and tests the result, then
 fast-forwards `main`, pushes, marks the task completed with `niritasks task status`,

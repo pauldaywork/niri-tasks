@@ -52,6 +52,13 @@ pub fn agent_focus(session: &str, name: &str) -> Vec<String> {
     cmd(session, &["agent", "focus", name])
 }
 
+/// Give the agent in a pane a name — how a Claude started by hand gets the
+/// `work-<uuid8>` name Start working would have given it, so the task's menu
+/// can find it. Targets the pane, since an unnamed agent has nothing else.
+pub fn agent_rename(session: &str, target: &str, name: &str) -> Vec<String> {
+    cmd(session, &["agent", "rename", target, name])
+}
+
 /// The standing instruction a refine session starts with, in Claude's system
 /// prompt rather than only in the skill: it carries more weight there, and it
 /// survives the conversation being summarised, which a skill's text may not.
@@ -142,6 +149,12 @@ pub fn run_coded(argv: &[String]) -> Result<std::result::Result<Value, (Option<S
 /// `working`, `blocked`, `done` or `unknown`.
 pub fn agent_status(got: &Value) -> Option<String> {
     got["result"]["agent"]["agent_status"].as_str().map(str::to_string)
+}
+
+/// An agent's name from an `agent get` response, or `None` for one nobody
+/// has named — a Claude started by hand rather than by `agent start`.
+pub fn agent_name_of(got: &Value) -> Option<String> {
+    got["result"]["agent"]["name"].as_str().map(str::to_string)
 }
 
 /// Open an existing git worktree as its own herdr workspace, grouped under
@@ -436,5 +449,26 @@ mod tests {
         let stderr = br#"{"id":"cli:agent:get","error":{"code":"agent_not_found","message":"agent target task-nope not found"}}"#;
         assert_eq!(error_message(stderr), "agent target task-nope not found");
         assert_eq!(error_message(b"usage: herdr ...\n"), "usage: herdr ...", "non-JSON passes through");
+    }
+
+    /// By pane id, which is what a process inside the pane knows itself by.
+    #[test]
+    fn an_agent_is_renamed_by_its_pane() {
+        assert_eq!(
+            agent_rename("alpha", "w1:p2", "work-1234abcd"),
+            vec!["herdr", "--session", "alpha", "agent", "rename", "w1:p2", "work-1234abcd"]
+        );
+    }
+
+    /// Shape from herdr 0.9.1's `agent get`. A Claude started by hand, which
+    /// nobody has named, has no `name` at all.
+    #[test]
+    fn an_agents_name_is_read_from_agent_get() {
+        let named: Value =
+            serde_json::from_str(r#"{"result":{"agent":{"agent":"claude","name":"work-1","pane_id":"w7:p1"}}}"#).unwrap();
+        assert_eq!(agent_name_of(&named).as_deref(), Some("work-1"));
+        let unnamed: Value =
+            serde_json::from_str(r#"{"result":{"agent":{"agent":"claude","pane_id":"w7:p1"}}}"#).unwrap();
+        assert_eq!(agent_name_of(&unnamed), None);
     }
 }

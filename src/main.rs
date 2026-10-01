@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
-    github, ipc, niri, notify, picker::Picker, project, refine, require_workspace_tag, session,
+    github, ipc, link, niri, notify, picker::Picker, project, refine, require_workspace_tag, session,
     task, taskbox, text, work,
 };
 
@@ -452,8 +452,18 @@ fn task_status(uuid: &str, description: &str, width: usize) -> Result<()> {
 /// Move a task and say so. The one place both the menu and `task status` do
 /// it, so a task marked done from a script looks exactly like one marked done
 /// from its card.
+///
+/// Marking a task active from inside a herdr pane also names that pane's
+/// agent after it (see `link::link_current_pane`): that is how a Claude
+/// started by hand becomes findable from the task's menu. Best effort — the
+/// task is active either way, so a refused rename is only reported.
 fn apply_status(uuid: &str, description: &str, status: task::Status) -> Result<()> {
     task::set_status(uuid, status)?;
+    if status == task::Status::Active {
+        if let Err(e) = link::link_current_pane(uuid) {
+            eprintln!("{e:#}");
+        }
+    }
     notify::tasks(&format!("{}: {description}", status.label()));
     Ok(())
 }
