@@ -587,8 +587,8 @@ impl Panel {
     /// Act on a key while the panel has the keyboard. Up and Down land on the
     /// next card's body, Left, Right and Tab move along the focused card, and
     /// a letter presses that card's button. If the card has no such button
-    /// (Stop on a task that is not active, Go to session on one with no Claude, anything on "+N more"), nothing
-    /// happens.
+    /// (Stop on a task that is not active, Go to session on one with no Claude,
+    /// anything on "+N more"), nothing happens.
     fn key(self: &Rc<Self>, action: KeyAction) {
         if action == KeyAction::Release {
             self.release_keyboard();

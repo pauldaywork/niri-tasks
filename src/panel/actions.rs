@@ -62,8 +62,8 @@ impl Action {
     }
 
     /// What the button shows: a glyph, so the row stays narrow. Font Awesome's,
-    /// from the same Nerd Font as the cards' lock: play, magic wand, pencil,
-    /// stop and trash can.
+    /// from the same Nerd Font as the cards' lock: terminal, play, magic wand,
+    /// pencil, stop and trash can.
     pub fn icon(self) -> &'static str {
         match self {
             Session => "\u{f120}",

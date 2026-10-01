@@ -43,9 +43,9 @@ pub const TEXT: &str = "#f0f0f0";
 /// the palette the desktop's error and warning colours come from.
 pub const ACTIVE: &str = "#8cd283";
 /// The keyboard's action buttons, each its own colour from the same Catppuccin
-/// palette as [`ACTIVE`] (mocha's): Go to session blue, Refine mauve, Edit yellow, Stop peach,
-/// Remove red. Start shares [`ACTIVE`]'s green, because starting a task is what
-/// turns its card green.
+/// palette as [`ACTIVE`] (mocha's): Go to session blue, Refine mauve, Edit
+/// yellow, Stop peach, Remove red. Start shares [`ACTIVE`]'s green, because
+/// starting a task is what turns its card green.
 pub const REFINE: &str = "#cba6f7";
 /// Edit yellow.
 pub const EDIT: &str = "#f9e2af";
