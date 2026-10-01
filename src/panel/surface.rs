@@ -36,6 +36,11 @@
 //! body opens the whole menu. Escape, or anything that runs, hands the
 //! keyboard back and folds the cards to one line again.
 //!
+//! Wrapped, the cards can stand taller than the screen, so the column sits in
+//! a scroller capped at the screen's height less its margins. Moving the focus
+//! scrolls the focused card wholly into view, and the blur region moves with
+//! the scroll and stops at the view's edges.
+//!
 //! It is held with exclusive keyboard mode throughout, as fuzzel does. niri
 //! gives an on-demand layer surface focus only after a click on it, so
 //! switching to on-demand once focused would drop the focus at once.
@@ -85,6 +90,11 @@ pub struct Panel {
     output: String,
     column: gtk4::Box,
     base: gtk4::Box,
+    /// Scrolls the column once it is taller than the screen.
+    scroller: gtk4::ScrolledWindow,
+    /// For its height, which caps the column's: read at each render, since a
+    /// scale change alters it.
+    monitor: gdk::Monitor,
     slide: Rc<Slide>,
     /// Every card, uncapped; what is on screen is `model::cap` of these unless
     /// `expanded`.
@@ -110,7 +120,8 @@ struct Slide {
     start_us: Cell<i64>,
     ticking: Cell<bool>,
     grace: Cell<Option<glib::SourceId>>,
-    /// The cards' total height, which the input region needs.
+    /// The cards' height on screen: all of them, or the scroller's when they
+    /// run past the screen. The input region needs it.
     cards_h: Cell<i32>,
 }
 
@@ -136,14 +147,27 @@ impl Panel {
         let base = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         let overlay = gtk4::Overlay::new();
         overlay.set_child(Some(&base));
-        overlay.add_overlay(&column);
+        // A viewport made by hand, to turn off its own scroll-to-focus. That
+        // would show only the focused button, leaving the rest of its card
+        // off screen; follow_focus scrolls the whole card into view instead.
+        let viewport = gtk4::Viewport::new(None::<&gtk4::Adjustment>, None::<&gtk4::Adjustment>);
+        viewport.set_scroll_to_focus(false);
+        viewport.set_child(Some(&column));
+        let scroller = gtk4::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk4::PolicyType::Never)
+            .vscrollbar_policy(gtk4::PolicyType::Automatic)
+            .child(&viewport)
+            .build();
+        overlay.add_overlay(&scroller);
         window.set_child(Some(&overlay));
 
         let panel = Rc::new(Panel {
             window,
             output: monitor.connector().map(|c| c.to_string()).unwrap_or_default(),
+            monitor: monitor.clone(),
             column,
             base,
+            scroller,
             slide: Rc::new(Slide {
                 x: Cell::new(TUCKED_X),
                 from: Cell::new(TUCKED_X),
@@ -239,12 +263,23 @@ impl Panel {
         }
         panel.window.add_controller(key_controller);
 
+        // The blur region is in surface coordinates, so it moves with the scroll.
+        {
+            let weak = Rc::downgrade(&panel);
+            panel.scroller.vadjustment().connect_value_changed(move |_| {
+                if let Some(p) = weak.upgrade() {
+                    p.update_blur(p.slide.x.get());
+                }
+            });
+        }
+
         // Moving off an armed Remove disarms it.
         {
             let weak = Rc::downgrade(&panel);
             panel.window.connect_notify_local(Some("focus-widget"), move |_, _| {
                 if let Some(p) = weak.upgrade() {
                     p.disarm_unless_focused();
+                    p.follow_focus();
                 }
             });
         }
@@ -379,8 +414,9 @@ impl Panel {
         *self.heights.borrow_mut() = heights;
 
         let (_, cards_h, _, _) = self.column.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX);
-        self.slide.cards_h.set(cards_h);
-        let height = cards_h + 2 * SHADOW_PX;
+        let shown = shown_height(cards_h, self.monitor.geometry().height());
+        self.slide.cards_h.set(shown);
+        let height = shown + 2 * SHADOW_PX;
         // Both calls: the size request lets the surface grow, the default size
         // lets it shrink back when the list gets shorter.
         self.base.set_size_request(SURFACE_WIDTH, height);
@@ -556,6 +592,23 @@ impl Panel {
         button.remove_css_class("confirm");
     }
 
+    /// Scroll the focused card wholly into view, body and buttons, once the
+    /// frame after the move has laid it out. A card just rendered has no place
+    /// in the column until then.
+    fn follow_focus(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        crate::taskbox::after_next_paint(&self.window, move || {
+            let Some(p) = weak.upgrade() else { return };
+            let Some(focus) = GtkWindowExt::focus(&p.window) else { return };
+            let Some(card) = p.card_of(&focus) else { return };
+            let Some(bounds) = card.compute_bounds(&p.column) else { return };
+            let adjustment = p.scroller.vadjustment();
+            let top = bounds.y() as f64;
+            let bottom = top + bounds.height() as f64;
+            adjustment.set_value(scroll_to_show(adjustment.value(), adjustment.page_size(), top, bottom));
+        });
+    }
+
     /// The card a widget is in: the one of the column's children it sits
     /// inside.
     fn card_of(&self, widget: &gtk4::Widget) -> Option<gtk4::Widget> {
@@ -596,13 +649,17 @@ impl Panel {
         let x = x.round() as i32;
         let width = CARD_WIDTH_PX.min(SURFACE_WIDTH - x);
         let on_screen = x + CARD_WIDTH_PX <= SURFACE_WIDTH;
-        let mut y = SHADOW_PX;
+        // The cards as laid out in the column, moved up by however far it is
+        // scrolled, and cut to the part of the column on screen.
+        let scrolled = self.scroller.vadjustment().value().round() as i32;
+        let mut y = SHADOW_PX - scrolled;
         let mut rects = Vec::new();
         for &h in self.heights.borrow().iter() {
             rects.extend(blur::card_region((x, y, width, h), RADIUS_PX, on_screen));
             y += h + GAP_PX;
         }
-        blur.set(&rects);
+        let top = SHADOW_PX;
+        blur.set(&blur::clip_rows(&rects, top, top + self.slide.cards_h.get()));
     }
 
     fn slide_to(self: &Rc<Self>, target: f64) {
@@ -711,5 +768,63 @@ pub fn open_menu(output: &str, args: &[String]) {
         });
     if let Err(e) = result {
         crate::notify::tasks(&e.to_string());
+    }
+}
+
+/// How tall the column of cards is on screen: all of it, or as much as fits
+/// inside the screen's margins, with the rest scrolled. Only the keyboard's
+/// wrapped cards, or "+N more" opened onto a long list, get that tall.
+fn shown_height(cards_h: i32, screen_h: i32) -> i32 {
+    cards_h.min(screen_h - 2 * (SHADOW_PX + EDGE_GAP_PX)).max(0)
+}
+
+/// The scroll position that shows all of `top..bottom`, moving as little as it
+/// can from `value` with `page` of the column in view. A card taller than the
+/// page shows its top.
+fn scroll_to_show(value: f64, page: f64, top: f64, bottom: f64) -> f64 {
+    if top < value || bottom - top > page {
+        top
+    } else if bottom > value + page {
+        bottom - page
+    } else {
+        value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_short_column_shows_whole() {
+        assert_eq!(shown_height(400, 1080), 400);
+    }
+
+    #[test]
+    fn a_tall_column_stops_at_the_screens_margins() {
+        // 1080 less the shadow room and the edge gap, top and bottom.
+        assert_eq!(shown_height(5000, 1080), 1080 - 2 * (SHADOW_PX + EDGE_GAP_PX));
+    }
+
+    #[test]
+    fn a_card_in_view_does_not_scroll() {
+        assert_eq!(scroll_to_show(100.0, 500.0, 150.0, 300.0), 100.0);
+    }
+
+    #[test]
+    fn a_card_below_scrolls_up_until_its_bottom_shows() {
+        assert_eq!(scroll_to_show(0.0, 500.0, 450.0, 600.0), 100.0);
+    }
+
+    #[test]
+    fn a_card_above_scrolls_down_to_its_top() {
+        assert_eq!(scroll_to_show(300.0, 500.0, 100.0, 250.0), 100.0);
+    }
+
+    /// Taller than the screen: its top, where the icon and the start of the
+    /// description are.
+    #[test]
+    fn a_card_taller_than_the_page_shows_its_top() {
+        assert_eq!(scroll_to_show(0.0, 500.0, 200.0, 900.0), 200.0);
     }
 }

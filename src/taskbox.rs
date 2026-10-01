@@ -520,7 +520,7 @@ fn follow_focus(window: &ApplicationWindow, scroll: &gtk4::ScrolledWindow, list:
 
 /// Run `f` once, after the window's next frame has been painted — by which
 /// point everything queued before it has been measured and placed.
-fn after_next_paint(window: &ApplicationWindow, f: impl FnOnce() + 'static) {
+pub(crate) fn after_next_paint(window: &ApplicationWindow, f: impl FnOnce() + 'static) {
     let Some(clock) = window.frame_clock() else {
         return;
     };

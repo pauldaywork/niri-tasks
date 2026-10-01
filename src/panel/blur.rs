@@ -120,6 +120,19 @@ pub fn card_region((x, y, w, h): Rect, radius: i32, round_right: bool) -> Vec<Re
     rects
 }
 
+/// Only the parts of `rects` between rows `top` and `bottom`. A scrolled
+/// column has cards above and below the view, and there is nothing on screen
+/// to blur behind those.
+pub fn clip_rows(rects: &[Rect], top: i32, bottom: i32) -> Vec<Rect> {
+    rects
+        .iter()
+        .filter_map(|&(x, y, w, h)| {
+            let (from, to) = (y.max(top), (y + h).min(bottom));
+            (to > from).then_some((x, from, w, to - from))
+        })
+        .collect()
+}
+
 pub struct Handler;
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Handler {
@@ -226,5 +239,21 @@ mod tests {
         for &(_, _, w, h) in &rects {
             assert!(w >= 0 && h >= 0);
         }
+    }
+
+    #[test]
+    fn clipping_keeps_what_is_inside_whole() {
+        assert_eq!(clip_rows(&[(0, 20, 10, 5)], 16, 100), vec![(0, 20, 10, 5)]);
+    }
+
+    #[test]
+    fn clipping_trims_a_strip_across_either_edge() {
+        assert_eq!(clip_rows(&[(0, 10, 10, 20)], 16, 100), vec![(0, 16, 10, 14)]);
+        assert_eq!(clip_rows(&[(0, 90, 10, 20)], 16, 100), vec![(0, 90, 10, 10)]);
+    }
+
+    #[test]
+    fn clipping_drops_what_is_scrolled_out_of_view() {
+        assert!(clip_rows(&[(0, 0, 10, 16), (0, 100, 10, 5)], 16, 100).is_empty());
     }
 }
