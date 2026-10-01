@@ -363,19 +363,17 @@ impl Panel {
         {
             let weak = Rc::downgrade(&panel);
             key_controller.connect_key_pressed(move |_, key, _, state| {
-                // Ctrl, Alt and Super chords belong to the compositor and the
-                // focused widget, not to the letters: Ctrl+T must not Stop.
-                if state.intersects(
-                    gdk::ModifierType::CONTROL_MASK
-                        | gdk::ModifierType::ALT_MASK
-                        | gdk::ModifierType::SUPER_MASK,
-                ) {
+                // Alt and Super chords belong to the compositor and the
+                // focused widget, not to the letters. Ctrl chords do too,
+                // bar Ctrl+Enter, which key_action picks out: Ctrl+T must not
+                // Stop.
+                if state.intersects(gdk::ModifierType::ALT_MASK | gdk::ModifierType::SUPER_MASK) {
                     return glib::Propagation::Proceed;
                 }
                 let Some(p) = weak.upgrade() else {
                     return glib::Propagation::Proceed;
                 };
-                match keys::key_action(key) {
+                match keys::key_action(key, state.contains(gdk::ModifierType::CONTROL_MASK)) {
                     KeyAction::Ignore => glib::Propagation::Proceed,
                     action => {
                         p.key(action);
@@ -804,7 +802,9 @@ impl Panel {
     /// a letter presses that card's button. If the card has no such button
     /// (Stop on a task that is not active, Go to session on one with no Claude,
     /// anything on "+N more"), nothing happens. 1 to 5, [ and ] pick a filter
-    /// tab instead, whatever has focus.
+    /// tab instead, whatever has focus. Ctrl+Enter refines the focused task,
+    /// or starts it once it is planned, and keeps the keyboard so the list
+    /// stays up.
     fn key(self: &Rc<Self>, action: KeyAction) {
         match action {
             KeyAction::Release => return self.release_keyboard(),
@@ -862,12 +862,31 @@ impl Panel {
                     button.emit_clicked();
                 }
             }
+            KeyAction::Advance => self.advance(&card, &slots),
             KeyAction::Release
             | KeyAction::Ignore
             | KeyAction::Filter(_)
             | KeyAction::PrevFilter
             | KeyAction::NextFilter => {}
         }
+    }
+
+    /// Ctrl+Enter on `card`: run its Refine, or its Start once it is planned,
+    /// without releasing the keyboard or moving focus, so the user can go on
+    /// down the list. Not through `press`, which gives the keyboard back. Like
+    /// the letters, only a button the card has; the spawned command reports
+    /// its own errors.
+    fn advance(&self, card: &gtk4::Widget, slots: &[gtk4::Widget]) {
+        let uuid = card.widget_name();
+        let found = self.all.borrow().iter().find(|c| c.uuid.as_deref() == Some(uuid.as_str())).cloned();
+        let Some(task) = found else { return };
+        let Some(action) = Action::advance(task.status, task.planned) else { return };
+        if !slots.iter().any(|s| s.widget_name() == action.name()) {
+            return;
+        }
+        let verb = if action == Action::Refine { "Refining" } else { "Starting" };
+        crate::notify::tasks(&format!("{verb}: {}", task.text));
+        open_menu(&self.output, &action.args(&uuid));
     }
 
     /// Moving the focus away from an armed Remove puts it back to Remove, so a

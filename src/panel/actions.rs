@@ -95,6 +95,18 @@ impl Action {
         }
     }
 
+    /// The button Ctrl+Enter presses for a card: Refine until the task has a
+    /// plan, then Start. Nothing once a planned task is being worked, nor on a
+    /// waiting task or "+N more", which have no step to take.
+    pub fn advance(status: Status, planned: bool) -> Option<Action> {
+        match status {
+            Status::Waiting | Status::More => None,
+            Status::Active if planned => None,
+            _ if planned => Some(Start),
+            _ => Some(Refine),
+        }
+    }
+
     /// The button's CSS class, which gives it its colour, and its widget name,
     /// which lets a re-render put focus back on the same button.
     pub fn name(self) -> &'static str {
@@ -131,6 +143,38 @@ impl Action {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Refine until the task has a plan, then Start working; nothing once a
+    /// planned task is being worked, nor on a waiting task or "+N more".
+    #[test]
+    fn ctrl_enter_refines_an_unplanned_task_and_starts_a_planned_one() {
+        assert_eq!(Action::advance(Status::Pending, false), Some(Refine));
+        assert_eq!(Action::advance(Status::Blocked, false), Some(Refine));
+        assert_eq!(Action::advance(Status::Active, false), Some(Refine));
+        assert_eq!(Action::advance(Status::Planned, true), Some(Start));
+        assert_eq!(Action::advance(Status::Blocked, true), Some(Start));
+        assert_eq!(Action::advance(Status::Active, true), None);
+        assert_eq!(Action::advance(Status::Waiting, false), None);
+        assert_eq!(Action::advance(Status::Waiting, true), None);
+        assert_eq!(Action::advance(Status::More, false), None);
+    }
+
+    /// What Ctrl+Enter picks is always one of the card's own buttons, so the
+    /// key never does something no click could.
+    #[test]
+    fn ctrl_enter_only_presses_a_button_the_card_has() {
+        let all = [Status::Active, Status::Pending, Status::Blocked, Status::Planned, Status::Waiting, Status::More];
+        for status in all {
+            for planned in [false, true] {
+                if let Some(action) = Action::advance(status, planned) {
+                    assert!(
+                        Action::for_status(status, false).contains(&action),
+                        "{status:?} planned={planned} picks {action:?}, which it has no button for"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn an_active_task_gets_stop_in_place_of_start() {
