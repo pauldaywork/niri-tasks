@@ -46,8 +46,15 @@ _Avoid_: pill, overlay, widget, sidebar, drawer
 
 **Task card**:
 One task in the task panel, drawn like a notification: a status icon and a
-one-line description.
+one-line description — or, while the task panel has the keyboard, the whole
+description wrapped, above its action row.
 _Avoid_: row (that is the picker's word), item, block
+
+**Action row**:
+The buttons along a task card's bottom edge while the task panel has the
+keyboard — Start working, Refine, Edit, Stop (an active task only) and
+Remove — each running what the same entry in the task's action menu runs.
+_Avoid_: toolbar, button bar, quick actions
 
 **Peek**:
 The strip of each task card left showing when the task panel is tucked away.

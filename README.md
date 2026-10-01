@@ -16,7 +16,7 @@ from — opening one, or moving a task to another workspace.
 | Key | Does |
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
-| `Mod+Alt+Ctrl+T` | Pick one of this workspace's tasks on the task panel — edit, note, refine or grill it into a plan with Claude, start working on it in its own worktree, update its status (active, stopped, waiting, completed, deleted), move to another workspace. With no tasks, or no daemon, the fuzzel list instead |
+| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard: every card shows its whole description, with buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, stop it, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+W` | Create a new workspace and name it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
@@ -30,7 +30,7 @@ another task, or a clipboard-check for one already worked up into a plan with
 Claude from the menu's **Refine** or **Grill me**. Up to eight, then a "+N
 more" card.
 
-The panel sits tucked away with only a 60px peek of each card showing. Move the
+The panel sits tucked away with only a 30px peek of each card showing. Move the
 pointer onto it and the cards slide out to full width; move away and they slide
 back. The space around the cards is click-through, so the panel never gets in
 the way of the windows beneath, and a fullscreen window covers it. An unnamed
@@ -40,9 +40,24 @@ Click a card to open that task's actions in fuzzel — the same menu the picker
 shows once you pick a task — on the monitor you clicked. The "+N more" card
 shows the rest of the tasks in the panel.
 
-`Mod+Alt+Ctrl+T` does the same from the keyboard: the panel slides out and
-takes the keyboard, the arrow keys move a darker fill between cards, and
-Enter acts as a click. Escape tucks it away again.
+`Mod+Alt+Ctrl+T` slides the panel out and hands it the keyboard. Every card
+opens up to its whole description, wrapped, above a row of buttons:
+
+| Button | Key | Does |
+|---|---|---|
+| **Start working** (green) | `s` | The menu's Start working: the task's own worktree, herdr tab and Claude, or back to them |
+| **Refine** (mauve) | `r` | Work it up into a plan with Claude |
+| **Edit** (yellow) | `e` | Open it in the task box |
+| **Stop** (peach) | `t` | Stop it — only on an active task |
+| **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back |
+
+Up and Down move a darker fill between cards; Left, Right and Tab move
+along the focused card's buttons, and Enter presses the focused one. Enter on
+the card itself opens its full menu, which also has Note, Grill me, Update
+status and Move to workspace. Every button gives the keyboard back as it runs,
+and Escape tucks the panel away, folding the cards back to one line. A list
+taller than the screen scrolls, keeping the focused card in view. Hovering
+never shows the buttons — only the keyboard does.
 
 The cards are shaped like mako notifications and take a terminal window's font
 and colours: a dark tint over blurred wallpaper, with niri's faint focus-ring outline
@@ -230,7 +245,7 @@ only run half of it. It warns you before the two that take the machine over.
 | `tests/all.sh` | Nothing of its own — whatever is missing is skipped and named | Whatever the suites it ends up running touch |
 | `cargo test` | `taskwarrior` on `$PATH`, and `bash` for the differential suite | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
 | `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the name of that spare workspace, taken off again. No herdr session and no task database at all |
-| `tests/e2e-panel.sh` | niri, `python3-pil`, taskwarrior | Screenshots, so **your clipboard**; and the `niri-tasks` daemon. It removes every screenshot it takes and leaves the rest of the directory alone |
+| `tests/e2e-panel.sh` | niri, `python3-pil`, taskwarrior; `wtype` for its Escape check, which is skipped without it | Screenshots, so **your clipboard**; and the `niri-tasks` daemon. It removes every screenshot it takes and leaves the rest of the directory alone |
 | `tests/e2e-box.sh` | `wtype`, a Wayland session, niri | **Your keyboard**, and the `niri-tasks` daemon |
 
 Narrowing `cargo test` works as usual — `cargo test --lib`, `cargo test --test
@@ -247,10 +262,14 @@ It cannot move the pointer, so the hover is checked by hand after a change to
 `src/panel/surface.rs`: the peek slides out when the pointer reaches it and back
 about 0.4s after it leaves, the slide is smooth, and a click just left of the
 peek, or between two cards, lands on the window beneath, while a click on a
-card opens its actions on that monitor. And the keyboard: `Mod+Alt+Ctrl+T`
-slides the panel out with the first card darkened, the arrows move the darkening,
-Enter opens the menu, Enter on "+N more" shows the rest, and Escape tucks it
-away.
+card opens its actions on that monitor. And the keyboard, past what the script measures: `Mod+Alt+Ctrl+T` slides the
+panel out with every card wrapped and the first darkened, Stop only on active
+tasks; Up and Down move between cards, Left, Right and Tab along the buttons;
+`s` starts working exactly as the menu does, `r` refines, `e` opens the box,
+`t` stops; Delete arms Remove and only a second Delete deletes, while moving
+away disarms it; Enter on a card opens the menu, Enter on "+N more" shows the
+rest, and a list taller than the screen scrolls with the focus; Escape tucks it
+away to the one-line peek.
 
 Two things about `e2e-box.sh` in particular. It **types into whatever has
 focus**, so start it and leave the keyboard alone until it finishes; anything
