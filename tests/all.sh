@@ -4,13 +4,12 @@
 #   bash tests/all.sh
 #
 # There are four suites and they do not have the same prerequisites: one needs
-# only cargo and taskwarrior, one needs niri, one needs Pillow and a
-# compositor that will take screenshots, one needs wtype and a Wayland display.
-# A machine missing any of them is the normal case — an SSH session has no
-# Wayland display, a fresh checkout has no wtype — and that is the whole reason
-# this file exists. Running the four by hand means reading four error messages
-# and deciding, each time, whether "wtype is required" meant the code is broken
-# or the machine is.
+# only cargo and taskwarrior, one needs niri, one needs Pillow and niri to nest
+# a niri in, one needs wtype and a Wayland display. A machine missing any of
+# them is the normal case — an SSH session has no Wayland display, a fresh
+# checkout has no wtype — and that is the whole reason this file exists.
+# Running the four by hand means reading four error messages and deciding, each
+# time, whether "wtype is required" meant the code is broken or the machine is.
 #
 # So each suite's prerequisites are checked here first, and one that cannot run
 # is reported as SKIP with the reason. A skip is not a failure: this exits
@@ -23,11 +22,11 @@
 # silent, and the right way round for a mistake like that to land.
 #
 # They run in order of how much they take over the machine: cargo test touches
-# nothing, e2e-tag.sh at most names a spare workspace, e2e-panel.sh takes screenshots and
-# with them the clipboard, and e2e-box.sh types into whatever has focus. So the
-# cheap suites have already reported by the time you have to leave the keyboard
-# alone, and a failure in the fast half does not cost you a minute of not
-# touching the machine to find out about.
+# nothing, e2e-tag.sh at most names a spare workspace,
+# e2e-panel.sh opens a nested niri on a spare workspace, and e2e-box.sh types
+# into whatever has focus. So the cheap suites have already reported by the time
+# you have to leave the keyboard alone, and a failure in the fast half does not
+# cost you a minute of not touching the machine to find out about.
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 1
@@ -56,6 +55,7 @@ why_panel() {
     command -v niri >/dev/null || { echo "no niri"; return; }
     command -v task >/dev/null || { echo "no taskwarrior on \$PATH"; return; }
     [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)"; return; }
+    [ -n "${WAYLAND_DISPLAY:-}" ] || { echo "no Wayland display"; return; }
     python3 -c "import PIL" 2>/dev/null || { echo "no python3 Pillow (sudo apt install python3-pil)"; return; }
 }
 why_box() {
@@ -89,11 +89,15 @@ suite "tests/e2e-tag.sh"     "$(why_tag)"     bash tests/e2e-tag.sh
 
 if [ -z "$(why_panel)" ]; then
     echo
-    echo "  ! the next two suites take the machine over: screenshots use the"
-    echo "    clipboard, and the box test types into whatever has focus."
-    echo "    Leave the keyboard alone until they finish."
+    echo "  ! the panel test parks a nested niri on the last workspace of this"
+    echo "    monitor: keep off that workspace until it finishes."
 fi
 suite "tests/e2e-panel.sh" "$(why_panel)" bash tests/e2e-panel.sh
+if [ -z "$(why_box)" ]; then
+    echo
+    echo "  ! the box test types into whatever has focus."
+    echo "    Leave the keyboard alone until it finishes."
+fi
 suite "tests/e2e-box.sh"     "$(why_box)"     bash tests/e2e-box.sh
 
 echo

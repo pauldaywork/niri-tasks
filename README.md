@@ -234,11 +234,11 @@ the cards alone instead, and niri takes noise and saturation from the rule.
 ### Running the tests
 
 ```bash
-bash tests/all.sh           # everything this machine can run       ~105s
+bash tests/all.sh           # everything this machine can run       ~100s
 
 cargo test                  # unit, differential, write-path        ~2s
 bash tests/e2e-tag.sh       # `niritasks tag --session`, against real niri ~1s
-bash tests/e2e-panel.sh     # the task panel, measured in pixels    ~35s
+bash tests/e2e-panel.sh     # the task panel, in a nested niri       ~30s
 bash tests/e2e-box.sh       # the task box, driven by real keys     ~65s
 ```
 
@@ -256,22 +256,22 @@ only run half of it. It warns you before the two that take the machine over.
 | `tests/all.sh` | Nothing of its own — whatever is missing is skipped and named | Whatever the suites it ends up running touch |
 | `cargo test` | `taskwarrior` on `$PATH`, and `bash` for the differential suite | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
 | `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the name of that spare workspace, taken off again. No herdr session and no task database at all |
-| `tests/e2e-panel.sh` | niri, `python3-pil`, taskwarrior; `wtype` for its Escape check, which is skipped without it | Screenshots, so **your clipboard**; and the `niri-tasks` daemon. It removes every screenshot it takes and leaves the rest of the directory alone |
+| `tests/e2e-panel.sh` | niri, a Wayland session, `python3-pil`, taskwarrior; `wtype` for its keyboard checks, which are skipped without it | A nested niri window for the run, parked on the spare workspace at the end of your monitor; keep off that workspace until it finishes. Not your clipboard, your screenshots or the `niri-tasks` daemon |
 | `tests/e2e-box.sh` | `wtype`, a Wayland session, niri | **Your keyboard**, and the `niri-tasks` daemon |
 
 Narrowing `cargo test` works as usual — `cargo test --lib`, `cargo test --test
 write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
 
-`e2e-panel.sh` needs the right edge to hold still — it works by comparing
-frames — so it checks that first and tells you what to move rather than
-reporting a flaky answer. An animated wallpaper never holds still, so swap in a
-still one for the run. Where the keyboard puts the panel is measured between
-two frames of it, before and after Down moves the darker card, so it needs
-`wtype` but not a still middle; only the check that Escape leaves the middle
-clear does, and it is skipped when a terminal there is redrawing. Don't switch
-workspaces while it runs: the panel follows the workspace, and so does the tag it files its tasks under. And not
-over a fullscreen window, which covers the panel. `NIRITASKS_E2E_KEEP=1` leaves
-the frames on disk when you need to see what a failure actually looked like.
+`e2e-panel.sh` runs on a screen of its own: a nested niri, started with its own
+runtime directory and a flat 1600x1000 output, with its own daemon against a
+sandboxed `TASKDATA`. Your wallpaper, windows, window rules, notifications and
+pointer cannot reach its frames, and your `niri-tasks` daemon keeps running
+throughout. The nested niri's window opens over yours for a moment, then is
+parked floating and unfocused on the last workspace of that monitor. Keep off
+that workspace while it runs: going there focuses the window, and the run
+fails, saying so, rather than measuring frames your typing could have reached.
+`NIRITASKS_E2E_KEEP=1` leaves the frames on disk when you need to see what a
+failure actually looked like.
 
 It cannot move the pointer, so the hover is checked by hand after a change to
 `src/panel/surface.rs`: the peek slides out when the pointer reaches it and back
@@ -344,16 +344,20 @@ layer-shell surface, so its behaviour is what the compositor puts on screen: the
 window can only report the size it *asked* for, and a surface that was never
 mapped reports nothing wrong while showing nothing — the overlay the panel
 replaced was invisible for whole sessions that way, past every unit test. So it
-screenshots the right edge and measures the panel against a baseline taken with
-no tasks: the peek's width, the stack's height as tasks are added, nothing for
-another tag's task, nothing once they are done, and a daemon cold-started with
-nothing to show.
+screenshots a nested niri of its own and measures the panel against a frame taken
+with no tasks: the peek's width, the stack's height as tasks are added, the
+keyboard's cards in the middle of the screen, and Escape putting them back,
+nothing for another tag's task, nothing once they are done, and a daemon
+cold-started with nothing to show.
 
-It counts lines rather than pixels. The cards are translucent, so much of them
-differs from the wallpaper by only a few levels while a window repainting
-elsewhere differs by a lot — but a card is a solid block, so every column and
-row through it changes over most of its run and noise never does. The spans of
-such columns and rows are the panel's width and height.
+The nested screen is a flat colour at a fixed size, so its numbers are exact:
+the peek starts at column 1566 of 1600, the keyboard's cards span 420-1180, and
+a frame that should not have changed — another tag's task, Escape, an empty
+panel — is compared pixel for pixel. A nested niri parked out of sight draws
+only when asked, so each frame is shot until two in a row agree. It counts
+lines rather than pixels: the cards' shadows fade into the background over
+many pixels, and a column or row counts only once more than 20 of its pixels
+changed, which is what puts the panel's edge at the same column every run.
 
 `tests/differential.rs` runs the original shell pipelines this was ported from
 and compares them against the Rust functions over a corpus of awkward workspace
