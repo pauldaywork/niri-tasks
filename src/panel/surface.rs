@@ -26,9 +26,12 @@
 //! ## The keyboard
 //!
 //! Mod+Alt+Ctrl+T hands the panel the keyboard in the middle of the screen,
-//! and every card lays itself out again: its whole description, wrapped, above
-//! a row of buttons for the menu's most-used actions. A card is a box holding
-//! a body button and that row. Up and Down move between cards, Left, Right and
+//! and every card lays itself out again: its whole description, wrapped, and,
+//! on the focused card alone, a row of buttons for the menu's most-used
+//! actions under it, so the list stays short enough to scan. A card is a box
+//! holding a body button and that row; every card has its row, shown and
+//! hidden as the focus moves rather than built again, since a render would
+//! lose the focused button. Up and Down move between cards, Left, Right and
 //! Tab along the focused one, and s, r, e, t and Delete press its Start,
 //! Refine, Edit, Stop and Remove by emitting the button's `clicked`, so a key,
 //! Enter on the focused button, and a click all take one path. The controller
@@ -55,8 +58,9 @@
 //!
 //! Wrapped, the cards can stand taller than the screen, so the column sits in
 //! a scroller under the tabs, capped at the screen's height less its margins
-//! and the tabs. Moving the focus scrolls the focused card wholly into view,
-//! and the blur region moves with the scroll and stops at the view's edges.
+//! and the tabs. Moving the focus measures the cards again, its row having
+//! moved, and scrolls the focused card wholly into view, and the blur region
+//! moves with the scroll and stops at the view's edges.
 //!
 //! To sit in the middle, the surface keeps its right anchor, which centres it
 //! vertically, and grows its right margin to half the room it leaves on the
@@ -392,12 +396,15 @@ impl Panel {
             });
         }
 
-        // Moving off an armed Remove disarms it.
+        // Moving off an armed Remove disarms it, and the action row moves to
+        // the card the focus is on, before follow_focus scrolls that card,
+        // row and all, into view.
         {
             let weak = Rc::downgrade(&panel);
             panel.window.connect_notify_local(Some("focus-widget"), move |_, _| {
                 if let Some(p) = weak.upgrade() {
                     p.disarm_unless_focused();
+                    p.show_focused_row();
                     p.follow_focus();
                 }
             });
@@ -652,13 +659,13 @@ impl Panel {
             // The slot only goes with the same card: on the first card, which
             // stands in when the focused one left, it would land on a button
             // of that name rather than on the body.
-            match child {
-                Some(c) => focus_card(&c, focused.as_ref().map(|(_, slot)| slot.as_str())),
-                None => {
-                    if let Some(first) = self.column.first_child() {
-                        focus_card(&first, None);
-                    }
-                }
+            // Its row shows before the focus goes in, which may be onto one of
+            // its buttons: a hidden button is no place for the focus.
+            let target = child.map(|c| (c, focused.as_ref().map(|(_, slot)| slot.as_str())));
+            let target = target.or_else(|| self.column.first_child().map(|c| (c, None)));
+            if let Some((card, slot)) = target {
+                self.show_row(Some(&card));
+                focus_card(&card, slot);
             }
         }
     }
@@ -666,7 +673,7 @@ impl Panel {
     /// One card: a box named after its task's uuid, so render() can put focus
     /// back on it, holding the body, a button so the keyboard can focus and
     /// press it, and, while the panel has the keyboard, its action row along
-    /// the bottom. The body opens the task's whole menu, or shows the rest in
+    /// the bottom, hidden until the card has focus. The body opens the task's whole menu, or shows the rest in
     /// place of "+N more".
     fn card_widget(self: &Rc<Self>, card: &Card) -> gtk4::Box {
         let keyboard = self.keyboard.get();
@@ -755,6 +762,9 @@ impl Panel {
         // A line between the description and the buttons.
         let separator = gtk4::Separator::new(gtk4::Orientation::Horizontal);
         separator.add_css_class("card-separator");
+        // Hidden until the card has focus: show_row() shows them.
+        separator.set_visible(false);
+        row.set_visible(false);
         widget.append(&separator);
         widget.append(&row);
         widget
@@ -892,6 +902,37 @@ impl Panel {
             let bottom = top + bounds.height() as f64 + 2.0 * RING_PX as f64;
             adjustment.set_value(scroll_to_show(adjustment.value(), adjustment.page_size(), top, bottom));
         });
+    }
+
+    /// Show this card's action row and hide every other card's, so the list
+    /// stays one line a card bar the one being worked on. The cards change
+    /// height without a render, so the surface, the input region and the blur
+    /// are fitted to them again, but only when a row actually showed or hid:
+    /// a render tearing the column down moves the focus too.
+    fn show_row(&self, card: Option<&gtk4::Widget>) {
+        let mut changed = false;
+        let mut child = self.column.first_child();
+        while let Some(c) = child {
+            child = c.next_sibling();
+            let show = Some(&c) == card;
+            for part in row_parts(&c) {
+                if part.is_visible() != show {
+                    part.set_visible(show);
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.fit();
+            self.set_region(self.slide.x.get().min(self.slide.to.get()));
+            self.update_blur(self.slide.x.get());
+        }
+    }
+
+    /// Show the action row of the card that has focus, and no other.
+    fn show_focused_row(&self) {
+        let card = GtkWindowExt::focus(&self.window).and_then(|w| self.card_of(&w));
+        self.show_row(card.as_ref());
     }
 
     /// The card a widget is in: the one of the column's children it sits
@@ -1068,6 +1109,20 @@ fn empty_line(filter: Filter) -> gtk4::Label {
     line.set_xalign(0.0);
     line.set_size_request(CARD_WIDTH_PX, -1);
     line
+}
+
+/// A card's separator and action row: what shows only while it has focus.
+/// Nothing for a card without them ("+N more", or any card off the keyboard).
+fn row_parts(card: &gtk4::Widget) -> Vec<gtk4::Widget> {
+    let mut parts = Vec::new();
+    let mut child = card.first_child();
+    while let Some(c) = child {
+        child = c.next_sibling();
+        if c.has_css_class("card-separator") || c.has_css_class("card-actions") {
+            parts.push(c);
+        }
+    }
+    parts
 }
 
 /// What the keyboard can stop on in a card, left to right: its body, then its

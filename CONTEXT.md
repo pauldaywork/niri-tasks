@@ -48,13 +48,13 @@ _Avoid_: pill, overlay, widget, sidebar, drawer
 **Task card**:
 One task in the task panel, drawn like a notification: a status icon and a
 one-line description — or, while the task panel has the keyboard, the whole
-description wrapped, above its action row.
+description wrapped, above its action row while it has focus.
 _Avoid_: row (that is the picker's word), item, block
 
 **Action row**:
-The buttons along a task card's bottom edge while the task panel has the
-keyboard — Go to session, Start working, Refine, Edit, Stop, Waiting and
-Remove, an active task getting Stop in place of Start working, only a task
+The buttons along the focused task card's bottom edge while the task panel
+has the keyboard; the other cards hide theirs — Go to session, Start working,
+Refine, Edit, Stop, Waiting and Remove, an active task getting Stop in place of Start working, only a task
 with a live Claude getting Go to session, and a waiting task getting just
 Back to list, Edit and Remove — each running what the same entry in the
 task's action menu runs.

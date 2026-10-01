@@ -16,7 +16,7 @@ from — opening one, or moving a task to another workspace.
 | Key | Does |
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
-| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, with buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Tabs above the cards, picked with 1–5 or [ and ], narrow them to All, Active, Planned, To refine or Waiting. With no tasks, or no daemon, the fuzzel list instead |
+| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Tabs above the cards, picked with 1–5 or [ and ], narrow them to All, Active, Planned, To refine or Waiting. With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+W` | Create a new workspace and name it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
@@ -42,7 +42,8 @@ shows the rest of the tasks in the panel.
 
 `Mod+Alt+Ctrl+T` hands the panel the keyboard and moves it to the middle of the
 screen, leaving no peek on the right edge while it is there. Every card opens up
-to its whole description, wrapped, above a row of buttons:
+to its whole description, wrapped, and the focused card shows a row of buttons
+under it:
 
 | Button | Key | Does |
 |---|---|---|
@@ -55,7 +56,7 @@ to its whole description, wrapped, above a row of buttons:
 | **Back to list** (lavender) | `b` | Off waiting and back on the list — only on a waiting task, which gets just this, Edit and Remove |
 | **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back |
 
-Up and Down move a darker fill between cards; Left, Right and Tab move
+Up and Down move a darker fill and the buttons between cards; Left, Right and Tab move
 along the focused card's buttons, whose name shows beside them while one is
 focused, and Enter presses the focused one. Enter on
 the card itself opens its full menu, which also has Note, Grill me, Update

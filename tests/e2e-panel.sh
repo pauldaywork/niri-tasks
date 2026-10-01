@@ -32,8 +32,9 @@
 # What it cannot check is the hover: nothing can move the pointer, so the slide
 # out, the slide back and clicks passing beside the peek are checked by hand
 # (README, "Testing"). The keyboard it can: `task panel` moves the panel to the
-# middle of the screen, and with wtype, Down, the filter tabs' keys and Escape are pressed in the
-# nested niri, never on your desktop.
+# middle of the screen, and with wtype, Down (which moves the action row), the
+# filter tabs' keys and Escape are pressed in the nested niri, never on your
+# desktop.
 set -uo pipefail
 
 python3 -c "import PIL" 2>/dev/null || {
@@ -227,10 +228,9 @@ else
       did not leave the edge"
 fi
 
-# Down moves the darker fill from the first card to the second, and nothing
-# else in the frame changes, so what differs between the two frames is exactly
-# two cards: their columns, and with their action rows, well over twice the
-# height of one card's one-line peek.
+# Down moves the darker fill from the first card to the second, and the action
+# row with it: only the focused card has one. So what differs between the two
+# frames is those two cards' columns, and the panel is as tall as it was.
 if command -v wtype >/dev/null; then
     # None of these tasks is started, planned or waiting, so only All and To
     # refine have a tab. 3 is Planned's key, and its tab is hidden: nothing.
@@ -288,18 +288,20 @@ if command -v wtype >/dev/null; then
     sleep 1
     shot keyboard_down || { summary; exit 1; }
     read -r x0 x1 y0 y1 < <(measure keyboard_down keyboard)
-    key_h=$((y1 - y0))
-    if [ "$x0" -eq "$CARD_X" ] && [ "$x1" -eq $((CARD_X + CARD)) ]; then
-        ok "and shows its cards in the middle of the screen (columns ${x0}-${x1})"
+    # The two cards change height as the row moves, and each one's ring with
+    # it, so the columns that differ take in the rings either side.
+    if [ "$x0" -eq $((CARD_X - RING)) ] && [ "$x1" -eq $((CARD_X + CARD + RING)) ]; then
+        ok "and shows its cards in the middle of the screen (columns ${x0}-${x1}, rings included)"
     else
         bad "the keyboard's cards cover columns ${x0}-${x1}, expected
-      ${CARD_X}-$((CARD_X + CARD)) — 0-0 means Down did not move the focus"
+      $((CARD_X - RING))-$((CARD_X + CARD + RING)) — 0-0 means Down did not move the focus"
     fi
-    if [ "$key_h" -ge $((one_h * 2 + 40)) ]; then
-        ok "and each card grows its buttons (${key_h}px for two cards vs ${one_h}px for one tucked away)"
+    read -r x0 x1 y0 y1 < <(measure keyboard_down)
+    if [ "$((y1 - y0))" -eq "$keyboard_h" ]; then
+        ok "and Down moves the buttons to the next card, the panel as tall as before (${keyboard_h}px)"
     else
-        bad "two of the keyboard's cards are ${key_h}px tall against ${one_h}px for
-      one tucked away — the action rows are missing"
+        bad "after Down the panel is $((y1 - y0))px tall against ${keyboard_h}px before —
+      the action row should move to the focused card, not be added or lost"
     fi
 
     # Escape from a tab other than All: the hover panel has no tabs, so it
@@ -341,6 +343,18 @@ if command -v wtype >/dev/null; then
     else
         bad "on the Waiting tab the panel covers columns ${x0}-${x1}, rows ${y0}-${y1},
       against ${keyboard_h}px for three cards — the tab is missing or shows more"
+    fi
+    # The Waiting tab's one card has its row, as the focused card on All did;
+    # All's two other cards have none. So All is taller by exactly two
+    # one-line cards and their gaps, as three tucked cards are than one.
+    waiting_h=$((y1 - y0))
+    extra=$((keyboard_h - waiting_h - (three_h - one_h)))
+    if [ "$extra" -ge -2 ] && [ "$extra" -le 2 ]; then
+        ok "only the focused card shows its buttons (All ${keyboard_h}px, Waiting ${waiting_h}px)"
+    else
+        bad "All's three cards are ${keyboard_h}px against ${waiting_h}px for the Waiting
+      tab's one, ${extra}px off two one-line cards ($((three_h - one_h))px) — the unfocused
+      cards still show their action rows"
     fi
 
     # Off the keyboard, the waiting task is off the hover panel too: two
