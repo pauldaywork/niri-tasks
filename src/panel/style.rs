@@ -16,6 +16,10 @@
 //! away from both, so the body looks the same as a plain label would, and the
 //! card's box carries the fill, the rounding and the outline.
 //!
+//! While the panel has the keyboard, the filter tabs above the cards are one
+//! bar in a card's look, and a tab with nothing in it shows one line in a
+//! card's look too.
+//!
 //! Every rule is scoped to `.task-panel`, because the provider is installed for
 //! the whole display and the daemon also opens task boxes, which must not pick
 //! up a transparent window or a card's fill.
@@ -96,12 +100,17 @@ pub const SEPARATOR: &str = "rgba(255, 255, 255, 0.12)";
 /// The fill of the card the keyboard is on: the same black as [`BACKGROUND`],
 /// stronger, so the card stands out without a border drawn round it.
 pub const FOCUSED_BACKGROUND: &str = "rgba(0, 0, 0, 0.6)";
+/// The fill of the filter tab that is picked: a faint white, so it reads as
+/// lit against the strip without taking a colour from the action buttons.
+pub const CURRENT_TAB: &str = "rgba(255, 255, 255, 0.12)";
 
 pub fn css() -> String {
     let mut css = format!(
         "
 window.task-panel {{ background-color: transparent; }}
-.task-panel .task-card {{
+.task-panel .task-card,
+.task-panel .filter-tabs,
+.task-panel .filter-empty {{
     background-color: {BACKGROUND};
     color: {TEXT};
     border-radius: {RADIUS_PX}px;
@@ -109,7 +118,8 @@ window.task-panel {{ background-color: transparent; }}
     box-shadow: {OUTLINE};
 }}
 .task-panel .card-body,
-.task-panel .card-actions button {{
+.task-panel .card-actions button,
+.task-panel .filter-tabs button {{
     background-color: transparent;
     background-image: none;
     color: inherit;
@@ -129,7 +139,9 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .card-body:hover,
 .task-panel .card-body:active,
 .task-panel .card-actions button:hover,
-.task-panel .card-actions button:active {{
+.task-panel .card-actions button:active,
+.task-panel .filter-tabs button:hover,
+.task-panel .filter-tabs button:active {{
     background-color: transparent;
     background-image: none;
     border: none;
@@ -151,6 +163,15 @@ window.task-panel {{ background-color: transparent; }}
 /* Only between buttons: a line along the card's own edge would part nothing.
    After the hover and press reset, which clears borders, so it stays put. */
 .task-panel .card-actions button:not(:first-child) {{ border-left: 1px solid {SEPARATOR}; }}
+/* The filter tabs: dimmed, apart from the one that is picked, and parted
+   like the action row's buttons. After the resets, which clear borders and
+   fills. */
+.task-panel .filter-tabs button {{ padding: {ACTION_PADDING}; color: alpha({TEXT}, 0.55); }}
+.task-panel .filter-tabs button:not(:first-child) {{ border-left: 1px solid {SEPARATOR}; }}
+.task-panel .filter-tabs button.current {{ color: {TEXT}; background-color: {CURRENT_TAB}; }}
+/* An empty tab's one line, padded like a card's text and dimmed like
+   \"+N more\". */
+.task-panel .filter-empty {{ padding: {PADDING_PX}px; color: alpha({TEXT}, 0.55); }}
 /* :focus-within, not :focus-visible: GTK clears focus-visible 3s after the
    last key press (VISIBLE_FOCUS_DURATION), and the darker fill would vanish
    mid-pick. Within, so the card stays darkened while one of its buttons is
@@ -315,5 +336,44 @@ mod tests {
             FOCUSED_BACKGROUND, BACKGROUND,
             "focused card is not picked out"
         );
+    }
+
+    /// The tab strip and an empty tab's line sit among the cards, so they
+    /// wear a card's fill, rounding, font and outline.
+    #[test]
+    fn the_tabs_and_the_empty_line_look_like_cards() {
+        let css = css();
+        let rule = css
+            .split('}')
+            .find(|r| r.contains(".task-panel .task-card,") && r.contains("background-color"))
+            .expect("no shared card rule");
+        assert!(rule.contains(".task-panel .filter-tabs"), "the strip lacks the card look");
+        assert!(rule.contains(".task-panel .filter-empty"), "the empty line lacks the card look");
+    }
+
+    /// The picked tab is full text on a faint fill; the rest are dimmed.
+    #[test]
+    fn the_picked_tab_stands_out() {
+        let css = css();
+        assert!(css.contains(&format!(
+            ".task-panel .filter-tabs button.current {{ color: {TEXT}; background-color: {CURRENT_TAB}; }}"
+        )));
+        assert!(css.contains(&format!(
+            ".task-panel .filter-tabs button {{ padding: {ACTION_PADDING}; color: alpha({TEXT}, 0.55); }}"
+        )));
+    }
+
+    /// The tabs are buttons, so the theme's look is reset from them as from
+    /// the action row's, hover and press included.
+    #[test]
+    fn the_tabs_lose_the_themes_button_look() {
+        let css = css();
+        assert!(css.contains(".task-panel .filter-tabs button {\n"));
+        assert!(css.contains(".task-panel .filter-tabs button:hover"));
+        assert!(css.contains(".task-panel .filter-tabs button:active"));
+        let line = ".task-panel .filter-tabs button:not(:first-child) { border-left: 1px solid rgba(255, 255, 255, 0.12); }";
+        let at = css.find(line).expect("missing the line between tabs");
+        let reset = css.find(".filter-tabs button:active").unwrap();
+        assert!(at > reset, "the press reset's `border: none` would win over the line");
     }
 }

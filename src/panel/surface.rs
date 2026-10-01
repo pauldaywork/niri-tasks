@@ -38,8 +38,19 @@
 //! keyboard back, folds the cards to one line again, and puts the panel back
 //! on the right edge as a peek.
 //!
+//! Above the cards, a bar of filter tabs, All, Active, Planned and To refine,
+//! each with its count, narrows them to the tasks it names. 1 to 4 pick one,
+//! [ and ] step along them stopping at the ends, and a click picks one too.
+//! The tabs never take focus, so the arrows and Tab still move only between
+//! cards and buttons. The panel takes the keyboard on All every time; a
+//! refresh keeps the tab, and focus falls back to the first card when the
+//! one it was on has left it. A tab with nothing under it shows one line
+//! saying so and keeps the keyboard: only a workspace with no tasks at all
+//! hides the panel. The hover and the peek have no tabs.
+//!
 //! Wrapped, the cards can stand taller than the screen, so the column sits in
-//! a scroller capped at the screen's height less its margins. Moving the focus
+//! a scroller under the tabs, capped at the screen's height less its margins
+//! and the tabs. Moving the focus
 //! scrolls the focused card wholly into view, and the blur region moves with
 //! the scroll and stops at the view's edges.
 //!
@@ -61,7 +72,7 @@
 use super::actions::Action;
 use super::blur::{self, Blur};
 use super::keys::{self, KeyAction};
-use super::model::{self, Card, Status};
+use super::model::{self, Card, Filter, Status};
 use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX};
 use gtk4::prelude::*;
 use gtk4::{cairo, gdk, glib, Application, ApplicationWindow};
@@ -117,6 +128,12 @@ pub struct Panel {
     base: gtk4::Box,
     /// Scrolls the column once it is taller than the screen.
     scroller: gtk4::ScrolledWindow,
+    /// The filter tabs above the scroller, shown only while the panel has the
+    /// keyboard. It does not scroll with the cards.
+    tabs: gtk4::Box,
+    /// One button per filter tab, in `Filter::TABS` order, for their labels
+    /// and which one is picked.
+    tab_buttons: Vec<gtk4::Button>,
     /// For its height, which caps the column's: read at each render, since a
     /// scale change alters it.
     monitor: gdk::Monitor,
@@ -129,6 +146,9 @@ pub struct Panel {
     expanded: Cell<bool>,
     /// The panel has the keyboard, from Mod+Alt+Ctrl+T.
     keyboard: Cell<bool>,
+    /// The filter tab the keyboard's panel shows. All whenever the panel
+    /// takes the keyboard; kept across a refresh while it has it.
+    filter: Cell<Filter>,
     /// The live herdr agents in the workspace's session, asked once as the
     /// panel takes the keyboard: which cards get Go to session. Asked then
     /// and no other time — not on each focus move, which would move the row
@@ -154,6 +174,9 @@ struct Slide {
     /// The cards' height on screen: all of them, or the scroller's when they
     /// run past the screen. The input region needs it.
     cards_h: Cell<i32>,
+    /// The filter tabs' height, with the gap under them: what the cards sit
+    /// below. 0 without the keyboard, which has no tabs.
+    tabs_h: Cell<i32>,
     /// The surface's right margin, which slides it off the screen edge into
     /// the middle while the panel has the keyboard, and where it is going.
     margin: Cell<i32>,
@@ -200,7 +223,37 @@ impl Panel {
             .vscrollbar_policy(gtk4::PolicyType::External)
             .child(&viewport)
             .build();
-        overlay.add_overlay(&scroller);
+        // The filter tabs, over the scroller rather than in it, so they stay
+        // put while the cards scroll. Ring room on three sides, as the column
+        // keeps, and under them the card gap less the ring the column keeps
+        // above the first card: the first card then sits a card gap below.
+        let tabs = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        tabs.add_css_class("filter-tabs");
+        tabs.set_margin_top(RING_PX);
+        tabs.set_margin_start(RING_PX);
+        tabs.set_margin_end(RING_PX);
+        tabs.set_margin_bottom(GAP_PX - RING_PX);
+        // Clips the picked tab's fill to the bar's rounded corners.
+        tabs.set_overflow(gtk4::Overflow::Hidden);
+        tabs.set_visible(false);
+        let tab_buttons: Vec<gtk4::Button> = Filter::TABS
+            .iter()
+            .map(|_| {
+                let button = gtk4::Button::new();
+                // Out of the focus chain: the arrows and Tab stay between the
+                // cards and their buttons, and a click leaves the focus where
+                // it was.
+                button.set_focusable(false);
+                button.set_focus_on_click(false);
+                tabs.append(&button);
+                button
+            })
+            .collect();
+        scroller.set_vexpand(true);
+        let front = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        front.append(&tabs);
+        front.append(&scroller);
+        overlay.add_overlay(&front);
         window.set_child(Some(&overlay));
 
         let panel = Rc::new(Panel {
@@ -210,6 +263,8 @@ impl Panel {
             column,
             base,
             scroller,
+            tabs,
+            tab_buttons,
             slide: Rc::new(Slide {
                 x: Cell::new(TUCKED_X),
                 from: Cell::new(TUCKED_X),
@@ -218,6 +273,7 @@ impl Panel {
                 ticking: Cell::new(false),
                 grace: Cell::new(None),
                 cards_h: Cell::new(0),
+                tabs_h: Cell::new(0),
                 margin: Cell::new(0),
                 margin_from: Cell::new(0),
                 margin_to: Cell::new(0),
@@ -225,6 +281,7 @@ impl Panel {
             all: RefCell::new(Vec::new()),
             expanded: Cell::new(false),
             keyboard: Cell::new(false),
+            filter: Cell::new(Filter::All),
             agents: RefCell::new(Vec::new()),
             armed: RefCell::new(None),
             heights: RefCell::new(Vec::new()),
@@ -238,8 +295,17 @@ impl Panel {
                     slide.x.get().round() as i32 - RING_PX,
                     SHADOW_PX - RING_PX,
                     CARD_WIDTH_PX + 2 * RING_PX,
-                    slide.cards_h.get() + 2 * RING_PX,
+                    slide.tabs_h.get() + slide.cards_h.get() + 2 * RING_PX,
                 ))
+            });
+        }
+
+        for (button, filter) in panel.tab_buttons.iter().zip(Filter::TABS) {
+            let weak = Rc::downgrade(&panel);
+            button.connect_clicked(move |_| {
+                if let Some(p) = weak.upgrade() {
+                    p.pick(filter);
+                }
             });
         }
 
@@ -404,6 +470,8 @@ impl Panel {
         self.window.set_keyboard_mode(KeyboardMode::None);
         self.agents.borrow_mut().clear();
         self.expanded.set(false);
+        // The next Mod+Alt+Ctrl+T opens on All.
+        self.filter.set(Filter::All);
         self.render();
         self.jump_to(TUCKED_X, 0);
     }
@@ -429,18 +497,38 @@ impl Panel {
         }
     }
 
-    fn render(self: &Rc<Self>) {
-        let cards = if self.expanded.get() {
-            self.all.borrow().clone()
-        } else {
-            model::cap(&self.all.borrow(), model::CAP)
-        };
+    /// Show the cards under this filter tab. Focus stays on the card it was
+    /// on when the tab has it, and goes to the first card otherwise, as on a
+    /// refresh. Nothing without the keyboard, whose panel has no tabs.
+    fn pick(self: &Rc<Self>, filter: Filter) {
+        if !self.keyboard.get() || self.filter.replace(filter) == filter {
+            return;
+        }
+        self.render();
+    }
 
-        if cards.is_empty() {
+    /// Each tab's label with its count over every card, and which one is
+    /// picked.
+    fn update_tabs(&self) {
+        let counts = Filter::counts(&self.all.borrow());
+        for ((button, filter), count) in self.tab_buttons.iter().zip(Filter::TABS).zip(counts) {
+            button.set_label(&filter.tab_label(count));
+            if filter == self.filter.get() {
+                button.add_css_class("current");
+            } else {
+                button.remove_css_class("current");
+            }
+        }
+    }
+
+    fn render(self: &Rc<Self>) {
+        if self.all.borrow().is_empty() {
             // The last task went while the panel had the keyboard: back to
-            // the right edge, so the next card shows as a peek there.
+            // the right edge, so the next card shows as a peek there, and the
+            // next Mod+Alt+Ctrl+T opens on All, as after Escape.
             if self.keyboard.replace(false) {
                 self.window.set_keyboard_mode(KeyboardMode::None);
+                self.filter.set(Filter::All);
             }
             // Only hide something that is up; hiding a never-mapped layer
             // surface leaves it deaf to a later present().
@@ -451,6 +539,18 @@ impl Panel {
             self.jump_to(TUCKED_X, 0);
             return;
         }
+
+        let keyboard = self.keyboard.get();
+        // Only the keyboard's panel has tabs; the peek and the hover show
+        // every card. Filtered before the cap, so "+N more" is the rest of
+        // this tab.
+        let filter = if keyboard { self.filter.get() } else { Filter::All };
+        let picked = filter.pick(&self.all.borrow());
+        let cards = if self.expanded.get() {
+            picked
+        } else {
+            model::cap(&picked, model::CAP)
+        };
 
         // A refresh while the keyboard is on the panel keeps focus on the same
         // task, and on the same button of it: each card is named after its
@@ -465,6 +565,11 @@ impl Panel {
         for card in &cards {
             self.column.append(&self.card_widget(card));
         }
+        if cards.is_empty() {
+            // A tab with nothing under it says so and keeps the keyboard:
+            // only a workspace with no tasks at all hides the panel, above.
+            self.column.append(&empty_line(filter));
+        }
         // Measured only once they are in the window: a label outside it has no
         // stylesheet, so it measures without its padding, and GTK keeps that
         // wrong size for the column's own measurement too.
@@ -476,14 +581,25 @@ impl Panel {
         }
         *self.heights.borrow_mut() = heights;
 
+        self.tabs.set_visible(keyboard);
+        self.update_tabs();
+        // Measured, like the cards, once in the window; margins included,
+        // so this is the bar and the gap under it.
+        let tabs_h = if keyboard {
+            self.tabs.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX).1
+        } else {
+            0
+        };
+
         // The column's margins are in what it measures, and in the width it
         // is measured for; the cards' height is without them.
         let (_, with_ring, _, _) =
             self.column.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX);
         let cards_h = with_ring - 2 * RING_PX;
-        let shown = shown_height(cards_h, self.monitor.geometry().height());
+        let shown = shown_height(cards_h, tabs_h, self.monitor.geometry().height());
+        self.slide.tabs_h.set(tabs_h);
         self.slide.cards_h.set(shown);
-        let height = shown + 2 * SHADOW_PX;
+        let height = tabs_h + shown + 2 * SHADOW_PX;
         // Both calls: the size request lets the surface grow, the default size
         // lets it shrink back when the list gets shorter.
         self.base.set_size_request(SURFACE_WIDTH, height);
@@ -638,17 +754,27 @@ impl Panel {
     /// next card's body, Left, Right and Tab move along the focused card, and
     /// a letter presses that card's button. If the card has no such button
     /// (Stop on a task that is not active, Go to session on one with no Claude,
-    /// anything on "+N more"), nothing happens.
+    /// anything on "+N more"), nothing happens. 1 to 4, [ and ] pick a filter
+    /// tab instead, whatever has focus.
     fn key(self: &Rc<Self>, action: KeyAction) {
-        if action == KeyAction::Release {
-            self.release_keyboard();
-            return;
+        match action {
+            KeyAction::Release => return self.release_keyboard(),
+            KeyAction::Filter(filter) => return self.pick(filter),
+            KeyAction::PrevFilter | KeyAction::NextFilter => {
+                let at = Filter::TABS.iter().position(|f| *f == self.filter.get()).unwrap_or(0);
+                let to = keys::step(at, Filter::TABS.len(), action == KeyAction::NextFilter);
+                return self.pick(Filter::TABS[to]);
+            }
+            _ => {}
         }
         let mut cards = Vec::new();
         let mut child = self.column.first_child();
         while let Some(c) = child {
             child = c.next_sibling();
-            cards.push(c);
+            // Not an empty tab's line, which has nothing to focus.
+            if c.has_css_class("task-card") {
+                cards.push(c);
+            }
         }
         let focus = GtkWindowExt::focus(&self.window);
         let Some(card) = focus
@@ -684,7 +810,6 @@ impl Panel {
                     button.emit_clicked();
                 }
             }
-            // The tabs are Task 3's; until then their keys do nothing.
             KeyAction::Release
             | KeyAction::Ignore
             | KeyAction::Filter(_)
@@ -760,7 +885,10 @@ impl Panel {
         let Some(surface) = self.window.surface() else { return };
         let x = x.round() as i32;
         let width = region_width(x, self.keyboard.get());
-        let rect = cairo::RectangleInt::new(x, SHADOW_PX, width, self.slide.cards_h.get());
+        // From the top of the tabs, when there are any, to the bottom of the
+        // cards on screen.
+        let height = self.slide.tabs_h.get() + self.slide.cards_h.get();
+        let rect = cairo::RectangleInt::new(x, SHADOW_PX, width, height);
         surface.set_input_region(Some(&cairo::Region::create_rectangle(&rect)));
     }
 
@@ -771,17 +899,25 @@ impl Panel {
         let x = x.round() as i32;
         let width = CARD_WIDTH_PX.min(SURFACE_WIDTH - x);
         let on_screen = x + CARD_WIDTH_PX <= SURFACE_WIDTH;
-        // The cards as laid out in the column, moved up by however far it is
-        // scrolled, and cut to the part of the column on screen.
-        let scrolled = self.scroller.vadjustment().value().round() as i32;
-        let mut y = SHADOW_PX - scrolled;
+        let tabs_h = self.slide.tabs_h.get();
         let mut rects = Vec::new();
+        if tabs_h > 0 {
+            // The tab bar, which does not scroll; not the card gap under it.
+            rects.extend(blur::card_region((x, SHADOW_PX, width, tabs_h - GAP_PX), RADIUS_PX, on_screen));
+        }
+        // The cards as laid out in the column under the tabs, moved up by
+        // however far it is scrolled, and cut to the part of the column on
+        // screen.
+        let scrolled = self.scroller.vadjustment().value().round() as i32;
+        let top = SHADOW_PX + tabs_h;
+        let mut y = top - scrolled;
+        let mut cards = Vec::new();
         for &h in self.heights.borrow().iter() {
-            rects.extend(blur::card_region((x, y, width, h), RADIUS_PX, on_screen));
+            cards.extend(blur::card_region((x, y, width, h), RADIUS_PX, on_screen));
             y += h + GAP_PX;
         }
-        let top = SHADOW_PX;
-        blur.set(&blur::clip_rows(&rects, top, top + self.slide.cards_h.get()));
+        rects.extend(blur::clip_rows(&cards, top, top + self.slide.cards_h.get()));
+        blur.set(&rects);
     }
 
     /// Put the cards at `x` and the surface at `margin` from the screen edge
@@ -881,6 +1017,17 @@ fn card_label(card: &Card, wrap: bool) -> gtk4::Box {
     row
 }
 
+/// The one line a filter tab with nothing under it shows where its cards
+/// would be, in a card's look so it reads as part of the panel. Not a card:
+/// it has no task and nothing to focus, and the keys pass over it.
+fn empty_line(filter: Filter) -> gtk4::Label {
+    let line = gtk4::Label::new(Some(filter.empty_text()));
+    line.add_css_class("filter-empty");
+    line.set_xalign(0.0);
+    line.set_size_request(CARD_WIDTH_PX, -1);
+    line
+}
+
 /// What the keyboard can stop on in a card, left to right: its body, then its
 /// action buttons.
 fn slots(card: &gtk4::Widget) -> Vec<gtk4::Widget> {
@@ -949,10 +1096,11 @@ fn region_width(x: i32, centred: bool) -> i32 {
 }
 
 /// How tall the column of cards is on screen: all of it, or as much as fits
-/// inside the screen's margins, with the rest scrolled. Only the keyboard's
-/// wrapped cards, or "+N more" opened onto a long list, get that tall.
-fn shown_height(cards_h: i32, screen_h: i32) -> i32 {
-    cards_h.min(screen_h - 2 * (SHADOW_PX + EDGE_GAP_PX)).max(0)
+/// inside the screen's margins under the `tabs_h` the filter tabs take, with
+/// the rest scrolled. Only the keyboard's wrapped cards, or "+N more" opened
+/// onto a long list, get that tall.
+fn shown_height(cards_h: i32, tabs_h: i32, screen_h: i32) -> i32 {
+    cards_h.min(screen_h - 2 * (SHADOW_PX + EDGE_GAP_PX) - tabs_h).max(0)
 }
 
 /// The scroll position that shows all of `top..bottom`, moving as little as it
@@ -1012,13 +1160,27 @@ mod tests {
 
     #[test]
     fn a_short_column_shows_whole() {
-        assert_eq!(shown_height(400, 1080), 400);
+        assert_eq!(shown_height(400, 0, 1080), 400);
     }
 
     #[test]
     fn a_tall_column_stops_at_the_screens_margins() {
         // 1080 less the shadow room and the edge gap, top and bottom.
-        assert_eq!(shown_height(5000, 1080), 1080 - 2 * (SHADOW_PX + EDGE_GAP_PX));
+        assert_eq!(shown_height(5000, 0, 1080), 1080 - 2 * (SHADOW_PX + EDGE_GAP_PX));
+    }
+
+    /// The tab strip does not scroll, so the cards get the screen less it.
+    #[test]
+    fn the_tabs_take_their_height_off_the_cards() {
+        assert_eq!(shown_height(400, 50, 1080), 400, "a short column still shows whole");
+        assert_eq!(shown_height(5000, 50, 1080), 1080 - 2 * (SHADOW_PX + EDGE_GAP_PX) - 50);
+    }
+
+    /// The strip's bottom margin is the card gap less the ring the column
+    /// keeps above the first card; less than none would not build.
+    #[test]
+    fn the_gap_under_the_tabs_leaves_room_for_the_ring() {
+        assert!(GAP_PX >= RING_PX);
     }
 
     #[test]
