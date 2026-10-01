@@ -27,8 +27,12 @@
 //! Mod+Alt+Ctrl+T slides the panel out and hands it the keyboard, and every
 //! card lays itself out again: its whole description, wrapped, above a row of
 //! buttons for the menu's most-used actions. A card is a box holding a body
-//! button and that row, all buttons, so GTK focuses and presses them: Enter
-//! clicks the focused one, and a click and Enter are the same `clicked`. The
+//! button and that row. Up and Down move
+//! between cards, Left, Right and Tab along the focused one, and s, r, e, t
+//! and Delete press its Start, Refine, Edit, Stop and Remove by emitting the
+//! button's `clicked`, so a key, Enter on the focused button, and a click all
+//! take one path. The controller runs in the capture phase, ahead of GTK's
+//! own focus chain, which would otherwise walk every button on the panel. The
 //! body opens the whole menu. Escape, or anything that runs, hands the
 //! keyboard back and folds the cards to one line again.
 //!
@@ -38,6 +42,7 @@
 
 use super::actions::Action;
 use super::blur::{self, Blur};
+use super::keys::{self, KeyAction};
 use super::model::{self, Card, Status};
 use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX};
 use gtk4::prelude::*;
@@ -203,20 +208,36 @@ impl Panel {
         // input region, and goes no further than the card's own handler — see
         // card_widget.
 
-        let keys = gtk4::EventControllerKey::new();
+        let key_controller = gtk4::EventControllerKey::new();
+        // Capture, so the arrows and Tab reach this before the window's own
+        // focus chain, which would walk every button on the panel in turn
+        // rather than between cards, or along one.
+        key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
         {
             let weak = Rc::downgrade(&panel);
-            keys.connect_key_pressed(move |_, key, _, _| {
-                match (key, weak.upgrade()) {
-                    (gdk::Key::Escape, Some(p)) => {
-                        p.release_keyboard();
+            key_controller.connect_key_pressed(move |_, key, _, state| {
+                // Ctrl, Alt and Super chords belong to the compositor and the
+                // focused widget, not to the letters: Ctrl+T must not Stop.
+                if state.intersects(
+                    gdk::ModifierType::CONTROL_MASK
+                        | gdk::ModifierType::ALT_MASK
+                        | gdk::ModifierType::SUPER_MASK,
+                ) {
+                    return glib::Propagation::Proceed;
+                }
+                let Some(p) = weak.upgrade() else {
+                    return glib::Propagation::Proceed;
+                };
+                match keys::key_action(key) {
+                    KeyAction::Ignore => glib::Propagation::Proceed,
+                    action => {
+                        p.key(action);
                         glib::Propagation::Stop
                     }
-                    _ => glib::Propagation::Proceed,
                 }
             });
         }
-        panel.window.add_controller(keys);
+        panel.window.add_controller(key_controller);
 
         // Moving off an armed Remove disarms it.
         {
@@ -466,6 +487,60 @@ impl Panel {
         }
         self.release_keyboard();
         open_menu(&self.output, &action.args(uuid));
+    }
+
+    /// Act on a key while the panel has the keyboard. Up and Down land on the
+    /// next card's body, Left, Right and Tab move along the focused card, and
+    /// a letter presses that card's button. If the card has no such button
+    /// (Stop on a task that is not active, anything on "+N more"), nothing
+    /// happens.
+    fn key(self: &Rc<Self>, action: KeyAction) {
+        if action == KeyAction::Release {
+            self.release_keyboard();
+            return;
+        }
+        let mut cards = Vec::new();
+        let mut child = self.column.first_child();
+        while let Some(c) = child {
+            child = c.next_sibling();
+            cards.push(c);
+        }
+        let focus = GtkWindowExt::focus(&self.window);
+        let Some(card) = focus
+            .as_ref()
+            .and_then(|f| self.card_of(f))
+            .or_else(|| cards.first().cloned())
+        else {
+            return;
+        };
+        let at = cards.iter().position(|c| *c == card).unwrap_or(0);
+        let slots = slots(&card);
+        let slot = focus
+            .as_ref()
+            .and_then(|f| slots.iter().position(|s| s == f))
+            .unwrap_or(0);
+
+        match action {
+            KeyAction::PrevCard | KeyAction::NextCard => {
+                let to = keys::step(at, cards.len(), action == KeyAction::NextCard);
+                focus_card(&cards[to], None);
+            }
+            KeyAction::PrevSlot | KeyAction::NextSlot => {
+                let to = keys::step(slot, slots.len(), action == KeyAction::NextSlot);
+                slots[to].grab_focus();
+            }
+            KeyAction::Run(run) => {
+                // Through the button, so a key does exactly what a click does.
+                if let Some(button) = slots
+                    .iter()
+                    .find(|s| s.widget_name() == run.name())
+                    .and_then(|s| s.downcast_ref::<gtk4::Button>())
+                {
+                    button.emit_clicked();
+                }
+            }
+            KeyAction::Release | KeyAction::Ignore => {}
+        }
     }
 
     /// Moving the focus away from an armed Remove puts it back to Remove, so a
