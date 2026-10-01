@@ -684,7 +684,12 @@ impl Panel {
                     button.emit_clicked();
                 }
             }
-            KeyAction::Release | KeyAction::Ignore => {}
+            // The tabs are Task 3's; until then their keys do nothing.
+            KeyAction::Release
+            | KeyAction::Ignore
+            | KeyAction::Filter(_)
+            | KeyAction::PrevFilter
+            | KeyAction::NextFilter => {}
         }
     }
 

@@ -5,6 +5,7 @@
 //! see the arrows first, are `surface.rs`'s.
 
 use super::actions::Action;
+use super::model::Filter;
 use gtk4::gdk;
 
 /// What a keypress on the panel should do.
@@ -21,6 +22,11 @@ pub enum KeyAction {
     NextSlot,
     /// Press this button on the focused card, if it has one.
     Run(Action),
+    /// 1 to 4: show this filter tab's cards.
+    Filter(Filter),
+    /// [ and ]: the tab either side, stopping at the ends as the cards do.
+    PrevFilter,
+    NextFilter,
     /// Pass it through: Enter and Space press the focused button.
     Ignore,
 }
@@ -42,6 +48,12 @@ pub fn key_action(key: gdk::Key) -> KeyAction {
         gdk::Key::e => KeyAction::Run(Action::Edit),
         gdk::Key::t => KeyAction::Run(Action::Stop),
         gdk::Key::Delete | gdk::Key::KP_Delete => KeyAction::Run(Action::Remove),
+        gdk::Key::_1 => KeyAction::Filter(Filter::TABS[0]),
+        gdk::Key::_2 => KeyAction::Filter(Filter::TABS[1]),
+        gdk::Key::_3 => KeyAction::Filter(Filter::TABS[2]),
+        gdk::Key::_4 => KeyAction::Filter(Filter::TABS[3]),
+        gdk::Key::bracketleft => KeyAction::PrevFilter,
+        gdk::Key::bracketright => KeyAction::NextFilter,
         _ => KeyAction::Ignore,
     }
 }
@@ -115,5 +127,28 @@ mod tests {
         assert_eq!(step(1, 3, false), 0);
         assert_eq!(step(0, 3, false), 0);
         assert_eq!(step(0, 0, true), 0);
+    }
+
+    /// 1 to 4 are the tabs left to right.
+    #[test]
+    fn numbers_pick_the_tabs_in_order() {
+        let numbers = [gdk::Key::_1, gdk::Key::_2, gdk::Key::_3, gdk::Key::_4];
+        for (key, filter) in numbers.into_iter().zip(Filter::TABS) {
+            assert_eq!(key_action(key), KeyAction::Filter(filter), "{key:?}");
+        }
+    }
+
+    #[test]
+    fn brackets_step_between_tabs() {
+        assert_eq!(key_action(gdk::Key::bracketleft), KeyAction::PrevFilter);
+        assert_eq!(key_action(gdk::Key::bracketright), KeyAction::NextFilter);
+    }
+
+    /// Past the four tabs a number is nothing, not a fifth tab.
+    #[test]
+    fn other_numbers_pass_through() {
+        for key in [gdk::Key::_0, gdk::Key::_5, gdk::Key::_9] {
+            assert_eq!(key_action(key), KeyAction::Ignore, "{key:?}");
+        }
     }
 }
