@@ -47,6 +47,12 @@ pub fn agent_get(session: &str, name: &str) -> Vec<String> {
     cmd(session, &["agent", "get", name])
 }
 
+/// Every live agent in the session — one call that answers whether a task
+/// has a Claude on it, for the menu that opens on every card click.
+pub fn agent_list(session: &str) -> Vec<String> {
+    cmd(session, &["agent", "list"])
+}
+
 /// Return the user to an existing refine tab instead of opening a duplicate.
 pub fn agent_focus(session: &str, name: &str) -> Vec<String> {
     cmd(session, &["agent", "focus", name])
@@ -155,6 +161,15 @@ pub fn agent_status(got: &Value) -> Option<String> {
 /// has named — a Claude started by hand rather than by `agent start`.
 pub fn agent_name_of(got: &Value) -> Option<String> {
     got["result"]["agent"]["name"].as_str().map(str::to_string)
+}
+
+/// The names of the named agents in an `agent list` response. Unnamed ones
+/// are left out: a task's agent is found by name.
+pub fn agent_names(list: &Value) -> Vec<String> {
+    list["result"]["agents"]
+        .as_array()
+        .map(|agents| agents.iter().filter_map(|a| a["name"].as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
 }
 
 /// Open an existing git worktree as its own herdr workspace, grouped under
@@ -470,5 +485,26 @@ mod tests {
         let unnamed: Value =
             serde_json::from_str(r#"{"result":{"agent":{"agent":"claude","pane_id":"w7:p1"}}}"#).unwrap();
         assert_eq!(agent_name_of(&unnamed), None);
+    }
+
+    #[test]
+    fn agents_are_listed_per_session() {
+        assert_eq!(agent_list("alpha"), vec!["herdr", "--session", "alpha", "agent", "list"]);
+    }
+
+    /// Shape from herdr 0.9.1's `agent list`. An unnamed agent is skipped:
+    /// nothing can be looked up by a name it does not have.
+    #[test]
+    fn agent_names_are_read_from_agent_list() {
+        let list: Value = serde_json::from_str(
+            r#"{"id":"cli:agent:list","result":{"agents":[
+                {"agent":"claude","name":"task-6b57114f","pane_id":"w1:pD"},
+                {"agent":"claude","pane_id":"w1:p3"},
+                {"agent":"claude","name":"work-c53b6e3d","pane_id":"w6:p1"}
+            ],"type":"agent_list"}}"#,
+        )
+        .unwrap();
+        assert_eq!(agent_names(&list), vec!["task-6b57114f", "work-c53b6e3d"]);
+        assert!(agent_names(&Value::Null).is_empty());
     }
 }

@@ -55,7 +55,8 @@ Up and Down move a darker fill between cards; Left, Right and Tab move
 along the focused card's buttons, whose name shows beside them while one is
 focused, and Enter presses the focused one. Enter on
 the card itself opens its full menu, which also has Note, Grill me, Update
-status and Move to workspace. Every button gives the keyboard back as it runs,
+status and Move to workspace — led by Go to session while a Claude is working
+on the task. Every button gives the keyboard back as it runs,
 and Escape tucks the panel away, folding the cards back to one line. A list
 taller than the screen scrolls, keeping the focused card in view. Hovering
 never shows the buttons — only the keyboard does.
@@ -150,6 +151,7 @@ niritasks task refine <uuid>       # work it up into a plan with Claude, in the 
 niritasks task refine <uuid> --grill  #   the same, interviewing you first
 niritasks task start <uuid>        # its own worktree (task/<slug>-<uuid8>), opened in the herdr session,
                                    #   with Claude planning it; picked again, back to both
+niritasks task session <uuid>      # back to the Claude working on it (work-/task-<uuid8>) in the herdr session
 niritasks workspace new|rename|default
 niritasks project open
 niritasks terminal                 # a terminal in the focused workspace's ~/Projects folder (Mod+Return)

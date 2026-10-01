@@ -4,8 +4,9 @@
 //! agent by asking herdr for those names. A Claude started by hand gets the
 //! same `work-` name when it marks the task active.
 
-use crate::{herdr, session, work};
+use crate::{herdr, refine, session, work};
 use anyhow::{Context, Result};
+use std::path::Path;
 
 /// What to rename the agent in this pane to when it marks `uuid` active, or
 /// `None` to leave it as it is.
@@ -50,6 +51,46 @@ pub fn link_current_pane(uuid: &str) -> Result<()> {
     Ok(())
 }
 
+/// Which of `names` is `uuid`'s agent: its working Claude (`work-`) if it
+/// has one, else its refine (`task-`).
+pub fn session_agent(names: &[String], uuid: &str) -> Option<String> {
+    [work::work_agent_name(uuid), refine::agent_name(uuid)]
+        .into_iter()
+        .find(|want| names.iter().any(|n| n == want))
+}
+
+/// Every named live agent in `workspace`'s herdr session, from one
+/// `agent list` — what the panel asks once for all its cards. A session that
+/// is not running, or no herdr at all, has none: the menu and the panel ask
+/// this on every open and must not fail for it.
+pub fn live_agent_names(workspace: &str) -> Vec<String> {
+    let s = session::herdr_session_name(workspace);
+    herdr::run(&herdr::agent_list(&s))
+        .map(|list| herdr::agent_names(&list))
+        .unwrap_or_default()
+}
+
+/// The live agent working on `uuid` in `workspace`'s herdr session, if there
+/// is one.
+pub fn live_agent(workspace: &str, uuid: &str) -> Option<String> {
+    session_agent(&live_agent_names(workspace), uuid)
+}
+
+/// Bring the terminal showing `workspace`'s herdr session forward and focus
+/// the agent working on `uuid` in it. Never starts anything: with no live
+/// agent — it exited since the menu opened, say — this is an error, not a
+/// new session.
+pub fn go_to(workspace: &str, uuid: &str) -> Result<()> {
+    let name = live_agent(workspace, uuid)
+        .context("No Claude is working on this task in this workspace's herdr session.")?;
+    let home = std::env::var("HOME").context("HOME is unset")?;
+    let dir = session::start_dir(Path::new(&home), workspace);
+    let s = session::herdr_session_name(workspace);
+    refine::open_session(&dir, &s)?;
+    herdr::run(&herdr::agent_focus(&s, &name))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,5 +106,30 @@ mod tests {
         assert_eq!(pane_link_name(Some("task-11111111"), "7cd9fd3a-d27b"), None);
         assert_eq!(pane_link_name(Some("work-11111111"), "7cd9fd3a-d27b"), None);
         assert_eq!(pane_link_name(Some("work-7cd9fd3a"), "7cd9fd3a-d27b"), None, "already linked");
+    }
+
+    fn names(n: &[&str]) -> Vec<String> {
+        n.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The working Claude is the one you most likely want back; a refine
+    /// still open beside it is second.
+    #[test]
+    fn the_working_claude_is_preferred_over_a_refine() {
+        let live = names(&["task-7cd9fd3a", "work-7cd9fd3a"]);
+        assert_eq!(session_agent(&live, "7CD9FD3A-d27b").as_deref(), Some("work-7cd9fd3a"));
+    }
+
+    #[test]
+    fn a_refine_alone_is_still_a_session_to_go_to() {
+        let live = names(&["reviewer", "task-7cd9fd3a"]);
+        assert_eq!(session_agent(&live, "7cd9fd3a-d27b").as_deref(), Some("task-7cd9fd3a"));
+    }
+
+    #[test]
+    fn another_tasks_agents_are_not_this_ones() {
+        let live = names(&["work-11111111", "task-22222222", "reviewer"]);
+        assert_eq!(session_agent(&live, "7cd9fd3a-d27b"), None);
+        assert_eq!(session_agent(&[], "7cd9fd3a-d27b"), None);
     }
 }

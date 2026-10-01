@@ -120,6 +120,8 @@ enum TaskCommand {
         #[arg(long)]
         workspace: Option<String>,
     },
+    /// Go to the Claude working on a task, in the workspace's herdr session
+    Session { uuid: String },
 }
 
 #[derive(Subcommand)]
@@ -317,6 +319,15 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             let mode = if grill { refine::Mode::Grill } else { refine::Mode::Quick };
             refine::launch(&workspace, &uuid, &t.description, mode)?;
         }
+
+        TaskCommand::Session { uuid } => {
+            require_workspace_tag()?;
+            let workspace = niri::focused_workspace_name()?.unwrap_or_default();
+            // The uuid as found, not as typed: the agent's name is made from
+            // its first eight characters, and a typed prefix may be shorter.
+            let t = task::get(&uuid)?.context("task not found")?;
+            link::go_to(&workspace, &t.uuid)?;
+        }
     }
     Ok(())
 }
@@ -377,24 +388,39 @@ fn task_list(dry_run: bool) -> Result<()> {
     task_menu(&tag, selected, &description, niri_tasks::picker::clamp_task_width(longest))
 }
 
+/// The menu entry that goes back to the Claude working on a task.
+const GO_TO_SESSION: &str = "Go to session";
+
+/// The task menu's entries. Go to session leads, and only when a Claude is
+/// working on the task — a task with none shows the menu as it always has.
+fn menu_entries(has_session: bool) -> Vec<String> {
+    let mut entries = Vec::new();
+    if has_session {
+        entries.push(GO_TO_SESSION.to_string());
+    }
+    entries.extend(
+        ["Edit", "Note", "Refine", "Grill me", "Start working", "Update status", "Move to workspace"]
+            .map(String::from),
+    );
+    entries
+}
+
 /// The actions for one task, and doing the one picked. `width` is the delete
 /// confirmation's, matched to the list it was reached from.
 fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Result<()> {
+    // Asked of herdr on every open; a session that is not running answers
+    // at once, and no answer just means no Go to session.
+    let workspace = niri::focused_workspace_name()?.unwrap_or_default();
+    let entries = menu_entries(link::live_agent(&workspace, &selected).is_some());
     let action = Picker::new()
-        .lines(7)
+        .lines(entries.len())
         .width(20)
         .prompt("")
-        .run(&[
-            "Edit".into(),
-            "Note".into(),
-            "Refine".into(),
-            "Grill me".into(),
-            "Start working".into(),
-            "Update status".into(),
-            "Move to workspace".into(),
-        ])?;
+        .run(&entries)?;
 
     match action.as_deref() {
+        // Back to the Claude working on it — never starts one.
+        Some(GO_TO_SESSION) => return task_command(TaskCommand::Session { uuid: selected }),
         // Edit and Note open the box, not a one-line picker: the descriptions
         // you reach for the edit box to fix are the long ones, and a note has
         // nowhere to show existing notes in a single row.
@@ -703,5 +729,25 @@ mod tests {
                 panic!("{} runs {argv:?}, which the CLI rejects: {e}", action.label());
             }
         }
+    }
+
+    /// The menu's Go to session runs this; a script can too.
+    #[test]
+    fn going_to_a_tasks_session_is_a_command() {
+        assert!(Cli::try_parse_from(["niritasks", "task", "session", "c53b6e3d"]).is_ok());
+    }
+
+    /// Go to session leads the menu when there is a session to go to, and a
+    /// task with none gets exactly the menu it always had.
+    #[test]
+    fn go_to_session_leads_the_menu_only_when_there_is_one() {
+        let without = menu_entries(false);
+        assert_eq!(
+            without,
+            vec!["Edit", "Note", "Refine", "Grill me", "Start working", "Update status", "Move to workspace"]
+        );
+        let with = menu_entries(true);
+        assert_eq!(with[0], GO_TO_SESSION);
+        assert_eq!(with[1..], without[..]);
     }
 }
