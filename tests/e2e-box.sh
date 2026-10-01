@@ -25,29 +25,24 @@
 # here: real keypresses. The ×, "+ Add note" and scrolling take a pointer or
 # eyes, which wtype has neither of — README.md lists them as the manual check.
 #
-# Runs against a sandboxed TASKDATA, so the real task database is untouched.
+# It types only into a niri of its own (tests/lib/nested-niri.sh), parked
+# unfocused on the last workspace of your monitor. wtype's keys reach the niri
+# its WAYLAND_DISPLAY names and nothing else, so you can keep working while it
+# runs — but keep off that workspace: going there focuses the nested window,
+# and the run fails rather than trust keys that might have been yours. Your
+# own niri-tasks daemon keeps running: the fallback half runs with no daemon
+# inside the nested niri, which is where the box looks for one. The task
+# database is a sandbox's.
 set -uo pipefail
 
 command -v wtype >/dev/null || {
     echo "wtype is required: sudo apt install wtype" >&2
     exit 1
 }
-[ -n "${WAYLAND_DISPLAY:-}" ] || { echo "no Wayland display" >&2; exit 1; }
-command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
-
-NIRITASKS="${NIRITASKS:-niritasks}"
-SB="$(mktemp -d)"
-trap 'rm -rf "$SB"' EXIT
-mkdir -p "$SB/data"
-printf 'data.location=%s/data\n' "$SB" > "$SB/taskrc"
-export TASKRC="$SB/taskrc" TASKDATA="$SB/data"
-
-pass=0; fail=0
-ok()  { echo "  PASS  $*"; pass=$((pass+1)); }
-bad() { echo "  FAIL  $*"; fail=$((fail+1)); }
+. "$(dirname "${BASH_SOURCE[0]}")/lib/nested-niri.sh"
 
 box_id() {
-    niri msg -j windows 2>/dev/null | python3 -c "
+    nested niri msg -j windows 2>/dev/null | python3 -c "
 import json,sys
 for w in json.load(sys.stdin):
     if (w.get('app_id') or '')=='dev.niri-tasks.box':
@@ -55,7 +50,7 @@ for w in json.load(sys.stdin):
 "
 }
 focused_is_box() {
-    niri msg -j focused-window 2>/dev/null | python3 -c "
+    nested niri msg -j focused-window 2>/dev/null | python3 -c "
 import json,sys
 try: w=json.load(sys.stdin)
 except Exception: print('no'); raise SystemExit
@@ -63,7 +58,7 @@ print('yes' if (w or {}).get('app_id')=='dev.niri-tasks.box' else 'no')
 "
 }
 box_title() {
-    niri msg -j focused-window 2>/dev/null | python3 -c "
+    nested niri msg -j focused-window 2>/dev/null | python3 -c "
 import json,sys
 try: w=json.load(sys.stdin) or {}
 except Exception: w={}
@@ -73,7 +68,8 @@ print(w.get('title') or '')
 # open_box add          — the add box
 # open_box note <uuid>  — the note box for a task
 open_box() {
-    "$NIRITASKS" task "$@" >/dev/null 2>&1 &
+    guard
+    "${NENV[@]}" "$NIRITASKS" task "$@" >/dev/null 2>&1 &
     for _ in $(seq 1 40); do
         [ -n "$(box_id)" ] && { sleep 0.6; return 0; }
         sleep 0.1
@@ -118,17 +114,18 @@ pending() {
 }
 # Make a freshly opened box read wtype's keys right. wtype hands each call its
 # own keymap, and a box process that has just started can read the first
-# virtual key it gets with the real keyboard's keymap instead — where wtype's
-# first keycode is Escape. A Return sent first to a new box arrived as Escape:
-# the box closed, and the steps after it typed into whatever had focus next.
-# Typed text is read right, so a character typed and deleted at the end of the
-# description (where every box opens its cursor) settles it and changes nothing.
+# virtual key it gets with the keyboard's earlier keymap instead — where
+# wtype's first keycode is Escape. A Return sent first to a new box arrived as
+# Escape: the box closed, and the steps after it typed into nothing. Typed text
+# is read right, so a character typed and deleted at the end of the
+# description (where every box opens its cursor) settles it and changes
+# nothing.
 settle_keys() {
-    wtype "x"; wtype -k BackSpace
+    nested wtype "x"; nested wtype -k BackSpace
     sleep 0.2
 }
 close_any_box() {
-    for id in $(box_id); do niri msg action close-window --id "$id" >/dev/null 2>&1; done
+    for id in $(box_id); do nested niri msg action close-window --id "$id" >/dev/null 2>&1; done
     sleep 0.5
 }
 
@@ -148,9 +145,9 @@ run_suite() {
     # Ctrl+Enter submits, and the text survives the trip.
     local before after desc
     before=$(pending)
-    wtype "written by the end to end test"
+    nested wtype "written by the end to end test"
     sleep 0.4
-    wtype -M ctrl -k Return -m ctrl
+    nested wtype -M ctrl -k Return -m ctrl
     sleep 1.5
     after=$(pending)
     if [ "$after" -gt "$before" ]; then
@@ -169,11 +166,11 @@ print(next((t['description'] for t in ts if 'end to end' in t['description']), '
     # A bare Return in the description does not submit: it moves to the notes.
     before=$(pending)
     if open_box add; then
-        wtype "first line"; wtype -k Return; wtype "a note"
+        nested wtype "first line"; nested wtype -k Return; nested wtype "a note"
         sleep 0.4
         [ "$(pending)" -eq "$before" ] && ok "bare Enter did not submit" \
             || bad "bare Enter submitted"
-        wtype -M ctrl -k Return -m ctrl
+        nested wtype -M ctrl -k Return -m ctrl
         sleep 1.5
         desc=$(task rc.verbose=nothing rc.json.array=on status:pending export 2>/dev/null \
             | python3 -c "
@@ -189,8 +186,8 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
     # Escape cancels; nothing typed is kept.
     before=$(pending)
     if open_box add; then
-        wtype "this should never be saved"; sleep 0.3
-        wtype -k Escape; sleep 1.2
+        nested wtype "this should never be saved"; sleep 0.3
+        nested wtype -k Escape; sleep 1.2
         [ "$(pending)" -eq "$before" ] && ok "Escape wrote nothing" || bad "Escape wrote a task"
         [ -z "$(box_id)" ] && ok "box closed on Escape" || bad "box still open after Escape"
     else
@@ -204,12 +201,12 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
     before=$(pending)
     if open_box add; then
         settle_keys
-        wtype -M ctrl -k Return -m ctrl; sleep 1.2
+        nested wtype -M ctrl -k Return -m ctrl; sleep 1.2
         [ "$(pending)" -eq "$before" ] && ok "empty submit wrote nothing" \
             || bad "empty submit wrote a task"
         [ -n "$(box_id)" ] && ok "and left the box open" \
             || bad "empty submit closed the box"
-        wtype -k Escape; sleep 1.2
+        nested wtype -k Escape; sleep 1.2
         [ -z "$(box_id)" ] && ok "Escape then closed it" \
             || bad "box still open after Escape"
     else
@@ -219,9 +216,9 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
     # Add still word-splits, so taskwarrior attributes parse.
     local dmark="due-$RANDOM" uuid
     if open_box add; then
-        wtype "$dmark due:friday"
+        nested wtype "$dmark due:friday"
         sleep 0.4
-        wtype -M ctrl -k Return -m ctrl
+        nested wtype -M ctrl -k Return -m ctrl
         sleep 1.8
         uuid=$(uuid_of "$dmark")
         if [ -n "$uuid" ]; then
@@ -240,14 +237,14 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
     # Enter in a note adds a row below. An empty row is not a note.
     local marker="notes-$RANDOM" notes
     if open_box add; then
-        wtype "$marker"
-        wtype -k Return
-        wtype "first note"
-        wtype -k Return
-        wtype -k Return                      # an empty row, left empty
-        wtype "second note"
+        nested wtype "$marker"
+        nested wtype -k Return
+        nested wtype "first note"
+        nested wtype -k Return
+        nested wtype -k Return                      # an empty row, left empty
+        nested wtype "second note"
         sleep 0.4
-        wtype -M ctrl -k Return -m ctrl
+        nested wtype -M ctrl -k Return -m ctrl
         sleep 1.8
         uuid=$(uuid_of "$marker")
         if [ -n "$uuid" ]; then
@@ -264,9 +261,9 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
 
     # Edit an existing task's notes in place. Three notes, seeded from the CLI.
     local emark="edit-$RANDOM" stamps a_stamp c_stamp
-    "$NIRITASKS" task add "$emark" >/dev/null 2>&1
+    nested "$NIRITASKS" task add "$emark" >/dev/null 2>&1
     uuid=$(uuid_of "$emark")
-    for n in "note A" "note B" "note C"; do "$NIRITASKS" task note "$uuid" "$n" >/dev/null 2>&1; done
+    for n in "note A" "note B" "note C"; do nested "$NIRITASKS" task note "$uuid" "$n" >/dev/null 2>&1; done
     stamps=$(stamped_notes_of "$uuid")
     a_stamp=$(printf '%s\n' "$stamps" | sed -n 1p | cut -d' ' -f1)
     c_stamp=$(printf '%s\n' "$stamps" | sed -n 3p | cut -d' ' -f1)
@@ -275,14 +272,14 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
         [ "$(box_title)" = "Edit Task" ] && ok "edit opens the one box" \
             || bad "edit box title was \"$(box_title)\""
         settle_keys
-        wtype -k Return                      # description -> note A, cursor at end
-        wtype " edited"
-        wtype -k Tab; wtype -k Tab           # note A's ×, then note B
-        wtype -M ctrl a -m ctrl              # select all of note B
-        wtype -k BackSpace                   # ...and clear it
-        wtype -k BackSpace                   # an empty row: delete it, move up
+        nested wtype -k Return                      # description -> note A, cursor at end
+        nested wtype " edited"
+        nested wtype -k Tab; nested wtype -k Tab           # note A's ×, then note B
+        nested wtype -M ctrl a -m ctrl              # select all of note B
+        nested wtype -k BackSpace                   # ...and clear it
+        nested wtype -k BackSpace                   # an empty row: delete it, move up
         sleep 0.4
-        wtype -M ctrl -k Return -m ctrl
+        nested wtype -M ctrl -k Return -m ctrl
         sleep 1.8
         [ "$(notes_of "$uuid")" = "$(printf 'note A edited\nnote C')" ] \
             && ok "a note edited in place and another deleted, in one save" \
@@ -299,7 +296,7 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
     undo_before=$(undo_count)
     if [ -n "$uuid" ] && open_box edit "$uuid"; then
         settle_keys                          # or an Escape here would pass too
-        wtype -M ctrl -k Return -m ctrl
+        nested wtype -M ctrl -k Return -m ctrl
         sleep 1.5
         [ "$(undo_count)" -eq "$undo_before" ] && ok "an unchanged save wrote nothing" \
             || bad "an unchanged save wrote to the task database"
@@ -311,11 +308,11 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
     if [ -n "$uuid" ] && open_box note "$uuid"; then
         [ "$(box_title)" = "Edit Task" ] && ok "note opens the same box" \
             || bad "note box title was \"$(box_title)\""
-        wtype "note D"
-        wtype -k Return
-        wtype "note E"
+        nested wtype "note D"
+        nested wtype -k Return
+        nested wtype "note E"
         sleep 0.4
-        wtype -M ctrl -k Return -m ctrl
+        nested wtype -M ctrl -k Return -m ctrl
         sleep 1.8
         [ "$(notes_of "$uuid")" = "$(printf 'note A edited\nnote C\nnote D\nnote E')" ] \
             && ok "note added rows after the existing ones" \
@@ -329,8 +326,8 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
 
     # Escape discards everything, without asking.
     if [ -n "$uuid" ] && open_box note "$uuid"; then
-        wtype "this note should never be saved"; sleep 0.3
-        wtype -k Escape; sleep 1.2
+        nested wtype "this note should never be saved"; sleep 0.3
+        nested wtype -k Escape; sleep 1.2
         [ "$(notes_of "$uuid" | grep -c .)" -eq 4 ] \
             && ok "Escape in the box wrote nothing" \
             || bad "Escape changed the notes"
@@ -340,33 +337,23 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
     fi
 
     close_any_box
+    guard
 }
 
-# Start from a clean slate. A previous run that failed part-way can leave a box
-# on screen, and the checks below key off "is there a box window" — so a stale
-# one makes the next run fail for reasons that have nothing to do with the code.
-# That happened once and cost a confusing debugging detour.
-close_any_box
-pkill -f "$NIRITASKS task (add|edit|note)" 2>/dev/null
+nested_start
 
 # Both paths matter: the daemon serves the box when it is running, and the CLI
 # builds its own when it is not. The fallback is the reason this tool does not
-# depend on a daemon, so it is tested rather than assumed.
-WAS_ACTIVE=$(systemctl --user is-active niri-tasks.service 2>/dev/null || echo inactive)
-systemctl --user stop niri-tasks.service 2>/dev/null
-sleep 1
-
-"$NIRITASKS" daemon >"$SB/daemon.err" 2>&1 &
-DAEMON=$!
-sleep 3
+# depend on a daemon, so it is tested rather than assumed. The box looks for
+# a daemon under the nested niri's runtime dir, so the second half needs only
+# none running there — yours keeps running throughout.
+nested_daemon_start "$SB/daemon.err"
 run_suite "served by the daemon"
-kill "$DAEMON" 2>/dev/null; wait "$DAEMON" 2>/dev/null
+nested_daemon_stop
 sleep 1
 
 run_suite "fallback, no daemon running"
 
-[ "$WAS_ACTIVE" = active ] && systemctl --user start niri-tasks.service 2>/dev/null
-
-echo
-echo "passed: $pass   failed: $fail"
+nested_service_untouched
+summary
 [ "$fail" -eq 0 ]
