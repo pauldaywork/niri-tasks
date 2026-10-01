@@ -157,11 +157,15 @@ echo "nested niri: window $WIN, sockets in $RT"
 
 # ─── park it out of the way ──────────────────────────────────────────────────
 # Floating, so its size is exactly what is set; on the last workspace of its
-# monitor, which niri always keeps empty; and without the focus, which stays
-# on the window it opened over.
-niri msg action move-window-to-floating --id "$WIN" >/dev/null
-niri msg action set-window-width --id "$WIN" "$OUT_W" >/dev/null
-niri msg action set-window-height --id "$WIN" "$OUT_H" >/dev/null
+# monitor, which niri always keeps empty; and without the focus: --focus false
+# leaves it on the workspace the window opened on, back on the window that had
+# it before.
+niri msg action move-window-to-floating --id "$WIN" >/dev/null ||
+    die "niri would not float the nested niri's window (move-window-to-floating)"
+niri msg action set-window-width --id "$WIN" "$OUT_W" >/dev/null ||
+    die "niri would not set the nested niri's window width (set-window-width)"
+niri msg action set-window-height --id "$WIN" "$OUT_H" >/dev/null ||
+    die "niri would not set the nested niri's window height (set-window-height)"
 spare=$(python3 -c '
 import json, subprocess, sys
 get = lambda what: json.loads(subprocess.run(["niri", "msg", "-j", what],
@@ -171,11 +175,15 @@ spaces = get("workspaces")
 output = next(s["output"] for s in spaces if s["id"] == win["workspace_id"])
 print(max(s["idx"] for s in spaces if s["output"] == output))' "$WIN") ||
     die "cannot find a spare workspace for the nested niri"
-niri msg action move-window-to-workspace --window-id "$WIN" --focus false "$spare" >/dev/null
+niri msg action move-window-to-workspace --window-id "$WIN" --focus false "$spare" >/dev/null ||
+    die "niri would not park the nested niri's window on workspace $spare (move-window-to-workspace)"
 
 # Why the nested window can no longer be trusted, or nothing while it can.
+# Nothing is only ever a good answer: when this niri cannot be asked, that is
+# a reason of its own, never an empty one that reads as "all is well".
+UNASKABLE="cannot ask this niri where the nested window is"
 focus_reason() {
-    python3 - "$WIN" 2>/dev/null <<'PY'
+    python3 - "$WIN" 2>/dev/null <<'PY' || echo "$UNASKABLE"
 import json, subprocess, sys
 get = lambda what: json.loads(subprocess.run(["niri", "msg", "-j", what],
                                              capture_output=True, text=True, check=True).stdout)
@@ -211,10 +219,18 @@ ok "the nested niri is parked unfocused on a spare workspace, ${OUT_W}x${OUT_H}"
 
 # From here on, the window must stay unfocused and off screen. This watches
 # for the whole run; guard ends the run the moment it has seen otherwise.
+# One failed question is a hiccup; three in a row is a niri that cannot be
+# trusted to answer.
 watch_focus() {
-    local why
+    local why blind=0
     while sleep 0.25; do
         why=$(focus_reason)
+        if [ "$why" = "$UNASKABLE" ]; then
+            blind=$((blind+1))
+            [ "$blind" -ge 3 ] || continue
+        else
+            blind=0
+        fi
         [ -n "$why" ] && { echo "$why" > "$SB/tampered"; return; }
     done
 }
