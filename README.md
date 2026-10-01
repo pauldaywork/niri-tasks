@@ -239,7 +239,7 @@ bash tests/all.sh           # everything this machine can run       ~100s
 cargo test                  # unit, differential, write-path        ~2s
 bash tests/e2e-tag.sh       # `niritasks tag --session`, against real niri ~1s
 bash tests/e2e-panel.sh     # the task panel, in a nested niri       ~30s
-bash tests/e2e-box.sh       # the task box, driven by real keys     ~65s
+bash tests/e2e-box.sh       # the task box, in a nested niri         ~65s
 ```
 
 Each exits non-zero on failure, so any of them can go in a loop or a hook.
@@ -249,7 +249,8 @@ checks each suite's prerequisites itself and reports one it cannot run as a
 **skip, with the reason** — no niri, no Pillow, no Wayland display — rather than
 letting it fail. A skip is not a failure: it exits non-zero only when a suite
 that actually ran said no, which is what makes it safe on a machine that can
-only run half of it. It warns you before the two that take the machine over.
+only run half of it. Neither e2e suite takes the machine over: both run in a
+nested niri parked on a spare workspace, and it tells you which one to keep off.
 
 | | Needs | Touches |
 |---|---|---|
@@ -257,7 +258,7 @@ only run half of it. It warns you before the two that take the machine over.
 | `cargo test` | `taskwarrior` on `$PATH`, and `bash` for the differential suite | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
 | `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the name of that spare workspace, taken off again. No herdr session and no task database at all |
 | `tests/e2e-panel.sh` | niri, a Wayland session, `python3-pil`, taskwarrior; `wtype` for its keyboard checks, which are skipped without it | A nested niri window for the run, parked on the spare workspace at the end of your monitor; keep off that workspace until it finishes. Not your clipboard, your screenshots or the `niri-tasks` daemon |
-| `tests/e2e-box.sh` | `wtype`, a Wayland session, niri | **Your keyboard**, and the `niri-tasks` daemon |
+| `tests/e2e-box.sh` | `wtype`, niri, a Wayland session, taskwarrior | A nested niri window for the run, parked like the panel test's; keep off that workspace until it finishes. Its keys go only to that nested niri. Not your keyboard or the `niri-tasks` daemon |
 
 Narrowing `cargo test` works as usual — `cargo test --lib`, `cargo test --test
 write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
@@ -288,12 +289,13 @@ Delete deletes, while moving away disarms it; Enter on a card opens the menu,
 Enter on "+N more" shows the rest, and a list taller than the screen scrolls
 with the focus; Escape tucks it away to the one-line peek.
 
-Two things about `e2e-box.sh` in particular. It **types into whatever has
-focus**, so start it and leave the keyboard alone until it finishes; anything
-you type lands in the box alongside it. And it stops `niri-tasks.service`, runs
-its own daemon for the first half, then starts the service again if it was
-running — that is deliberate, since the point is to prove both the daemon path
-and the fallback, but it means the task panel blinks out for a minute.
+`e2e-box.sh` runs in the same kind of nested niri (`tests/lib/nested-niri.sh`
+starts it for both). Its keys are pressed with `wtype` pointed at that nested
+niri, so they never reach your windows, and you can keep working while it
+runs — keep off the workspace it is parked on, as for the panel test. It
+proves both ways the box opens: served by a daemon running inside the nested
+niri, then with none running there, when the CLI builds the box itself. Your
+own `niri-tasks` daemon is never stopped.
 
 It cannot click, so after a change to `src/taskbox.rs` check the pointer half by
 hand: × deletes its row, "+ Add note" appends an empty row with the cursor in
@@ -321,8 +323,8 @@ view.
 Wayland display, and `wtype` to press the keys. It opens the box, types into it,
 presses Ctrl+Enter, and checks a task was actually written — against a sandboxed
 `TASKDATA`, so your real database is untouched. It runs the whole thing twice,
-once served by the daemon and once with the daemon stopped, because the fallback
-is the reason this tool does not depend on a daemon.
+inside a nested niri of its own, once served by a daemon there and once with
+none, because the fallback is the reason this tool does not depend on a daemon.
 
 It exists because two bugs reached daily use that no unit test could have caught.
 The box opened carrying the daemon's `app_id` instead of its own, so every check

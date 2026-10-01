@@ -21,12 +21,12 @@
 # date, the suite runs and fails on its own terms, which is loud rather than
 # silent, and the right way round for a mistake like that to land.
 #
-# They run in order of how much they take over the machine: cargo test touches
-# nothing, e2e-tag.sh at most names a spare workspace,
-# e2e-panel.sh opens a nested niri on a spare workspace, and e2e-box.sh types
-# into whatever has focus. So the cheap suites have already reported by the time
-# you have to leave the keyboard alone, and a failure in the fast half does not
-# cost you a minute of not touching the machine to find out about.
+# They run cheapest first: cargo test touches nothing, e2e-tag.sh at most
+# names a spare workspace, and the panel and box tests each run in a nested
+# niri of their own (tests/lib/nested-niri.sh), parked on the last workspace
+# of your monitor. Neither presses a key or takes a screenshot on your
+# desktop, so you can keep working while they run — just keep off that
+# workspace.
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 1
@@ -62,6 +62,8 @@ why_box() {
     command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
     command -v wtype >/dev/null || { echo "no wtype (sudo apt install wtype)"; return; }
     command -v niri  >/dev/null || { echo "no niri"; return; }
+    command -v task  >/dev/null || { echo "no taskwarrior on \$PATH"; return; }
+    [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)"; return; }
     [ -n "${WAYLAND_DISPLAY:-}" ] || { echo "no Wayland display"; return; }
 }
 
@@ -87,17 +89,12 @@ echo "niritasks $(command -v "$NIRITASKS" 2>/dev/null || echo "not found ($NIRIT
 suite "cargo test"           "$(why_cargo)"   cargo test
 suite "tests/e2e-tag.sh"     "$(why_tag)"     bash tests/e2e-tag.sh
 
-if [ -z "$(why_panel)" ]; then
+if [ -z "$(why_panel)" ] || [ -z "$(why_box)" ]; then
     echo
-    echo "  ! the panel test parks a nested niri on the last workspace of this"
-    echo "    monitor: keep off that workspace until it finishes."
+    echo "  ! the panel and box tests park a nested niri on the last workspace"
+    echo "    of this monitor: keep off that workspace until they finish."
 fi
 suite "tests/e2e-panel.sh" "$(why_panel)" bash tests/e2e-panel.sh
-if [ -z "$(why_box)" ]; then
-    echo
-    echo "  ! the box test types into whatever has focus."
-    echo "    Leave the keyboard alone until it finishes."
-fi
 suite "tests/e2e-box.sh"     "$(why_box)"     bash tests/e2e-box.sh
 
 echo
