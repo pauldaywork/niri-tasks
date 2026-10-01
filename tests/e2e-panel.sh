@@ -41,6 +41,9 @@ python3 -c "import PIL" 2>/dev/null || {
     echo "python3 Pillow is required: sudo apt install python3-pil" >&2; exit 1; }
 
 . "$(dirname "${BASH_SOURCE[0]}")/lib/nested-niri.sh"
+# The nested niri's spawns (what Ctrl+Enter runs) get a PATH with no herdr and
+# no wt, so a refine or a start fails at once instead of opening anything real.
+NESTED_SPAWN_PATH="$SB/bin:/usr/bin:/bin"
 
 # The nested niri's one output (tests/lib/nested-niri.sh), in pixels.
 OUT_W=$NESTED_W
@@ -336,6 +339,57 @@ if command -v wtype >/dev/null; then
         ok "taking the keyboard again opens on All, whatever tab it was left on"
     else
         bad "the keyboard reopened on something other than All with the first card focused"
+    fi
+
+    # Ctrl+Enter acts on the focused card (the first, as the panel opened) and
+    # leaves the panel as it was. The spawned refine stops at the missing herdr.
+    if PATH="$NESTED_SPAWN_PATH" command -v herdr >/dev/null; then
+        skip "Ctrl+Enter refining and starting (herdr is in $NESTED_SPAWN_PATH, so a refine would really open)"
+    else
+        refines() { cat "$SB/notifications" 2>/dev/null | grep -c "herdr is not installed"; }
+        before=$(refines)
+        "${NENV[@]}" wtype -M ctrl -k Return -m ctrl
+        for _ in $(seq 1 50); do [ "$(refines)" -gt "$before" ] && break; sleep 0.1; done
+        if [ "$(refines)" -gt "$before" ]; then
+            ok "Ctrl+Enter on an unrefined card starts a refine"
+        else
+            bad "Ctrl+Enter started no refine (notifications: $(tail -n 3 "$SB/notifications" 2>/dev/null | tr '\n' '|'))"
+        fi
+        sleep 1
+        shot ctrl_enter || { summary; exit 1; }
+        if same reopened ctrl_enter; then
+            ok "and leaves the panel up with the same card focused, as it was"
+        else
+            read -r x0 x1 y0 y1 < <(measure ctrl_enter reopened)
+            bad "Ctrl+Enter changed the screen in columns ${x0}-${x1}, rows ${y0}-${y1}"
+        fi
+
+        # Once planned, the same key starts working. That is `task start`, which
+        # in this sandbox stops at once: ~/Projects/e2e is no git repository, and
+        # wt is not on the spawn PATH, so no worktree or herdr is ever touched.
+        if PATH="$NESTED_SPAWN_PATH" command -v wt >/dev/null; then
+            skip "Ctrl+Enter starting a planned task (wt is in $NESTED_SPAWN_PATH)"
+        else
+            first=$(grep -o "Refining: .*" "$SB/notifications" | tail -n 1 | sed 's/^Refining: //')
+            task rc.verbose=nothing rc.confirmation=no "+$TAG" "description.is:$first" \
+                modify +planned </dev/null >/dev/null 2>&1
+            settle
+            "${NENV[@]}" wtype -M ctrl -k Return -m ctrl
+            for _ in $(seq 1 50); do grep -q "Starting: $first" "$SB/notifications" 2>/dev/null && break; sleep 0.1; done
+            if grep -q "Starting: $first" "$SB/notifications" 2>/dev/null; then
+                ok "Ctrl+Enter on a planned card starts working on it"
+            else
+                bad "Ctrl+Enter on the planned '$first' did not start it (notifications: $(tail -n 3 "$SB/notifications" 2>/dev/null | tr '\n' '|'))"
+            fi
+            sleep 1
+            shot ctrl_enter_start || { summary; exit 1; }
+            read -r x0 x1 y0 y1 < <(measure ctrl_enter_start)
+            if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ]; then
+                ok "and the panel is still up in the middle of the screen"
+            else
+                bad "after Ctrl+Enter started a task the panel covers columns ${x0}-${x1}, not the middle"
+            fi
+        fi
     fi
 
     # Park one as waiting while the panel is open: All loses it and the
