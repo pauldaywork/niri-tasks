@@ -47,8 +47,11 @@ pub const ACTIVE: &str = "#8cd283";
 /// Remove red. Start shares [`ACTIVE`]'s green, because starting a task is what
 /// turns its card green.
 pub const REFINE: &str = "#cba6f7";
+/// Edit yellow.
 pub const EDIT: &str = "#f9e2af";
+/// Stop peach.
 pub const STOP: &str = "#fab387";
+/// Remove red.
 pub const REMOVE: &str = "#f38ba8";
 /// Text on a solid colour fill, the armed Remove: mocha's `base`, so it reads
 /// as dark on red.
@@ -96,11 +99,7 @@ window.task-panel {{ background-color: transparent; }}
     box-shadow: {OUTLINE};
 }}
 .task-panel .card-body,
-.task-panel .card-body:hover,
-.task-panel .card-body:active,
-.task-panel .card-actions button,
-.task-panel .card-actions button:hover,
-.task-panel .card-actions button:active {{
+.task-panel .card-actions button {{
     background-color: transparent;
     background-image: none;
     color: inherit;
@@ -114,6 +113,18 @@ window.task-panel {{ background-color: transparent; }}
     box-shadow: none;
     outline: none;
     transition: none;
+}}
+/* Clear the theme's hover and press look so the button keeps its own colour,
+   padding and rounding. */
+.task-panel .card-body:hover,
+.task-panel .card-body:active,
+.task-panel .card-actions button:hover,
+.task-panel .card-actions button:active {{
+    background-color: transparent;
+    background-image: none;
+    border: none;
+    box-shadow: none;
+    outline: none;
 }}
 /* The body keeps the card's whole rounding while it is the only thing in it. */
 .task-panel .card-body {{ border-radius: {RADIUS_PX}px; }}
@@ -200,6 +211,46 @@ mod tests {
         let css = css();
         assert!(css.contains(".card-actions button:first-child { border-bottom-left-radius: 8px; }"));
         assert!(css.contains(".card-actions button:last-child { border-bottom-right-radius: 8px; }"));
+    }
+
+    /// Hover and press must not override the button's own colour, padding or rounding,
+    /// or the pointer action would dim the button's colour and jump its size.
+    #[test]
+    fn hover_and_press_keep_each_buttons_own_look() {
+        let css = css();
+        // Parse CSS rules: selector { body }.
+        // Split on '}' to get individual rules, then split on '{' to separate selector from body.
+        for rule in css.split('}') {
+            if let Some(brace_pos) = rule.find('{') {
+                let selector = &rule[..brace_pos];
+                let body = &rule[brace_pos + 1..];
+                // If selector contains :hover or :active, check that body doesn't set
+                // colour, padding, or border-radius.
+                if selector.contains(":hover") || selector.contains(":active") {
+                    for line in body.lines() {
+                        let trimmed = line.trim_start();
+                        if trimmed.starts_with("color:") {
+                            panic!(
+                                "hover/active rule must not set color: selector=[{}] body=[{}]",
+                                selector, body
+                            );
+                        }
+                        if trimmed.starts_with("padding:") {
+                            panic!(
+                                "hover/active rule must not set padding: selector=[{}] body=[{}]",
+                                selector, body
+                            );
+                        }
+                        if trimmed.starts_with("border-radius:") {
+                            panic!(
+                                "hover/active rule must not set border-radius: selector=[{}] body=[{}]",
+                                selector, body
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// The card the keyboard is on is picked out by its fill alone. A border
