@@ -877,6 +877,8 @@ mod tests {
     /// run. A subcommand counts once some line runs it. A flag counts once
     /// some line runs its subcommand with that flag, so it is documented in
     /// use and not only named in passing.
+    /// Long flags only: a short-only flag or a positional is not checked
+    /// here (positionals are covered by the `--help` test).
     fn undocumented(lines: &[&str]) -> Vec<String> {
         let mut missing = Vec::new();
         for (path, cmd) in leaf_commands() {

@@ -156,7 +156,7 @@ niritasks tag --session            # the tag of the workspace this terminal was 
                                    #   (its herdr session, else its ~/Projects folder)
 niritasks task active              # each active task's description, one per line, or nothing
 niritasks task list                # the picker
-niritasks task list --dry-run      # the rows it would show, for scripting and testing
+niritasks task list --dry-run      # the picker's rows (marker, description, ¶ for notes, then the Add row), for testing
 niritasks task panel               # hand the task panel the keyboard (Mod+Alt+Ctrl+T)
 niritasks task menu <uuid>         # one task's actions, as a task card click opens them
 niritasks task status <uuid> <state>  # the menu's Update status: active|stopped|waiting|completed|deleted
