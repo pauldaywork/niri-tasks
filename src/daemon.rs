@@ -183,11 +183,19 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
 
     match req {
         Request::Panel => {
-            let output = niri::focused_workspace().ok().flatten().and_then(|w| w.output);
+            let focused = niri::focused_workspace().ok().flatten();
+            let output = focused.as_ref().and_then(|w| w.output.clone());
             let panel = output
                 .as_ref()
                 .and_then(|o| PANELS.with(|p| p.borrow().get(o).cloned()));
-            if !panel.is_some_and(|p| p.take_keyboard()) {
+            // One `herdr agent list` per slide-out, for every card at once;
+            // a session that is not running answers at once with none.
+            let agents = focused
+                .as_ref()
+                .and_then(|w| w.name.as_deref())
+                .map(crate::link::live_agent_names)
+                .unwrap_or_default();
+            if !panel.is_some_and(|p| p.take_keyboard(agents)) {
                 // No cards to pick from: the fuzzel list instead, with its
                 // "Add task" row, or its "name this workspace" error.
                 crate::panel::surface::open_menu(

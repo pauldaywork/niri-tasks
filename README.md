@@ -45,6 +45,7 @@ opens up to its whole description, wrapped, above a row of buttons:
 
 | Button | Key | Does |
 |---|---|---|
+| **Go to session** (blue) | `g` | The menu's Go to session: back to the Claude working on the task — only while one is, checked as the panel slides out |
 | **Start working** (green) | `s` | The menu's Start working: the task's own worktree, herdr tab and Claude — not on an active task, which is already being worked |
 | **Refine** (mauve) | `r` | Work it up into a plan with Claude |
 | **Edit** (yellow) | `e` | Open it in the task box |

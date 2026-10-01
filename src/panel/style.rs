@@ -43,7 +43,7 @@ pub const TEXT: &str = "#f0f0f0";
 /// the palette the desktop's error and warning colours come from.
 pub const ACTIVE: &str = "#8cd283";
 /// The keyboard's action buttons, each its own colour from the same Catppuccin
-/// palette as [`ACTIVE`] (mocha's): Refine mauve, Edit yellow, Stop peach,
+/// palette as [`ACTIVE`] (mocha's): Go to session blue, Refine mauve, Edit yellow, Stop peach,
 /// Remove red. Start shares [`ACTIVE`]'s green, because starting a task is what
 /// turns its card green.
 pub const REFINE: &str = "#cba6f7";
@@ -53,11 +53,14 @@ pub const EDIT: &str = "#f9e2af";
 pub const STOP: &str = "#fab387";
 /// Remove red.
 pub const REMOVE: &str = "#f38ba8";
+/// Go to session blue: mocha's `blue`, apart from every other button's colour.
+pub const SESSION: &str = "#89b4fa";
 /// Text on a solid colour fill, the armed Remove: mocha's `base`, so it reads
 /// as dark on red.
 pub const ON_FILL: &str = "#1e1e2e";
 /// Each button's class, as `Action::name()` gives it, and its colour.
-pub const ACTION_COLOURS: [(&str, &str); 5] = [
+pub const ACTION_COLOURS: [(&str, &str); 6] = [
+    ("session", SESSION),
     ("start", ACTIVE),
     ("refine", REFINE),
     ("edit", EDIT),

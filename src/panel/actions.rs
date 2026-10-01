@@ -13,6 +13,8 @@ use super::model::Status;
 /// button cannot drift from the menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
+    /// Back to the Claude working on the task; only on a card that has one.
+    Session,
     Start,
     Refine,
     Edit,
@@ -24,27 +26,33 @@ use Action::*;
 
 impl Action {
     /// In the order the buttons sit, left to right.
-    pub const ALL: [Action; 5] = [Start, Refine, Edit, Stop, Remove];
+    pub const ALL: [Action; 6] = [Session, Start, Refine, Edit, Stop, Remove];
 
     /// What Remove reads between its first press and its second, the way the
     /// menu's delete asks "delete?" before it deletes.
     pub const CONFIRM_REMOVE: &'static str = "Confirm remove";
 
-    /// The buttons a card gets, left to right. An active task is already
-    /// being worked, so it gets Stop and no Start working; the rest have
-    /// nothing to stop. None on "+N more", which stands for no one task.
-    pub fn for_status(status: Status) -> Vec<Action> {
+    /// The buttons a card gets, left to right. Go to session leads while a
+    /// Claude is working on the task (`has_session`), as it leads the menu. An
+    /// active task is already being worked, so it gets Stop and no Start
+    /// working; the rest have nothing to stop. None on "+N more", which stands
+    /// for no one task.
+    pub fn for_status(status: Status, has_session: bool) -> Vec<Action> {
         let skip = match status {
             Status::More => return Vec::new(),
             Status::Active => Start,
             Status::Pending | Status::Blocked | Status::Planned => Stop,
         };
-        Self::ALL.into_iter().filter(|a| *a != skip).collect()
+        Self::ALL
+            .into_iter()
+            .filter(|a| *a != skip && (*a != Session || has_session))
+            .collect()
     }
 
     /// The button's name in words, the menu's own: its icon's tooltip.
     pub fn label(self) -> &'static str {
         match self {
+            Session => "Go to session",
             Start => "Start working",
             Refine => "Refine",
             Edit => "Edit",
@@ -58,6 +66,7 @@ impl Action {
     /// stop and trash can.
     pub fn icon(self) -> &'static str {
         match self {
+            Session => "\u{f120}",
             Start => "\u{f04b}",
             Refine => "\u{f0d0}",
             Edit => "\u{f040}",
@@ -70,6 +79,7 @@ impl Action {
     /// which lets a re-render put focus back on the same button.
     pub fn name(self) -> &'static str {
         match self {
+            Session => "session",
             Start => "start",
             Refine => "refine",
             Edit => "edit",
@@ -83,6 +93,7 @@ impl Action {
     /// the confirmation.
     pub fn args(self, uuid: &str) -> Vec<String> {
         let words: &[&str] = match self {
+            Session => &["task", "session", uuid],
             Start => &["task", "start", uuid],
             Refine => &["task", "refine", uuid],
             Edit => &["task", "edit", uuid],
@@ -99,27 +110,43 @@ mod tests {
 
     #[test]
     fn an_active_task_gets_stop_in_place_of_start() {
-        let names: Vec<&str> = Action::for_status(Status::Active).iter().map(|a| a.name()).collect();
+        let names: Vec<&str> = Action::for_status(Status::Active, false).iter().map(|a| a.name()).collect();
         assert_eq!(names, vec!["refine", "edit", "stop", "remove"]);
     }
 
     #[test]
     fn a_task_not_yet_active_gets_start_and_no_stop() {
         for status in [Status::Pending, Status::Blocked, Status::Planned] {
-            let got = Action::for_status(status);
+            let got = Action::for_status(status, false);
             assert_eq!(got, vec![Action::Start, Action::Refine, Action::Edit, Action::Remove], "{status:?}");
         }
     }
 
+    /// Go to session leads the row only while a Claude is on the task — on an
+    /// active one, in the place Start working has on the others.
+    #[test]
+    fn a_task_with_a_live_claude_gets_go_to_session_first() {
+        assert_eq!(
+            Action::for_status(Status::Active, true),
+            vec![Action::Session, Action::Refine, Action::Edit, Action::Stop, Action::Remove]
+        );
+        // A refine open on a task not yet started.
+        assert_eq!(
+            Action::for_status(Status::Planned, true),
+            vec![Action::Session, Action::Start, Action::Refine, Action::Edit, Action::Remove]
+        );
+    }
+
     #[test]
     fn more_is_no_one_task_and_gets_no_buttons() {
-        assert!(Action::for_status(Status::More).is_empty());
+        assert!(Action::for_status(Status::More, false).is_empty());
+        assert!(Action::for_status(Status::More, true).is_empty());
     }
 
     #[test]
     fn labels_read_as_the_menu_does() {
         let labels: Vec<&str> = Action::ALL.iter().map(|a| a.label()).collect();
-        assert_eq!(labels, vec!["Start working", "Refine", "Edit", "Stop", "Remove"]);
+        assert_eq!(labels, vec!["Go to session", "Start working", "Refine", "Edit", "Stop", "Remove"]);
         assert_eq!(Action::CONFIRM_REMOVE, "Confirm remove");
     }
 
@@ -136,6 +163,7 @@ mod tests {
     #[test]
     fn each_button_runs_its_menu_entrys_command() {
         let u = "c53b6e3d-ca05-4aae-8588-4ee1abc25f5b";
+        assert_eq!(Action::Session.args(u), vec!["task", "session", u]);
         assert_eq!(Action::Start.args(u), vec!["task", "start", u]);
         assert_eq!(Action::Refine.args(u), vec!["task", "refine", u]);
         assert_eq!(Action::Edit.args(u), vec!["task", "edit", u]);

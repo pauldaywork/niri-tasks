@@ -111,6 +111,12 @@ pub struct Panel {
     expanded: Cell<bool>,
     /// The panel has the keyboard, from Mod+Alt+Ctrl+T.
     keyboard: Cell<bool>,
+    /// The live herdr agents in the workspace's session, asked once as the
+    /// panel takes the keyboard: which cards get Go to session. Asked then
+    /// and no other time — not on each focus move, which would move the row
+    /// under the user and spawn herdr on every key, and not on the tucked
+    /// refresh, whose cards show no buttons.
+    agents: RefCell<Vec<String>>,
     /// The Remove button pressed once and waiting for its second press, which
     /// deletes. Moving the focus off it, or any re-render, puts it back.
     armed: RefCell<Option<gtk4::Button>>,
@@ -193,6 +199,7 @@ impl Panel {
             all: RefCell::new(Vec::new()),
             expanded: Cell::new(false),
             keyboard: Cell::new(false),
+            agents: RefCell::new(Vec::new()),
             armed: RefCell::new(None),
             heights: RefCell::new(Vec::new()),
             blur: RefCell::new(None),
@@ -331,11 +338,14 @@ impl Panel {
     }
 
     /// Slide out and take the keyboard, every card wrapped with its buttons,
-    /// focusing the first. False when there are no cards to take it for.
-    pub fn take_keyboard(self: &Rc<Self>) -> bool {
+    /// focusing the first. `agents` are the session's live agent names, for
+    /// which cards get Go to session. False when there are no cards to take
+    /// it for.
+    pub fn take_keyboard(self: &Rc<Self>, agents: Vec<String>) -> bool {
         if self.all.borrow().is_empty() {
             return false;
         }
+        *self.agents.borrow_mut() = agents;
         self.keyboard.set(true);
         self.cancel_grace();
         self.window.set_keyboard_mode(KeyboardMode::Exclusive);
@@ -354,6 +364,7 @@ impl Panel {
             return;
         }
         self.window.set_keyboard_mode(KeyboardMode::None);
+        self.agents.borrow_mut().clear();
         self.expanded.set(false);
         self.render();
         self.slide_to(TUCKED_X);
@@ -512,7 +523,8 @@ impl Panel {
         // not say what they do. Empty while the focus is on the description.
         let hint = gtk4::Label::new(None);
         hint.add_css_class("card-hint");
-        for action in Action::for_status(card.status) {
+        let has_session = crate::link::session_agent(&self.agents.borrow(), uuid).is_some();
+        for action in Action::for_status(card.status, has_session) {
             let button = gtk4::Button::with_label(action.icon());
             // The icon's name in words, under the pointer and for a screen reader.
             button.set_tooltip_text(Some(action.label()));
@@ -575,7 +587,7 @@ impl Panel {
     /// Act on a key while the panel has the keyboard. Up and Down land on the
     /// next card's body, Left, Right and Tab move along the focused card, and
     /// a letter presses that card's button. If the card has no such button
-    /// (Stop on a task that is not active, anything on "+N more"), nothing
+    /// (Stop on a task that is not active, Go to session on one with no Claude, anything on "+N more"), nothing
     /// happens.
     fn key(self: &Rc<Self>, action: KeyAction) {
         if action == KeyAction::Release {

@@ -36,6 +36,7 @@ pub fn key_action(key: gdk::Key) -> KeyAction {
         gdk::Key::Down => KeyAction::NextCard,
         gdk::Key::Left | gdk::Key::ISO_Left_Tab => KeyAction::PrevSlot,
         gdk::Key::Right | gdk::Key::Tab => KeyAction::NextSlot,
+        gdk::Key::g => KeyAction::Run(Action::Session),
         gdk::Key::s => KeyAction::Run(Action::Start),
         gdk::Key::r => KeyAction::Run(Action::Refine),
         gdk::Key::e => KeyAction::Run(Action::Edit),
@@ -81,6 +82,7 @@ mod tests {
 
     #[test]
     fn letters_and_delete_run_their_buttons() {
+        assert_eq!(key_action(gdk::Key::g), KeyAction::Run(Action::Session));
         assert_eq!(key_action(gdk::Key::s), KeyAction::Run(Action::Start));
         assert_eq!(key_action(gdk::Key::r), KeyAction::Run(Action::Refine));
         assert_eq!(key_action(gdk::Key::e), KeyAction::Run(Action::Edit));
@@ -91,6 +93,7 @@ mod tests {
 
     #[test]
     fn capitals_run_their_buttons_too() {
+        assert_eq!(key_action(gdk::Key::G), KeyAction::Run(Action::Session));
         assert_eq!(key_action(gdk::Key::S), KeyAction::Run(Action::Start));
         assert_eq!(key_action(gdk::Key::R), KeyAction::Run(Action::Refine));
         assert_eq!(key_action(gdk::Key::E), KeyAction::Run(Action::Edit));
