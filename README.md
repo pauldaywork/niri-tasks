@@ -264,10 +264,12 @@ write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
 
 `e2e-panel.sh` needs the right edge to hold still — it works by comparing
 frames — so it checks that first and tells you what to move rather than
-reporting a flaky answer. The checks on where the keyboard puts the panel need
-the middle of the screen to hold still too, and are skipped, with the rest still
-run, when it does not — as it will not from a terminal sitting there. Don't switch workspaces while it runs: the panel
-follows the workspace, and so does the tag it files its tasks under. And not
+reporting a flaky answer. An animated wallpaper never holds still, so swap in a
+still one for the run. Where the keyboard puts the panel is measured between
+two frames of it, before and after Down moves the darker card, so it needs
+`wtype` but not a still middle; only the check that Escape leaves the middle
+clear does, and it is skipped when a terminal there is redrawing. Don't switch
+workspaces while it runs: the panel follows the workspace, and so does the tag it files its tasks under. And not
 over a fullscreen window, which covers the panel. `NIRITASKS_E2E_KEEP=1` leaves
 the frames on disk when you need to see what a failure actually looked like.
 

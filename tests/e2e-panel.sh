@@ -21,12 +21,13 @@
 # puts it back on the right edge.
 #
 # It needs the right edge of the screen to hold still, so it checks that first
-# and says so rather than producing a flaky answer. The checks on where the
-# keyboard puts the panel also need the middle to hold still; when it does not
-# (this is often run from a terminal sitting there) they are skipped, and the
-# rest run. Do not switch workspaces while it runs: the panel follows the
-# workspace, and so does the tag its tasks are filed under. And not over a
-# fullscreen window, which covers the panel.
+# and says so rather than producing a flaky answer; an animated wallpaper never
+# does. Where the keyboard puts the panel is measured between two frames of it,
+# so only the check that Escape clears the middle needs the middle to hold
+# still too; when it does not (this is often run from a terminal sitting
+# there) that one is skipped. Do not switch workspaces while it runs: the
+# panel follows the workspace, and so does the tag its tasks are filed under.
+# And not over a fullscreen window, which covers the panel.
 #
 # Park the pointer away from the right edge and the middle first. A pointer
 # resting against the edge is inside the panel once it grows tall enough, and
@@ -96,7 +97,9 @@ shot() {
     local label="$1" before after new
     before=$(mktemp); after=$(mktemp)
     ls -1 "$SHOTDIR" > "$before" 2>/dev/null
-    niri msg action screenshot-screen >/dev/null 2>&1
+    # Without the pointer, which niri hides and shows again on its own, and
+    # which would otherwise read as a few columns of panel.
+    niri msg action screenshot-screen --show-pointer false >/dev/null 2>&1
     for _ in $(seq 1 30); do
         ls -1 "$SHOTDIR" > "$after" 2>/dev/null
         new=$(comm -13 "$before" "$after" | head -1)
@@ -124,7 +127,7 @@ shot() {
 # while noise changes a handful of pixels. Columns and rows over MIN_RUN are
 # panel and nothing else.
 measure() {
-    python3 - "$SB/shots/baseline.png" "$SB/shots/$1.png" "${2:-right}" <<'PY'
+    python3 - "$SB/shots/${3:-baseline}.png" "$SB/shots/$1.png" "${2:-right}" <<'PY'
 import sys
 from PIL import Image, ImageChops
 
@@ -140,6 +143,10 @@ if region == "centre":
     # centre, so a centred panel leaves equal gaps either side. Clear of the
     # screenshot notifications, which stack down from the top right corner.
     box = (w // 4, h // 4, w - w // 4, h - h // 4)
+elif region == "cards":
+    # The whole screen but the column the screenshot notifications stack down,
+    # for two frames of the keyboard's panel, where only the cards change.
+    box = (0, 0, w - 400, h)
 else:
     # The right edge, well wider than the peek so an overlong one is seen, and
     # a band across the middle, where a vertically centred panel sits.
@@ -163,22 +170,33 @@ if region == "centre":
     left = cols[0] if cols else 0
     right = (cw - 1 - cols[-1]) if cols else 0
     print(width, height, left, right)
+elif region == "cards":
+    # The gaps to the screen's own edges, not the box's.
+    left = cols[0] if cols else 0
+    right = (w - 1 - cols[-1]) if cols else 0
+    print(width, height, left, right)
 else:
     print(width, height)
 PY
 }
 
+# The focused output's scale, which turns the panel's logical pixels into the
+# screenshot's.
+output_scale() {
+    niri msg -j focused-output 2>/dev/null |
+        python3 -c 'import json,sys; print(json.load(sys.stdin)["logical"]["scale"])' 2>/dev/null
+}
+
 # Whether the centred panel (half of the 784px surface, scaled, right of the
-# middle) ends left of the strip the right-edge check looks at.
-clear_of_edge() {
+# middle) ends left of the last <strip> pixels of the screen.
+clear_of_edge() {  # strip
     local scale
-    scale=$(niri msg -j focused-output 2>/dev/null |
-        python3 -c 'import json,sys; print(json.load(sys.stdin)["logical"]["scale"])' 2>/dev/null) || return 1
-    python3 - "$SB/shots/baseline.png" "$scale" <<'PY'
+    scale=$(output_scale) || return 1
+    python3 - "$SB/shots/baseline.png" "$scale" "$1" <<'PY'
 import sys
 from PIL import Image
 w = Image.open(sys.argv[1]).size[0]
-sys.exit(0 if w / 2 + 392 * float(sys.argv[2]) < w - 300 else 1)
+sys.exit(0 if w / 2 + 392 * float(sys.argv[2]) < w - int(sys.argv[3]) else 1)
 PY
 }
 
@@ -209,14 +227,14 @@ else
       measures that instead of the panel"
     echo; echo "passed: $pass   failed: $fail   skipped: $skipped"; exit 1
 fi
-# The middle is only needed to see where the keyboard puts the panel, and a
+# The middle is only needed to see it clear again after Escape, and a
 # terminal running this script usually sits right there, redrawing.
 read -r mid_noise _ < <(measure stillness centre)
 if [ "$mid_noise" -eq 0 ]; then
     ok "the middle of the screen holds still too"
     CENTRE=1
 else
-    skip "the centre checks: the middle of the screen is not static ($mid_noise columns changed) — run from a still workspace to check where the keyboard puts the panel"
+    skip "the middle of the screen clear after Escape: the middle is not static ($mid_noise columns changed)"
     CENTRE=0
 fi
 
@@ -263,12 +281,9 @@ delta=$(( other_h > three_h ? other_h - three_h : three_h - other_h ))
 # ─── the keyboard: every card wrapped, with its buttons, mid-screen ──────────
 # `task panel` is the keybind's command: it asks this sandbox's daemon to hand
 # its panel the keyboard. The panel leaves the right edge for the middle of the
-# screen, so the right edge goes back to the baseline and the middle changes,
-# by the same amount either side. Each card grows an action row, so the three
-# of them stand taller than their one-line peek.
-#
-# A panel wider than the middle half of the screen (a small or scaled monitor)
-# fills the box and leaves no gap either side, which still reads as centred.
+# screen, so the right edge goes back to the baseline, and its cards sit the
+# same distance from either side of the screen. Each card grows an action row,
+# so two of them stand well over twice as tall as one card's one-line peek.
 "$NIRITASKS" task panel >/dev/null 2>&1
 settle
 shot keyboard || exit 1
@@ -276,7 +291,7 @@ read -r key_edge_w _ < <(measure keyboard)
 # The centred surface reaches 392px (times the output scale) right of the
 # middle. On a screen too narrow for that to stay left of the strip measured,
 # the panel can legitimately show there.
-if clear_of_edge; then
+if clear_of_edge 300; then
     if [ "$key_edge_w" -eq 0 ]; then
         ok "the keyboard takes the panel off the right edge"
     else
@@ -286,24 +301,43 @@ if clear_of_edge; then
 else
     skip "the panel off the right edge (the screen is too narrow, or its scale unknown, for the centred panel to stay clear of the last 300px)"
 fi
-if [ "$CENTRE" -eq 1 ]; then
-    read -r key_w key_h key_l key_r < <(measure keyboard centre)
-    off=$(( key_l > key_r ? key_l - key_r : key_r - key_l ))
-    if [ "$key_w" -gt 0 ] && [ "$off" -le 10 ]; then
-        ok "and shows it in the middle of the screen (${key_w}px wide, ${key_l}px | ${key_r}px either side)"
-    else
-        bad "the middle of the screen shows ${key_w}px of panel, ${key_l}px from the
-      left of the box and ${key_r}px from its right — 0 wide means it is not
-      there; uneven gaps mean it is not centred"
-    fi
-    if [ "$key_h" -ge $((three_h + 40)) ]; then
-        ok "and each card grows its buttons (${key_h}px tall vs ${three_h}px)"
-    else
-        bad "the keyboard's cards are ${key_h}px tall against ${three_h}px tucked away —
-      the action rows are missing"
-    fi
+# Where the cards are is measured between two frames of the keyboard's panel,
+# not against the baseline: taking the keyboard unfocuses the terminal running
+# this, and a niri window rule may fade an unfocused window out entirely, which
+# would read as a panel the size of the terminal. Down moves the darker fill
+# from the first card to the second, and nothing else in the frame changes, so
+# what differs is exactly two cards: their width, and their gaps to the edges
+# of the screen.
+if ! command -v wtype >/dev/null; then
+    skip "the panel in the middle of the screen, and its buttons (needs wtype)"
+elif ! scale=$(output_scale) || ! clear_of_edge 400; then
+    skip "the panel in the middle of the screen (the screen is too narrow, or its scale unknown, to tell it from the notifications)"
 else
-    skip "the panel in the middle of the screen, and its buttons (needs a still middle)"
+    wtype -k Down
+    sleep 1
+    shot keyboard_down || exit 1
+    read -r key_w key_h key_l key_r < <(measure keyboard_down cards keyboard)
+    card=$(python3 -c "print(round(760 * $scale))")
+    off=$(( key_l > key_r ? key_l - key_r : key_r - key_l ))
+    if [ "$key_w" -gt $((card + 40)) ]; then
+        skip "the panel in the middle of the screen: ${key_w}px changed between two
+      frames of it, wider than its ${card}px cards — something else on screen moved"
+    elif [ "$key_w" -ge $((card - 40)) ] && [ "$off" -le 10 ]; then
+        ok "and shows it in the middle of the screen (${key_w}px of cards, ${key_l}px | ${key_r}px either side)"
+    else
+        bad "the keyboard's cards are ${key_w}px wide (expected ~${card}px), ${key_l}px
+      from the screen's left and ${key_r}px from its right — 0 wide means the
+      focus did not move; uneven gaps mean the panel is not centred"
+    fi
+    # Two cards with their buttons, against two of the one-line peek.
+    if [ "$key_w" -le $((card + 40)) ]; then
+        if [ "$key_h" -ge $((one_h * 2 + 40)) ]; then
+            ok "and each card grows its buttons (${key_h}px for two cards vs ${one_h}px for one tucked away)"
+        else
+            bad "two of the keyboard's cards are ${key_h}px tall against ${one_h}px for
+      one tucked away — the action rows are missing"
+        fi
+    fi
 fi
 
 # Escape needs a key pressed on the panel, which only wtype can do here. The
