@@ -39,9 +39,8 @@ impl Card {
             // Font Awesome's lock, from the Nerd Font waybar already uses: flat
             // and one colour, where the emoji lock is a picture.
             Status::Blocked => "\u{f023}",
-            // Material Design's clipboard-check, from the same Nerd Font as the
-            // lock: flat and one colour, so it reads as a sibling of it.
-            Status::Planned => "\u{f014e}",
+            // The pending circle filled in: still waiting, but worked up.
+            Status::Planned => "●",
             // The count is the text, so the peek reads "+3".
             Status::More => "",
         }
@@ -184,10 +183,10 @@ mod tests {
     }
 
     #[test]
-    fn planned_tasks_get_the_clipboard() {
+    fn planned_tasks_get_the_filled_dot() {
         let got = cards(&[planned("p", false)], &[]);
         assert_eq!(got[0].status, Status::Planned);
-        assert_eq!(got[0].icon(), "\u{f014e}");
+        assert_eq!(got[0].icon(), "●");
     }
 
     #[test]

@@ -36,7 +36,7 @@ pub fn build(tasks: &[Task]) -> Vec<(String, String)> {
             let mark = if t.is_active() {
                 "▶ "
             } else if t.is_planned() {
-                "\u{f014e} "
+                "● "
             } else {
                 "  "
             };
@@ -138,11 +138,11 @@ mod tests {
     }
 
     #[test]
-    fn planned_task_gets_the_clipboard_marker() {
+    fn planned_task_gets_the_filled_dot_marker() {
         let mut t = task("a", "planned", 1.0, false, 0);
         t.tags = vec![crate::task::PLANNED_TAG.into()];
         let rows = build(&[t]);
-        assert_eq!(rows[0].1, "\u{f014e} planned");
+        assert_eq!(rows[0].1, "● planned");
         assert_eq!(
             rows[0].1.chars().count(),
             "  planned".chars().count(),
