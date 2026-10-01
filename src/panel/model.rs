@@ -28,6 +28,10 @@ pub struct Card {
     /// The task a click on the card acts on. `None` on the "+N more" card,
     /// which stands for no one task.
     pub uuid: Option<String>,
+    /// The task carries `+planned`. Apart from `status`, which shows a
+    /// started or blocked planned task as Active or Blocked: the Planned and
+    /// To refine tabs go by the tag, whatever the card's icon says.
+    pub planned: bool,
 }
 
 impl Card {
@@ -44,6 +48,72 @@ impl Card {
             // The count is the text, so the peek reads "+3".
             Status::More => "",
         }
+    }
+}
+
+/// A filter tab on the keyboard's panel: which of the cards it shows.
+///
+/// A filter, not a status. A started planned task shows under both Active
+/// and Planned, where its card's icon can only say one of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Filter {
+    All,
+    /// Started tasks.
+    Active,
+    /// Tasks carrying `+planned`, from Refine or Grill me.
+    Planned,
+    /// Tasks without `+planned`: the ones still worth refining.
+    ToRefine,
+}
+
+impl Filter {
+    /// The tabs left to right, which is also the order 1 to 4 pick them in.
+    pub const TABS: [Filter; 4] = [Filter::All, Filter::Active, Filter::Planned, Filter::ToRefine];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Filter::All => "All",
+            Filter::Active => "Active",
+            Filter::Planned => "Planned",
+            Filter::ToRefine => "To refine",
+        }
+    }
+
+    /// The tab's label with how many tasks are under it, so a tab worth
+    /// opening shows before it is opened.
+    pub fn tab_label(self, count: usize) -> String {
+        format!("{} {count}", self.label())
+    }
+
+    /// The one line a tab with nothing under it shows in place of cards.
+    pub fn empty_text(self) -> &'static str {
+        match self {
+            Filter::All => "No tasks",
+            Filter::Active => "No active tasks",
+            Filter::Planned => "No planned tasks",
+            Filter::ToRefine => "No tasks to refine",
+        }
+    }
+
+    /// Whether this tab shows the card. Meant for the uncapped cards: the
+    /// "+N more" card stands for no one task, so it is made after filtering.
+    pub fn matches(self, card: &Card) -> bool {
+        match self {
+            Filter::All => true,
+            Filter::Active => card.status == Status::Active,
+            Filter::Planned => card.planned,
+            Filter::ToRefine => !card.planned,
+        }
+    }
+
+    /// The cards this tab shows, in the order `cards` put them.
+    pub fn pick(self, cards: &[Card]) -> Vec<Card> {
+        cards.iter().filter(|c| self.matches(c)).cloned().collect()
+    }
+
+    /// How many of these cards each tab shows, in `TABS` order.
+    pub fn counts(cards: &[Card]) -> [usize; 4] {
+        Filter::TABS.map(|f| cards.iter().filter(|c| f.matches(c)).count())
     }
 }
 
@@ -78,6 +148,7 @@ pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
             },
             text: crate::text::collapse_whitespace(&t.description),
             uuid: Some(t.uuid.clone()),
+            planned: t.is_planned(),
         })
         .collect()
 }
@@ -93,6 +164,7 @@ pub fn cap(cards: &[Card], n: usize) -> Vec<Card> {
             status: Status::More,
             text: format!("+{} more", cards.len() - n),
             uuid: None,
+            planned: false,
         });
     }
     shown
@@ -209,5 +281,71 @@ mod tests {
         low.urgency = 1.0;
         let got = cards(&[low, task("high", 9.0, false)], &[]);
         assert_eq!(texts(&got), vec!["high", "low"]);
+    }
+
+    #[test]
+    fn a_card_knows_its_task_is_planned_whatever_its_status() {
+        let got = cards(&[planned("started", true), planned("waits", false), task("plain", 1.0, false)], &["waits".into()]);
+        assert_eq!(got[0].status, Status::Active);
+        assert!(got[0].planned, "a started planned task is still planned");
+        let waits = got.iter().find(|c| c.text == "waits").unwrap();
+        assert_eq!(waits.status, Status::Blocked);
+        assert!(waits.planned, "a blocked planned task is still planned");
+        assert!(!got.iter().find(|c| c.text == "plain").unwrap().planned);
+    }
+
+    #[test]
+    fn the_more_card_is_not_planned() {
+        let many: Vec<Task> = (0..CAP + 1).map(|i| planned(&format!("t{i}"), false)).collect();
+        assert!(!cap(&cards(&many, &[]), CAP).last().unwrap().planned);
+    }
+
+    #[test]
+    fn the_tabs_run_all_active_planned_to_refine() {
+        let labels: Vec<&str> = Filter::TABS.iter().map(|f| f.label()).collect();
+        assert_eq!(labels, vec!["All", "Active", "Planned", "To refine"]);
+    }
+
+    #[test]
+    fn a_tab_label_carries_its_count() {
+        assert_eq!(Filter::Planned.tab_label(3), "Planned 3");
+        assert_eq!(Filter::ToRefine.tab_label(0), "To refine 0");
+    }
+
+    #[test]
+    fn an_empty_tab_says_what_it_has_none_of() {
+        assert_eq!(Filter::All.empty_text(), "No tasks");
+        assert_eq!(Filter::Active.empty_text(), "No active tasks");
+        assert_eq!(Filter::Planned.empty_text(), "No planned tasks");
+        assert_eq!(Filter::ToRefine.empty_text(), "No tasks to refine");
+    }
+
+    /// A filter, not a status: a started planned task is under Active and
+    /// Planned both, and not under To refine.
+    #[test]
+    fn each_tab_picks_its_tasks_in_order() {
+        let all = cards(
+            &[
+                task("plain", 9.0, false),
+                planned("started-planned", true),
+                task("started", 5.0, true),
+                planned("planned", false),
+            ],
+            &[],
+        );
+        assert_eq!(texts(&Filter::All.pick(&all)), texts(&all));
+        assert_eq!(texts(&Filter::Active.pick(&all)), vec!["started", "started-planned"]);
+        assert_eq!(texts(&Filter::Planned.pick(&all)), vec!["started-planned", "planned"]);
+        assert_eq!(texts(&Filter::ToRefine.pick(&all)), vec!["started", "plain"]);
+    }
+
+    #[test]
+    fn counts_are_per_tab_in_tab_order() {
+        let all = cards(
+            &[task("plain", 9.0, false), planned("started-planned", true), planned("planned", false)],
+            &[],
+        );
+        assert_eq!(Filter::counts(&all), [3, 1, 2, 1]);
+        assert_eq!(Filter::counts(&[]), [0, 0, 0, 0]);
     }
 }
