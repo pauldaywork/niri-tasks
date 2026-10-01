@@ -26,10 +26,19 @@
 # It needs two named workspaces to show the contrast, and will borrow niri's
 # trailing empty workspace as the second one when there is only ever a single
 # project open — naming it without focusing it, and unnaming it on the way out.
+# Several runs can do this at once: each names its own workspace
+# niritasks-e2e-scratch-<pid>, under the lock in tests/lib/parent-lock.sh, and
+# never borrows or unnames another run's.
 set -uo pipefail
 
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
 [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)" >&2; exit 1; }
+command -v flock >/dev/null || { echo "flock is required (util-linux)" >&2; exit 1; }
+. "$(dirname "${BASH_SOURCE[0]}")/lib/parent-lock.sh"
+
+# Every run's borrowed workspace starts with this. The pid makes each run's
+# name its own, so no run renames, uses or unnames another's.
+SCRATCH_PREFIX="niritasks-e2e-scratch"
 
 NIRITASKS="${NIRITASKS:-niritasks}"
 # Absolute, because the folder cases run from other directories and a relative
@@ -43,13 +52,16 @@ bad() { echo "  FAIL  $*"; fail=$((fail+1)); }
 
 # The focused workspace, and some other named one to play against. The whole
 # point of the flag is that those two give different answers.
+# Another run's scratch workspace is never the other one: that run unnames it
+# when it finishes, maybe halfway through this one.
 read -r FOCUSED OTHER < <(niri msg -j workspaces | python3 -c "
 import json,sys
 ws=[w for w in json.load(sys.stdin) if w.get('name')]
 focused=next((w['name'] for w in ws if w['is_focused']), '')
-other=next((w['name'] for w in ws if not w['is_focused']), '')
+other=next((w['name'] for w in ws
+            if not w['is_focused'] and not w['name'].startswith(sys.argv[1])), '')
 print(focused, other)
-")
+" "$SCRATCH_PREFIX")
 
 # A machine with one project open has one named workspace, and the contrast this
 # whole file is about needs two. Rather than refuse to run there, borrow the
@@ -58,19 +70,34 @@ print(focused, other)
 # — moving focus would change the very thing under test.
 SCRATCH=""
 FAKE_HOME=""
+# Only this run's own name is ever taken off. Unnamed, the empty workspace is
+# one niri drops, which moves later indexes, so it happens under the lock.
 cleanup() {
-    [ -n "$SCRATCH" ] && niri msg action unset-workspace-name "$SCRATCH" >/dev/null 2>&1
+    if [ -n "$SCRATCH" ]; then
+        parent_lock 2>/dev/null
+        niri msg action unset-workspace-name "$SCRATCH" >/dev/null 2>&1
+        parent_unlock
+    fi
     [ -n "$FAKE_HOME" ] && rm -rf "$FAKE_HOME"
 }
-# INT and TERM as well as EXIT: interrupting a run must not leave a workspace
-# named after this test sitting in the switcher.
-trap cleanup EXIT INT TERM
+# INT and TERM end the run, and the run's end unnames the workspace: an
+# interrupted run must not leave a workspace named after this test sitting in
+# the switcher. A trap that ran cleanup on INT itself would then carry on with
+# the script.
+trap cleanup EXIT
+trap 'exit 1' INT TERM
 
 # NIRITASKS_E2E_SCRATCH=1 takes this path even when a second named workspace exists, so
 # the fallback is testable on a machine that does not need it. A branch nobody
 # can reach is a branch nobody has run.
 if [ -z "$OTHER" ] || [ -n "${NIRITASKS_E2E_SCRATCH:-}" ]; then
-    scratch_idx=$(niri msg -j workspaces | python3 -c "
+    # Under the lock no other run names a workspace or frees one between the
+    # pick and the naming, so the index still points where it did. The check
+    # afterwards is for whatever you did meanwhile: if the name did not land
+    # on an empty workspace of this monitor, it comes off and there is no
+    # scratch workspace.
+    if parent_lock; then
+        scratch_idx=$(niri msg -j workspaces | python3 -c "
 import json,sys
 ws = json.load(sys.stdin)
 focused = next((w for w in ws if w['is_focused']), None)
@@ -81,15 +108,28 @@ spare = [w for w in ws
          and (output is None or w['output'] == output)]
 print(spare[0]['idx'] if spare else '')
 ")
-    if [ -n "$scratch_idx" ]; then
-        SCRATCH="niritasks-e2e-scratch"
-        if niri msg action set-workspace-name --workspace "$scratch_idx" "$SCRATCH" >/dev/null 2>&1; then
-            OTHER="$SCRATCH"
-            echo "no second named workspace to hand — named workspace $scratch_idx" \
-                 "'$SCRATCH' for the run, and will unname it afterwards"
-        else
-            SCRATCH=""
+        if [ -n "$scratch_idx" ]; then
+            SCRATCH="$SCRATCH_PREFIX-$$"
+            if niri msg action set-workspace-name --workspace "$scratch_idx" "$SCRATCH" >/dev/null 2>&1 &&
+               niri msg -j workspaces | python3 -c "
+import json,sys
+ws = json.load(sys.stdin)
+focused = next((w for w in ws if w['is_focused']), None)
+mine = next((w for w in ws if w.get('name') == sys.argv[1]), None)
+sys.exit(0 if mine and mine.get('active_window_id') is None
+            and (focused is None or mine['output'] == focused['output']) else 1)
+" "$SCRATCH"; then
+                OTHER="$SCRATCH"
+                echo "no second named workspace to hand — named workspace $scratch_idx" \
+                     "'$SCRATCH' for the run, and will unname it afterwards"
+            else
+                niri msg action unset-workspace-name "$SCRATCH" >/dev/null 2>&1
+                SCRATCH=""
+            fi
         fi
+        parent_unlock
+    else
+        echo "could not take the lock on this niri's workspaces ($PARENT_LOCK)" >&2
     fi
 fi
 
