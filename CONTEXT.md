@@ -79,7 +79,9 @@ _Avoid_: menu, launcher
 
 **Task box**:
 The GTK window for adding a task or editing one — its description and its
-note rows. Edit and Note open the same box.
+note rows. Edit and Note open the same box. When adding, a second button,
+Add & refine (Ctrl+Shift+Enter), adds the task and refines it straight away;
+Mod+Alt+Shift+T opens the box with that as the default.
 _Avoid_: dialog, prompt
 
 **Note row**:

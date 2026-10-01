@@ -48,7 +48,8 @@ layer-rule {
 // The task box is the exception, and the reason any of this exists: it is the
 // GTK window in src/taskbox.rs, it has no lock, and fuzzel's lock does not know
 // it exists, so pressing Mod+Alt+T twice stacked two boxes. It spawns nothing
-// that outlives it, which is what makes holding a lock across it safe where the
+// that outlives it — Add & refine's refine goes through niri's spawn, not as
+// its child — which is what makes holding a lock across it safe where the
 // same trick was not safe for the pickers.
 binds {
     // Rename the current workspace — and with it, which tag its tasks carry.
@@ -77,5 +78,9 @@ binds {
     // Enter offers edit / note / delete / complete / set-active on it. With no
     // tasks on the workspace (or no daemon) it opens the fuzzel list instead.
     Mod+Alt+T hotkey-overlay-title="Add Task" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niritasks-taskbox.lock\" niritasks task add"; }
+    // Mod+Alt+Shift+T is the same box with Add & refine as the default: once
+    // added, the task opens in a "Refine: …" tab of the workspace's herdr
+    // session. Same lock as Mod+Alt+T, so the two share one box at a time.
+    Mod+Alt+Shift+T hotkey-overlay-title="Add Task and Refine" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niritasks-taskbox.lock\" niritasks task add --refine"; }
     Mod+Alt+Ctrl+T hotkey-overlay-title="Workspace Tasks: pick on the panel" { spawn "niritasks" "task" "panel"; }
 }

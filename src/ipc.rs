@@ -12,8 +12,8 @@
 //! the property that made dropping the DMS plugin worth doing. A daemon you can
 //! do without is a cache; one you cannot is a dependency.
 //!
-//! The protocol is one line per request, because it only ever carries a mode
-//! and a uuid:
+//! The protocol is one line per request, because it only ever carries a mode,
+//! a uuid and the add box's refine flag:
 //!
 //! ```text
 //! add

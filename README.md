@@ -16,6 +16,7 @@ from — opening one, or moving a task to another workspace.
 | Key | Does |
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
+| `Mod+Alt+Shift+T` | The same, with Add & refine as the default: once added, the task opens in a "Refine: …" tab of the workspace's herdr session, where Claude works it up into a plan |
 | `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Tabs above the cards, picked with 1–5 or [ and ], narrow them to All, Active, Planned, To refine or Waiting. With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+W` | Pick a folder from `~/Projects` (or type a new name to make one), put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
@@ -163,6 +164,8 @@ niritasks task status <uuid> <state>  # the menu's Update status: active|stopped
 niritasks task status <uuid> deleted --yes  # deleted needs --yes, the menu's confirmation
 niritasks task add <text>          # honours taskwarrior attributes: due:friday, priority:H
 niritasks task add                 #   with no text, the task box (Mod+Alt+T)
+niritasks task add --refine        # the add box, with Add & refine as its default (Mod+Alt+Shift+T)
+                                   #   (with text, adds it and refines it straight away)
 niritasks task get-text <uuid>     # print its description
 niritasks task edit <uuid> <text>  # replaces the description; attributes stay literal
 niritasks task edit <uuid>         #   with no text, the task box on its description and notes
@@ -211,14 +214,18 @@ One window adds a task and edits one. Edit opens it on the task's description
 and every note, and the menu's Note opens it the same way with the cursor in a
 new empty row at the end. Each note is a row: it wraps, you edit it in place,
 its date sits small at its right end, and × deletes it. "+ Add note" appends a
-row.
+row. Adding has a second button, **Add & refine**: it adds the task and hands it
+straight to Claude's refine-task skill, in a new tab of the workspace's herdr
+session, as the menu's Refine does. If the refine fails, the task stays added
+and a notification says why.
 
 | Key | Does |
 |---|---|
 | Enter in the description | Moves to the first note (making one if there are none) |
 | Enter in a note | Adds a row below and moves to it |
 | Backspace in an empty row | Deletes it and moves up |
-| Ctrl+Enter | Saves, from anywhere |
+| Ctrl+Enter | Saves, from anywhere — Add & refine in the box Mod+Alt+Shift+T opens |
+| Ctrl+Shift+Enter | Add & refine, when adding |
 | Esc | Discards everything, without asking |
 
 Saving an existing task writes its description and whole note list back in
