@@ -27,6 +27,13 @@
 # of your monitor. Neither presses a key or takes a screenshot on your
 # desktop, so you can keep working while they run — just keep off that
 # workspace.
+#
+# Several of these can run at once on one niri — agents in separate
+# worktrees, say. Each run's sandbox is its own, each nested niri parks alone
+# on a workspace of its own, each e2e-tag.sh run names its own scratch
+# workspace, and the moments they rearrange your workspaces take turns
+# through one lock (tests/lib/parent-lock.sh). The suites inside one run
+# still go one after another.
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 1
@@ -48,11 +55,13 @@ why_cargo() {
 why_tag() {
     command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
     command -v niri >/dev/null || { echo "no niri"; return; }
+    command -v flock >/dev/null || { echo "no flock (util-linux)"; return; }
     [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)"; return; }
 }
 why_panel() {
     command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
     command -v niri >/dev/null || { echo "no niri"; return; }
+    command -v flock >/dev/null || { echo "no flock (util-linux)"; return; }
     command -v task >/dev/null || { echo "no taskwarrior on \$PATH"; return; }
     command -v python3 >/dev/null || { echo "no python3"; return; }
     [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)"; return; }
@@ -63,6 +72,7 @@ why_box() {
     command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
     command -v wtype >/dev/null || { echo "no wtype (sudo apt install wtype)"; return; }
     command -v niri  >/dev/null || { echo "no niri"; return; }
+    command -v flock >/dev/null || { echo "no flock (util-linux)"; return; }
     command -v task  >/dev/null || { echo "no taskwarrior on \$PATH"; return; }
     command -v python3 >/dev/null || { echo "no python3"; return; }
     [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)"; return; }
