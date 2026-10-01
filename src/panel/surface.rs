@@ -43,12 +43,16 @@
 //! scrolls the focused card wholly into view, and the blur region moves with
 //! the scroll and stops at the view's edges.
 //!
-//! To sit in the middle, the surface drops its right anchor while it has the
-//! keyboard, and niri centres a layer surface anchored to nothing. The cards
-//! jump to the middle of the surface, equal margins either side, rather than
-//! slide; the input region and blur follow them there and back. One surface
-//! means no peek on the right edge while it is centred, and the pointer
-//! coming over the centred cards does not slide them.
+//! To sit in the middle, the surface keeps its right anchor, which centres it
+//! vertically, and grows its right margin to half the room it leaves on the
+//! monitor. The margin rides on the cards' own slide, so the cards slide out
+//! from the peek all the way to the middle of the screen, ending in the middle
+//! of the surface with equal margins either side. Moving the surface means a
+//! new margin for the compositor on every frame of that one slide; the hover's
+//! slides still move only the cards. Giving the keyboard back snaps both
+//! back, since the box or terminal it opened should not wait on a slide. One
+//! surface means no peek on the right edge while it is centred, and the
+//! pointer coming over the centred cards does not slide them.
 //!
 //! It is held with exclusive keyboard mode throughout, as fuzzel does. niri
 //! gives an on-demand layer surface focus only after a click on it, so
@@ -94,9 +98,9 @@ const EXPANDED_X: f64 = SHADOW_PX as f64;
 const TUCKED_X: f64 = (SURFACE_WIDTH - PEEK_PX) as f64;
 
 /// Where the cards sit while the panel has the keyboard and the surface is
-/// unanchored, which niri centres on the monitor: the middle of the surface,
-/// so the cards are in the middle of the screen. 784 less 760 leaves 12px each
-/// side, enough for the ring.
+/// pushed into the middle of the monitor by its right margin: the middle of
+/// the surface, so the cards are in the middle of the screen. 784 less 760
+/// leaves 12px each side, enough for the ring.
 const CENTRED_X: f64 = ((SURFACE_WIDTH - CARD_WIDTH_PX) / 2) as f64;
 
 const SLIDE_MS: f64 = 180.0;
@@ -150,6 +154,11 @@ struct Slide {
     /// The cards' height on screen: all of them, or the scroller's when they
     /// run past the screen. The input region needs it.
     cards_h: Cell<i32>,
+    /// The surface's right margin, which slides it off the screen edge into
+    /// the middle while the panel has the keyboard, and where it is going.
+    margin: Cell<i32>,
+    margin_from: Cell<i32>,
+    margin_to: Cell<i32>,
 }
 
 impl Panel {
@@ -209,6 +218,9 @@ impl Panel {
                 ticking: Cell::new(false),
                 grace: Cell::new(None),
                 cards_h: Cell::new(0),
+                margin: Cell::new(0),
+                margin_from: Cell::new(0),
+                margin_to: Cell::new(0),
             }),
             all: RefCell::new(Vec::new()),
             expanded: Cell::new(false),
@@ -241,7 +253,7 @@ impl Panel {
                     return;
                 }
                 p.cancel_grace();
-                p.slide_to(EXPANDED_X);
+                p.slide_to(EXPANDED_X, 0);
             });
         }
         {
@@ -359,9 +371,10 @@ impl Panel {
     /// names, for which cards get Go to session. False when there are no cards
     /// to take it for.
     ///
-    /// Dropping the right anchor leaves the surface anchored to nothing, which
-    /// niri centres on the monitor, both ways; the cards jump to the middle of
-    /// the surface rather than slide across the screen. The peek goes with
+    /// The right anchor alone already centres the surface vertically; its
+    /// right margin grows to half the room the surface leaves, centring it
+    /// across too. The margin rides on the same slide as the cards, so they
+    /// slide out from the peek all the way to the middle. The peek goes with
     /// it: there is one surface, and it is in the middle now.
     pub fn take_keyboard(self: &Rc<Self>, agents: Vec<String>) -> bool {
         if self.all.borrow().is_empty() {
@@ -371,10 +384,9 @@ impl Panel {
         self.keyboard.set(true);
         self.cancel_grace();
         self.window.set_keyboard_mode(KeyboardMode::Exclusive);
-        self.window.set_anchor(Edge::Right, false);
         self.render();
         // After render(), which measures the cards the region needs.
-        self.jump_to(CENTRED_X);
+        self.slide_to(CENTRED_X, centre_margin(self.monitor.geometry().width()));
         if let Some(first) = self.column.first_child() {
             focus_card(&first, None);
         }
@@ -383,23 +395,22 @@ impl Panel {
 
     /// Give the keyboard back, folding every card to its one line again and
     /// putting the panel back on the right edge, tucked away to its peek. The
-    /// cards snap there rather than slide: they would have to cross half the
-    /// screen.
+    /// cards snap there rather than slide, so whatever the keyboard opened
+    /// does not wait on them crossing half the screen.
     fn release_keyboard(self: &Rc<Self>) {
         if !self.keyboard.replace(false) {
             return;
         }
         self.window.set_keyboard_mode(KeyboardMode::None);
         self.agents.borrow_mut().clear();
-        self.window.set_anchor(Edge::Right, true);
         self.expanded.set(false);
         self.render();
-        self.jump_to(TUCKED_X);
+        self.jump_to(TUCKED_X, 0);
     }
 
     /// Slide back, folding an expanded list up again.
     fn tuck(self: &Rc<Self>) {
-        self.slide_to(TUCKED_X);
+        self.slide_to(TUCKED_X, 0);
         if self.expanded.replace(false) {
             self.render();
         }
@@ -430,7 +441,6 @@ impl Panel {
             // the right edge, so the next card shows as a peek there.
             if self.keyboard.replace(false) {
                 self.window.set_keyboard_mode(KeyboardMode::None);
-                self.window.set_anchor(Edge::Right, true);
             }
             // Only hide something that is up; hiding a never-mapped layer
             // surface leaves it deaf to a later present().
@@ -438,8 +448,7 @@ impl Panel {
                 self.window.set_visible(false);
             }
             self.cancel_grace();
-            self.slide.x.set(TUCKED_X);
-            self.slide.to.set(TUCKED_X);
+            self.jump_to(TUCKED_X, 0);
             return;
         }
 
@@ -759,15 +768,21 @@ impl Panel {
         blur.set(&blur::clip_rows(&rects, top, top + self.slide.cards_h.get()));
     }
 
-    /// Put the cards at `x` at once, with no slide: into the middle when the
-    /// panel takes the keyboard, and back to the peek when it gives it up. A
-    /// slide already running ends here too, since every tick it has left
-    /// works out `from + (to - from) * eased`, which is `x`.
-    fn jump_to(&self, x: f64) {
+    /// Put the cards at `x` and the surface at `margin` from the screen edge
+    /// at once, with no slide: back to the peek when the panel gives up the
+    /// keyboard. A slide already running ends here too, since every tick it
+    /// has left works out `from + (to - from) * eased`, which is where this
+    /// put it.
+    fn jump_to(&self, x: f64, margin: i32) {
         let slide = &self.slide;
         slide.x.set(x);
         slide.from.set(x);
         slide.to.set(x);
+        slide.margin_from.set(margin);
+        slide.margin_to.set(margin);
+        if slide.margin.replace(margin) != margin {
+            self.window.set_margin(Edge::Right, margin);
+        }
         if let Some(child) = self.window.child() {
             child.queue_allocate();
         }
@@ -775,10 +790,14 @@ impl Panel {
         self.update_blur(x);
     }
 
-    fn slide_to(self: &Rc<Self>, target: f64) {
+    /// Slide the cards to `target` inside the surface, and the surface to
+    /// `margin` from the screen edge, together.
+    fn slide_to(self: &Rc<Self>, target: f64, margin: i32) {
         let slide = &self.slide;
         slide.from.set(slide.x.get());
         slide.to.set(target);
+        slide.margin_from.set(slide.margin.get());
+        slide.margin_to.set(margin);
         slide.start_us.set(glib::monotonic_time());
         if target < slide.x.get() {
             // Sliding out: grow the region first, so the pointer stays inside
@@ -797,6 +816,11 @@ impl Panel {
             let t = ((glib::monotonic_time() - s.start_us.get()) as f64 / 1000.0 / SLIDE_MS).min(1.0);
             let eased = 1.0 - (1.0 - t).powi(3);
             s.x.set(s.from.get() + (s.to.get() - s.from.get()) * eased);
+            let (from, to) = (s.margin_from.get() as f64, s.margin_to.get() as f64);
+            let margin = (from + (to - from) * eased).round() as i32;
+            if s.margin.replace(margin) != margin {
+                w.set_margin(Edge::Right, margin);
+            }
             if let Some(child) = w.child() {
                 child.queue_allocate();
             }
@@ -896,6 +920,12 @@ pub fn open_menu(output: &str, args: &[String]) {
     }
 }
 
+/// The right margin that puts the surface in the middle of a monitor this
+/// wide: half the room it leaves, or none on a monitor too narrow for it.
+fn centre_margin(monitor_w: i32) -> i32 {
+    ((monitor_w - SURFACE_WIDTH) / 2).max(0)
+}
+
 /// How wide the input region is from `x`: to the surface's edge, or, with the
 /// panel centred, just the cards.
 fn region_width(x: i32, centred: bool) -> i32 {
@@ -945,6 +975,17 @@ mod tests {
         let left = CENTRED_X as i32;
         let right = SURFACE_WIDTH - CARD_WIDTH_PX - left;
         assert_eq!(left, right);
+    }
+
+    #[test]
+    fn the_centre_margin_leaves_equal_room_either_side() {
+        let margin = centre_margin(3440);
+        assert_eq!(3440 - margin - SURFACE_WIDTH, margin);
+    }
+
+    #[test]
+    fn a_monitor_narrower_than_the_surface_gets_no_margin() {
+        assert_eq!(centre_margin(600), 0);
     }
 
     #[test]

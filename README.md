@@ -276,9 +276,9 @@ It cannot move the pointer, so the hover is checked by hand after a change to
 about 0.4s after it leaves, the slide is smooth, and a click just left of the
 peek, or between two cards, lands on the window beneath, while a click on a
 card opens its actions on that monitor. And the keyboard, past what the
-script measures: `Mod+Alt+Ctrl+T` shows the panel in the middle of the screen,
-without a slide, with every card wrapped and the first darkened. The pointer
-passing over it does not move it. Check also active tasks with Stop and no
+script measures: `Mod+Alt+Ctrl+T` slides the panel from the right edge to the
+middle of the screen, smoothly, with every card wrapped and the first
+darkened. The pointer passing over it does not move it. Check also active tasks with Stop and no
 Start working; Up and Down move the darkening between cards, Left, Right and
 Tab along the buttons; `s` starts working exactly as the menu does, `r`
 refines, `e` opens the box, `t` stops; Delete arms Remove and only a second

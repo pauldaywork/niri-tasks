@@ -281,7 +281,7 @@ if clear_of_edge; then
         ok "the keyboard takes the panel off the right edge"
     else
         bad "the right edge still shows ${key_edge_w}px of panel with the keyboard —
-      the surface kept its right anchor"
+      the surface did not move off the edge"
     fi
 else
     skip "the panel off the right edge (the screen is too narrow, or its scale unknown, for the centred panel to stay clear of the last 300px)"
