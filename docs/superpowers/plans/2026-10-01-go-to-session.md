@@ -705,7 +705,7 @@ Replace the top of `task_menu`, from `let action = Picker::new()` through the cl
         .run(&entries)?;
 ```
 
-Check `Picker::lines`'s parameter type in `src/picker.rs`; if it is not `usize`, convert (`entries.len() as u32` or whatever it takes).
+(`Picker::lines` takes a `usize`.)
 
 In the `match action.as_deref()` below, add as the first arm:
 
