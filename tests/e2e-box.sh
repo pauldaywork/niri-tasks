@@ -24,6 +24,9 @@
 # box with the cursor in a new row. Driven the only way that proves anything
 # here: real keypresses. The ×, "+ Add note" and scrolling take a pointer or
 # eyes, which wtype has neither of — README.md lists them as the manual check.
+# And Add & refine: Ctrl+Shift+Enter, and `task add --refine`'s Ctrl+Enter, add
+# the task and start a refine on it, which is let to fail on a missing herdr so
+# nothing opens in yours.
 #
 # It types only into a niri of its own (tests/lib/nested-niri.sh), parked
 # unfocused on the last workspace of your monitor. wtype's keys reach the niri
@@ -39,7 +42,13 @@ command -v wtype >/dev/null || {
     echo "wtype is required: sudo apt install wtype" >&2
     exit 1
 }
+
+# A refine spawned by Add & refine runs in the nested niri with this PATH: the
+# notify-send stub, the system tools, and no herdr — so it stops at "herdr is
+# not installed." and the stub logs that, which proves a refine was started on
+# the new task without opening anything in your real herdr.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/nested-niri.sh"
+NESTED_SPAWN_PATH="$SB/bin:/usr/bin:/bin"
 
 box_id() {
     nested niri msg -j windows 2>/dev/null | python3 -c "
@@ -112,6 +121,16 @@ field_of() {
 pending() {
     task rc.verbose=nothing rc.json.array=on status:pending export 2>/dev/null \
       | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0
+}
+# How many refines Add & refine has started — each stops at the missing herdr.
+refine_tries() { cat "$SB/notifications" 2>/dev/null | grep -c "herdr is not installed"; }
+# Wait up to 5s for refine_tries to reach $1.
+wait_refine_tries() {
+    for _ in $(seq 1 50); do
+        [ "$(refine_tries)" -ge "$1" ] && return 0
+        sleep 0.1
+    done
+    return 1
 }
 # Make a freshly opened box read wtype's keys right. wtype hands each call its
 # own keymap, and a box process that has just started can read the first
@@ -341,6 +360,67 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
     guard
 }
 
+run_refine_suite() {
+    local label="$1" before mark uuid
+    echo
+    echo "=== $label: Add & refine ==="
+
+    if PATH="$NESTED_SPAWN_PATH" command -v herdr >/dev/null; then
+        echo "  skip: herdr is in $NESTED_SPAWN_PATH, so a refine here would really open"
+        return
+    fi
+
+    # Ctrl+Shift+Enter in the plain add box presses Add & refine.
+    mark="refine-$RANDOM"; before=$(refine_tries)
+    if open_box add; then
+        nested wtype "$mark"; sleep 0.4
+        nested wtype -M ctrl -M shift -k Return -m shift -m ctrl
+        sleep 1.5
+        uuid=$(uuid_of "$mark")
+        [ -n "$uuid" ] && ok "Ctrl+Shift+Enter added the task" \
+            || bad "Ctrl+Shift+Enter wrote no task"
+        wait_refine_tries $((before + 1)) && ok "and started refining it" \
+            || bad "no refine was started (notifications: $(tail -n 3 "$SB/notifications" 2>/dev/null | tr '\n' '|'))"
+        [ -n "$(uuid_of "$mark")" ] && ok "a failed refine left the task added" \
+            || bad "the task went missing after refine failed"
+    else
+        bad "add box never opened"
+    fi
+
+    # `task add --refine` makes Add & refine the default: Ctrl+Enter presses it.
+    mark="refine-$RANDOM"; before=$(refine_tries)
+    if open_box add --refine; then
+        [ "$(box_title)" = "Add Task" ] && ok "--refine opens the add box" \
+            || bad "--refine box title was \"$(box_title)\""
+        nested wtype "$mark"; sleep 0.4
+        nested wtype -M ctrl -k Return -m ctrl
+        sleep 1.5
+        [ -n "$(uuid_of "$mark")" ] && ok "Ctrl+Enter in a --refine box added the task" \
+            || bad "Ctrl+Enter in a --refine box wrote no task"
+        wait_refine_tries $((before + 1)) && ok "and started refining it" \
+            || bad "Ctrl+Enter in a --refine box started no refine (notifications: $(tail -n 3 "$SB/notifications" 2>/dev/null | tr '\n' '|'))"
+    else
+        bad "--refine box never opened"
+    fi
+
+    # Plain Ctrl+Enter in the plain box adds and does not refine.
+    mark="plain-$RANDOM"; before=$(refine_tries)
+    if open_box add; then
+        nested wtype "$mark"; sleep 0.4
+        nested wtype -M ctrl -k Return -m ctrl
+        sleep 3
+        [ -n "$(uuid_of "$mark")" ] && ok "plain Ctrl+Enter added the task" \
+            || bad "plain Ctrl+Enter wrote no task"
+        [ "$(refine_tries)" -eq "$before" ] && ok "and did not refine it" \
+            || bad "plain Ctrl+Enter started a refine"
+    else
+        bad "add box never opened"
+    fi
+
+    close_any_box
+    guard
+}
+
 nested_start
 
 # Both paths matter: the daemon serves the box when it is running, and the CLI
@@ -350,10 +430,12 @@ nested_start
 # none running there — yours keeps running throughout.
 nested_daemon_start "$SB/daemon.err"
 run_suite "served by the daemon"
+run_refine_suite "served by the daemon"
 nested_daemon_stop
 sleep 1
 
 run_suite "fallback, no daemon running"
+run_refine_suite "fallback, no daemon running"
 
 nested_service_untouched
 summary

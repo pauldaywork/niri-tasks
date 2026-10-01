@@ -34,6 +34,7 @@ command -v flock >/dev/null || { echo "flock is required (util-linux)" >&2; exit
 . "$(dirname "${BASH_SOURCE[0]}")/parent-lock.sh"
 
 NIRITASKS="${NIRITASKS:-niritasks}"
+# NESTED_SPAWN_PATH (optional): the PATH the nested niri's own spawns run with.
 
 # The nested niri's one output, in pixels: the size its window is parked at.
 NESTED_W=1600
@@ -180,6 +181,14 @@ nested_start() {
     # background, so a frame with nothing on it is the same every time. One
     # named workspace, which is the tag tasks are filed under. The startup
     # command is how the test learns the nested niri's own sockets.
+    # What niri's own spawns run with — a refine Add & refine starts, say. Off
+    # unless a test asks: by default the nested niri's children see your PATH,
+    # as before. When set, PATH is this and notifications go to the stub's log
+    # rather than your desktop.
+    local spawn_env=""
+    if [ -n "${NESTED_SPAWN_PATH:-}" ]; then
+        spawn_env="environment { PATH \"$NESTED_SPAWN_PATH\"; NOTIFY_LOG \"$SB/notifications\"; }"
+    fi
     cat > "$SB/niri.kdl" <<EOF
 hotkey-overlay { skip-at-startup; }
 animations { off; }
@@ -188,6 +197,7 @@ xwayland-satellite { off; }
 output "winit" { scale 1; }
 layout { background-color "#406080"; }
 workspace "e2e"
+$spawn_env
 spawn-sh-at-startup "env > $SB/nested.env.tmp && mv $SB/nested.env.tmp $SB/nested.env"
 EOF
 
