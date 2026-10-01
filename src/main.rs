@@ -213,8 +213,10 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         TaskCommand::Menu { uuid } => {
             let tag = require_workspace_tag()?;
             let t = task::get(&uuid)?.context("task not found")?;
+            // The uuid the task was found under, not the one typed: `task menu 4a3f`
+            // is a prefix, and task_menu's link derivation needs the exact full uuid.
             let width = niri_tasks::picker::clamp_task_width(t.description.chars().count());
-            return task_menu(&tag, uuid, &t.description, width);
+            return task_menu(&tag, t.uuid.clone(), &t.description, width);
         }
 
         TaskCommand::Status { uuid, state, yes } => {
