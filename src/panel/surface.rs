@@ -529,6 +529,47 @@ impl Panel {
         }
     }
 
+    /// Measure the cards and the tabs, and size the surface to them: the
+    /// heights the blur region and the input region work from. Run by every
+    /// render, and again whenever a card's action row shows or hides, which
+    /// changes its height without a render.
+    fn fit(&self) {
+        let keyboard = self.keyboard.get();
+        // Measured only once they are in the window: a label outside it has no
+        // stylesheet, so it measures without its padding, and GTK keeps that
+        // wrong size for the column's own measurement too.
+        let mut heights = Vec::new();
+        let mut child = self.column.first_child();
+        while let Some(c) = child {
+            heights.push(c.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX).1);
+            child = c.next_sibling();
+        }
+        *self.heights.borrow_mut() = heights;
+
+        // Measured, like the cards, once in the window; margins included,
+        // so this is the bar and the gap under it.
+        let tabs_h = if keyboard {
+            self.tabs.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX).1
+        } else {
+            0
+        };
+
+        // The column's margins are in what it measures, and in the width it
+        // is measured for; the cards' height is without them.
+        let (_, with_ring, _, _) =
+            self.column.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX);
+        let cards_h = with_ring - 2 * RING_PX;
+        let shown = shown_height(cards_h, tabs_h, self.monitor.geometry().height());
+        self.slide.tabs_h.set(tabs_h);
+        self.slide.cards_h.set(shown);
+        let height = tabs_h + shown + 2 * SHADOW_PX;
+        // Both calls: the size request lets the surface grow, the default size
+        // lets it shrink back when the list gets shorter.
+        self.base.set_size_request(SURFACE_WIDTH, height);
+        self.window.set_size_request(SURFACE_WIDTH, height);
+        self.window.set_default_size(SURFACE_WIDTH, height);
+    }
+
     fn render(self: &Rc<Self>) {
         let keyboard = self.keyboard.get();
         // The hover and the peek show no waiting task, so they hide with
@@ -591,41 +632,9 @@ impl Panel {
             // Waiting tab beside it has them.
             self.column.append(&empty_line(filter));
         }
-        // Measured only once they are in the window: a label outside it has no
-        // stylesheet, so it measures without its padding, and GTK keeps that
-        // wrong size for the column's own measurement too.
-        let mut heights = Vec::with_capacity(cards.len());
-        let mut child = self.column.first_child();
-        while let Some(c) = child {
-            heights.push(c.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX).1);
-            child = c.next_sibling();
-        }
-        *self.heights.borrow_mut() = heights;
-
         self.tabs.set_visible(keyboard);
         self.update_tabs();
-        // Measured, like the cards, once in the window; margins included,
-        // so this is the bar and the gap under it.
-        let tabs_h = if keyboard {
-            self.tabs.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX).1
-        } else {
-            0
-        };
-
-        // The column's margins are in what it measures, and in the width it
-        // is measured for; the cards' height is without them.
-        let (_, with_ring, _, _) =
-            self.column.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX);
-        let cards_h = with_ring - 2 * RING_PX;
-        let shown = shown_height(cards_h, tabs_h, self.monitor.geometry().height());
-        self.slide.tabs_h.set(tabs_h);
-        self.slide.cards_h.set(shown);
-        let height = tabs_h + shown + 2 * SHADOW_PX;
-        // Both calls: the size request lets the surface grow, the default size
-        // lets it shrink back when the list gets shorter.
-        self.base.set_size_request(SURFACE_WIDTH, height);
-        self.window.set_size_request(SURFACE_WIDTH, height);
-        self.window.set_default_size(SURFACE_WIDTH, height);
+        self.fit();
 
         // present(), not set_visible(true): see new().
         self.window.present();
