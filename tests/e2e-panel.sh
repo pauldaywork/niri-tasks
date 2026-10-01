@@ -10,12 +10,12 @@
 # nothing wrong while showing nothing at all — both have happened before.
 #
 # So this measures pixels, on a screen of its own. It starts a nested niri
-# (tests/lib/nested-niri.sh, which e2e-box.sh shares) — a
-# window on yours, with its own runtime dir, sockets and one 1600x1000 output
-# of flat colour — and runs its own daemon in it against a sandboxed TASKDATA.
-# Nothing on your desktop can reach those frames: not the wallpaper, not a
-# terminal redrawing, not a window rule or a notification or the pointer. Your
-# own niri-tasks daemon keeps running throughout and never sees these tasks.
+# (tests/lib/nested-niri.sh, which e2e-box.sh shares) — a window on yours, with
+# its own runtime dir, sockets and one 1600x1000 output of flat colour — and
+# runs its own daemon in it against a sandboxed TASKDATA. Nothing on your
+# desktop can reach those frames: not the wallpaper, not a terminal redrawing,
+# not a window rule or a notification or the pointer. Your own niri-tasks
+# daemon keeps running throughout and never sees these tasks.
 #
 # Because the screen is flat and fixed, the numbers are exact: the peek starts
 # at column 1566, the keyboard's cards span 420-1180, and a frame that should

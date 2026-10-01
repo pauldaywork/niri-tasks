@@ -44,7 +44,9 @@ SB="$(mktemp -d)"
 # a Unix socket path longer than ~108 characters cannot be bound.
 RT="$(mktemp -d /tmp/nte2e.XXXXXX)"
 mkdir -p "$SB/data"
-printf 'data.location=%s/data\n' "$SB" > "$SB/taskrc"
+# hooks.location points at a directory that does not exist: left alone,
+# taskwarrior would run the real ~/.task/hooks on every sandbox task.
+printf 'data.location=%s/data\nhooks.location=%s/hooks\n' "$SB" "$SB" > "$SB/taskrc"
 export TASKRC="$SB/taskrc" TASKDATA="$SB/data"
 
 # The real daemon is never touched; this is how the end of the run proves it.
@@ -76,7 +78,10 @@ summary() { echo; echo "passed: $pass   failed: $fail   skipped: $skipped"; }
 
 # Run a command inside the nested niri. Foreground only: in the background,
 # $! would be a subshell's pid, not the command's.
-nested() { "${NENV[@]}" "$@"; }
+nested() {
+    [ "${#NENV[@]}" -gt 0 ] || die "nested before nested_start"
+    "${NENV[@]}" "$@"
+}
 
 # The parent's windows that are already nested niris, so the new one can be
 # told apart from them.
@@ -159,10 +164,11 @@ EOF
     local before spare opened_on landed why size
     before=$(nested_niri_windows) || die "cannot list this niri's windows"
 
-    # vblank_mode (Mesa) and __GL_SYNC_TO_VBLANK (NVIDIA) are off for the nested
-    # niri alone: parked out of sight, it never hears that a frame was shown,
-    # so a buffer swap that waits for vblank stalls it for a second or more,
-    # and every key and `niri msg` with it.
+    # Vblank waits are off for the nested niri alone: parked out of sight, it
+    # never hears that a frame was shown, so a buffer swap that waits for
+    # vblank stalls it for a second or more, and every key and `niri msg` with
+    # it. Mesa's vblank_mode=0 is what was measured to fix that here;
+    # __GL_SYNC_TO_VBLANK=0 is set in case it helps on NVIDIA, unverified.
     env -u NIRI_SOCKET XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$PARENT_WAYLAND" \
         vblank_mode=0 __GL_SYNC_TO_VBLANK=0 niri -c "$SB/niri.kdl" >"$SB/niri.log" 2>&1 &
     NESTED=$!
@@ -179,7 +185,22 @@ $(tail -n 20 "$SB/niri.log")"
     n_wayland=$(sed -n 's/^WAYLAND_DISPLAY=//p' "$SB/nested.env")
     [ -n "$n_socket" ] && [ -n "$n_wayland" ] ||
         die "the nested niri gave its programs no NIRI_SOCKET or WAYLAND_DISPLAY"
-    NENV=(env XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$n_wayland" NIRI_SOCKET="$n_socket")
+    # Notifications: every task added through the box or the CLI runs
+    # notify-send (src/notify.rs) over the session bus, which is shared with
+    # the real desktop and would pop up there. A stub first on PATH records
+    # them in $SB/notifications instead.
+    mkdir -p "$SB/bin"
+    cat > "$SB/bin/notify-send" <<'STUB'
+#!/bin/sh
+echo "$*" >> "${NOTIFY_LOG:?}"
+exit 0
+STUB
+    chmod +x "$SB/bin/notify-send"
+    # -u DISPLAY and GDK_BACKEND: if the nested niri dies, GTK must not fall
+    # back to X11 and open a box on the real desktop. env -u comes first.
+    NENV=(env -u DISPLAY XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$n_wayland"
+          NIRI_SOCKET="$n_socket" GDK_BACKEND=wayland
+          NOTIFY_LOG="$SB/notifications" PATH="$SB/bin:$PATH")
 
     for _ in $(seq 1 25); do
         WIN=$(python3 -c '
@@ -253,6 +274,7 @@ print(o["width"], o["height"])' 2>/dev/null)
 }
 
 nested_daemon_start() {  # log file
+    [ "${#NENV[@]}" -gt 0 ] || die "nested_daemon_start before nested_start"
     "${NENV[@]}" "$NIRITASKS" daemon >"$1" 2>&1 &
     DAEMON=$!
     sleep 3

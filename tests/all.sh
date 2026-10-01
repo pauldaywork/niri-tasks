@@ -5,7 +5,7 @@
 #
 # There are four suites and they do not have the same prerequisites: one needs
 # only cargo and taskwarrior, one needs niri, one needs Pillow and niri to nest
-# a niri in, one needs wtype and a Wayland display. A machine missing any of
+# a niri in, one needs wtype and python3 and niri to nest a niri in. A machine missing any of
 # them is the normal case — an SSH session has no Wayland display, a fresh
 # checkout has no wtype — and that is the whole reason this file exists.
 # Running the four by hand means reading four error messages and deciding, each
@@ -54,6 +54,7 @@ why_panel() {
     command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
     command -v niri >/dev/null || { echo "no niri"; return; }
     command -v task >/dev/null || { echo "no taskwarrior on \$PATH"; return; }
+    command -v python3 >/dev/null || { echo "no python3"; return; }
     [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)"; return; }
     [ -n "${WAYLAND_DISPLAY:-}" ] || { echo "no Wayland display"; return; }
     python3 -c "import PIL" 2>/dev/null || { echo "no python3 Pillow (sudo apt install python3-pil)"; return; }
@@ -63,6 +64,7 @@ why_box() {
     command -v wtype >/dev/null || { echo "no wtype (sudo apt install wtype)"; return; }
     command -v niri  >/dev/null || { echo "no niri"; return; }
     command -v task  >/dev/null || { echo "no taskwarrior on \$PATH"; return; }
+    command -v python3 >/dev/null || { echo "no python3"; return; }
     [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)"; return; }
     [ -n "${WAYLAND_DISPLAY:-}" ] || { echo "no Wayland display"; return; }
 }

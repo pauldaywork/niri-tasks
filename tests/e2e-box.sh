@@ -69,6 +69,7 @@ print(w.get('title') or '')
 # open_box note <uuid>  — the note box for a task
 open_box() {
     guard
+    [ "${#NENV[@]}" -gt 0 ] || die "open_box before nested_start"
     "${NENV[@]}" "$NIRITASKS" task "$@" >/dev/null 2>&1 &
     for _ in $(seq 1 40); do
         [ -n "$(box_id)" ] && { sleep 0.6; return 0; }
