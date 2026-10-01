@@ -1,5 +1,6 @@
 //! One monitor's task panel: a layer surface on the right edge, tucked away to
-//! a peek until the pointer comes over it.
+//! a peek until the pointer comes over it, or in the middle of the screen
+//! while it has the keyboard.
 //!
 //! ## Why an Overlay, and why the input region
 //!
@@ -24,23 +25,30 @@
 //!
 //! ## The keyboard
 //!
-//! Mod+Alt+Ctrl+T slides the panel out and hands it the keyboard, and every
-//! card lays itself out again: its whole description, wrapped, above a row of
-//! buttons for the menu's most-used actions. A card is a box holding a body
-//! button and that row. Up and Down move between cards, Left, Right and Tab
-//! along the focused one, and s, r, e, t and Delete press its Start, Refine,
-//! Edit, Stop and Remove by emitting the button's `clicked`, so a key, Enter
-//! on the focused button, and a click all take one path. The controller runs
-//! in the capture phase, ahead of GTK's own focus chain, which would otherwise
-//! walk every button on the panel. The focused card is darkened. The body
-//! opens the whole menu. Escape, or
-//! anything that runs, hands the keyboard back and folds the cards to one line
-//! again.
+//! Mod+Alt+Ctrl+T hands the panel the keyboard in the middle of the screen,
+//! and every card lays itself out again: its whole description, wrapped, above
+//! a row of buttons for the menu's most-used actions. A card is a box holding
+//! a body button and that row. Up and Down move between cards, Left, Right and
+//! Tab along the focused one, and s, r, e, t and Delete press its Start,
+//! Refine, Edit, Stop and Remove by emitting the button's `clicked`, so a key,
+//! Enter on the focused button, and a click all take one path. The controller
+//! runs in the capture phase, ahead of GTK's own focus chain, which would
+//! otherwise walk every button on the panel. The focused card is darkened. The
+//! body opens the whole menu. Escape, or anything that runs, hands the
+//! keyboard back, folds the cards to one line again, and puts the panel back
+//! on the right edge as a peek.
 //!
 //! Wrapped, the cards can stand taller than the screen, so the column sits in
 //! a scroller capped at the screen's height less its margins. Moving the focus
 //! scrolls the focused card wholly into view, and the blur region moves with
 //! the scroll and stops at the view's edges.
+//!
+//! To sit in the middle, the surface drops its right anchor while it has the
+//! keyboard, and niri centres a layer surface anchored to nothing. The cards
+//! jump to the middle of the surface, equal margins either side, rather than
+//! slide; the input region and blur follow them there and back. One surface
+//! means no peek on the right edge while it is centred, and the pointer
+//! coming over the centred cards does not slide them.
 //!
 //! It is held with exclusive keyboard mode throughout, as fuzzel does. niri
 //! gives an on-demand layer surface focus only after a click on it, so
@@ -84,6 +92,12 @@ const EDGE_GAP_PX: i32 = 8;
 const SURFACE_WIDTH: i32 = SHADOW_PX + CARD_WIDTH_PX + EDGE_GAP_PX;
 const EXPANDED_X: f64 = SHADOW_PX as f64;
 const TUCKED_X: f64 = (SURFACE_WIDTH - PEEK_PX) as f64;
+
+/// Where the cards sit while the panel has the keyboard and the surface is
+/// unanchored, which niri centres on the monitor: the middle of the surface,
+/// so the cards are in the middle of the screen. 784 less 760 leaves 12px each
+/// side, enough for the ring.
+const CENTRED_X: f64 = ((SURFACE_WIDTH - CARD_WIDTH_PX) / 2) as f64;
 
 const SLIDE_MS: f64 = 180.0;
 
@@ -221,10 +235,13 @@ impl Panel {
         {
             let weak = Rc::downgrade(&panel);
             motion.connect_enter(move |_, _, _| {
-                if let Some(p) = weak.upgrade() {
-                    p.cancel_grace();
-                    p.slide_to(EXPANDED_X);
+                let Some(p) = weak.upgrade() else { return };
+                // The keyboard's panel is in the middle and stays put.
+                if p.keyboard.get() {
+                    return;
                 }
+                p.cancel_grace();
+                p.slide_to(EXPANDED_X);
             });
         }
         {
@@ -337,10 +354,15 @@ impl Panel {
         self.render();
     }
 
-    /// Slide out and take the keyboard, every card wrapped with its buttons,
-    /// focusing the first. `agents` are the session's live agent names, for
-    /// which cards get Go to session. False when there are no cards to take
-    /// it for.
+    /// Take the keyboard in the middle of the monitor, every card wrapped with
+    /// its buttons, focusing the first. `agents` are the session's live agent
+    /// names, for which cards get Go to session. False when there are no cards
+    /// to take it for.
+    ///
+    /// Dropping the right anchor leaves the surface anchored to nothing, which
+    /// niri centres on the monitor, both ways; the cards jump to the middle of
+    /// the surface rather than slide across the screen. The peek goes with
+    /// it: there is one surface, and it is in the middle now.
     pub fn take_keyboard(self: &Rc<Self>, agents: Vec<String>) -> bool {
         if self.all.borrow().is_empty() {
             return false;
@@ -349,25 +371,30 @@ impl Panel {
         self.keyboard.set(true);
         self.cancel_grace();
         self.window.set_keyboard_mode(KeyboardMode::Exclusive);
+        self.window.set_anchor(Edge::Right, false);
         self.render();
-        self.slide_to(EXPANDED_X);
+        // After render(), which measures the cards the region needs.
+        self.jump_to(CENTRED_X);
         if let Some(first) = self.column.first_child() {
             focus_card(&first, None);
         }
         true
     }
 
-    /// Give the keyboard back, folding every card to its one line again as
-    /// the panel tucks away.
+    /// Give the keyboard back, folding every card to its one line again and
+    /// putting the panel back on the right edge, tucked away to its peek. The
+    /// cards snap there rather than slide: they would have to cross half the
+    /// screen.
     fn release_keyboard(self: &Rc<Self>) {
         if !self.keyboard.replace(false) {
             return;
         }
         self.window.set_keyboard_mode(KeyboardMode::None);
         self.agents.borrow_mut().clear();
+        self.window.set_anchor(Edge::Right, true);
         self.expanded.set(false);
         self.render();
-        self.slide_to(TUCKED_X);
+        self.jump_to(TUCKED_X);
     }
 
     /// Slide back, folding an expanded list up again.
@@ -399,8 +426,11 @@ impl Panel {
         };
 
         if cards.is_empty() {
+            // The last task went while the panel had the keyboard: back to
+            // the right edge, so the next card shows as a peek there.
             if self.keyboard.replace(false) {
                 self.window.set_keyboard_mode(KeyboardMode::None);
+                self.window.set_anchor(Edge::Right, true);
             }
             // Only hide something that is up; hiding a never-mapped layer
             // surface leaves it deaf to a later present().
@@ -725,6 +755,22 @@ impl Panel {
         blur.set(&blur::clip_rows(&rects, top, top + self.slide.cards_h.get()));
     }
 
+    /// Put the cards at `x` at once, with no slide: into the middle when the
+    /// panel takes the keyboard, and back to the peek when it gives it up. A
+    /// slide already running ends here too, since every tick it has left
+    /// works out `from + (to - from) * eased`, which is `x`.
+    fn jump_to(&self, x: f64) {
+        let slide = &self.slide;
+        slide.x.set(x);
+        slide.from.set(x);
+        slide.to.set(x);
+        if let Some(child) = self.window.child() {
+            child.queue_allocate();
+        }
+        self.set_region(x);
+        self.update_blur(x);
+    }
+
     fn slide_to(self: &Rc<Self>, target: f64) {
         let slide = &self.slide;
         slide.from.set(slide.x.get());
@@ -874,6 +920,21 @@ mod tests {
     fn the_ring_margin_is_the_outlines_spread() {
         // A mismatch would clip the ring against the scroller again.
         assert!(super::super::style::OUTLINE.contains(&format!(" {RING_PX}px ")));
+    }
+
+    #[test]
+    fn centred_cards_have_equal_margins_in_the_surface() {
+        // The compositor centres the surface, so the cards are centred on the
+        // screen only if they are centred inside it.
+        let left = CENTRED_X as i32;
+        let right = SURFACE_WIDTH - CARD_WIDTH_PX - left;
+        assert_eq!(left, right);
+    }
+
+    #[test]
+    fn centred_cards_leave_room_for_their_ring() {
+        // Less than this and the surface cuts the outline ring off square.
+        assert!(CENTRED_X as i32 >= RING_PX);
     }
 
     #[test]
