@@ -16,7 +16,7 @@ from — opening one, or moving a task to another workspace.
 | Key | Does |
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
-| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Tabs above the cards, picked with 1–5 or [ and ], narrow them to All, Active, Planned, To refine or Waiting. With no tasks, or no daemon, the fuzzel list instead |
+| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Tabs above the cards, picked with 1–5 or [ and ], narrow them to All, Active, Planned, To refine or Waiting. With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+W` | Create a new workspace and name it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
@@ -56,16 +56,15 @@ under it:
 | **Back to list** (lavender) | `b` | Off waiting and back on the list — only on a waiting task, which gets just this, Edit and Remove |
 | **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back |
 
-Up and Down move a darker fill and the buttons between cards; Left, Right and Tab move
-along the focused card's buttons, whose name shows beside them while one is
-focused, and Enter presses the focused one. Enter on
-the card itself opens its full menu, which also has Note, Grill me, Update
-status and Move to workspace — led by Go to session while a Claude is working
-on the task. Every button gives the keyboard back as it runs, and Escape puts
-the panel back on the right edge, tucked away with the cards folded back to
-one line. A list
-taller than the screen scrolls, keeping the focused card in view. Hovering
-never shows the buttons — only the keyboard does.
+Up and Down move a darker fill and the buttons between cards; Left, Right and
+Tab move along the focused card's buttons, whose name shows beside them while
+one is focused, and Enter presses the focused one. Enter on the card itself
+opens its full menu, which also has Note, Grill me, Update status and Move to
+workspace — led by Go to session while a Claude is working on the task. Every
+button gives the keyboard back as it runs, and Escape puts the panel back on the
+right edge, tucked away with the cards folded back to one line. A list taller
+than the screen scrolls, keeping the focused card in view. Hovering never shows
+the buttons — only the keyboard does.
 
 Above the cards, tabs narrow them while the panel has the keyboard: **All**,
 **Active** (started), **Planned** (refined or grilled into a plan, and not

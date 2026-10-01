@@ -296,12 +296,22 @@ if command -v wtype >/dev/null; then
         bad "the keyboard's cards cover columns ${x0}-${x1}, expected
       $((CARD_X - RING))-$((CARD_X + CARD + RING)) — 0-0 means Down did not move the focus"
     fi
+    key_h=$((y1 - y0))
     read -r x0 x1 y0 y1 < <(measure keyboard_down)
     if [ "$((y1 - y0))" -eq "$keyboard_h" ]; then
         ok "and Down moves the buttons to the next card, the panel as tall as before (${keyboard_h}px)"
     else
         bad "after Down the panel is $((y1 - y0))px tall against ${keyboard_h}px before —
       the action row should move to the focused card, not be added or lost"
+    fi
+    # What differs spans card 1's top to card 2's bottom: two one-line cards,
+    # a gap, and one action row. With no row on either it would be two cards
+    # and a gap, a row's height short of this.
+    if [ "$key_h" -ge $((three_h - one_h + 12)) ]; then
+        ok "and the focused card shows its buttons (${key_h}px for two cards and one row, ${three_h}px for three tucked)"
+    else
+        bad "the two cards Down touched are ${key_h}px tall, against $((three_h - one_h))px for
+      two one-line cards and their gaps — no card shows its action row"
     fi
 
     # Escape from a tab other than All: the hover panel has no tabs, so it

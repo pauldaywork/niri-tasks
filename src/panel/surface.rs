@@ -673,8 +673,8 @@ impl Panel {
     /// One card: a box named after its task's uuid, so render() can put focus
     /// back on it, holding the body, a button so the keyboard can focus and
     /// press it, and, while the panel has the keyboard, its action row along
-    /// the bottom, hidden until the card has focus. The body opens the task's whole menu, or shows the rest in
-    /// place of "+N more".
+    /// the bottom, hidden until the card has focus. The body opens the task's
+    /// whole menu, or shows the rest in place of "+N more".
     fn card_widget(self: &Rc<Self>, card: &Card) -> gtk4::Box {
         let keyboard = self.keyboard.get();
         let widget = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -904,8 +904,9 @@ impl Panel {
         });
     }
 
-    /// Show this card's action row and hide every other card's, so the list
-    /// stays one line a card bar the one being worked on. The cards change
+    /// Show this card's action row and hide every other card's, so only
+    /// the card being worked on stands taller by its buttons, and the list stays
+    /// short enough to scan. The cards change
     /// height without a render, so the surface, the input region and the blur
     /// are fitted to them again, but only when a row actually showed or hid:
     /// a render tearing the column down moves the focus too.
