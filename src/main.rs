@@ -675,3 +675,23 @@ fn terminal() -> Result<()> {
     anyhow::ensure!(status.success(), "{} failed to open a window ({status})", cmd.join(" "));
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use niri_tasks::panel::actions::Action;
+
+    /// Every button on a task card spawns `niritasks` with these arguments, so
+    /// each has to be a command the real CLI accepts. Otherwise a typo shows
+    /// up as a click that does nothing.
+    #[test]
+    fn every_card_button_is_a_command_the_cli_accepts() {
+        for action in Action::ALL {
+            let mut argv = vec!["niritasks".to_string()];
+            argv.extend(action.args("c53b6e3d"));
+            if let Err(e) = Cli::try_parse_from(&argv) {
+                panic!("{} runs {argv:?}, which the CLI rejects: {e}", action.label());
+            }
+        }
+    }
+}
