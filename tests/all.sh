@@ -103,8 +103,8 @@ suite "tests/e2e-tag.sh"     "$(why_tag)"     bash tests/e2e-tag.sh
 
 if [ -z "$(why_panel)" ] || [ -z "$(why_box)" ]; then
     echo
-    echo "  ! the panel and box tests park a nested niri on the last workspace"
-    echo "    of this monitor: keep off that workspace until they finish."
+    echo "  ! the panel and box tests park a nested niri on a spare workspace"
+    echo "    at the end of this monitor: keep off those workspaces until they finish."
 fi
 suite "tests/e2e-panel.sh" "$(why_panel)" bash tests/e2e-panel.sh
 suite "tests/e2e-box.sh"     "$(why_box)"     bash tests/e2e-box.sh

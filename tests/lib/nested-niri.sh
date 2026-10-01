@@ -70,7 +70,16 @@ cleanup() {
     # which is held until the window is gone. Without the lock it still goes.
     if [ -n "$NESTED" ]; then
         parent_lock 2>/dev/null
-        kill "$NESTED" 2>/dev/null && wait "$NESTED" 2>/dev/null
+        # A niri that ignores SIGTERM must not hold the lock for ever, or every
+        # other run dies waiting for it: give it 5s, then kill it outright.
+        if kill "$NESTED" 2>/dev/null; then
+            for _ in $(seq 1 25); do
+                kill -0 "$NESTED" 2>/dev/null || break
+                sleep 0.2
+            done
+            kill -9 "$NESTED" 2>/dev/null
+            wait "$NESTED" 2>/dev/null
+        fi
         if [ -n "$WIN" ]; then
             for _ in $(seq 1 25); do
                 [ -z "$(nested_window 2>/dev/null)" ] && break
