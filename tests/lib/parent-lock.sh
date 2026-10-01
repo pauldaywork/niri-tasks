@@ -21,7 +21,8 @@ parent_lock() {
     [ -z "$PARENT_LOCK_FD" ] || return 0
     command -v flock >/dev/null || { echo "flock is required (util-linux)" >&2; return 1; }
     exec {PARENT_LOCK_FD}>>"$PARENT_LOCK" || return 1
-    flock -w 60 "$PARENT_LOCK_FD"
+    # Timed out: no lock is held, so nothing may say it is.
+    flock -w 60 "$PARENT_LOCK_FD" || { exec {PARENT_LOCK_FD}>&-; PARENT_LOCK_FD=""; return 1; }
 }
 
 parent_unlock() {
