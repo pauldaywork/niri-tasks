@@ -915,4 +915,30 @@ mod tests {
         let missing = undocumented(&block.lines().collect::<Vec<_>>());
         assert!(missing.is_empty(), "README's Commands block never runs: {missing:?}");
     }
+
+    /// llms.txt is where an agent learns the CLI, so it is held to the same
+    /// check as README: every subcommand and flag shown being run.
+    #[test]
+    fn llms_txt_runs_every_subcommand_and_flag() {
+        let llms = repo_file("llms.txt");
+        let missing = undocumented(&llms.lines().collect::<Vec<_>>());
+        assert!(missing.is_empty(), "llms.txt never runs: {missing:?}");
+    }
+
+    /// The llmstxt.org shape: an H1 name first, a blockquote summary next, and
+    /// the link-list sections ending with `## Optional`, the one an agent
+    /// short of context may skip.
+    #[test]
+    fn llms_txt_has_the_llmstxt_shape() {
+        let llms = repo_file("llms.txt");
+        let mut lines = llms.lines().filter(|l| !l.trim().is_empty());
+        assert!(lines.next().is_some_and(|l| l.starts_with("# ")), "llms.txt starts with an H1");
+        assert!(lines.next().is_some_and(|l| l.starts_with("> ")), "a blockquote follows the H1");
+        let h2s: Vec<&str> = llms.lines().filter(|l| l.starts_with("## ")).collect();
+        assert_eq!(h2s.last(), Some(&"## Optional"), "the last section is ## Optional");
+        assert!(
+            !llms.lines().any(|l| l.starts_with("### ")),
+            "llms.txt has no H3s: the free section allows no headings, the H2s are link lists"
+        );
+    }
 }

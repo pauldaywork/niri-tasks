@@ -1,0 +1,69 @@
+# niri-tasks
+
+> Workspace-scoped Taskwarrior for the niri Wayland compositor. The name of a niri workspace is the task tag: a task added on workspace `website` is tagged `+website`, and the list, the task panel and every `niritasks` command show that workspace's tasks and nothing else. This file is the whole command reference for the `niritasks` binary, plus the rules agents most often get wrong.
+
+`niritasks` wraps Taskwarrior (`task`), niri, fuzzel and ghostty, and optionally herdr, Claude Code and worktrunk (`wt`). A workspace's tag is its name lowercased, with every run of other characters folded to `_`, so workspace `niri-tasks` has tag `niri_tasks`. An unnamed workspace has no tag, and every command that needs one refuses on it. A failing command prints its error to stderr, shows it as a desktop notification and exits 1.
+
+**Rules agents get wrong**
+
+1. **In a terminal, use `niritasks tag --session`, not bare `niritasks tag`.** Bare `tag` answers "which workspace is focused right now", and the user switches workspace while you work. `--session` takes the workspace from this terminal's herdr session, or failing that its `~/Projects/<folder>`, neither of which moves. The same goes for every command that acts on "this workspace" (`task add`, `task active`, `task list`, `task menu`, `task refine`, `task start`, `task session`): they follow focus. To file a task from a terminal, tag it yourself: `task add "+$(niritasks tag --session)" -- "<description>"`.
+2. **`niritasks task add` word-splits its text; `niritasks task edit` and `niritasks task note` do not.** `niritasks task add ship it due:friday priority:H` sets a due date and a priority. `niritasks task edit <uuid> ship it due:friday` makes `due:friday` part of the description. Getting this backwards fails silently. Prefer `niritasks task note` to raw `task <uuid> annotate`: niritasks passes `--`, and raw `annotate` with text that starts like `file.rs:52` silently sets an attribute and files no note.
+3. **Address a task by its uuid or the uuid's first 8 characters**, the `<uuid8>` at the end of a `task/<slug>-<uuid8>` branch. Never use its number: numbers are renumbered as other tasks complete, so a stale one points at another task.
+4. **Change a task's status with `niritasks task status <uuid> <state>`, never `task <uuid> done`, `start` or `stop`.** It is the same path the task menu uses. `active` also links the herdr pane you run it in to the task, so its menu can find you, and every change sends the menu's notification. The states are `active`, `stopped` (which also brings back a waiting task), `waiting`, `completed` and `deleted`.
+5. **`deleted` needs `--yes`.** `niritasks task status <uuid> deleted --yes` is the menu's confirmation, given up front. Pass it only when the user asked for the task to be deleted.
+6. **Never run a GUI command unattended.** The Runs column below says which commands open a window and wait for a person, which open a herdr tab, and which are scriptable. A scriptable command prints, or changes the database, and exits.
+7. **`niritasks daemon` and `niritasks task start <uuid> --here --workspace <name>` are internal.** The niri-tasks systemd user unit runs the daemon. `task start` runs `--here` inside the herdr tab it opens. Do not run either yourself.
+
+**Reading tasks.** `niritasks` has no JSON output of its own; read tasks with Taskwarrior: `task rc.json.array=on <uuid8> export` for one task, or `task "+$(niritasks tag --session)" status:pending export` for this workspace's pending tasks. `niritasks task get-text <uuid>` and `niritasks task get-notes <uuid>` print one task's description and notes as plain text.
+
+**Command reference.** Every `<uuid>` is the full uuid or its first 8 characters. `niritasks <command> --help` says the same at more length.
+
+| Command | Does | Runs |
+|---|---|---|
+| `niritasks tag` | Print the focused workspace's tag; exit 1 if it has none | scriptable, follows focus |
+| `niritasks tag --session` | Print the tag of the workspace this terminal belongs to | scriptable |
+| `niritasks task active` | Print each active task's description on the focused workspace, one per line, or nothing | scriptable, follows focus |
+| `niritasks task list` | The picker: pick one of the focused workspace's tasks, then an action | GUI (fuzzel) |
+| `niritasks task list --dry-run` | Print the picker's rows, `<uuid>\t<description>`, and its size on stderr | scriptable, follows focus |
+| `niritasks task panel` | Hand the task panel the keyboard (Mod+Alt+Ctrl+T); with no daemon, the picker | GUI |
+| `niritasks task menu <uuid>` | One task's action menu, as clicking its task card opens it | GUI (fuzzel) |
+| `niritasks task status <uuid> <state>` | Move it to `active`, `stopped`, `waiting` or `completed` | scriptable |
+| `niritasks task status <uuid> deleted --yes` | Delete it | scriptable |
+| `niritasks task add <text>` | Add a task to the focused workspace; the text is word-split, so `due:friday` is an attribute | scriptable, follows focus |
+| `niritasks task add` | With no text, the task box, to type a task and its notes | GUI |
+| `niritasks task get-text <uuid>` | Print its description | scriptable |
+| `niritasks task edit <uuid> <text>` | Replace its description, as typed | scriptable |
+| `niritasks task edit <uuid>` | With no text, the task box on its description and notes | GUI |
+| `niritasks task get-notes <uuid>` | Print its notes, one per line: date, two spaces, text | scriptable |
+| `niritasks task note <uuid> <text>` | Add a note, as typed | scriptable |
+| `niritasks task note <uuid>` | With no text, the task box with the cursor in a new note | GUI |
+| `niritasks task refine <uuid>` | Open a tab in the workspace's herdr session with Claude working the task into a plan (the `refine-task` skill) | herdr tab |
+| `niritasks task refine <uuid> --grill` | The same, interviewing the user first | herdr tab |
+| `niritasks task start <uuid>` | Make the task's own git worktree, branch `task/<slug>-<uuid8>`, and open it in a herdr tab with Claude planning it; run again, go back to both | herdr tab |
+| `niritasks task start <uuid> --here --workspace <name>` | Internal: the setup step `task start` runs inside the tab it opens | internal |
+| `niritasks task session <uuid>` | Go to the herdr tab of the Claude working on it | herdr tab |
+| `niritasks workspace new` | Ask for a name, then make a new workspace with it (Mod+Alt+W) | GUI (fuzzel) |
+| `niritasks workspace rename` | Ask for a new name for the focused workspace, which changes its tasks' tag too (Mod+Alt+Ctrl+W) | GUI (fuzzel) |
+| `niritasks workspace default` | Name workspace 1 `general` if it is unnamed; niri runs it at startup | scriptable |
+| `niritasks project open` | Pick a `~/Projects` folder, put it on its own named workspace, and open a terminal and an editor there (Mod+Alt+P) | GUI (fuzzel, windows) |
+| `niritasks terminal` | Open a terminal in the focused workspace's `~/Projects` folder (Mod+Return) | GUI (window) |
+| `niritasks daemon` | Internal: the task panels and the task-box server, run by the niri-tasks systemd user unit | internal |
+
+**Finishing work.** A task started with `niritasks task start` gets its own worktree. When the work is done, the `finish-worktree` skill lands it: it rebases, tests, fast-forwards `main`, pushes, runs `niritasks task status <uuid8> completed` and removes the worktree.
+
+## Docs
+
+- [README.md](README.md): install, keybinds, the task panel and task box, requirements, and how to run the tests
+- [CONTEXT.md](CONTEXT.md): the vocabulary — workspace tag, focused vs active workspace, active and planned tasks, task panel, task card, picker, task box
+
+## Skills
+
+- [workspace-tasks](.claude/skills/workspace-tasks/SKILL.md): work through every pending task on this terminal's workspace, one at a time, keeping their status honest
+- [refine-task](.claude/skills/refine-task/SKILL.md): work one task up into a plan and tag it `+planned`; what `niritasks task refine` starts
+- [finish-worktree](.claude/skills/finish-worktree/SKILL.md): land a finished task worktree on `main` and mark the task completed
+
+## Optional
+
+- [docs/adr/0001-task-panel-in-gtk-not-quickshell.md](docs/adr/0001-task-panel-in-gtk-not-quickshell.md): why the task panel is drawn in GTK
+- [tests/write_path.rs](tests/write_path.rs): the tests that pin `add` word-splitting and `edit`/`note` staying literal
+- [src/main.rs](src/main.rs): the clap definitions every command above comes from
