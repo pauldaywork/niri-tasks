@@ -16,7 +16,8 @@
 #
 # What it cannot check is the hover: nothing on this machine can move the
 # pointer, so the slide out, the slide back, and clicks passing beside the peek
-# are checked by hand (README, "Testing").
+# are checked by hand (README, "Testing"). The keyboard it can: `task panel`
+# slides the panel out, and with wtype installed, Escape tucks it away again.
 #
 # It needs the right edge of the screen to hold still, so it checks that first
 # and says so rather than producing a flaky answer. Do not switch workspaces
@@ -212,6 +213,46 @@ read -r _ other_h < <(measure elsewhere)
 delta=$(( other_h > three_h ? other_h - three_h : three_h - other_h ))
 [ "$delta" -le 6 ] && ok "a task on another workspace's tag does not appear" \
     || bad "the panel changed height (${other_h}px vs ${three_h}px) for a task on another tag"
+
+# ─── the keyboard: every card out, wrapped, with its buttons ─────────────────
+# `task panel` is the keybind's command: it asks this sandbox's daemon to hand
+# its panel the keyboard. The cards slide all the way out, so the measured
+# strip is as wide as it can be, and each grows an action row, so the three of
+# them stand taller than their one-line peek.
+"$NIRITASKS" task panel >/dev/null 2>&1
+settle
+shot keyboard || exit 1
+read -r key_w key_h < <(measure keyboard)
+if [ "$key_w" -ge 250 ]; then
+    ok "the keyboard slides the panel out (${key_w}px of the 300px strip)"
+else
+    bad "the panel is ${key_w}px wide with the keyboard, expected it slid out"
+fi
+if [ "$key_h" -ge $((three_h + 40)) ]; then
+    ok "and each card grows its buttons (${key_h}px tall vs ${three_h}px)"
+else
+    bad "the keyboard's cards are ${key_h}px tall against ${three_h}px tucked away —
+      the action rows are missing"
+fi
+
+# Escape needs a key pressed on the panel, which only wtype can do here. The
+# next section gives the keyboard back regardless: a panel with no tasks lets
+# it go.
+if command -v wtype >/dev/null; then
+    wtype -k Escape
+    settle
+    shot released || exit 1
+    read -r rel_w rel_h < <(measure released)
+    delta=$(( rel_h > three_h ? rel_h - three_h : three_h - rel_h ))
+    if [ "$rel_w" -le $((PEEK + 30)) ] && [ "$delta" -le 6 ]; then
+        ok "Escape tucks it back to the one-line peek (${rel_w}x${rel_h}px)"
+    else
+        bad "after Escape the panel is ${rel_w}x${rel_h}px, expected the
+      ${three_w}x${three_h}px peek it started from"
+    fi
+else
+    echo "  SKIP  Escape back to the peek (needs wtype)"
+fi
 
 # ─── nothing pending shows nothing ───────────────────────────────────────────
 # rc.bulk=0: completing more than two tasks at once otherwise stops to ask,

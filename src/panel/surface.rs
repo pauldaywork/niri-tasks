@@ -24,16 +24,19 @@
 //!
 //! ## The keyboard
 //!
-//! Mod+Alt+Ctrl+T slides the panel out and hands it the keyboard. The cards
-//! are buttons so GTK does the rest: the arrow keys move focus between them,
-//! Enter clicks the focused one, and `:focus` darkens it. A click and Enter
-//! are then the same `clicked`. Escape, or a click on a card, hands the
-//! keyboard back.
+//! Mod+Alt+Ctrl+T slides the panel out and hands it the keyboard, and every
+//! card lays itself out again: its whole description, wrapped, above a row of
+//! buttons for the menu's most-used actions. A card is a box holding a body
+//! button and that row, all buttons, so GTK focuses and presses them: Enter
+//! clicks the focused one, and a click and Enter are the same `clicked`. The
+//! body opens the whole menu. Escape, or anything that runs, hands the
+//! keyboard back and folds the cards to one line again.
 //!
 //! It is held with exclusive keyboard mode throughout, as fuzzel does. niri
 //! gives an on-demand layer surface focus only after a click on it, so
 //! switching to on-demand once focused would drop the focus at once.
 
+use super::actions::Action;
 use super::blur::{self, Blur};
 use super::model::{self, Card, Status};
 use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX};
@@ -86,6 +89,9 @@ pub struct Panel {
     expanded: Cell<bool>,
     /// The panel has the keyboard, from Mod+Alt+Ctrl+T.
     keyboard: Cell<bool>,
+    /// The Remove button pressed once and waiting for its second press, which
+    /// deletes. Moving the focus off it, or any re-render, puts it back.
+    armed: RefCell<Option<gtk4::Button>>,
     /// Each card's height, top to bottom, for the blur region.
     heights: RefCell<Vec<i32>>,
     blur: RefCell<Option<Blur>>,
@@ -145,6 +151,7 @@ impl Panel {
             all: RefCell::new(Vec::new()),
             expanded: Cell::new(false),
             keyboard: Cell::new(false),
+            armed: RefCell::new(None),
             heights: RefCell::new(Vec::new()),
             blur: RefCell::new(None),
         });
@@ -194,7 +201,7 @@ impl Panel {
         panel.window.add_controller(motion);
         // A click on a card lands on this surface, because it is inside the
         // input region, and goes no further than the card's own handler — see
-        // card_button.
+        // card_widget.
 
         let keys = gtk4::EventControllerKey::new();
         {
@@ -210,6 +217,16 @@ impl Panel {
             });
         }
         panel.window.add_controller(keys);
+
+        // Moving off an armed Remove disarms it.
+        {
+            let weak = Rc::downgrade(&panel);
+            panel.window.connect_notify_local(Some("focus-widget"), move |_, _| {
+                if let Some(p) = weak.upgrade() {
+                    p.disarm_unless_focused();
+                }
+            });
+        }
 
         // GTK may reset the input region when the surface maps or resizes, and
         // a surface shown again may be a new wl_surface, which needs its own
@@ -244,8 +261,8 @@ impl Panel {
         self.render();
     }
 
-    /// Slide out and take the keyboard, focusing the first card. False when
-    /// there are no cards to take it for.
+    /// Slide out and take the keyboard, every card wrapped with its buttons,
+    /// focusing the first. False when there are no cards to take it for.
     pub fn take_keyboard(self: &Rc<Self>) -> bool {
         if self.all.borrow().is_empty() {
             return false;
@@ -253,19 +270,24 @@ impl Panel {
         self.keyboard.set(true);
         self.cancel_grace();
         self.window.set_keyboard_mode(KeyboardMode::Exclusive);
+        self.render();
         self.slide_to(EXPANDED_X);
         if let Some(first) = self.column.first_child() {
-            first.grab_focus();
+            focus_card(&first, None);
         }
         true
     }
 
+    /// Give the keyboard back, folding every card to its one line again as
+    /// the panel tucks away.
     fn release_keyboard(self: &Rc<Self>) {
         if !self.keyboard.replace(false) {
             return;
         }
         self.window.set_keyboard_mode(KeyboardMode::None);
-        self.tuck();
+        self.expanded.set(false);
+        self.render();
+        self.slide_to(TUCKED_X);
     }
 
     /// Slide back, folding an expanded list up again.
@@ -285,7 +307,7 @@ impl Panel {
             child = child.and_then(|c| c.next_sibling());
         }
         if let Some(c) = child {
-            c.grab_focus();
+            focus_card(&c, None);
         }
     }
 
@@ -312,13 +334,17 @@ impl Panel {
         }
 
         // A refresh while the keyboard is on the panel keeps focus on the same
-        // task: each card is named after its task's uuid.
-        let focused = gtk4::prelude::GtkWindowExt::focus(&self.window).map(|w| w.widget_name());
+        // task, and on the same button of it: each card is named after its
+        // task's uuid, and each button after its action.
+        let focused = GtkWindowExt::focus(&self.window)
+            .and_then(|w| Some((self.card_of(&w)?.widget_name(), w.widget_name())));
+        // The buttons go with the widgets they were armed on.
+        self.armed.replace(None);
         while let Some(child) = self.column.first_child() {
             self.column.remove(&child);
         }
         for card in &cards {
-            self.column.append(&self.card_button(card));
+            self.column.append(&self.card_widget(card));
         }
         // Measured only once they are in the window: a label outside it has no
         // stylesheet, so it measures without its padding, and GTK keeps that
@@ -348,46 +374,125 @@ impl Panel {
         if self.keyboard.get() {
             let mut child = self.column.first_child();
             while let Some(c) = &child {
-                if Some(c.widget_name()) == focused {
+                if Some(c.widget_name()) == focused.as_ref().map(|(card, _)| card.clone()) {
                     break;
                 }
                 child = c.next_sibling();
             }
             if let Some(c) = child.or_else(|| self.column.first_child()) {
-                c.grab_focus();
+                focus_card(&c, focused.as_ref().map(|(_, slot)| slot.as_str()));
             }
         }
     }
 
-    /// One card: a button, so the keyboard can focus and press it. A task card
-    /// opens that task's actions; "+N more" shows the rest in place.
-    fn card_button(self: &Rc<Self>, card: &Card) -> gtk4::Button {
-        let button = gtk4::Button::builder().child(&card_label(card)).build();
-        button.add_css_class("task-card");
+    /// One card: a box named after its task's uuid, so render() can put focus
+    /// back on it, holding the body, a button so the keyboard can focus and
+    /// press it, and, while the panel has the keyboard, its action row along
+    /// the bottom. The body opens the task's whole menu, or shows the rest in
+    /// place of "+N more".
+    fn card_widget(self: &Rc<Self>, card: &Card) -> gtk4::Box {
+        let keyboard = self.keyboard.get();
+        let widget = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        widget.add_css_class("task-card");
         match card.status {
-            Status::Active => button.add_css_class("active"),
-            Status::Blocked => button.add_css_class("blocked"),
-            Status::Planned => button.add_css_class("planned"),
-            Status::More => button.add_css_class("more"),
+            Status::Active => widget.add_css_class("active"),
+            Status::Blocked => widget.add_css_class("blocked"),
+            Status::Planned => widget.add_css_class("planned"),
+            Status::More => widget.add_css_class("more"),
             Status::Pending => {}
         }
-        button.set_size_request(CARD_WIDTH_PX, -1);
+        widget.set_size_request(CARD_WIDTH_PX, -1);
+        // Clips the action row to the card's rounded bottom corners.
+        widget.set_overflow(gtk4::Overflow::Hidden);
+        widget.set_widget_name(card.uuid.as_deref().unwrap_or("more"));
+
+        let body = gtk4::Button::builder().child(&card_label(card, keyboard)).build();
+        body.add_css_class("card-body");
+        body.set_widget_name("body");
         // A mouse click opens the menu without leaving the card darkened.
-        button.set_focus_on_click(false);
-        button.set_widget_name(card.uuid.as_deref().unwrap_or("more"));
-        let weak = Rc::downgrade(self);
-        let uuid = card.uuid.clone();
-        button.connect_clicked(move |_| {
-            let Some(p) = weak.upgrade() else { return };
-            match &uuid {
-                Some(uuid) => {
-                    p.release_keyboard();
-                    open_menu(&p.output, &["task".into(), "menu".into(), uuid.clone()]);
+        body.set_focus_on_click(false);
+        {
+            let weak = Rc::downgrade(self);
+            let uuid = card.uuid.clone();
+            body.connect_clicked(move |_| {
+                let Some(p) = weak.upgrade() else { return };
+                match &uuid {
+                    Some(uuid) => {
+                        p.release_keyboard();
+                        open_menu(&p.output, &["task".into(), "menu".into(), uuid.clone()]);
+                    }
+                    None => p.expand(),
                 }
-                None => p.expand(),
+            });
+        }
+        widget.append(&body);
+
+        let Some(uuid) = card.uuid.as_ref().filter(|_| keyboard) else {
+            return widget;
+        };
+        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        row.add_css_class("card-actions");
+        row.set_homogeneous(true);
+        for action in Action::for_status(card.status) {
+            let button = gtk4::Button::with_label(action.label());
+            button.add_css_class(action.name());
+            button.set_widget_name(action.name());
+            let weak = Rc::downgrade(self);
+            let uuid = uuid.clone();
+            button.connect_clicked(move |b| {
+                if let Some(p) = weak.upgrade() {
+                    p.press(action, &uuid, b);
+                }
+            });
+            row.append(&button);
+        }
+        widget.append(&row);
+        widget
+    }
+
+    /// Press one of a card's buttons. Remove only arms itself the first time,
+    /// as the menu's delete asks "delete?" first; the second press runs it.
+    /// Everything that runs gives the keyboard back first, so the box or
+    /// terminal it opens can take it.
+    fn press(self: &Rc<Self>, action: Action, uuid: &str, button: &gtk4::Button) {
+        if action == Action::Remove && self.armed.borrow().as_ref() != Some(button) {
+            // Focus first: the move disarms whatever was armed before, and
+            // this one is armed only after it.
+            button.grab_focus();
+            button.set_label(Action::CONFIRM_REMOVE);
+            button.add_css_class("confirm");
+            *self.armed.borrow_mut() = Some(button.clone());
+            return;
+        }
+        self.release_keyboard();
+        open_menu(&self.output, &action.args(uuid));
+    }
+
+    /// Moving the focus away from an armed Remove puts it back to Remove, so a
+    /// later press starts over at the first press.
+    fn disarm_unless_focused(&self) {
+        let focus = GtkWindowExt::focus(&self.window);
+        let Some(button) = self.armed.take() else { return };
+        if focus.as_ref() == Some(button.upcast_ref()) {
+            *self.armed.borrow_mut() = Some(button);
+            return;
+        }
+        button.set_label(Action::Remove.label());
+        button.remove_css_class("confirm");
+    }
+
+    /// The card a widget is in: the one of the column's children it sits
+    /// inside.
+    fn card_of(&self, widget: &gtk4::Widget) -> Option<gtk4::Widget> {
+        let column: &gtk4::Widget = self.column.upcast_ref();
+        let mut w = widget.clone();
+        loop {
+            let parent = w.parent()?;
+            if &parent == column {
+                return Some(w);
             }
-        });
-        button
+            w = parent;
+        }
     }
 
     pub fn close(&self) {
@@ -463,7 +568,9 @@ impl Panel {
     }
 }
 
-fn card_label(card: &Card) -> gtk4::Label {
+/// The card's icon and description: one line cut off with "…" for the peek
+/// and the hover, or all of it, wrapped, while the panel has the keyboard.
+fn card_label(card: &Card, wrap: bool) -> gtk4::Label {
     let text = glib::markup_escape_text(&card.text);
     let markup = match card.icon() {
         "" => text.to_string(),
@@ -472,13 +579,47 @@ fn card_label(card: &Card) -> gtk4::Label {
     let label = gtk4::Label::new(None);
     label.set_markup(&markup);
     label.set_xalign(0.0);
-    label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    label.set_single_line_mode(true);
+    if wrap {
+        label.set_wrap(true);
+        // WordChar: a long path or URL with no spaces still breaks.
+        label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+    } else {
+        label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        label.set_single_line_mode(true);
+    }
     label
 }
 
-/// Run a `niritasks` command on this monitor: a task's action menu, or the
-/// fuzzel list.
+/// What the keyboard can stop on in a card, left to right: its body, then its
+/// action buttons.
+fn slots(card: &gtk4::Widget) -> Vec<gtk4::Widget> {
+    let mut slots = Vec::new();
+    let Some(body) = card.first_child() else { return slots };
+    if let Some(row) = body.next_sibling() {
+        let mut child = row.first_child();
+        while let Some(button) = child {
+            child = button.next_sibling();
+            slots.push(button);
+        }
+    }
+    slots.insert(0, body);
+    slots
+}
+
+/// Focus the slot in `card` with this widget name, or its body when it has
+/// none: a re-render that dropped the button, such as Stop on a task that
+/// just stopped.
+fn focus_card(card: &gtk4::Widget, slot: Option<&str>) {
+    let slots = slots(card);
+    let target = slot
+        .and_then(|name| slots.iter().find(|s| s.widget_name() == name))
+        .or_else(|| slots.first());
+    if let Some(target) = target {
+        target.grab_focus();
+    }
+}
+/// Run a `niritasks` command on this monitor: a task's action menu, the
+/// fuzzel list, or one of a card's buttons.
 ///
 /// This monitor is focused first. The menu then files under the workspace the
 /// panel shows, rather than whichever monitor had focus, and fuzzel opens on
