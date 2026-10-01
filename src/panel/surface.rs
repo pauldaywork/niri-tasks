@@ -32,7 +32,8 @@
 //! Edit, Stop and Remove by emitting the button's `clicked`, so a key, Enter
 //! on the focused button, and a click all take one path. The controller runs
 //! in the capture phase, ahead of GTK's own focus chain, which would otherwise
-//! walk every button on the panel. The body opens the whole menu. Escape, or
+//! walk every button on the panel. The focused card is darkened. The body
+//! opens the whole menu. Escape, or
 //! anything that runs, hands the keyboard back and folds the cards to one line
 //! again.
 //!
@@ -505,9 +506,12 @@ impl Panel {
         };
         let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         row.add_css_class("card-actions");
-        row.set_homogeneous(true);
+        // Left-aligned and only as wide as its icons, not spread across the card.
+        row.set_halign(gtk4::Align::Start);
         for action in Action::for_status(card.status) {
-            let button = gtk4::Button::with_label(action.label());
+            let button = gtk4::Button::with_label(action.icon());
+            // The icon's name in words, under the pointer and for a screen reader.
+            button.set_tooltip_text(Some(action.label()));
             button.add_css_class(action.name());
             button.set_widget_name(action.name());
             let weak = Rc::downgrade(self);
@@ -519,6 +523,10 @@ impl Panel {
             });
             row.append(&button);
         }
+        // A line between the description and the buttons.
+        let separator = gtk4::Separator::new(gtk4::Orientation::Horizontal);
+        separator.add_css_class("card-separator");
+        widget.append(&separator);
         widget.append(&row);
         widget
     }
@@ -532,7 +540,7 @@ impl Panel {
             // Focus first: the move disarms whatever was armed before, and
             // this one is armed only after it.
             button.grab_focus();
-            button.set_label(Action::CONFIRM_REMOVE);
+            button.set_label(&format!("{}  {}", Action::Remove.icon(), Action::CONFIRM_REMOVE));
             button.add_css_class("confirm");
             *self.armed.borrow_mut() = Some(button.clone());
             return;
@@ -604,7 +612,7 @@ impl Panel {
             *self.armed.borrow_mut() = Some(button);
             return;
         }
-        button.set_label(Action::Remove.label());
+        button.set_label(Action::Remove.icon());
         button.remove_css_class("confirm");
     }
 
@@ -722,24 +730,30 @@ impl Panel {
 
 /// The card's icon and description: one line cut off with "…" for the peek
 /// and the hover, or all of it, wrapped, while the panel has the keyboard.
-fn card_label(card: &Card, wrap: bool) -> gtk4::Label {
-    let text = glib::markup_escape_text(&card.text);
-    let markup = match card.icon() {
-        "" => text.to_string(),
-        icon => format!("{icon}  {text}"),
-    };
-    let label = gtk4::Label::new(None);
-    label.set_markup(&markup);
-    label.set_xalign(0.0);
-    if wrap {
-        label.set_wrap(true);
-        // WordChar: a long path or URL with no spaces still breaks.
-        label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-    } else {
-        label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-        label.set_single_line_mode(true);
+///
+/// The icon is a label of its own beside the text, so wrapped lines start
+/// under the first line's text rather than back under the icon.
+fn card_label(card: &Card, wrap: bool) -> gtk4::Box {
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    if let Some(icon) = Some(card.icon()).filter(|i| !i.is_empty()) {
+        // The two spaces are the gap the one-label card had after its icon.
+        let icon = gtk4::Label::new(Some(&format!("{icon}  ")));
+        icon.set_valign(gtk4::Align::Start);
+        row.append(&icon);
     }
-    label
+    let text = gtk4::Label::new(Some(&card.text));
+    text.set_xalign(0.0);
+    text.set_hexpand(true);
+    if wrap {
+        text.set_wrap(true);
+        // WordChar: a long path or URL with no spaces still breaks.
+        text.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+    } else {
+        text.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        text.set_single_line_mode(true);
+    }
+    row.append(&text);
+    row
 }
 
 /// What the keyboard can stop on in a card, left to right: its body, then its
@@ -747,7 +761,9 @@ fn card_label(card: &Card, wrap: bool) -> gtk4::Label {
 fn slots(card: &gtk4::Widget) -> Vec<gtk4::Widget> {
     let mut slots = Vec::new();
     let Some(body) = card.first_child() else { return slots };
-    if let Some(row) = body.next_sibling() {
+    // The row is the card's last child, after the separator; a card without
+    // one ends with its body.
+    if let Some(row) = card.last_child().filter(|row| row.has_css_class("card-actions")) {
         let mut child = row.first_child();
         while let Some(button) = child {
             child = button.next_sibling();

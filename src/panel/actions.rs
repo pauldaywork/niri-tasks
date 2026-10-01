@@ -30,20 +30,19 @@ impl Action {
     /// menu's delete asks "delete?" before it deletes.
     pub const CONFIRM_REMOVE: &'static str = "Confirm remove";
 
-    /// The buttons a card gets, left to right. Stop only on an active task,
-    /// since there is nothing to stop on the rest; none on "+N more", which
-    /// stands for no one task.
+    /// The buttons a card gets, left to right. An active task is already
+    /// being worked, so it gets Stop and no Start working; the rest have
+    /// nothing to stop. None on "+N more", which stands for no one task.
     pub fn for_status(status: Status) -> Vec<Action> {
-        match status {
-            Status::More => Vec::new(),
-            Status::Active => Self::ALL.to_vec(),
-            Status::Pending | Status::Blocked | Status::Planned => {
-                Self::ALL.into_iter().filter(|a| *a != Stop).collect()
-            }
-        }
+        let skip = match status {
+            Status::More => return Vec::new(),
+            Status::Active => Start,
+            Status::Pending | Status::Blocked | Status::Planned => Stop,
+        };
+        Self::ALL.into_iter().filter(|a| *a != skip).collect()
     }
 
-    /// The button's text: the menu's own word for it.
+    /// The button's name in words, the menu's own: its icon's tooltip.
     pub fn label(self) -> &'static str {
         match self {
             Start => "Start working",
@@ -51,6 +50,19 @@ impl Action {
             Edit => "Edit",
             Stop => "Stop",
             Remove => "Remove",
+        }
+    }
+
+    /// What the button shows: a glyph, so the row stays narrow. Font Awesome's,
+    /// from the same Nerd Font as the cards' lock: play, magic wand, pencil,
+    /// stop and trash can.
+    pub fn icon(self) -> &'static str {
+        match self {
+            Start => "\u{f04b}",
+            Refine => "\u{f0d0}",
+            Edit => "\u{f040}",
+            Stop => "\u{f04d}",
+            Remove => "\u{f1f8}",
         }
     }
 
@@ -86,13 +98,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_active_task_gets_every_button_in_order() {
+    fn an_active_task_gets_stop_in_place_of_start() {
         let names: Vec<&str> = Action::for_status(Status::Active).iter().map(|a| a.name()).collect();
-        assert_eq!(names, vec!["start", "refine", "edit", "stop", "remove"]);
+        assert_eq!(names, vec!["refine", "edit", "stop", "remove"]);
     }
 
     #[test]
-    fn stop_is_only_on_an_active_task() {
+    fn a_task_not_yet_active_gets_start_and_no_stop() {
         for status in [Status::Pending, Status::Blocked, Status::Planned] {
             let got = Action::for_status(status);
             assert_eq!(got, vec![Action::Start, Action::Refine, Action::Edit, Action::Remove], "{status:?}");
@@ -109,6 +121,16 @@ mod tests {
         let labels: Vec<&str> = Action::ALL.iter().map(|a| a.label()).collect();
         assert_eq!(labels, vec!["Start working", "Refine", "Edit", "Stop", "Remove"]);
         assert_eq!(Action::CONFIRM_REMOVE, "Confirm remove");
+    }
+
+    /// Icons alone tell the buttons apart, so no two may share one.
+    #[test]
+    fn every_button_has_its_own_icon() {
+        let mut icons: Vec<&str> = Action::ALL.iter().map(|a| a.icon()).collect();
+        assert!(icons.iter().all(|i| !i.is_empty()));
+        icons.sort();
+        icons.dedup();
+        assert_eq!(icons.len(), Action::ALL.len());
     }
 
     #[test]

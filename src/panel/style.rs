@@ -83,6 +83,10 @@ pub const CARD_WIDTH_PX: i32 = 760;
 /// button. The panel's cards used to wear it too; they are darkened instead,
 /// with [`FOCUSED_BACKGROUND`].
 pub const FOCUS: &str = "1px solid #ffffff";
+/// The lines inside a keyboard card: one under the description, and one
+/// between each pair of buttons. A faint white, so they part things as a
+/// subtle line without competing with the buttons' colours.
+pub const SEPARATOR: &str = "rgba(255, 255, 255, 0.12)";
 /// The fill of the card the keyboard is on: the same black as [`BACKGROUND`],
 /// stronger, so the card stands out without a border drawn round it.
 pub const FOCUSED_BACKGROUND: &str = "rgba(0, 0, 0, 0.6)";
@@ -130,7 +134,15 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .card-body {{ border-radius: {RADIUS_PX}px; }}
 .task-panel .card-actions button {{ padding: {ACTION_PADDING}; }}
 .task-panel .card-actions button:first-child {{ border-bottom-left-radius: {RADIUS_PX}px; }}
-.task-panel .card-actions button:last-child {{ border-bottom-right-radius: {RADIUS_PX}px; }}
+.task-panel .card-separator {{
+    background-color: {SEPARATOR};
+    background-image: none;
+    min-height: 1px;
+    margin: 0;
+}}
+/* Only between buttons: a line along the card's own edge would part nothing.
+   After the hover and press reset, which clears borders, so it stays put. */
+.task-panel .card-actions button:not(:first-child) {{ border-left: 1px solid {SEPARATOR}; }}
 /* :focus-within, not :focus-visible: GTK clears focus-visible 3s after the
    last key press (VISIBLE_FOCUS_DURATION), and the darker fill would vanish
    mid-pick. Within, so the card stays darkened while one of its buttons is
@@ -205,12 +217,33 @@ mod tests {
         assert!(css.contains(".card-actions .start { color: #8cd283; }"), "Start is ACTIVE's green");
     }
 
-    /// The row shares the card's rounded bottom corners.
+    /// A faint line parts the description from the buttons.
+    #[test]
+    fn a_solid_line_parts_the_text_from_the_buttons() {
+        let css = css();
+        assert!(css.contains(".task-panel .card-separator {"));
+        assert!(css.contains("background-color: rgba(255, 255, 255, 0.12);"));
+        assert!(css.contains("min-height: 1px;"));
+    }
+
+    /// A line between each pair of buttons, and none before the first, which
+    /// would sit on the card's edge.
+    #[test]
+    fn a_line_parts_each_button_from_the_next() {
+        let css = css();
+        let rule = ".card-actions button:not(:first-child) { border-left: 1px solid rgba(255, 255, 255, 0.12); }";
+        let at = css.find(rule).expect("missing the line between buttons");
+        let reset = css.find(".card-actions button:active").expect("missing the press reset");
+        assert!(at > reset, "the press reset's `border: none` would win over the line");
+    }
+
+    /// The row sits in the card's bottom-left corner and shares its rounding
+    /// there. Its last button ends mid-card, so nothing rounds it off.
     #[test]
     fn the_action_row_rounds_off_with_the_card() {
         let css = css();
         assert!(css.contains(".card-actions button:first-child { border-bottom-left-radius: 8px; }"));
-        assert!(css.contains(".card-actions button:last-child { border-bottom-right-radius: 8px; }"));
+        assert!(!css.contains(".card-actions button:last-child"));
     }
 
     /// Hover and press must not override the button's own colour, padding or rounding,

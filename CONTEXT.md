@@ -52,8 +52,9 @@ _Avoid_: row (that is the picker's word), item, block
 
 **Action row**:
 The buttons along a task card's bottom edge while the task panel has the
-keyboard — Start working, Refine, Edit, Stop (an active task only) and
-Remove — each running what the same entry in the task's action menu runs.
+keyboard — Start working, Refine, Edit, Stop and Remove, an active task
+getting Stop in place of Start working — each running what the same entry in
+the task's action menu runs.
 _Avoid_: toolbar, button bar, quick actions
 
 **Peek**:

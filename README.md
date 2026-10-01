@@ -45,7 +45,7 @@ opens up to its whole description, wrapped, above a row of buttons:
 
 | Button | Key | Does |
 |---|---|---|
-| **Start working** (green) | `s` | The menu's Start working: the task's own worktree, herdr tab and Claude, or back to them |
+| **Start working** (green) | `s` | The menu's Start working: the task's own worktree, herdr tab and Claude — not on an active task, which is already being worked |
 | **Refine** (mauve) | `r` | Work it up into a plan with Claude |
 | **Edit** (yellow) | `e` | Open it in the task box |
 | **Stop** (peach) | `t` | Stop it — only on an active task |
@@ -264,12 +264,13 @@ about 0.4s after it leaves, the slide is smooth, and a click just left of the
 peek, or between two cards, lands on the window beneath, while a click on a
 card opens its actions on that monitor. And the keyboard, past what the script
 measures: `Mod+Alt+Ctrl+T` slides the panel out with every card wrapped and the
-first darkened, Stop only on active tasks; Up and Down move between cards, Left,
-Right and Tab along the buttons; `s` starts working exactly as the menu does,
-`r` refines, `e` opens the box, `t` stops; Delete arms Remove and only a second
-Delete deletes, while moving away disarms it; Enter on a card opens the menu,
-Enter on "+N more" shows the rest, and a list taller than the screen scrolls
-with the focus; Escape tucks it away to the one-line peek.
+first darkened, active tasks with Stop and no Start working; Up and Down move
+the darkening between cards, Left, Right and Tab along the buttons; `s` starts
+working exactly as the menu does, `r` refines, `e` opens the box, `t` stops;
+Delete arms Remove and only a second Delete deletes, while moving away disarms
+it; Enter on a card opens the menu, Enter on "+N more" shows the rest, and a
+list taller than the screen scrolls with the focus; Escape tucks it away to the
+one-line peek.
 
 Two things about `e2e-box.sh` in particular. It **types into whatever has
 focus**, so start it and leave the keyboard alone until it finishes; anything
