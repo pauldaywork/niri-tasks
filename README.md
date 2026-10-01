@@ -146,7 +146,9 @@ Tested against niri 26.04 and taskwarrior 2.6.2.
 
 ## Commands
 
-`niritasks` is usable directly, not just from keybinds:
+`niritasks` is usable directly, not just from keybinds. [`llms.txt`](llms.txt)
+is the same reference written for agents, with the rules they most often get
+wrong.
 
 ```
 niritasks tag                      # the focused workspace's tag
@@ -154,24 +156,40 @@ niritasks tag --session            # the tag of the workspace this terminal was 
                                    #   (its herdr session, else its ~/Projects folder)
 niritasks task active              # each active task's description, one per line, or nothing
 niritasks task list                # the picker
-niritasks task panel               # hand the task panel the keyboard (Mod+Alt+Ctrl+T)
 niritasks task list --dry-run      # the rows it would show, for scripting and testing
+niritasks task panel               # hand the task panel the keyboard (Mod+Alt+Ctrl+T)
 niritasks task menu <uuid>         # one task's actions, as a task card click opens them
 niritasks task status <uuid> <state>  # the menu's Update status: active|stopped|waiting|completed|deleted
                                    #   (stopped also brings back a waiting task)
-                                   #   (uuid or its first 8 chars; deleted needs --yes)
+niritasks task status <uuid> deleted --yes  # deleted needs --yes, the menu's confirmation
 niritasks task add <text>          # honours taskwarrior attributes: due:friday, priority:H
+niritasks task add                 #   with no text, the task box (Mod+Alt+T)
+niritasks task get-text <uuid>     # print its description
 niritasks task edit <uuid> <text>  # replaces the description; attributes stay literal
-niritasks task note <uuid> <text>  # attaches an annotation
+niritasks task edit <uuid>         #   with no text, the task box on its description and notes
+niritasks task get-notes <uuid>    # print its notes, one per line: date, two spaces, text
+niritasks task note <uuid> <text>  # attaches an annotation, literal too
+niritasks task note <uuid>         #   with no text, the task box with the cursor in a new note
 niritasks task refine <uuid>       # work it up into a plan with Claude, in the workspace's herdr session
 niritasks task refine <uuid> --grill  #   the same, interviewing you first
 niritasks task start <uuid>        # its own worktree (task/<slug>-<uuid8>), opened in the herdr session,
                                    #   with Claude planning it; picked again, back to both
+niritasks task start <uuid> --here --workspace <name>
+                                   # internal: the setup step, run inside the tab `task start` opens
 niritasks task session <uuid>      # back to the Claude working on it (work-/task-<uuid8>) in the herdr session
-niritasks workspace new|rename|default
-niritasks project open
+niritasks workspace new            # create a workspace and name it (Mod+Alt+W)
+niritasks workspace rename         # rename the focused workspace, and with it its tag (Mod+Alt+Ctrl+W)
+niritasks workspace default        # name workspace 1 "general" if it is unnamed (niri runs it at startup)
+niritasks project open             # pick a ~/Projects folder onto its own named workspace (Mod+Alt+P)
 niritasks terminal                 # a terminal in the focused workspace's ~/Projects folder (Mod+Return)
+niritasks daemon                   # internal: the task panels and task-box server, run by the
+                                   #   niri-tasks systemd user unit
 ```
+
+Every `<uuid>` is the full uuid or its first 8 characters, never a task's
+number: numbers are renumbered as tasks complete, so a stale one points at
+another task. `niritasks <command> --help` says the same as each line here, at
+more length.
 
 ### Two rules that look alike and are not
 

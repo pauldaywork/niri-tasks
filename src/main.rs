@@ -852,4 +852,67 @@ mod tests {
         }
         assert!(blank.is_empty(), "no --help text for: {blank:?}");
     }
+
+    /// A file at the repo root, read when the test runs. A missing file
+    /// is one failing test, where include_str! would stop every test from
+    /// compiling.
+    fn repo_file(name: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(name);
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {name}: {e}"))
+    }
+
+    /// Whether `line` runs `niritasks <path>` as a whole command, so that
+    /// `niritasks task get` would not count for `task get-text`.
+    fn mentions(line: &str, path: &str) -> bool {
+        let needle = format!("niritasks {path}");
+        line.match_indices(&needle).any(|(i, _)| {
+            line[i + needle.len()..]
+                .chars()
+                .next()
+                .map_or(true, |c| !(c.is_alphanumeric() || c == '-'))
+        })
+    }
+
+    /// Every subcommand, and every flag, that no line in `lines` shows being
+    /// run. A subcommand counts once some line runs it. A flag counts once
+    /// some line runs its subcommand with that flag, so it is documented in
+    /// use and not only named in passing.
+    fn undocumented(lines: &[&str]) -> Vec<String> {
+        let mut missing = Vec::new();
+        for (path, cmd) in leaf_commands() {
+            let runs: Vec<&str> = lines.iter().copied().filter(|l| mentions(l, &path)).collect();
+            if runs.is_empty() {
+                missing.push(path);
+                continue;
+            }
+            for long in own_args(&cmd).filter_map(|a| a.get_long()) {
+                let flag = format!("--{long}");
+                if !runs.iter().any(|l| l.contains(&flag)) {
+                    missing.push(format!("{path} {flag}"));
+                }
+            }
+        }
+        missing
+    }
+
+    /// The README's Commands block is where a person looks to find out what
+    /// the CLI can do. It had already fallen behind the CLI once (get-text,
+    /// get-notes and daemon were all missing), so it is checked against clap.
+    #[test]
+    fn readme_commands_block_runs_every_subcommand_and_flag() {
+        let readme = repo_file("README.md");
+        let after = readme
+            .split_once("\n## Commands\n")
+            .expect("README has a ## Commands section")
+            .1;
+        let block = after
+            .split_once("```\n")
+            .expect("a fenced block under ## Commands")
+            .1
+            .split_once("```")
+            .expect("the fenced block is closed")
+            .0;
+        let missing = undocumented(&block.lines().collect::<Vec<_>>());
+        assert!(missing.is_empty(), "README's Commands block never runs: {missing:?}");
+    }
 }
