@@ -211,7 +211,7 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
             }
         }
 
-        Request::Add => {
+        Request::Add { refine } => {
             let tag = match crate::require_workspace_tag() {
                 Ok(t) => t,
                 Err(e) => {
@@ -222,16 +222,22 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
             let tag_for_submit = tag.clone();
             taskbox::open_in(
                 app,
-                taskbox::BoxConfig::add(&tag, false),
+                taskbox::BoxConfig::add(&tag, refine),
                 move |sub: taskbox::Submission| {
-                    if let Err(e) = task::add_with_notes(
+                    match task::add_with_notes(
                         &tag_for_submit,
                         &text::add_args(&sub.description),
                         &sub.note_texts(),
                     ) {
-                        notify::tasks(&e.to_string());
-                    } else {
-                        notify::tasks(&format!("Added to +{tag_for_submit}: {}", sub.description));
+                        Err(e) => notify::tasks(&e.to_string()),
+                        Ok(uuid) => {
+                            notify::tasks(&format!("Added to +{tag_for_submit}: {}", sub.description));
+                            // Spawned, not run: herdr must not hold up the
+                            // panels' main loop.
+                            if let (true, Some(uuid)) = (sub.refine, uuid) {
+                                crate::refine::spawn_quick(&uuid);
+                            }
+                        }
                     }
                 },
             );

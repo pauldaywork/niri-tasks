@@ -17,6 +17,7 @@
 //!
 //! ```text
 //! add
+//! add refine
 //! edit <uuid>
 //! note <uuid>
 //! panel
@@ -30,7 +31,8 @@ use std::path::PathBuf;
 /// What the CLI asked the daemon to open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
-    Add,
+    /// The add box; `refine` makes Add & refine its default button.
+    Add { refine: bool },
     Edit(String),
     Note(String),
     /// Slide out the focused monitor's task panel and give it the keyboard.
@@ -40,7 +42,8 @@ pub enum Request {
 impl Request {
     pub fn encode(&self) -> String {
         match self {
-            Request::Add => "add".into(),
+            Request::Add { refine: false } => "add".into(),
+            Request::Add { refine: true } => "add refine".into(),
             Request::Edit(uuid) => format!("edit {uuid}"),
             Request::Note(uuid) => format!("note {uuid}"),
             Request::Panel => "panel".into(),
@@ -50,7 +53,7 @@ impl Request {
     pub fn decode(line: &str) -> Option<Self> {
         let mut parts = line.trim().splitn(2, ' ');
         match (parts.next()?, parts.next()) {
-            ("add", _) => Some(Request::Add),
+            ("add", rest) => Some(Request::Add { refine: rest == Some("refine") }),
             ("panel", _) => Some(Request::Panel),
             ("edit", Some(uuid)) if !uuid.is_empty() => Some(Request::Edit(uuid.to_string())),
             ("note", Some(uuid)) if !uuid.is_empty() => Some(Request::Note(uuid.to_string())),
@@ -121,13 +124,25 @@ mod tests {
     #[test]
     fn round_trips_every_request() {
         for req in [
-            Request::Add,
+            Request::Add { refine: false },
+            Request::Add { refine: true },
             Request::Edit("abc-123".into()),
             Request::Note("def-456".into()),
             Request::Panel,
         ] {
             assert_eq!(Request::decode(&req.encode()), Some(req));
         }
+    }
+
+    /// `add` alone stays a plain add, so a box asked for by an older CLI
+    /// opens as it always did.
+    #[test]
+    fn add_carries_whether_to_refine() {
+        assert_eq!(Request::Add { refine: false }.encode(), "add");
+        assert_eq!(Request::Add { refine: true }.encode(), "add refine");
+        assert_eq!(Request::decode("add\n"), Some(Request::Add { refine: false }));
+        assert_eq!(Request::decode("add refine\n"), Some(Request::Add { refine: true }));
+        assert_eq!(Request::decode("add sideways"), Some(Request::Add { refine: false }));
     }
 
     #[test]
@@ -143,7 +158,7 @@ mod tests {
 
     #[test]
     fn tolerates_the_trailing_newline_writeln_adds() {
-        assert_eq!(Request::decode("add\n"), Some(Request::Add));
+        assert_eq!(Request::decode("add\n"), Some(Request::Add { refine: false }));
         assert_eq!(
             Request::decode("edit abc\n"),
             Some(Request::Edit("abc".into()))

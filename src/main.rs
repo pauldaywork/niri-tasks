@@ -108,6 +108,10 @@ enum TaskCommand {
     /// `niritasks task add ship it due:friday` sets a due date. With no text
     /// it opens the task box, a window, instead.
     Add {
+        /// Then refine it straight away with Claude, as the box's Add & refine
+        /// does; with no text, the box opens with that as its default (Mod+Alt+Shift+T)
+        #[arg(long)]
+        refine: bool,
         /// The description, taskwarrior attributes and all; leave it out for the task box
         text: Vec<String>,
     },
@@ -143,6 +147,7 @@ enum TaskCommand {
         /// The note, kept literal; leave it out for the task box
         text: Vec<String>,
     },
+
     /// Work a task up into a plan with Claude, in a new tab of the workspace's herdr session
     Refine {
         /// The task's uuid, or its first 8 characters
@@ -281,30 +286,36 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
 
         // With no text, open the box. With text, add straight away — which is
         // what makes `niritasks task add ship it due:friday` work from a shell.
-        TaskCommand::Add { text: words } => {
+        // The binding is `and_refine` because `refine` is the module, imported
+        // at the top of this file.
+        TaskCommand::Add { text: words, refine: and_refine } => {
             let tag = require_workspace_tag()?;
             // The box can return notes with the description; the shell form has
-            // nowhere to type them, so it never does.
-            let (description, notes) = if words.is_empty() {
-                if delegate_to_daemon(ipc::Request::Add) {
+            // nowhere to type them, so it never does. Which button was pressed
+            // decides whether to refine, not how the box was opened.
+            let (description, notes, and_refine) = if words.is_empty() {
+                if delegate_to_daemon(ipc::Request::Add { refine: and_refine }) {
                     return Ok(());
                 }
-                match taskbox::show(taskbox::BoxConfig::add(&tag, false)) {
+                match taskbox::show(taskbox::BoxConfig::add(&tag, and_refine)) {
                     Some(s) => {
                         let notes = s.note_texts();
-                        (s.description, notes)
+                        (s.description, notes, s.refine)
                     }
                     None => return Ok(()),
                 }
             } else {
-                (text::collapse_whitespace(&words.join(" ")), Vec::new())
+                (text::collapse_whitespace(&words.join(" ")), Vec::new(), and_refine)
             };
 
             if description.is_empty() {
                 return Ok(());
             }
-            task::add_with_notes(&tag, &text::add_args(&description), &notes)?;
+            let uuid = task::add_with_notes(&tag, &text::add_args(&description), &notes)?;
             notify::tasks(&format!("Added to +{tag}: {description}"));
+            if let (true, Some(uuid)) = (and_refine, uuid) {
+                refine::spawn_quick(&uuid);
+            }
         }
 
         TaskCommand::GetText { uuid } => {
@@ -429,7 +440,7 @@ fn task_list(dry_run: bool) -> Result<()> {
     // Hand straight over to the add path rather than reimplementing it, so
     // there is one definition of what "adding a task" means.
     if selected == niri_tasks::rows::ADD_SENTINEL {
-        return task_command(TaskCommand::Add { text: vec![] });
+        return task_command(TaskCommand::Add { text: vec![], refine: false });
     }
 
     let description = tasks

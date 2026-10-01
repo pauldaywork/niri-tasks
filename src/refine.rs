@@ -363,9 +363,46 @@ fn wait_for_session(s: &str) -> Result<Value> {
     }
 }
 
+/// The command the panel's Refine button runs on `uuid`, with `exe` as the
+/// `niritasks` binary — built from the button's own arguments, so the two
+/// cannot drift apart.
+pub fn quick_command(exe: &str, uuid: &str) -> Vec<String> {
+    let mut command = vec![exe.to_string()];
+    command.extend(crate::panel::actions::Action::Refine.args(uuid));
+    command
+}
+
+/// Hand a task just added to the refine-task skill — Add & refine.
+///
+/// In a `niritasks task refine` process of its own, spawned by niri as the
+/// panel's Refine button is: the daemon's GTK loop must never wait on herdr,
+/// and a child of `niritasks task add` would inherit the `flock` the
+/// Mod+Alt+T binds hold and keep it for as long as Claude's terminal stayed
+/// open. That process reports its own failures; this only reports failing to
+/// start it. Either way the task is already added.
+pub fn spawn_quick(uuid: &str) {
+    let result = std::env::current_exe()
+        .map_err(anyhow::Error::from)
+        .and_then(|exe| niri::spawn(quick_command(&exe.to_string_lossy(), uuid)));
+    if let Err(e) = result {
+        notify::tasks(&format!("Added, but could not start refining it: {e}"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Add & refine runs exactly what the panel's Refine button runs, so the
+    /// two cannot drift apart.
+    #[test]
+    fn quick_command_is_the_refine_buttons_command() {
+        let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
+        assert_eq!(
+            quick_command("/usr/bin/niritasks", u),
+            ["/usr/bin/niritasks", "task", "refine", u]
+        );
+    }
 
     /// The fence the refine session runs in: every command sandboxed with no
     /// way out, the project read-only, the task database writable, and the
