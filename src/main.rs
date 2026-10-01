@@ -289,7 +289,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
                 if delegate_to_daemon(ipc::Request::Add) {
                     return Ok(());
                 }
-                match taskbox::show(taskbox::BoxConfig::add(&tag)) {
+                match taskbox::show(taskbox::BoxConfig::add(&tag, false)) {
                     Some(s) => {
                         let notes = s.note_texts();
                         (s.description, notes)

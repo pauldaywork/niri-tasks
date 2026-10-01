@@ -222,7 +222,7 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
             let tag_for_submit = tag.clone();
             taskbox::open_in(
                 app,
-                taskbox::BoxConfig::add(&tag),
+                taskbox::BoxConfig::add(&tag, false),
                 move |sub: taskbox::Submission| {
                     if let Err(e) = task::add_with_notes(
                         &tag_for_submit,

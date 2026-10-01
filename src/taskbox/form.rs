@@ -23,6 +23,10 @@ pub struct Submission {
     pub description: String,
     /// In the order the rows are on screen, empty rows left out.
     pub notes: Vec<NoteEdit>,
+    /// Add & refine was pressed: once added, the task goes straight to
+    /// `niritasks task refine`. Set by the button, not by what is on screen,
+    /// so [`submission`] always leaves it false.
+    pub refine: bool,
 }
 
 impl Submission {
@@ -61,7 +65,7 @@ pub fn submission(loaded_description: &str, description: &str, rows: &[Row]) -> 
             (!text.trim().is_empty()).then(|| NoteEdit { entry: r.entry.clone(), text })
         })
         .collect();
-    Some(Submission { description, notes })
+    Some(Submission { description, notes, refine: false })
 }
 
 #[cfg(test)]
@@ -127,5 +131,6 @@ mod tests {
     fn note_texts_are_the_notes_in_order() {
         let s = submission("", "d", &[row(None, "", "a"), row(None, "", "b")]).unwrap();
         assert_eq!(s.note_texts(), vec!["a".to_string(), "b".to_string()]);
+        assert!(!s.refine, "what is on screen says nothing about which button was pressed");
     }
 }

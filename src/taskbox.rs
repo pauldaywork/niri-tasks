@@ -61,6 +61,19 @@ impl Mode {
     }
 }
 
+/// The line of keys beside the buttons. It names what Ctrl+Enter presses in
+/// this box, and offers Ctrl+Shift+Enter only where that is a different
+/// button — in a box opened to refine, both refine.
+fn hint(mode: Mode, refine: bool) -> &'static str {
+    match (mode, refine) {
+        (Mode::Add, false) => {
+            "Enter: next note · Ctrl+Enter: add · Ctrl+Shift+Enter: add & refine · Esc: discard"
+        }
+        (Mode::Add, true) => "Enter: next note · Ctrl+Enter: add & refine · Esc: discard",
+        (Mode::Edit | Mode::Note, _) => "Enter: next note · Ctrl+Enter: save · Esc: discard",
+    }
+}
+
 /// Fixed, because a resizable window here would be a decision to make every
 /// time rather than a box that is always the same shape. Big enough that a
 /// planned task's ten long notes read as a list rather than a keyhole.
@@ -84,16 +97,22 @@ pub struct BoxConfig {
     pub description: String,
     /// The task's notes, shown as stored and in stored order.
     pub notes: Vec<Annotation>,
+    /// Ctrl+Enter presses Add & refine rather than Add — the box
+    /// Mod+Alt+Shift+T opens. Only add mode has that button, so it is false
+    /// for an existing task.
+    pub refine: bool,
 }
 
 impl BoxConfig {
-    /// An empty box for a new task on `tag`.
-    pub fn add(tag: &str) -> Self {
+    /// An empty box for a new task on `tag`, with Add & refine as the default
+    /// button when `refine` is set.
+    pub fn add(tag: &str, refine: bool) -> Self {
         Self {
             mode: Mode::Add,
             subtitle: format!("+{tag}"),
             description: String::new(),
             notes: Vec::new(),
+            refine,
         }
     }
 
@@ -106,6 +125,7 @@ impl BoxConfig {
             subtitle: String::new(),
             description: task.description,
             notes: task.annotations,
+            refine: false,
         }
     }
 }
@@ -346,15 +366,23 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
 
     // ─── footer ───────────────────────────────────────────────────────────
     let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    let hint = gtk4::Label::new(Some("Enter: next note · Ctrl+Enter: save · Esc: discard"));
-    hint.add_css_class("dim");
-    hint.set_xalign(0.0);
-    hint.set_hexpand(true);
+    let hint_label = gtk4::Label::new(Some(hint(cfg.mode, cfg.refine)));
+    hint_label.add_css_class("dim");
+    hint_label.set_xalign(0.0);
+    hint_label.set_hexpand(true);
+    // The add hint is longer than the room beside three buttons; wrapping
+    // keeps it whole rather than pushing a fixed-size window wider.
+    hint_label.set_wrap(true);
     let cancel = gtk4::Button::with_label("Cancel");
     let submit = gtk4::Button::with_label(cfg.mode.submit_label());
-    footer.append(&hint);
+    footer.append(&hint_label);
     footer.append(&cancel);
     footer.append(&submit);
+    // Add mode only: refining from Edit or Note is the menu's job.
+    let refine = (cfg.mode == Mode::Add).then(|| gtk4::Button::with_label("Add & refine"));
+    if let Some(refine) = &refine {
+        footer.append(refine);
+    }
     root.append(&footer);
 
     window.set_child(Some(&root));
@@ -369,7 +397,7 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
         let loaded_description = cfg.description.clone();
         let window = window.downgrade();
         let notes = notes.clone();
-        move || {
+        move |refine: bool| {
             let submission = form::submission(
                 &loaded_description,
                 &buffer_text(&notes.description),
@@ -378,10 +406,11 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
             // An empty description saves nothing, and closing anyway would
             // throw the note edits away without a word: stay open, with the
             // cursor where the fix is. Esc and Cancel are what discard.
-            let Some(submission) = submission else {
+            let Some(mut submission) = submission else {
                 focus_end(&notes.description);
                 return;
             };
+            submission.refine = refine;
             if let Some(window) = window.upgrade() {
                 window.close();
             }
@@ -391,7 +420,11 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
 
     {
         let do_submit = do_submit.clone();
-        submit.connect_clicked(move |_| do_submit());
+        submit.connect_clicked(move |_| do_submit(false));
+    }
+    if let Some(refine) = &refine {
+        let do_submit = do_submit.clone();
+        refine.connect_clicked(move |_| do_submit(true));
     }
     {
         let window = window.downgrade();
@@ -416,6 +449,11 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
     {
         let window = window.downgrade();
         let notes = notes.clone();
+        // Which button each shortcut presses. Ctrl+Enter presses the default;
+        // Ctrl+Shift+Enter presses Add & refine where there is one, and saves
+        // where there is not, as it always did.
+        let default_refines = cfg.refine;
+        let can_refine = cfg.mode == Mode::Add;
         keys.connect_key_pressed(move |_, key, _, state| {
             let Some(window) = window.upgrade() else {
                 return gtk4::glib::Propagation::Proceed;
@@ -426,7 +464,8 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
             let place = GtkWindowExt::focus(&window).and_then(|w| notes.place_of(&w));
             match keys::key_action(key, ctrl, shift, place) {
                 KeyAction::Cancel => window.close(),
-                KeyAction::Save | KeyAction::Refine => do_submit(),
+                KeyAction::Save => do_submit(default_refines),
+                KeyAction::Refine => do_submit(can_refine),
                 KeyAction::ToFirstNote => focus_end(&notes.first_or_new()),
                 KeyAction::NewNoteBelow(i) => focus_end(&notes.insert(i + 1, None)),
                 KeyAction::DeleteNote(i) => notes.remove(i),
@@ -778,5 +817,40 @@ mod tests {
         assert_eq!(cfg.description, "d");
         let notes: Vec<&str> = cfg.notes.iter().map(|a| a.description.as_str()).collect();
         assert_eq!(notes, ["Goal: one", "Decided: two"], "as stored, in stored order");
+    }
+
+    /// Mod+Alt+Shift+T opens the same empty box; only the default button
+    /// differs.
+    #[test]
+    fn an_add_box_says_which_button_ctrl_enter_presses() {
+        let plain = BoxConfig::add("proj", false);
+        let refining = BoxConfig::add("proj", true);
+        assert_eq!((plain.mode, refining.mode), (Mode::Add, Mode::Add));
+        assert_eq!(refining.subtitle, "+proj");
+        assert!(!plain.refine);
+        assert!(refining.refine);
+    }
+
+    #[test]
+    fn an_existing_task_never_opens_to_refine() {
+        let t: crate::task::Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
+        assert!(!BoxConfig::for_task(Mode::Edit, t).refine);
+    }
+
+    /// The hint names what Ctrl+Enter does in this box, and offers
+    /// Ctrl+Shift+Enter only where it does something different.
+    #[test]
+    fn the_hint_names_the_default_button() {
+        assert_eq!(
+            hint(Mode::Add, false),
+            "Enter: next note · Ctrl+Enter: add · Ctrl+Shift+Enter: add & refine · Esc: discard"
+        );
+        assert_eq!(
+            hint(Mode::Add, true),
+            "Enter: next note · Ctrl+Enter: add & refine · Esc: discard"
+        );
+        for mode in [Mode::Edit, Mode::Note] {
+            assert_eq!(hint(mode, false), "Enter: next note · Ctrl+Enter: save · Esc: discard");
+        }
     }
 }
