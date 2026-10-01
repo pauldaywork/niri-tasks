@@ -727,11 +727,15 @@ impl Panel {
         }
     }
 
-    /// Accept pointer input only over the cards, from `x` to the screen edge.
+    /// Accept pointer input only over the cards, from `x`. Tucked away or
+    /// sliding, that runs to the screen edge, which keeps the hover alive
+    /// there; centred, it stops at the cards, so the strip beside them in the
+    /// middle of the screen does not swallow clicks.
     fn set_region(&self, x: f64) {
         let Some(surface) = self.window.surface() else { return };
         let x = x.round() as i32;
-        let rect = cairo::RectangleInt::new(x, SHADOW_PX, SURFACE_WIDTH - x, self.slide.cards_h.get());
+        let width = region_width(x, self.keyboard.get());
+        let rect = cairo::RectangleInt::new(x, SHADOW_PX, width, self.slide.cards_h.get());
         surface.set_input_region(Some(&cairo::Region::create_rectangle(&rect)));
     }
 
@@ -895,6 +899,12 @@ pub fn open_menu(output: &str, args: &[String]) {
 /// How tall the column of cards is on screen: all of it, or as much as fits
 /// inside the screen's margins, with the rest scrolled. Only the keyboard's
 /// wrapped cards, or "+N more" opened onto a long list, get that tall.
+/// How wide the input region is from `x`: to the surface's edge, or, with the
+/// panel centred, just the cards.
+fn region_width(x: i32, centred: bool) -> i32 {
+    if centred { CARD_WIDTH_PX } else { SURFACE_WIDTH - x }
+}
+
 fn shown_height(cards_h: i32, screen_h: i32) -> i32 {
     cards_h.min(screen_h - 2 * (SHADOW_PX + EDGE_GAP_PX)).max(0)
 }
@@ -915,6 +925,12 @@ fn scroll_to_show(value: f64, page: f64, top: f64, bottom: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_region_runs_to_the_edge_unless_centred() {
+        assert_eq!(region_width(100, false), SURFACE_WIDTH - 100);
+        assert_eq!(region_width(CENTRED_X as i32, true), CARD_WIDTH_PX);
+    }
 
     #[test]
     fn the_ring_margin_is_the_outlines_spread() {

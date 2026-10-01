@@ -29,8 +29,9 @@
 # fullscreen window, which covers the panel.
 #
 # Park the pointer away from the right edge and the middle first. A pointer
-# resting against the edge is inside the panel once it grows tall enough, and the panel slides
-# out for it exactly as it should — which reads here as a peek 300px wide.
+# resting against the edge is inside the panel once it grows tall enough, and
+# the panel slides out for it exactly as it should — which reads here as a peek
+# 300px wide.
 set -uo pipefail
 
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
@@ -62,9 +63,10 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-pass=0; fail=0
+pass=0; fail=0; skipped=0
 ok()  { echo "  PASS  $*"; pass=$((pass+1)); }
 bad() { echo "  FAIL  $*"; fail=$((fail+1)); }
+skip() { skip "$*"; skipped=$((skipped+1)); }
 
 # The panel on the focused monitor shows that monitor's workspace, which is the
 # focused workspace — so its tasks have to carry the focused workspace's tag.
@@ -166,6 +168,20 @@ else:
 PY
 }
 
+# Whether the centred panel (half of the 784px surface, scaled, right of the
+# middle) ends left of the strip the right-edge check looks at.
+clear_of_edge() {
+    local scale
+    scale=$(niri msg -j focused-output 2>/dev/null |
+        python3 -c 'import json,sys; print(json.load(sys.stdin)["logical"]["scale"])' 2>/dev/null) || return 1
+    python3 - "$SB/shots/baseline.png" "$scale" <<'PY'
+import sys
+from PIL import Image
+w = Image.open(sys.argv[1]).size[0]
+sys.exit(0 if w / 2 + 392 * float(sys.argv[2]) < w - 300 else 1)
+PY
+}
+
 add() {  # description
     task rc.verbose=nothing rc.confirmation=no add "+$TAG" -- "$1" >/dev/null 2>&1
 }
@@ -191,7 +207,7 @@ else
     bad "the right edge is not static ($noise columns changed between two
       identical frames) — move or close whatever is animating there, or this
       measures that instead of the panel"
-    echo; echo "passed: $pass   failed: $fail"; exit 1
+    echo; echo "passed: $pass   failed: $fail   skipped: $skipped"; exit 1
 fi
 # The middle is only needed to see where the keyboard puts the panel, and a
 # terminal running this script usually sits right there, redrawing.
@@ -200,7 +216,7 @@ if [ "$mid_noise" -eq 0 ]; then
     ok "the middle of the screen holds still too"
     CENTRE=1
 else
-    echo "  SKIP  the centre checks: the middle of the screen is not static ($mid_noise columns changed) — run from a still workspace to check where the keyboard puts the panel"
+    skip "the centre checks: the middle of the screen is not static ($mid_noise columns changed) — run from a still workspace to check where the keyboard puts the panel"
     CENTRE=0
 fi
 
@@ -257,11 +273,18 @@ delta=$(( other_h > three_h ? other_h - three_h : three_h - other_h ))
 settle
 shot keyboard || exit 1
 read -r key_edge_w _ < <(measure keyboard)
-if [ "$key_edge_w" -eq 0 ]; then
-    ok "the keyboard takes the panel off the right edge"
-else
-    bad "the right edge still shows ${key_edge_w}px of panel with the keyboard —
+# The centred surface reaches 392px (times the output scale) right of the
+# middle. On a screen too narrow for that to stay left of the strip measured,
+# the panel can legitimately show there.
+if clear_of_edge; then
+    if [ "$key_edge_w" -eq 0 ]; then
+        ok "the keyboard takes the panel off the right edge"
+    else
+        bad "the right edge still shows ${key_edge_w}px of panel with the keyboard —
       the surface kept its right anchor"
+    fi
+else
+    skip "the panel off the right edge (the screen is too narrow, or its scale unknown, for the centred panel to stay clear of the last 300px)"
 fi
 if [ "$CENTRE" -eq 1 ]; then
     read -r key_w key_h key_l key_r < <(measure keyboard centre)
@@ -280,7 +303,7 @@ if [ "$CENTRE" -eq 1 ]; then
       the action rows are missing"
     fi
 else
-    echo "  SKIP  the panel in the middle of the screen, and its buttons (needs a still middle)"
+    skip "the panel in the middle of the screen, and its buttons (needs a still middle)"
 fi
 
 # Escape needs a key pressed on the panel, which only wtype can do here. The
@@ -304,7 +327,7 @@ if command -v wtype >/dev/null; then
             || bad "after Escape the middle of the screen still shows ${rel_mid_w}px of panel"
     fi
 else
-    echo "  SKIP  Escape back to the peek (needs wtype)"
+    skip "Escape back to the peek (needs wtype)"
 fi
 
 # ─── nothing pending shows nothing ───────────────────────────────────────────
@@ -337,5 +360,5 @@ else
 fi
 
 echo
-echo "passed: $pass   failed: $fail"
+echo "passed: $pass   failed: $fail   skipped: $skipped"
 [ "$fail" -eq 0 ]
