@@ -356,7 +356,7 @@ a frame that should not have changed — another tag's task, Escape, an empty
 panel — is compared pixel for pixel. A nested niri parked out of sight draws
 only when asked, so each frame is shot until two in a row agree. It counts
 lines rather than pixels: the cards' shadows fade into the background over
-many pixels, and a column or row counts only once more than 20 of its pixels
+many pixels, and a column or row counts only once at least 20 of its pixels
 changed, which is what puts the panel's edge at the same column every run.
 
 `tests/differential.rs` runs the original shell pipelines this was ported from

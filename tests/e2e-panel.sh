@@ -62,6 +62,14 @@ CARD_X=$(((OUT_W - CARD) / 2))
 SURFACE_LEFT=$(((OUT_W - SURFACE) / 2))
 SURFACE_RIGHT=$((SURFACE_LEFT + SURFACE))
 
+SB=""; RT=""
+# The nested niri connects to this one by its absolute path, since its own
+# XDG_RUNTIME_DIR is somewhere else.
+case "$WAYLAND_DISPLAY" in
+    /*) PARENT_WAYLAND="$WAYLAND_DISPLAY" ;;
+    *) PARENT_WAYLAND="${XDG_RUNTIME_DIR:?}/$WAYLAND_DISPLAY" ;;
+esac
+
 SB="$(mktemp -d)"
 # Short on purpose: the nested niri's sockets and the daemon's go in here, and
 # a Unix socket path longer than ~108 characters cannot be bound.
@@ -69,13 +77,6 @@ RT="$(mktemp -d /tmp/nte2e.XXXXXX)"
 mkdir -p "$SB/data" "$SB/shots"
 printf 'data.location=%s/data\n' "$SB" > "$SB/taskrc"
 export TASKRC="$SB/taskrc" TASKDATA="$SB/data"
-
-# The nested niri connects to this one by its absolute path, since its own
-# XDG_RUNTIME_DIR is somewhere else.
-case "$WAYLAND_DISPLAY" in
-    /*) PARENT_WAYLAND="$WAYLAND_DISPLAY" ;;
-    *) PARENT_WAYLAND="${XDG_RUNTIME_DIR:?}/$WAYLAND_DISPLAY" ;;
-esac
 
 # The real daemon is never touched; this is how the end of the run proves it.
 SERVICE_PID=$(systemctl --user show -p MainPID --value niri-tasks.service 2>/dev/null || echo 0)
@@ -86,11 +87,11 @@ cleanup() {
     [ -n "$DAEMON" ] && kill "$DAEMON" 2>/dev/null && wait "$DAEMON" 2>/dev/null
     # Its window closes with it, and niri drops the workspace it leaves empty.
     [ -n "$NESTED" ] && kill "$NESTED" 2>/dev/null && wait "$NESTED" 2>/dev/null
-    rm -rf "$RT"
+    [ -n "$RT" ] && rm -rf "$RT"
     if [ -n "${NIRITASKS_E2E_KEEP:-}" ]; then
         echo "frames kept in $SB/shots"
     else
-        rm -rf "$SB"
+        [ -n "$SB" ] && rm -rf "$SB"
     fi
 }
 trap cleanup EXIT
@@ -158,8 +159,7 @@ echo "nested niri: window $WIN, sockets in $RT"
 # ─── park it out of the way ──────────────────────────────────────────────────
 # Floating, so its size is exactly what is set; on the last workspace of its
 # monitor, which niri always keeps empty; and without the focus: --focus false
-# leaves it on the workspace the window opened on, back on the window that had
-# it before.
+# leaves the focus on the workspace you are on.
 niri msg action move-window-to-floating --id "$WIN" >/dev/null ||
     die "niri would not float the nested niri's window (move-window-to-floating)"
 niri msg action set-window-width --id "$WIN" "$OUT_W" >/dev/null ||
@@ -173,10 +173,25 @@ get = lambda what: json.loads(subprocess.run(["niri", "msg", "-j", what],
 win = next(w for w in get("windows") if w["id"] == int(sys.argv[1]))
 spaces = get("workspaces")
 output = next(s["output"] for s in spaces if s["id"] == win["workspace_id"])
-print(max(s["idx"] for s in spaces if s["output"] == output))' "$WIN") ||
+print(output, max(s["idx"] for s in spaces if s["output"] == output))' "$WIN") ||
     die "cannot find a spare workspace for the nested niri"
+read -r opened_on spare <<<"$spare"
 niri msg action move-window-to-workspace --window-id "$WIN" --focus false "$spare" >/dev/null ||
     die "niri would not park the nested niri's window on workspace $spare (move-window-to-workspace)"
+# The index is resolved against the focused output, which may not be the one
+# the window opened on: check it landed on that output's last workspace, alone.
+landed=$(python3 -c '
+import json, subprocess, sys
+get = lambda what: json.loads(subprocess.run(["niri", "msg", "-j", what],
+                                             capture_output=True, text=True, check=True).stdout)
+win = next(w for w in get("windows") if w["id"] == int(sys.argv[1]))
+space = next(s for s in get("workspaces") if s["id"] == win["workspace_id"])
+others = [w for w in get("windows") if w["workspace_id"] == space["id"] and w["id"] != win["id"]]
+print(space["output"] == sys.argv[2] and space["idx"] == int(sys.argv[3]) and not others)' \
+    "$WIN" "$opened_on" "$spare" 2>/dev/null) ||
+    die "cannot ask this niri where the nested window was parked"
+[ "$landed" = True ] ||
+    die "the nested niri's window was not parked alone on workspace $spare of $opened_on: it may have gone to another monitor"
 
 # Why the nested window can no longer be trusted, or nothing while it can.
 # Nothing is only ever a good answer: when this niri cannot be asked, that is
@@ -238,9 +253,13 @@ watch_focus &
 WATCH=$!
 guard() {
     [ -s "$SB/tampered" ] || return 0
-    bad "$(cat "$SB/tampered") — anything typed there would reach the panel,
+    local why; why=$(cat "$SB/tampered")
+    case "$why" in
+        *"is gone"*|"$UNASKABLE") bad "$why, so its frames can no longer be trusted" ;;
+        *) bad "$why — anything typed there would reach the panel,
       so its frames can no longer be trusted. Keep off that workspace while
-      this runs"
+      this runs" ;;
+    esac
     summary
     exit 1
 }
@@ -300,7 +319,7 @@ frame_size() {  # label
 # "<x0> <x1> <y0> <y1>": the first column that changed and one past the last,
 # the same for rows; "0 0 0 0" when nothing did.
 #
-# A line counts only when more than MIN_RUN of its pixels changed by more than
+# A line counts only when at least MIN_RUN of its pixels changed by more than
 # SENSITIVITY levels. The cards' shadows fade into the background over many
 # pixels, and these two numbers are what put the panel's edge at the same
 # column every run; the exact expectations below were measured with them.
@@ -347,7 +366,7 @@ kill -0 "$DAEMON" 2>/dev/null || die "the daemon exited at once:
 $(tail -n 20 "$SB/daemon.err")"
 
 # ─── baseline: the nested screen with nothing on it ──────────────────────────
-shot baseline || exit 1
+shot baseline || { summary; exit 1; }
 read -r base_w base_h < <(frame_size baseline)
 [ "$base_w $base_h" = "$OUT_W $OUT_H" ] ||
     die "the nested screen shoots at ${base_w}x${base_h}, not ${OUT_W}x${OUT_H} — every number below assumes it"
@@ -355,7 +374,7 @@ read -r base_w base_h < <(frame_size baseline)
 # ─── one task: a peek on the right edge ──────────────────────────────────────
 add "ship it"
 settle
-shot one || exit 1
+shot one || { summary; exit 1; }
 read -r x0 x1 y0 y1 < <(measure one)
 one_h=$((y1 - y0))
 if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ]; then
@@ -370,7 +389,7 @@ fi
 add "write the glossary"
 add "a much longer description that has to ellipsise rather than wrap onto a second line"
 settle
-shot three || exit 1
+shot three || { summary; exit 1; }
 read -r x0 x1 y0 y1 < <(measure three)
 three_h=$((y1 - y0))
 if [ "$one_h" -gt 0 ] && [ "$three_h" -gt $((one_h * 2)) ]; then
@@ -388,7 +407,7 @@ fi
 # ─── a task on another tag stays off this panel ──────────────────────────────
 task rc.verbose=nothing rc.confirmation=no add +niritasks_e2e_elsewhere -- "not here" >/dev/null 2>&1
 settle
-shot elsewhere || exit 1
+shot elsewhere || { summary; exit 1; }
 if same three elsewhere; then
     ok "a task on another workspace's tag changes nothing on screen"
 else
@@ -402,7 +421,7 @@ fi
 # the screen. Everything it draws is then inside the centred surface.
 "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
 settle
-shot keyboard || exit 1
+shot keyboard || { summary; exit 1; }
 read -r x0 x1 _ _ < <(measure keyboard)
 if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ]; then
     ok "the keyboard takes the panel off the right edge to the middle (columns ${x0}-${x1})"
@@ -419,7 +438,7 @@ fi
 if command -v wtype >/dev/null; then
     "${NENV[@]}" wtype -k Down
     sleep 1
-    shot keyboard_down || exit 1
+    shot keyboard_down || { summary; exit 1; }
     read -r x0 x1 y0 y1 < <(measure keyboard_down keyboard)
     key_h=$((y1 - y0))
     if [ "$x0" -eq "$CARD_X" ] && [ "$x1" -eq $((CARD_X + CARD)) ]; then
@@ -437,7 +456,7 @@ if command -v wtype >/dev/null; then
 
     "${NENV[@]}" wtype -k Escape
     settle
-    shot released || exit 1
+    shot released || { summary; exit 1; }
     if same three released; then
         ok "Escape puts it back exactly as it was before the keyboard took it"
     else
@@ -455,7 +474,7 @@ fi
 # tasks also gives the keyboard back, when wtype was not there to press Escape.
 task rc.verbose=nothing rc.confirmation=no rc.bulk=0 "+$TAG" done </dev/null >/dev/null 2>&1
 settle
-shot empty || exit 1
+shot empty || { summary; exit 1; }
 if same baseline empty; then
     ok "the panel goes away when the workspace has no tasks"
 else
@@ -472,9 +491,11 @@ sleep 1
 "${NENV[@]}" "$NIRITASKS" daemon >"$SB/daemon2.err" 2>&1 &
 DAEMON=$!
 sleep 3
+kill -0 "$DAEMON" 2>/dev/null || die "the restarted daemon exited at once:
+$(tail -n 20 "$SB/daemon2.err")"
 add "after a cold start"
 settle
-shot cold_start || exit 1
+shot cold_start || { summary; exit 1; }
 read -r x0 x1 _ _ < <(measure cold_start)
 if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ]; then
     ok "a daemon started with nothing to show still shows the next task (columns ${x0}-${x1})"
