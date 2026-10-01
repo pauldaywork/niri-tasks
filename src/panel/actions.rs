@@ -51,6 +51,14 @@ impl Action {
             .collect()
     }
 
+    /// Whether the panel keeps the keyboard after the button runs. Waiting and
+    /// Remove only change the task and open nothing that needs the keyboard,
+    /// so the list stays up for the next one; the rest open a box, a terminal
+    /// or a menu, which takes it.
+    pub fn keeps_keyboard(self) -> bool {
+        matches!(self, Wait | Remove)
+    }
+
     /// The button's name in words, the menu's own: its icon's tooltip.
     pub fn label(self) -> &'static str {
         match self {
@@ -147,6 +155,12 @@ mod tests {
     fn more_is_no_one_task_and_gets_no_buttons() {
         assert!(Action::for_status(Status::More, false).is_empty());
         assert!(Action::for_status(Status::More, true).is_empty());
+    }
+
+    #[test]
+    fn only_wait_and_remove_keep_the_list_open() {
+        let kept: Vec<Action> = Action::ALL.into_iter().filter(|a| a.keeps_keyboard()).collect();
+        assert_eq!(kept, vec![Action::Wait, Action::Remove]);
     }
 
     #[test]

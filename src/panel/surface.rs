@@ -607,8 +607,10 @@ impl Panel {
 
     /// Press one of a card's buttons. Remove only arms itself the first time,
     /// as the menu's delete asks "delete?" first; the second press runs it.
-    /// Everything that runs gives the keyboard back first, so the box or
-    /// terminal it opens can take it.
+    /// Everything that opens something gives the keyboard back first, so the
+    /// box or terminal it opens can take it. Waiting and Remove open nothing:
+    /// the list stays up, focus moving to the next card (the one above, from
+    /// the last) so it is still there when the next tick drops this one.
     fn press(self: &Rc<Self>, action: Action, uuid: &str, button: &gtk4::Button) {
         if action == Action::Remove && self.armed.borrow().as_ref() != Some(button) {
             // Focus first: the move disarms whatever was armed before, and
@@ -619,7 +621,16 @@ impl Panel {
             *self.armed.borrow_mut() = Some(button.clone());
             return;
         }
-        self.release_keyboard();
+        if action.keeps_keyboard() {
+            let neighbour = self
+                .card_of(button.upcast_ref())
+                .and_then(|c| c.next_sibling().or_else(|| c.prev_sibling()));
+            if let Some(c) = neighbour {
+                focus_card(&c, None);
+            }
+        } else {
+            self.release_keyboard();
+        }
         open_menu(&self.output, &action.args(uuid));
     }
 
