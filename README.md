@@ -52,7 +52,8 @@ opens up to its whole description, wrapped, above a row of buttons:
 | **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back |
 
 Up and Down move a darker fill between cards; Left, Right and Tab move
-along the focused card's buttons, and Enter presses the focused one. Enter on
+along the focused card's buttons, whose name shows beside them while one is
+focused, and Enter presses the focused one. Enter on
 the card itself opens its full menu, which also has Note, Grill me, Update
 status and Move to workspace. Every button gives the keyboard back as it runs,
 and Escape tucks the panel away, folding the cards back to one line. A list

@@ -508,6 +508,10 @@ impl Panel {
         row.add_css_class("card-actions");
         // Left-aligned and only as wide as its icons, not spread across the card.
         row.set_halign(gtk4::Align::Start);
+        // After the icons, the focused one's name in words: the icons alone do
+        // not say what they do. Empty while the focus is on the description.
+        let hint = gtk4::Label::new(None);
+        hint.add_css_class("card-hint");
         for action in Action::for_status(card.status) {
             let button = gtk4::Button::with_label(action.icon());
             // The icon's name in words, under the pointer and for a screen reader.
@@ -521,8 +525,27 @@ impl Panel {
                     p.press(action, &uuid, b);
                 }
             });
+            let focus = gtk4::EventControllerFocus::new();
+            {
+                let hint = hint.downgrade();
+                focus.connect_enter(move |_| {
+                    if let Some(hint) = hint.upgrade() {
+                        hint.set_label(action.label());
+                    }
+                });
+            }
+            {
+                let hint = hint.downgrade();
+                focus.connect_leave(move |_| {
+                    if let Some(hint) = hint.upgrade() {
+                        hint.set_label("");
+                    }
+                });
+            }
+            button.add_controller(focus);
             row.append(&button);
         }
+        row.append(&hint);
         // A line between the description and the buttons.
         let separator = gtk4::Separator::new(gtk4::Orientation::Horizontal);
         separator.add_css_class("card-separator");
@@ -764,10 +787,13 @@ fn slots(card: &gtk4::Widget) -> Vec<gtk4::Widget> {
     // The row is the card's last child, after the separator; a card without
     // one ends with its body.
     if let Some(row) = card.last_child().filter(|row| row.has_css_class("card-actions")) {
+        // Its buttons, and not the hint label that follows them.
         let mut child = row.first_child();
         while let Some(button) = child {
             child = button.next_sibling();
-            slots.push(button);
+            if button.is::<gtk4::Button>() {
+                slots.push(button);
+            }
         }
     }
     slots.insert(0, body);

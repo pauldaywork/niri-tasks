@@ -134,6 +134,8 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .card-body {{ border-radius: {RADIUS_PX}px; }}
 .task-panel .card-actions button {{ padding: {ACTION_PADDING}; }}
 .task-panel .card-actions button:first-child {{ border-bottom-left-radius: {RADIUS_PX}px; }}
+/* The focused button's name, dimmed so it reads as a caption to the icons. */
+.task-panel .card-hint {{ color: alpha({TEXT}, 0.55); padding: {ACTION_PADDING}; }}
 .task-panel .card-separator {{
     background-color: {SEPARATOR};
     background-image: none;
