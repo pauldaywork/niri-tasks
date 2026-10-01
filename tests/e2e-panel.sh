@@ -66,7 +66,7 @@ trap cleanup EXIT INT TERM
 pass=0; fail=0; skipped=0
 ok()  { echo "  PASS  $*"; pass=$((pass+1)); }
 bad() { echo "  FAIL  $*"; fail=$((fail+1)); }
-skip() { skip "$*"; skipped=$((skipped+1)); }
+skip() { echo "  SKIP  $*"; skipped=$((skipped+1)); }
 
 # The panel on the focused monitor shows that monitor's workspace, which is the
 # focused workspace — so its tasks have to carry the focused workspace's tag.

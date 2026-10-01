@@ -896,15 +896,15 @@ pub fn open_menu(output: &str, args: &[String]) {
     }
 }
 
-/// How tall the column of cards is on screen: all of it, or as much as fits
-/// inside the screen's margins, with the rest scrolled. Only the keyboard's
-/// wrapped cards, or "+N more" opened onto a long list, get that tall.
 /// How wide the input region is from `x`: to the surface's edge, or, with the
 /// panel centred, just the cards.
 fn region_width(x: i32, centred: bool) -> i32 {
     if centred { CARD_WIDTH_PX } else { SURFACE_WIDTH - x }
 }
 
+/// How tall the column of cards is on screen: all of it, or as much as fits
+/// inside the screen's margins, with the rest scrolled. Only the keyboard's
+/// wrapped cards, or "+N more" opened onto a long list, get that tall.
 fn shown_height(cards_h: i32, screen_h: i32) -> i32 {
     cards_h.min(screen_h - 2 * (SHADOW_PX + EDGE_GAP_PX)).max(0)
 }
