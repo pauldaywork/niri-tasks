@@ -8,6 +8,9 @@
 
 use super::model::Status;
 
+/// The card's buttons, in the order they sit left to right. Each stands in for
+/// its entry in the fuzzel menu, running the same `niritasks` command so a
+/// button cannot drift from the menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Start,

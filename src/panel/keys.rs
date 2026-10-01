@@ -12,7 +12,9 @@ use gtk4::gdk;
 pub enum KeyAction {
     /// Give the keyboard back and tuck the panel away.
     Release,
+    /// Up: the card above, landing on its body.
     PrevCard,
+    /// Down: the card below, landing on its body.
     NextCard,
     /// Along the focused card: its body, then its buttons.
     PrevSlot,
