@@ -27,14 +27,14 @@
 //! Mod+Alt+Ctrl+T slides the panel out and hands it the keyboard, and every
 //! card lays itself out again: its whole description, wrapped, above a row of
 //! buttons for the menu's most-used actions. A card is a box holding a body
-//! button and that row. Up and Down move
-//! between cards, Left, Right and Tab along the focused one, and s, r, e, t
-//! and Delete press its Start, Refine, Edit, Stop and Remove by emitting the
-//! button's `clicked`, so a key, Enter on the focused button, and a click all
-//! take one path. The controller runs in the capture phase, ahead of GTK's
-//! own focus chain, which would otherwise walk every button on the panel. The
-//! body opens the whole menu. Escape, or anything that runs, hands the
-//! keyboard back and folds the cards to one line again.
+//! button and that row. Up and Down move between cards, Left, Right and Tab
+//! along the focused one, and s, r, e, t and Delete press its Start, Refine,
+//! Edit, Stop and Remove by emitting the button's `clicked`, so a key, Enter
+//! on the focused button, and a click all take one path. The controller runs
+//! in the capture phase, ahead of GTK's own focus chain, which would otherwise
+//! walk every button on the panel. The body opens the whole menu. Escape, or
+//! anything that runs, hands the keyboard back and folds the cards to one line
+//! again.
 //!
 //! Wrapped, the cards can stand taller than the screen, so the column sits in
 //! a scroller capped at the screen's height less its margins. Moving the focus
@@ -770,6 +770,7 @@ fn focus_card(card: &gtk4::Widget, slot: Option<&str>) {
         target.grab_focus();
     }
 }
+
 /// Run a `niritasks` command on this monitor: a task's action menu, the
 /// fuzzel list, or one of a card's buttons.
 ///
@@ -814,6 +815,12 @@ fn scroll_to_show(value: f64, page: f64, top: f64, bottom: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ring_margin_is_the_outlines_spread() {
+        // A mismatch would clip the ring against the scroller again.
+        assert!(super::super::style::OUTLINE.contains(&format!(" {RING_PX}px ")));
+    }
 
     #[test]
     fn a_short_column_shows_whole() {

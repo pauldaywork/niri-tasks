@@ -262,14 +262,14 @@ It cannot move the pointer, so the hover is checked by hand after a change to
 `src/panel/surface.rs`: the peek slides out when the pointer reaches it and back
 about 0.4s after it leaves, the slide is smooth, and a click just left of the
 peek, or between two cards, lands on the window beneath, while a click on a
-card opens its actions on that monitor. And the keyboard, past what the script measures: `Mod+Alt+Ctrl+T` slides the
-panel out with every card wrapped and the first darkened, Stop only on active
-tasks; Up and Down move between cards, Left, Right and Tab along the buttons;
-`s` starts working exactly as the menu does, `r` refines, `e` opens the box,
-`t` stops; Delete arms Remove and only a second Delete deletes, while moving
-away disarms it; Enter on a card opens the menu, Enter on "+N more" shows the
-rest, and a list taller than the screen scrolls with the focus; Escape tucks it
-away to the one-line peek.
+card opens its actions on that monitor. And the keyboard, past what the script
+measures: `Mod+Alt+Ctrl+T` slides the panel out with every card wrapped and the
+first darkened, Stop only on active tasks; Up and Down move between cards, Left,
+Right and Tab along the buttons; `s` starts working exactly as the menu does,
+`r` refines, `e` opens the box, `t` stops; Delete arms Remove and only a second
+Delete deletes, while moving away disarms it; Enter on a card opens the menu,
+Enter on "+N more" shows the rest, and a list taller than the screen scrolls
+with the focus; Escape tucks it away to the one-line peek.
 
 Two things about `e2e-box.sh` in particular. It **types into whatever has
 focus**, so start it and leave the keyboard alone until it finishes; anything

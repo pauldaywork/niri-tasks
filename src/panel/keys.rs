@@ -26,9 +26,11 @@ pub enum KeyAction {
 }
 
 /// Map a keypress to what it should do. The letters work without a modifier,
-/// because nothing on the panel takes typing.
+/// because nothing on the panel takes typing. With Caps Lock on the keyval
+/// arrives as a capital (`S`, not `s`), so the key is lowercased first and
+/// capitals press the same buttons.
 pub fn key_action(key: gdk::Key) -> KeyAction {
-    match key {
+    match key.to_lower() {
         gdk::Key::Escape => KeyAction::Release,
         gdk::Key::Up => KeyAction::PrevCard,
         gdk::Key::Down => KeyAction::NextCard,
@@ -85,6 +87,14 @@ mod tests {
         assert_eq!(key_action(gdk::Key::t), KeyAction::Run(Action::Stop));
         assert_eq!(key_action(gdk::Key::Delete), KeyAction::Run(Action::Remove));
         assert_eq!(key_action(gdk::Key::KP_Delete), KeyAction::Run(Action::Remove));
+    }
+
+    #[test]
+    fn capitals_run_their_buttons_too() {
+        assert_eq!(key_action(gdk::Key::S), KeyAction::Run(Action::Start));
+        assert_eq!(key_action(gdk::Key::R), KeyAction::Run(Action::Refine));
+        assert_eq!(key_action(gdk::Key::E), KeyAction::Run(Action::Edit));
+        assert_eq!(key_action(gdk::Key::T), KeyAction::Run(Action::Stop));
     }
 
     /// Enter and Space press the focused button, which GTK does itself.
