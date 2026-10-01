@@ -159,8 +159,12 @@ EOF
     local before spare opened_on landed why size
     before=$(nested_niri_windows) || die "cannot list this niri's windows"
 
+    # vblank_mode (Mesa) and __GL_SYNC_TO_VBLANK (NVIDIA) are off for the nested
+    # niri alone: parked out of sight, it never hears that a frame was shown,
+    # so a buffer swap that waits for vblank stalls it for a second or more,
+    # and every key and `niri msg` with it.
     env -u NIRI_SOCKET XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$PARENT_WAYLAND" \
-        niri -c "$SB/niri.kdl" >"$SB/niri.log" 2>&1 &
+        vblank_mode=0 __GL_SYNC_TO_VBLANK=0 niri -c "$SB/niri.kdl" >"$SB/niri.log" 2>&1 &
     NESTED=$!
 
     for _ in $(seq 1 50); do
