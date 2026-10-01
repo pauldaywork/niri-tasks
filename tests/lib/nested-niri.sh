@@ -13,6 +13,12 @@
 # typed into it reaches you — unless you go to that workspace, which focuses
 # the window. Then the run fails, saying so, rather than trust what follows.
 #
+# Several runs can share your niri at once, from one checkout or from many
+# worktrees. Each finds its own window by its nested niri's pid, parks it
+# alone on a workspace of its own, and moves windows on your niri only while
+# holding a lock (tests/lib/parent-lock.sh), so two runs never pick the same
+# workspace at the same moment.
+#
 # Sourcing it also makes the sandbox: a TASKDATA of its own, so the real task
 # database is never touched, and traps that tear all of it down on any exit.
 # Your own niri-tasks daemon keeps running throughout, and never sees these
@@ -22,8 +28,10 @@
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
 command -v task >/dev/null || { echo "taskwarrior is required" >&2; exit 1; }
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
+command -v flock >/dev/null || { echo "flock is required (util-linux)" >&2; exit 1; }
 [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)" >&2; exit 1; }
 [ -n "${WAYLAND_DISPLAY:-}" ] || { echo "no Wayland display to open the nested niri on" >&2; exit 1; }
+. "$(dirname "${BASH_SOURCE[0]}")/parent-lock.sh"
 
 NIRITASKS="${NIRITASKS:-niritasks}"
 
@@ -57,8 +65,20 @@ cleanup() {
     [ -n "$WATCH" ] && kill "$WATCH" 2>/dev/null && wait "$WATCH" 2>/dev/null
     [ -n "$DAEMON" ] && kill "$DAEMON" 2>/dev/null && wait "$DAEMON" 2>/dev/null
     # Its window closes with it, and niri drops the workspace it leaves empty.
-    # Anything still running inside it loses its display and exits too.
-    [ -n "$NESTED" ] && kill "$NESTED" 2>/dev/null && wait "$NESTED" 2>/dev/null
+    # Anything still running inside it loses its display and exits too. That
+    # shifts the index of every later workspace, so it happens under the lock,
+    # which is held until the window is gone. Without the lock it still goes.
+    if [ -n "$NESTED" ]; then
+        parent_lock 2>/dev/null
+        kill "$NESTED" 2>/dev/null && wait "$NESTED" 2>/dev/null
+        if [ -n "$WIN" ]; then
+            for _ in $(seq 1 25); do
+                [ -z "$(nested_window 2>/dev/null)" ] && break
+                sleep 0.2
+            done
+        fi
+        parent_unlock
+    fi
     [ -n "$RT" ] && rm -rf "$RT"
     if [ -n "${NIRITASKS_E2E_KEEP:-}" ]; then
         echo "the run's files are kept in $SB"
@@ -83,12 +103,13 @@ nested() {
     "${NENV[@]}" "$@"
 }
 
-# The parent's windows that are already nested niris, so the new one can be
-# told apart from them.
-nested_niri_windows() {
+# This run's nested niri's window on the parent, found by the nested niri's
+# pid. Not by which niri windows are new: another run starting at the same
+# moment opens one too, and then there is no telling them apart.
+nested_window() {
     niri msg -j windows | python3 -c '
 import json, sys
-print(" ".join(str(w["id"]) for w in json.load(sys.stdin) if w["app_id"] == "niri"))'
+print(next((w["id"] for w in json.load(sys.stdin) if w.get("pid") == int(sys.argv[1])), ""))' "$NESTED"
 }
 
 # Why the nested window can no longer be trusted, or nothing while it can.
@@ -161,8 +182,7 @@ workspace "e2e"
 spawn-sh-at-startup "env > $SB/nested.env.tmp && mv $SB/nested.env.tmp $SB/nested.env"
 EOF
 
-    local before spare opened_on landed why size
-    before=$(nested_niri_windows) || die "cannot list this niri's windows"
+    local spare opened_on landed why size
 
     # Vblank waits are off for the nested niri alone: parked out of sight, it
     # never hears that a frame was shown, so a buffer swap that waits for
@@ -203,10 +223,7 @@ STUB
           NOTIFY_LOG="$SB/notifications" PATH="$SB/bin:$PATH")
 
     for _ in $(seq 1 25); do
-        WIN=$(python3 -c '
-import sys
-new = set(sys.argv[2].split()) - set(sys.argv[1].split())
-print(new.pop() if len(new) == 1 else "")' "$before" "$(nested_niri_windows)")
+        WIN=$(nested_window 2>/dev/null)
         [ -n "$WIN" ] && break
         sleep 0.2
     done
@@ -222,33 +239,55 @@ print(new.pop() if len(new) == 1 else "")' "$before" "$(nested_niri_windows)")
         die "niri would not set the nested niri's window width (set-window-width)"
     niri msg action set-window-height --id "$WIN" "$NESTED_H" >/dev/null ||
         die "niri would not set the nested niri's window height (set-window-height)"
-    spare=$(python3 -c '
+    # The monitor it opened on, which is where it is parked.
+    opened_on=$(python3 -c '
 import json, subprocess, sys
 get = lambda what: json.loads(subprocess.run(["niri", "msg", "-j", what],
                                              capture_output=True, text=True, check=True).stdout)
 win = next(w for w in get("windows") if w["id"] == int(sys.argv[1]))
-spaces = get("workspaces")
-output = next(s["output"] for s in spaces if s["id"] == win["workspace_id"])
-print(output, max(s["idx"] for s in spaces if s["output"] == output))' "$WIN") ||
-        die "cannot find a spare workspace for the nested niri"
-    read -r opened_on spare <<<"$spare"
-    niri msg action move-window-to-workspace --window-id "$WIN" --focus false "$spare" >/dev/null ||
-        die "niri would not park the nested niri's window on workspace $spare (move-window-to-workspace)"
-    # The index is resolved against the focused output, which may not be the
-    # one the window opened on: check it landed on that output's last
-    # workspace, alone.
-    landed=$(python3 -c '
+print(next(s["output"] for s in get("workspaces") if s["id"] == win["workspace_id"]))' "$WIN") ||
+        die "cannot find which monitor the nested niri's window opened on"
+
+    # Alone on a workspace of its own, every time: never beside a window of
+    # yours or another run's. Under the lock (tests/lib/parent-lock.sh) no
+    # other run moves a window or frees a workspace between the pick and the
+    # check; the retry is for windows you move meanwhile. Each try re-picks
+    # the last workspace, which niri has made anew if the last one filled.
+    parent_lock || die "could not take the lock on this niri's workspaces ($PARENT_LOCK)"
+    for _ in 1 2 3 4 5; do
+        spare=$(python3 -c '
+import json, subprocess, sys
+spaces = json.loads(subprocess.run(["niri", "msg", "-j", "workspaces"],
+                                   capture_output=True, text=True, check=True).stdout)
+print(max(s["idx"] for s in spaces if s["output"] == sys.argv[1]))' "$opened_on") ||
+            { parent_unlock; die "cannot find a spare workspace for the nested niri"; }
+        niri msg action move-window-to-workspace --window-id "$WIN" --focus false "$spare" >/dev/null ||
+            { parent_unlock; die "niri would not park the nested niri's window on workspace $spare (move-window-to-workspace)"; }
+        # The index is resolved against the focused output, which may not be
+        # the one the window opened on.
+        landed=$(python3 -c '
 import json, subprocess, sys
 get = lambda what: json.loads(subprocess.run(["niri", "msg", "-j", what],
                                              capture_output=True, text=True, check=True).stdout)
-win = next(w for w in get("windows") if w["id"] == int(sys.argv[1]))
+windows = get("windows")
+win = next(w for w in windows if w["id"] == int(sys.argv[1]))
 space = next(s for s in get("workspaces") if s["id"] == win["workspace_id"])
-others = [w for w in get("windows") if w["workspace_id"] == space["id"] and w["id"] != win["id"]]
-print(space["output"] == sys.argv[2] and space["idx"] == int(sys.argv[3]) and not others)' \
-        "$WIN" "$opened_on" "$spare" 2>/dev/null) ||
-        die "cannot ask this niri where the nested window was parked"
-    [ "$landed" = True ] ||
-        die "the nested niri's window was not parked alone on workspace $spare of $opened_on: it may have gone to another monitor"
+if space["output"] != sys.argv[2]:
+    print("elsewhere")
+elif any(w["workspace_id"] == space["id"] and w["id"] != win["id"] for w in windows):
+    print("shared")
+else:
+    print("alone")' "$WIN" "$opened_on" 2>/dev/null) ||
+            { parent_unlock; die "cannot ask this niri where the nested window was parked"; }
+        [ "$landed" = shared ] || break
+        sleep 0.2
+    done
+    parent_unlock
+    case "$landed" in
+        alone) ;;
+        elsewhere) die "the nested niri's window was not parked on $opened_on: it may have gone to another monitor" ;;
+        *) die "the nested niri's window could not be parked alone on a workspace of $opened_on: each one tried had a window on it" ;;
+    esac
 
     for _ in $(seq 1 25); do
         [ -z "$(focus_reason)" ] && break
