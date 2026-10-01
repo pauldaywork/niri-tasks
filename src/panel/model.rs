@@ -53,14 +53,15 @@ impl Card {
 
 /// A filter tab on the keyboard's panel: which of the cards it shows.
 ///
-/// A filter, not a status. A started planned task shows under both Active
-/// and Planned, where its card's icon can only say one of them.
+/// A filter, not a status: Planned and To refine go by the `+planned` tag,
+/// which a card's icon can hide behind ▶ or the lock. A started task is
+/// under Active and not Planned, which is for picking what to start next.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Filter {
     All,
     /// Started tasks.
     Active,
-    /// Tasks carrying `+planned`, from Refine or Grill me.
+    /// Tasks carrying `+planned`, from Refine or Grill me, and not started.
     Planned,
     /// Tasks without `+planned`: the ones still worth refining.
     ToRefine,
@@ -101,7 +102,7 @@ impl Filter {
         match self {
             Filter::All => true,
             Filter::Active => card.status == Status::Active,
-            Filter::Planned => card.planned,
+            Filter::Planned => card.planned && card.status != Status::Active,
             Filter::ToRefine => !card.planned,
         }
     }
@@ -320,8 +321,9 @@ mod tests {
         assert_eq!(Filter::ToRefine.empty_text(), "No tasks to refine");
     }
 
-    /// A filter, not a status: a started planned task is under Active and
-    /// Planned both, and not under To refine.
+    /// A filter, not a status. A started planned task is under Active alone:
+    /// Planned is for picking what to start, and it is started. Not under To
+    /// refine either, which it is past.
     #[test]
     fn each_tab_picks_its_tasks_in_order() {
         let all = cards(
@@ -335,7 +337,7 @@ mod tests {
         );
         assert_eq!(texts(&Filter::All.pick(&all)), texts(&all));
         assert_eq!(texts(&Filter::Active.pick(&all)), vec!["started", "started-planned"]);
-        assert_eq!(texts(&Filter::Planned.pick(&all)), vec!["started-planned", "planned"]);
+        assert_eq!(texts(&Filter::Planned.pick(&all)), vec!["planned"]);
         assert_eq!(texts(&Filter::ToRefine.pick(&all)), vec!["started", "plain"]);
     }
 
@@ -345,7 +347,7 @@ mod tests {
             &[task("plain", 9.0, false), planned("started-planned", true), planned("planned", false)],
             &[],
         );
-        assert_eq!(Filter::counts(&all), [3, 1, 2, 1]);
+        assert_eq!(Filter::counts(&all), [3, 1, 1, 1]);
         assert_eq!(Filter::counts(&[]), [0, 0, 0, 0]);
     }
 }

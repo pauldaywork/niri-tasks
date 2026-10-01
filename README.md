@@ -65,12 +65,13 @@ taller than the screen scrolls, keeping the focused card in view. Hovering
 never shows the buttons — only the keyboard does.
 
 Above the cards, four tabs narrow them while the panel has the keyboard:
-**All**, **Active** (started), **Planned** (refined or grilled into a plan)
-and **To refine** (not planned yet), each with how many tasks it holds. `1`
-to `4` pick one, `[` and `]` step to the one either side, and a click picks
-one too; the arrows and Tab still move only between cards and buttons. A
-started planned task is under both Active and Planned. A tab with nothing
-under it says so and keeps the keyboard. The panel opens on All every time.
+**All**, **Active** (started), **Planned** (refined or grilled into a plan,
+and not started yet) and **To refine** (not planned yet), each with how many
+tasks it holds. `1` to `4` pick one, `[` and `]` step to the one either side,
+and a click picks one too; the arrows and Tab still move only between cards
+and buttons. A started planned task is under Active, not Planned. A tab with
+nothing under it says so and keeps the keyboard. The panel opens on All every
+time.
 
 The cards are shaped like mako notifications and take a terminal window's font
 and colours: a dark tint over blurred wallpaper, with niri's faint focus-ring outline
@@ -295,7 +296,7 @@ Tab along the buttons; `s` starts working exactly as the menu does, `r`
 refines, `e` opens the box, `t` stops; Delete arms Remove and only a second
 Delete deletes, while moving away disarms it; Enter on a card opens the menu,
 Enter on "+N more" shows the rest, and a list taller than the screen scrolls
-with the focus; a click on a filter tab switches the cards and does not take the focus (the focus still falls back to the first card when the focused one is not under the new tab), and a started planned task shows under both Active and Planned; Escape tucks it away to the one-line peek.
+with the focus; a click on a filter tab switches the cards and does not take the focus (the focus still falls back to the first card when the focused one is not under the new tab), and a started planned task shows under Active but not Planned; Escape tucks it away to the one-line peek.
 
 `e2e-box.sh` runs in the same kind of nested niri (`tests/lib/nested-niri.sh`
 starts it for both). Its keys are pressed with `wtype` pointed at that nested

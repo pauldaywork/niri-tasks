@@ -63,7 +63,7 @@ _Avoid_: toolbar, button bar, quick actions
 One of the four tabs above the task cards while the task panel has the
 keyboard — All, Active, Planned and To refine — narrowing the cards to the
 tasks it names and showing how many there are. A filter, not a status: a
-started planned task is under both Active and Planned, and To refine is
+started planned task is under Active and not Planned, and To refine is
 every task that is not a planned task.
 _Avoid_: tab alone (Tab is also a key), category, view, status
 
