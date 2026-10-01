@@ -20,14 +20,16 @@
 # moves the panel to the middle of the screen, and with wtype installed, Escape
 # puts it back on the right edge.
 #
-# It needs the right edge and the middle of the screen to hold still, so it
-# checks that first and says so rather than producing a flaky answer. Do not
-# switch workspaces while it runs: the panel follows the workspace, and so does
-# the tag its tasks are filed under. And not over a fullscreen window, which
-# covers the panel.
+# It needs the right edge of the screen to hold still, so it checks that first
+# and says so rather than producing a flaky answer. The checks on where the
+# keyboard puts the panel also need the middle to hold still; when it does not
+# (this is often run from a terminal sitting there) they are skipped, and the
+# rest run. Do not switch workspaces while it runs: the panel follows the
+# workspace, and so does the tag its tasks are filed under. And not over a
+# fullscreen window, which covers the panel.
 #
-# Park the pointer away from the right edge and the middle first. A pointer resting against
-# the edge is inside the panel once it grows tall enough, and the panel slides
+# Park the pointer away from the right edge and the middle first. A pointer
+# resting against the edge is inside the panel once it grows tall enough, and the panel slides
 # out for it exactly as it should — which reads here as a peek 300px wide.
 set -uo pipefail
 
@@ -183,15 +185,23 @@ echo "workspace tag: $TAG   screenshots via $SHOTDIR"
 shot baseline || exit 1
 shot stillness || exit 1
 read -r noise _ < <(measure stillness)
-read -r mid_noise _ < <(measure stillness centre)
-noise=$((noise + mid_noise))
 if [ "$noise" -eq 0 ]; then
-    ok "the right edge and the middle hold still between two identical frames"
+    ok "the right edge holds still between two identical frames"
 else
-    bad "the right edge or the middle of the screen is not static ($noise columns changed between two
+    bad "the right edge is not static ($noise columns changed between two
       identical frames) — move or close whatever is animating there, or this
       measures that instead of the panel"
     echo; echo "passed: $pass   failed: $fail"; exit 1
+fi
+# The middle is only needed to see where the keyboard puts the panel, and a
+# terminal running this script usually sits right there, redrawing.
+read -r mid_noise _ < <(measure stillness centre)
+if [ "$mid_noise" -eq 0 ]; then
+    ok "the middle of the screen holds still too"
+    CENTRE=1
+else
+    echo "  SKIP  the centre checks: the middle of the screen is not static ($mid_noise columns changed) — run from a still workspace to check where the keyboard puts the panel"
+    CENTRE=0
 fi
 
 # ─── one task: a peek on the right edge ──────────────────────────────────────
@@ -247,26 +257,30 @@ delta=$(( other_h > three_h ? other_h - three_h : three_h - other_h ))
 settle
 shot keyboard || exit 1
 read -r key_edge_w _ < <(measure keyboard)
-read -r key_w key_h key_l key_r < <(measure keyboard centre)
 if [ "$key_edge_w" -eq 0 ]; then
     ok "the keyboard takes the panel off the right edge"
 else
     bad "the right edge still shows ${key_edge_w}px of panel with the keyboard —
       the surface kept its right anchor"
 fi
-off=$(( key_l > key_r ? key_l - key_r : key_r - key_l ))
-if [ "$key_w" -gt 0 ] && [ "$off" -le 10 ]; then
-    ok "and shows it in the middle of the screen (${key_w}px wide, ${key_l}px | ${key_r}px either side)"
-else
-    bad "the middle of the screen shows ${key_w}px of panel, ${key_l}px from the
+if [ "$CENTRE" -eq 1 ]; then
+    read -r key_w key_h key_l key_r < <(measure keyboard centre)
+    off=$(( key_l > key_r ? key_l - key_r : key_r - key_l ))
+    if [ "$key_w" -gt 0 ] && [ "$off" -le 10 ]; then
+        ok "and shows it in the middle of the screen (${key_w}px wide, ${key_l}px | ${key_r}px either side)"
+    else
+        bad "the middle of the screen shows ${key_w}px of panel, ${key_l}px from the
       left of the box and ${key_r}px from its right — 0 wide means it is not
       there; uneven gaps mean it is not centred"
-fi
-if [ "$key_h" -ge $((three_h + 40)) ]; then
-    ok "and each card grows its buttons (${key_h}px tall vs ${three_h}px)"
-else
-    bad "the keyboard's cards are ${key_h}px tall against ${three_h}px tucked away —
+    fi
+    if [ "$key_h" -ge $((three_h + 40)) ]; then
+        ok "and each card grows its buttons (${key_h}px tall vs ${three_h}px)"
+    else
+        bad "the keyboard's cards are ${key_h}px tall against ${three_h}px tucked away —
       the action rows are missing"
+    fi
+else
+    echo "  SKIP  the panel in the middle of the screen, and its buttons (needs a still middle)"
 fi
 
 # Escape needs a key pressed on the panel, which only wtype can do here. The
@@ -277,7 +291,6 @@ if command -v wtype >/dev/null; then
     settle
     shot released || exit 1
     read -r rel_w rel_h < <(measure released)
-    read -r rel_mid_w _ < <(measure released centre)
     delta=$(( rel_h > three_h ? rel_h - three_h : three_h - rel_h ))
     if [ "$rel_w" -le $((PEEK + 30)) ] && [ "$delta" -le 6 ]; then
         ok "Escape puts it back to the one-line peek (${rel_w}x${rel_h}px)"
@@ -285,8 +298,11 @@ if command -v wtype >/dev/null; then
         bad "after Escape the right edge shows ${rel_w}x${rel_h}px, expected the
       ${three_w}x${three_h}px peek it started from"
     fi
-    [ "$rel_mid_w" -eq 0 ] && ok "and leaves the middle of the screen clear" \
-        || bad "after Escape the middle of the screen still shows ${rel_mid_w}px of panel"
+    if [ "$CENTRE" -eq 1 ]; then
+        read -r rel_mid_w _ < <(measure released centre)
+        [ "$rel_mid_w" -eq 0 ] && ok "and leaves the middle of the screen clear" \
+            || bad "after Escape the middle of the screen still shows ${rel_mid_w}px of panel"
+    fi
 else
     echo "  SKIP  Escape back to the peek (needs wtype)"
 fi
