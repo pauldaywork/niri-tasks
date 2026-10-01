@@ -32,7 +32,7 @@
 # What it cannot check is the hover: nothing can move the pointer, so the slide
 # out, the slide back and clicks passing beside the peek are checked by hand
 # (README, "Testing"). The keyboard it can: `task panel` moves the panel to the
-# middle of the screen, and with wtype, Down and Escape are pressed in the
+# middle of the screen, and with wtype, Down, the filter tabs' keys and Escape are pressed in the
 # nested niri, never on your desktop.
 set -uo pipefail
 
@@ -217,7 +217,8 @@ fi
 "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
 settle
 shot keyboard || { summary; exit 1; }
-read -r x0 x1 _ _ < <(measure keyboard)
+read -r x0 x1 y0 y1 < <(measure keyboard)
+keyboard_h=$((y1 - y0))
 if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ]; then
     ok "the keyboard takes the panel off the right edge to the middle (columns ${x0}-${x1})"
 else
@@ -231,6 +232,52 @@ fi
 # two cards: their columns, and with their action rows, well over twice the
 # height of one card's one-line peek.
 if command -v wtype >/dev/null; then
+    # 3 is the Planned tab, and none of these tasks is planned: the panel
+    # keeps the keyboard in the middle, with the tabs and one line saying so,
+    # shorter than the three cards it had.
+    "${NENV[@]}" wtype 3
+    sleep 1
+    shot tab_planned || { summary; exit 1; }
+    read -r x0 x1 y0 y1 < <(measure tab_planned)
+    if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ] &&
+        [ "$((y1 - y0))" -lt "$keyboard_h" ]; then
+        ok "an empty tab keeps the panel in the middle, shorter (${keyboard_h}px to $((y1 - y0))px)"
+    else
+        bad "on the empty Planned tab the panel covers columns ${x0}-${x1}, rows ${y0}-${y1},
+      against ${keyboard_h}px tall on All — 0-0 means it gave up the keyboard"
+    fi
+
+    # 1 is All again, with focus back on the first card: the first frame.
+    "${NENV[@]}" wtype 1
+    sleep 1
+    shot tab_all || { summary; exit 1; }
+    if same keyboard tab_all; then
+        ok "1 brings back All, focus on the first card, as the panel opened"
+    else
+        bad "after 3 then 1 the panel is not as it opened on All"
+    fi
+
+    # [ stops at All; ] twice reaches Planned, as 3 did.
+    "${NENV[@]}" wtype -k bracketleft
+    sleep 1
+    shot tab_left || { summary; exit 1; }
+    if same keyboard tab_left; then
+        ok "[ on the first tab stays there"
+    else
+        bad "[ on All changed the panel; it should stop at the end"
+    fi
+    "${NENV[@]}" wtype -k bracketright
+    "${NENV[@]}" wtype -k bracketright
+    sleep 1
+    shot tab_right || { summary; exit 1; }
+    if same tab_planned tab_right; then
+        ok "] twice steps from All to Planned"
+    else
+        bad "] twice from All is not the Planned tab 3 showed"
+    fi
+    "${NENV[@]}" wtype 1
+    sleep 1
+
     "${NENV[@]}" wtype -k Down
     sleep 1
     shot keyboard_down || { summary; exit 1; }
@@ -249,6 +296,10 @@ if command -v wtype >/dev/null; then
       one tucked away — the action rows are missing"
     fi
 
+    # Escape from a tab other than All: the hover panel has no tabs, so it
+    # comes back exactly as before, and the next keyboard opens on All.
+    "${NENV[@]}" wtype 3
+    sleep 1
     "${NENV[@]}" wtype -k Escape
     settle
     shot released || { summary; exit 1; }
@@ -259,8 +310,19 @@ if command -v wtype >/dev/null; then
         bad "after Escape the screen differs from the tucked panel in columns
       ${x0}-${x1}, rows ${y0}-${y1}"
     fi
+
+    "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
+    settle
+    shot reopened || { summary; exit 1; }
+    if same keyboard reopened; then
+        ok "taking the keyboard again opens on All, whatever tab it was left on"
+    else
+        bad "the keyboard reopened on something other than All with the first card focused"
+    fi
+    "${NENV[@]}" wtype -k Escape
+    settle
 else
-    skip "the panel's cards in the middle of the screen, their buttons, and Escape back (needs wtype)"
+    skip "the panel's cards in the middle of the screen, their buttons, the filter tabs, and Escape back (needs wtype)"
 fi
 
 # ─── nothing pending shows nothing ───────────────────────────────────────────
