@@ -9,390 +9,254 @@
 # for, not the size it got, and a layer surface that was never mapped reports
 # nothing wrong while showing nothing at all — both have happened before.
 #
-# So this measures pixels. Every frame is compared against a baseline taken with
-# no tasks, and what is measured is the region on the right edge that differs:
-# that region is the peek. It runs its own daemon against a sandboxed TASKDATA
-# and never touches the real task database.
+# So this measures pixels, on a screen of its own. It starts a nested niri — a
+# window on yours, with its own runtime dir, sockets and one 1600x1000 output
+# of flat colour — and runs its own daemon in it against a sandboxed TASKDATA.
+# Nothing on your desktop can reach those frames: not the wallpaper, not a
+# terminal redrawing, not a window rule or a notification or the pointer. Your
+# own niri-tasks daemon keeps running throughout and never sees these tasks.
 #
-# What it cannot check is the hover: nothing on this machine can move the
-# pointer, so the slide out, the slide back, and clicks passing beside the peek
-# are checked by hand (README, "Testing"). The keyboard it can: `task panel`
-# moves the panel to the middle of the screen, and with wtype installed, Escape
-# puts it back on the right edge.
+# Because the screen is flat and fixed, the numbers are exact: the peek starts
+# at column 1566, the keyboard's cards span 420-1180, and a frame that should
+# not have changed is compared pixel for pixel. A parked nested niri draws only
+# when asked, so its first frame after a change can be stale; every frame is
+# shot until two in a row match.
 #
-# It needs the right edge of the screen to hold still, so it checks that first
-# and says so rather than producing a flaky answer; an animated wallpaper never
-# does. Where the keyboard puts the panel is measured between two frames of it,
-# so only the check that Escape clears the middle needs the middle to hold
-# still too; when it does not (this is often run from a terminal sitting
-# there) that one is skipped. Do not switch workspaces while it runs: the
-# panel follows the workspace, and so does the tag its tasks are filed under.
-# And not over a fullscreen window, which covers the panel.
+# The nested window is parked, floating and unfocused, on the last workspace of
+# the monitor you start it from. Keep off that workspace while it runs: going
+# there focuses the window, and keys typed then would reach the panel. If that
+# happens the run fails and says so, rather than measuring frames it can no
+# longer trust.
 #
-# Park the pointer away from the right edge and the middle first. A pointer
-# resting against the edge is inside the panel once it grows tall enough, and
-# the panel slides out for it exactly as it should — which reads here as a peek
-# 300px wide.
+# What it cannot check is the hover: nothing can move the pointer, so the slide
+# out, the slide back and clicks passing beside the peek are checked by hand
+# (README, "Testing"). The keyboard it can: `task panel` moves the panel to the
+# middle of the screen, and with wtype, Down and Escape are pressed in the
+# nested niri, never on your desktop.
 set -uo pipefail
 
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
 command -v task >/dev/null || { echo "taskwarrior is required" >&2; exit 1; }
 [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)" >&2; exit 1; }
+[ -n "${WAYLAND_DISPLAY:-}" ] || { echo "no Wayland display to open the nested niri on" >&2; exit 1; }
 python3 -c "import PIL" 2>/dev/null || {
     echo "python3 Pillow is required: sudo apt install python3-pil" >&2; exit 1; }
 
 NIRITASKS="${NIRITASKS:-niritasks}"
 
-# Mirrors PEEK_PX in src/panel/surface.rs.
+# The nested niri's one output, in pixels: the size its window is parked at.
+OUT_W=1600
+OUT_H=1000
+# Mirror PEEK_PX, RING_PX and SURFACE_WIDTH in src/panel/surface.rs, and
+# CARD_WIDTH_PX in src/panel/style.rs.
 PEEK=30
+RING=4
+CARD=760
+SURFACE=784
+# Where the tucked peek starts: the peek, and the card's outline ring drawn
+# outside it.
+PEEK_X=$((OUT_W - PEEK - RING))
+# Where the keyboard's cards start, in the middle of the screen.
+CARD_X=$(((OUT_W - CARD) / 2))
+# The centred surface, shadow and all.
+SURFACE_LEFT=$(((OUT_W - SURFACE) / 2))
+SURFACE_RIGHT=$((SURFACE_LEFT + SURFACE))
 
 SB="$(mktemp -d)"
+# Short on purpose: the nested niri's sockets and the daemon's go in here, and
+# a Unix socket path longer than ~108 characters cannot be bound.
+RT="$(mktemp -d /tmp/nte2e.XXXXXX)"
 mkdir -p "$SB/data" "$SB/shots"
 printf 'data.location=%s/data\n' "$SB" > "$SB/taskrc"
 export TASKRC="$SB/taskrc" TASKDATA="$SB/data"
 
-DAEMON=""
-WAS_ACTIVE=$(systemctl --user is-active niri-tasks.service 2>/dev/null || echo inactive)
+# The nested niri connects to this one by its absolute path, since its own
+# XDG_RUNTIME_DIR is somewhere else.
+case "$WAYLAND_DISPLAY" in
+    /*) PARENT_WAYLAND="$WAYLAND_DISPLAY" ;;
+    *) PARENT_WAYLAND="${XDG_RUNTIME_DIR:?}/$WAYLAND_DISPLAY" ;;
+esac
+
+# The real daemon is never touched; this is how the end of the run proves it.
+SERVICE_PID=$(systemctl --user show -p MainPID --value niri-tasks.service 2>/dev/null || echo 0)
+
+NESTED=""; WIN=""; WATCH=""; DAEMON=""
 cleanup() {
-    [ -n "$DAEMON" ] && kill "$DAEMON" 2>/dev/null
-    [ "$WAS_ACTIVE" = active ] && systemctl --user start niri-tasks.service 2>/dev/null
+    [ -n "$WATCH" ] && kill "$WATCH" 2>/dev/null && wait "$WATCH" 2>/dev/null
+    [ -n "$DAEMON" ] && kill "$DAEMON" 2>/dev/null && wait "$DAEMON" 2>/dev/null
+    # Its window closes with it, and niri drops the workspace it leaves empty.
+    [ -n "$NESTED" ] && kill "$NESTED" 2>/dev/null && wait "$NESTED" 2>/dev/null
+    rm -rf "$RT"
     if [ -n "${NIRITASKS_E2E_KEEP:-}" ]; then
         echo "frames kept in $SB/shots"
     else
         rm -rf "$SB"
     fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 1' INT TERM
 
 pass=0; fail=0; skipped=0
-ok()  { echo "  PASS  $*"; pass=$((pass+1)); }
-bad() { echo "  FAIL  $*"; fail=$((fail+1)); }
+ok()   { echo "  PASS  $*"; pass=$((pass+1)); }
+bad()  { echo "  FAIL  $*"; fail=$((fail+1)); }
 skip() { echo "  SKIP  $*"; skipped=$((skipped+1)); }
+die()  { echo "$*" >&2; exit 1; }
+summary() { echo; echo "passed: $pass   failed: $fail   skipped: $skipped"; }
 
-# The panel on the focused monitor shows that monitor's workspace, which is the
-# focused workspace — so its tasks have to carry the focused workspace's tag.
-TAG=$("$NIRITASKS" tag 2>/dev/null)
-[ -n "$TAG" ] || { echo "this workspace has no name, so the panel has nothing to show" >&2; exit 1; }
+# ─── a niri of its own ───────────────────────────────────────────────────────
+# Animations off, so niri itself never draws a frame in between; the panel's
+# slide is its own and still runs. A flat background, so a frame with nothing
+# on it is the same every time. One named workspace, which is the tag the
+# panel's tasks are filed under. The startup command is how the test learns
+# the nested niri's own sockets.
+cat > "$SB/niri.kdl" <<EOF
+hotkey-overlay { skip-at-startup; }
+animations { off; }
+xwayland-satellite { off; }
+output "winit" { scale 1; }
+layout { background-color "#406080"; }
+workspace "e2e"
+spawn-sh-at-startup "env > $SB/nested.env.tmp && mv $SB/nested.env.tmp $SB/nested.env"
+EOF
 
-# Where niri drops screenshots. There is no option to write one somewhere else,
-# so the file it makes is moved into the sandbox and nothing already in that
-# directory is read or removed.
-SHOTDIR=$(python3 - <<'PY'
-import os, pathlib
-cfg = pathlib.Path.home() / ".config/niri/config.kdl"
-path = "~/Pictures/Screenshots/x.png"
-if cfg.is_file():
-    for line in cfg.read_text().splitlines():
-        line = line.strip()
-        if line.startswith("screenshot-path") and '"' in line:
-            path = line.split('"')[1]
-            break
-print(os.path.dirname(os.path.expanduser(path)))
+# The parent's windows that are already nested niris, so the new one can be
+# told apart from them.
+niri_windows() {
+    niri msg -j windows | python3 -c '
+import json, sys
+print(" ".join(str(w["id"]) for w in json.load(sys.stdin) if w["app_id"] == "niri"))'
+}
+before=$(niri_windows) || die "cannot list this niri's windows"
+
+env -u NIRI_SOCKET XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$PARENT_WAYLAND" \
+    niri -c "$SB/niri.kdl" >"$SB/niri.log" 2>&1 &
+NESTED=$!
+
+for _ in $(seq 1 50); do
+    [ -s "$SB/nested.env" ] && break
+    kill -0 "$NESTED" 2>/dev/null || break
+    sleep 0.2
+done
+[ -s "$SB/nested.env" ] || die "the nested niri did not start:
+$(tail -n 20 "$SB/niri.log")"
+N_SOCKET=$(sed -n 's/^NIRI_SOCKET=//p' "$SB/nested.env")
+N_WAYLAND=$(sed -n 's/^WAYLAND_DISPLAY=//p' "$SB/nested.env")
+[ -n "$N_SOCKET" ] && [ -n "$N_WAYLAND" ] || die "the nested niri gave its programs no NIRI_SOCKET or WAYLAND_DISPLAY"
+NENV=(env XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$N_WAYLAND" NIRI_SOCKET="$N_SOCKET")
+
+for _ in $(seq 1 25); do
+    WIN=$(python3 -c '
+import sys
+new = set(sys.argv[2].split()) - set(sys.argv[1].split())
+print(new.pop() if len(new) == 1 else "")' "$before" "$(niri_windows)")
+    [ -n "$WIN" ] && break
+    sleep 0.2
+done
+[ -n "$WIN" ] || die "the nested niri's window never appeared on this niri"
+echo "nested niri: window $WIN, sockets in $RT"
+
+# ─── park it out of the way ──────────────────────────────────────────────────
+# Floating, so its size is exactly what is set; on the last workspace of its
+# monitor, which niri always keeps empty; and without the focus, which stays
+# on the window it opened over.
+niri msg action move-window-to-floating --id "$WIN" >/dev/null
+niri msg action set-window-width --id "$WIN" "$OUT_W" >/dev/null
+niri msg action set-window-height --id "$WIN" "$OUT_H" >/dev/null
+spare=$(python3 -c '
+import json, subprocess, sys
+get = lambda what: json.loads(subprocess.run(["niri", "msg", "-j", what],
+                                             capture_output=True, text=True, check=True).stdout)
+win = next(w for w in get("windows") if w["id"] == int(sys.argv[1]))
+spaces = get("workspaces")
+output = next(s["output"] for s in spaces if s["id"] == win["workspace_id"])
+print(max(s["idx"] for s in spaces if s["output"] == output))' "$WIN") ||
+    die "cannot find a spare workspace for the nested niri"
+niri msg action move-window-to-workspace --window-id "$WIN" --focus false "$spare" >/dev/null
+
+# Why the nested window can no longer be trusted, or nothing while it can.
+focus_reason() {
+    python3 - "$WIN" 2>/dev/null <<'PY'
+import json, subprocess, sys
+get = lambda what: json.loads(subprocess.run(["niri", "msg", "-j", what],
+                                             capture_output=True, text=True, check=True).stdout)
+win = next((w for w in get("windows") if w["id"] == int(sys.argv[1])), None)
+if win is None:
+    print("the nested niri's window is gone")
+elif win["is_focused"]:
+    print("the nested niri's window has the focus")
+else:
+    space = next((s for s in get("workspaces") if s["id"] == win["workspace_id"]), None)
+    if space is not None and space["is_active"]:
+        print(f"the nested niri's workspace ({space['output']}, {space['idx']}) is on screen")
 PY
-)
-[ -d "$SHOTDIR" ] || { echo "screenshot directory $SHOTDIR does not exist" >&2; exit 1; }
+}
 
-# Take a screenshot and claim only the file it produced.
-shot() {
-    local label="$1" before after new
-    before=$(mktemp); after=$(mktemp)
-    ls -1 "$SHOTDIR" > "$before" 2>/dev/null
-    # Without the pointer, which niri hides and shows again on its own, and
-    # which would otherwise read as a few columns of panel.
-    niri msg action screenshot-screen --show-pointer false >/dev/null 2>&1
-    for _ in $(seq 1 30); do
-        ls -1 "$SHOTDIR" > "$after" 2>/dev/null
-        new=$(comm -13 "$before" "$after" | head -1)
-        [ -n "$new" ] && break
-        sleep 0.2
+for _ in $(seq 1 25); do
+    [ -z "$(focus_reason)" ] && break
+    sleep 0.2
+done
+why=$(focus_reason)
+[ -z "$why" ] || die "could not park the nested niri: $why"
+
+for _ in $(seq 1 25); do
+    size=$("${NENV[@]}" niri msg -j outputs 2>/dev/null | python3 -c '
+import json, sys
+o = next(iter(json.load(sys.stdin).values()))["logical"]
+print(o["width"], o["height"])' 2>/dev/null)
+    [ "$size" = "$OUT_W $OUT_H" ] && break
+    sleep 0.2
+done
+[ "$size" = "$OUT_W $OUT_H" ] || die "the nested niri's output is ${size:-unknown}, not ${OUT_W}x${OUT_H}"
+ok "the nested niri is parked unfocused on a spare workspace, ${OUT_W}x${OUT_H}"
+
+# From here on, the window must stay unfocused and off screen. This watches
+# for the whole run; guard ends the run the moment it has seen otherwise.
+watch_focus() {
+    local why
+    while sleep 0.25; do
+        why=$(focus_reason)
+        [ -n "$why" ] && { echo "$why" > "$SB/tampered"; return; }
     done
-    rm -f "$before" "$after"
-    [ -n "$new" ] || { bad "no screenshot appeared in $SHOTDIR"; return 1; }
-    # niri names the file before it finishes writing it.
-    sleep 0.5
-    mv "$SHOTDIR/$new" "$SB/shots/$label.png"
+}
+watch_focus &
+WATCH=$!
+guard() {
+    [ -s "$SB/tampered" ] || return 0
+    bad "$(cat "$SB/tampered") — anything typed there would reach the panel,
+      so its frames can no longer be trusted. Keep off that workspace while
+      this runs"
+    summary
+    exit 1
 }
 
-# Compare a frame against the baseline and print "<width> <height>" of the
-# panel: the span of columns, and of rows, that changed over most of a run.
-# With "centre" it looks at the middle of the screen instead of the right edge,
-# and adds "<left> <right>": the unchanged columns either side of the panel in
-# that box, which match when the panel is centred.
-#
-# Counting changed pixels does not work: the cards are translucent, so much of
-# them differs from the wallpaper by only a few levels, while a window
-# redrawing under the strip differs by a lot. What separates them is shape. A
-# card is a solid block, so every column through the peek changes down most of
-# a card's height and every row through it changes across most of the peek,
-# while noise changes a handful of pixels. Columns and rows over MIN_RUN are
-# panel and nothing else.
-measure() {
-    python3 - "$SB/shots/${3:-baseline}.png" "$SB/shots/$1.png" "${2:-right}" <<'PY'
-import sys
-from PIL import Image, ImageChops
-
-SENSITIVITY = 6   # levels of difference that count as changed at all
-MIN_RUN = 20      # changed pixels in a line before it is panel rather than noise
-
-base = Image.open(sys.argv[1]).convert("RGB")
-frame = Image.open(sys.argv[2]).convert("RGB")
-region = sys.argv[3]
-w, h = base.size
-if region == "centre":
-    # The middle half of the screen, both ways, and symmetric about its
-    # centre, so a centred panel leaves equal gaps either side. Clear of the
-    # screenshot notifications, which stack down from the top right corner.
-    box = (w // 4, h // 4, w - w // 4, h - h // 4)
-elif region == "cards":
-    # The whole screen but the column the screenshot notifications stack down,
-    # for two frames of the keyboard's panel, where only the cards change.
-    box = (0, 0, w - 400, h)
-else:
-    # The right edge, well wider than the peek so an overlong one is seen, and
-    # a band across the middle, where a vertically centred panel sits.
-    #
-    # The band is kept narrow on purpose. Every screenshot this takes makes
-    # niri post a "Screenshot captured" notification, and they stack down from
-    # the top right — into the very strip being measured, by the third shot, if
-    # it runs much above the middle. Three cards fit in this band with room to
-    # spare.
-    box = (w - 300, int(h * 0.36), w, int(h * 0.64))
-mask = (ImageChops.difference(base.crop(box), frame.crop(box))
-        .convert("L")
-        .point(lambda p: 255 if p > SENSITIVITY else 0))
-px = mask.load()
-cw, ch = mask.size
-cols = [x for x in range(cw) if sum(1 for y in range(ch) if px[x, y]) >= MIN_RUN]
-rows = [y for y in range(ch) if sum(1 for x in range(cw) if px[x, y]) >= MIN_RUN]
-width = (cols[-1] - cols[0] + 1) if cols else 0
-height = (rows[-1] - rows[0] + 1) if rows else 0
-if region == "centre":
-    left = cols[0] if cols else 0
-    right = (cw - 1 - cols[-1]) if cols else 0
-    print(width, height, left, right)
-elif region == "cards":
-    # The gaps to the screen's own edges, not the box's.
-    left = cols[0] if cols else 0
-    right = (w - 1 - cols[-1]) if cols else 0
-    print(width, height, left, right)
-else:
-    print(width, height)
-PY
-}
-
-# The focused output's scale, which turns the panel's logical pixels into the
-# screenshot's.
-output_scale() {
-    niri msg -j focused-output 2>/dev/null |
-        python3 -c 'import json,sys; print(json.load(sys.stdin)["logical"]["scale"])' 2>/dev/null
-}
-
-# Whether the centred panel (half of the 784px surface, scaled, right of the
-# middle) ends left of the last <strip> pixels of the screen.
-clear_of_edge() {  # strip
-    local scale
-    scale=$(output_scale) || return 1
-    python3 - "$SB/shots/baseline.png" "$scale" "$1" <<'PY'
-import sys
-from PIL import Image
-w = Image.open(sys.argv[1]).size[0]
-sys.exit(0 if w / 2 + 392 * float(sys.argv[2]) < w - int(sys.argv[3]) else 1)
-PY
-}
-
+# ─── its own daemon ──────────────────────────────────────────────────────────
 add() {  # description
     task rc.verbose=nothing rc.confirmation=no add "+$TAG" -- "$1" >/dev/null 2>&1
 }
 settle() { sleep 2; }  # the daemon ticks every 700ms
 
-# Our own daemon, against the sandbox. The real one has to go first or two
-# panels would draw on top of each other.
-systemctl --user stop niri-tasks.service 2>/dev/null
-sleep 1
-"$NIRITASKS" daemon >"$SB/daemon.err" 2>&1 &
+TAG=$("${NENV[@]}" "$NIRITASKS" tag 2>/dev/null)
+if [ "$TAG" = e2e ]; then
+    ok "the nested niri's workspace files its tasks under e2e"
+else
+    bad "the nested niri's workspace reads as tag '${TAG}', expected e2e"
+    summary; exit 1
+fi
+
+"${NENV[@]}" "$NIRITASKS" daemon >"$SB/daemon.err" 2>&1 &
 DAEMON=$!
 sleep 3
+kill -0 "$DAEMON" 2>/dev/null || die "the daemon exited at once:
+$(tail -n 20 "$SB/daemon.err")"
 
-echo "workspace tag: $TAG   screenshots via $SHOTDIR"
-
-# ─── baseline, and whether it can be trusted ─────────────────────────────────
-shot baseline || exit 1
-shot stillness || exit 1
-read -r noise _ < <(measure stillness)
-if [ "$noise" -eq 0 ]; then
-    ok "the right edge holds still between two identical frames"
+# ─── the real daemon, untouched ──────────────────────────────────────────────
+guard
+now=$(systemctl --user show -p MainPID --value niri-tasks.service 2>/dev/null || echo 0)
+if [ "$now" = "$SERVICE_PID" ]; then
+    ok "niri-tasks.service was left alone (main pid ${now})"
 else
-    bad "the right edge is not static ($noise columns changed between two
-      identical frames) — move or close whatever is animating there, or this
-      measures that instead of the panel"
-    echo; echo "passed: $pass   failed: $fail   skipped: $skipped"; exit 1
-fi
-# The middle is only needed to see it clear again after Escape, and a
-# terminal running this script usually sits right there, redrawing.
-read -r mid_noise _ < <(measure stillness centre)
-if [ "$mid_noise" -eq 0 ]; then
-    ok "the middle of the screen holds still too"
-    CENTRE=1
-else
-    skip "the middle of the screen clear after Escape: the middle is not static ($mid_noise columns changed)"
-    CENTRE=0
+    bad "niri-tasks.service changed under the run: main pid ${SERVICE_PID} before, ${now} after"
 fi
 
-# ─── one task: a peek on the right edge ──────────────────────────────────────
-add "ship it"
-settle
-shot one || exit 1
-read -r one_w one_h < <(measure one)
-if [ "$one_w" -ge $((PEEK - 20)) ] && [ "$one_w" -le $((PEEK + 30)) ]; then
-    ok "one task pokes out a peek (${one_w}px wide, ~${PEEK}px expected)"
-else
-    bad "the panel is ${one_w}px wide on the right edge, expected ~${PEEK}px —
-      0 means nothing drew; much more means it is not tucked away.
-      NIRITASKS_E2E_KEEP=1 keeps the frames to tell which"
-fi
-
-# ─── three tasks: taller, same peek ──────────────────────────────────────────
-add "write the glossary"
-add "a much longer description that has to ellipsise rather than wrap onto a second line"
-settle
-shot three || exit 1
-read -r three_w three_h < <(measure three)
-if [ "$one_h" -gt 0 ] && [ "$three_h" -gt $((one_h * 2)) ]; then
-    ok "three tasks stack three cards (${three_h}px tall vs ${one_h}px for one)"
-else
-    bad "three tasks drew ${three_h}px of panel against ${one_h}px for one —
-      the cards are not stacking, or a long one wrapped"
-fi
-delta=$(( three_w > one_w ? three_w - one_w : one_w - three_w ))
-[ "$delta" -le 6 ] && ok "and the peek stays the same width (${three_w}px)" \
-    || bad "the peek changed width with the task count: ${three_w}px vs ${one_w}px —
-      if it is ~300px the panel slid out, which is what it does when the pointer
-      is resting against the right edge; move the pointer away and run again"
-
-# ─── a task on another tag stays off this panel ──────────────────────────────
-task rc.verbose=nothing rc.confirmation=no add +niritasks_e2e_elsewhere -- "not here" >/dev/null 2>&1
-settle
-shot elsewhere || exit 1
-read -r _ other_h < <(measure elsewhere)
-delta=$(( other_h > three_h ? other_h - three_h : three_h - other_h ))
-[ "$delta" -le 6 ] && ok "a task on another workspace's tag does not appear" \
-    || bad "the panel changed height (${other_h}px vs ${three_h}px) for a task on another tag"
-
-# ─── the keyboard: every card wrapped, with its buttons, mid-screen ──────────
-# `task panel` is the keybind's command: it asks this sandbox's daemon to hand
-# its panel the keyboard. The panel leaves the right edge for the middle of the
-# screen, so the right edge goes back to the baseline, and its cards sit the
-# same distance from either side of the screen. Each card grows an action row,
-# so two of them stand well over twice as tall as one card's one-line peek.
-"$NIRITASKS" task panel >/dev/null 2>&1
-settle
-shot keyboard || exit 1
-read -r key_edge_w _ < <(measure keyboard)
-# The centred surface reaches 392px (times the output scale) right of the
-# middle. On a screen too narrow for that to stay left of the strip measured,
-# the panel can legitimately show there.
-if clear_of_edge 300; then
-    if [ "$key_edge_w" -eq 0 ]; then
-        ok "the keyboard takes the panel off the right edge"
-    else
-        bad "the right edge still shows ${key_edge_w}px of panel with the keyboard —
-      the surface did not move off the edge"
-    fi
-else
-    skip "the panel off the right edge (the screen is too narrow, or its scale unknown, for the centred panel to stay clear of the last 300px)"
-fi
-# Where the cards are is measured between two frames of the keyboard's panel,
-# not against the baseline: taking the keyboard unfocuses the terminal running
-# this, and a niri window rule may fade an unfocused window out entirely, which
-# would read as a panel the size of the terminal. Down moves the darker fill
-# from the first card to the second, and nothing else in the frame changes, so
-# what differs is exactly two cards: their width, and their gaps to the edges
-# of the screen.
-if ! command -v wtype >/dev/null; then
-    skip "the panel in the middle of the screen, and its buttons (needs wtype)"
-elif ! scale=$(output_scale) || ! clear_of_edge 400; then
-    skip "the panel in the middle of the screen (the screen is too narrow, or its scale unknown, to tell it from the notifications)"
-else
-    wtype -k Down
-    sleep 1
-    shot keyboard_down || exit 1
-    read -r key_w key_h key_l key_r < <(measure keyboard_down cards keyboard)
-    card=$(python3 -c "print(round(760 * $scale))")
-    off=$(( key_l > key_r ? key_l - key_r : key_r - key_l ))
-    if [ "$key_w" -gt $((card + 40)) ]; then
-        skip "the panel in the middle of the screen: ${key_w}px changed between two
-      frames of it, wider than its ${card}px cards — something else on screen moved"
-    elif [ "$key_w" -ge $((card - 40)) ] && [ "$off" -le 10 ]; then
-        ok "and shows it in the middle of the screen (${key_w}px of cards, ${key_l}px | ${key_r}px either side)"
-    else
-        bad "the keyboard's cards are ${key_w}px wide (expected ~${card}px), ${key_l}px
-      from the screen's left and ${key_r}px from its right — 0 wide means the
-      focus did not move; uneven gaps mean the panel is not centred"
-    fi
-    # Two cards with their buttons, against two of the one-line peek.
-    if [ "$key_w" -le $((card + 40)) ]; then
-        if [ "$key_h" -ge $((one_h * 2 + 40)) ]; then
-            ok "and each card grows its buttons (${key_h}px for two cards vs ${one_h}px for one tucked away)"
-        else
-            bad "two of the keyboard's cards are ${key_h}px tall against ${one_h}px for
-      one tucked away — the action rows are missing"
-        fi
-    fi
-fi
-
-# Escape needs a key pressed on the panel, which only wtype can do here. The
-# next section gives the keyboard back regardless: a panel with no tasks lets
-# it go.
-if command -v wtype >/dev/null; then
-    wtype -k Escape
-    settle
-    shot released || exit 1
-    read -r rel_w rel_h < <(measure released)
-    delta=$(( rel_h > three_h ? rel_h - three_h : three_h - rel_h ))
-    if [ "$rel_w" -le $((PEEK + 30)) ] && [ "$delta" -le 6 ]; then
-        ok "Escape puts it back to the one-line peek (${rel_w}x${rel_h}px)"
-    else
-        bad "after Escape the right edge shows ${rel_w}x${rel_h}px, expected the
-      ${three_w}x${three_h}px peek it started from"
-    fi
-    if [ "$CENTRE" -eq 1 ]; then
-        read -r rel_mid_w _ < <(measure released centre)
-        [ "$rel_mid_w" -eq 0 ] && ok "and leaves the middle of the screen clear" \
-            || bad "after Escape the middle of the screen still shows ${rel_mid_w}px of panel"
-    fi
-else
-    skip "Escape back to the peek (needs wtype)"
-fi
-
-# ─── nothing pending shows nothing ───────────────────────────────────────────
-# rc.bulk=0: completing more than two tasks at once otherwise stops to ask,
-# and with no terminal to answer, completes none of them.
-task rc.verbose=nothing rc.confirmation=no rc.bulk=0 "+$TAG" done </dev/null >/dev/null 2>&1
-settle
-shot empty || exit 1
-read -r empty_w _ < <(measure empty)
-[ "$empty_w" -eq 0 ] && ok "the panel goes away when the workspace has no tasks" \
-    || bad "something is still drawn with no tasks (${empty_w}px wide)"
-
-# ─── the map-once trap: a daemon that starts with nothing to show ────────────
-# A layer surface that has never been mapped does not respond to a later
-# present(), so this once stayed invisible for an entire session however many
-# tasks were added afterwards.
-kill "$DAEMON" 2>/dev/null; wait "$DAEMON" 2>/dev/null
-sleep 1
-"$NIRITASKS" daemon >"$SB/daemon2.err" 2>&1 &
-DAEMON=$!
-sleep 3
-add "after a cold start"
-settle
-shot cold_start || exit 1
-read -r cold_w _ < <(measure cold_start)
-if [ "$cold_w" -gt 0 ]; then
-    ok "a daemon started with nothing to show still shows the next task (${cold_w}px)"
-else
-    bad "nothing appeared after a cold start with no tasks"
-fi
-
-echo
-echo "passed: $pass   failed: $fail   skipped: $skipped"
+summary
 [ "$fail" -eq 0 ]
