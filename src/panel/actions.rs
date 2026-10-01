@@ -19,6 +19,8 @@ pub enum Action {
     Refine,
     Edit,
     Stop,
+    /// Park the task: it leaves the panel until it is stopped again.
+    Wait,
     Remove,
 }
 
@@ -26,7 +28,7 @@ use Action::*;
 
 impl Action {
     /// In the order the buttons sit, left to right.
-    pub const ALL: [Action; 6] = [Session, Start, Refine, Edit, Stop, Remove];
+    pub const ALL: [Action; 7] = [Session, Start, Refine, Edit, Stop, Wait, Remove];
 
     /// What Remove reads between its first press and its second, the way the
     /// menu's delete asks "delete?" before it deletes.
@@ -57,13 +59,14 @@ impl Action {
             Refine => "Refine",
             Edit => "Edit",
             Stop => "Stop",
+            Wait => "Waiting",
             Remove => "Remove",
         }
     }
 
     /// What the button shows: a glyph, so the row stays narrow. Font Awesome's,
     /// from the same Nerd Font as the cards' lock: terminal, play, magic wand,
-    /// pencil, stop and trash can.
+    /// pencil, stop, pause and trash can.
     pub fn icon(self) -> &'static str {
         match self {
             Session => "\u{f120}",
@@ -71,6 +74,7 @@ impl Action {
             Refine => "\u{f0d0}",
             Edit => "\u{f040}",
             Stop => "\u{f04d}",
+            Wait => "\u{f04c}",
             Remove => "\u{f1f8}",
         }
     }
@@ -84,6 +88,7 @@ impl Action {
             Refine => "refine",
             Edit => "edit",
             Stop => "stop",
+            Wait => "wait",
             Remove => "remove",
         }
     }
@@ -98,6 +103,7 @@ impl Action {
             Refine => &["task", "refine", uuid],
             Edit => &["task", "edit", uuid],
             Stop => &["task", "status", uuid, "stopped"],
+            Wait => &["task", "status", uuid, "waiting"],
             Remove => &["task", "status", uuid, "deleted", "--yes"],
         };
         words.iter().map(|w| w.to_string()).collect()
@@ -111,14 +117,14 @@ mod tests {
     #[test]
     fn an_active_task_gets_stop_in_place_of_start() {
         let names: Vec<&str> = Action::for_status(Status::Active, false).iter().map(|a| a.name()).collect();
-        assert_eq!(names, vec!["refine", "edit", "stop", "remove"]);
+        assert_eq!(names, vec!["refine", "edit", "stop", "wait", "remove"]);
     }
 
     #[test]
     fn a_task_not_yet_active_gets_start_and_no_stop() {
         for status in [Status::Pending, Status::Blocked, Status::Planned] {
             let got = Action::for_status(status, false);
-            assert_eq!(got, vec![Action::Start, Action::Refine, Action::Edit, Action::Remove], "{status:?}");
+            assert_eq!(got, vec![Action::Start, Action::Refine, Action::Edit, Action::Wait, Action::Remove], "{status:?}");
         }
     }
 
@@ -128,12 +134,12 @@ mod tests {
     fn a_task_with_a_live_claude_gets_go_to_session_first() {
         assert_eq!(
             Action::for_status(Status::Active, true),
-            vec![Action::Session, Action::Refine, Action::Edit, Action::Stop, Action::Remove]
+            vec![Action::Session, Action::Refine, Action::Edit, Action::Stop, Action::Wait, Action::Remove]
         );
         // A refine open on a task not yet started.
         assert_eq!(
             Action::for_status(Status::Planned, true),
-            vec![Action::Session, Action::Start, Action::Refine, Action::Edit, Action::Remove]
+            vec![Action::Session, Action::Start, Action::Refine, Action::Edit, Action::Wait, Action::Remove]
         );
     }
 
@@ -146,7 +152,7 @@ mod tests {
     #[test]
     fn labels_read_as_the_menu_does() {
         let labels: Vec<&str> = Action::ALL.iter().map(|a| a.label()).collect();
-        assert_eq!(labels, vec!["Go to session", "Start working", "Refine", "Edit", "Stop", "Remove"]);
+        assert_eq!(labels, vec!["Go to session", "Start working", "Refine", "Edit", "Stop", "Waiting", "Remove"]);
         assert_eq!(Action::CONFIRM_REMOVE, "Confirm remove");
     }
 
@@ -168,6 +174,7 @@ mod tests {
         assert_eq!(Action::Refine.args(u), vec!["task", "refine", u]);
         assert_eq!(Action::Edit.args(u), vec!["task", "edit", u]);
         assert_eq!(Action::Stop.args(u), vec!["task", "status", u, "stopped"]);
+        assert_eq!(Action::Wait.args(u), vec!["task", "status", u, "waiting"]);
         assert_eq!(Action::Remove.args(u), vec!["task", "status", u, "deleted", "--yes"]);
     }
 

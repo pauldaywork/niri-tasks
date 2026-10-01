@@ -44,13 +44,15 @@ pub const TEXT: &str = "#f0f0f0";
 pub const ACTIVE: &str = "#8cd283";
 /// The keyboard's action buttons, each its own colour from the same Catppuccin
 /// palette as [`ACTIVE`] (mocha's): Go to session blue, Refine mauve, Edit
-/// yellow, Stop peach, Remove red. Start shares [`ACTIVE`]'s green, because
+/// yellow, Stop peach, Waiting teal, Remove red. Start shares [`ACTIVE`]'s green, because
 /// starting a task is what turns its card green.
 pub const REFINE: &str = "#cba6f7";
 /// Edit yellow.
 pub const EDIT: &str = "#f9e2af";
 /// Stop peach.
 pub const STOP: &str = "#fab387";
+/// Waiting teal.
+pub const WAIT: &str = "#94e2d5";
 /// Remove red.
 pub const REMOVE: &str = "#f38ba8";
 /// Go to session blue: mocha's `blue`, apart from every other button's colour.
@@ -59,12 +61,13 @@ pub const SESSION: &str = "#89b4fa";
 /// as dark on red.
 pub const ON_FILL: &str = "#1e1e2e";
 /// Each button's class, as `Action::name()` gives it, and its colour.
-pub const ACTION_COLOURS: [(&str, &str); 6] = [
+pub const ACTION_COLOURS: [(&str, &str); 7] = [
     ("session", SESSION),
     ("start", ACTIVE),
     ("refine", REFINE),
     ("edit", EDIT),
     ("stop", STOP),
+    ("wait", WAIT),
     ("remove", REMOVE),
 ];
 /// mako `border-radius`.
