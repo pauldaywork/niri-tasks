@@ -251,6 +251,87 @@ add() {  # description
 }
 settle() { sleep 2; }  # the daemon ticks every 700ms
 
+# Whether a frame loads: niri names the file before it has finished writing it.
+loads() {
+    python3 -c 'import sys; from PIL import Image; Image.open(sys.argv[1]).load()' "$1" 2>/dev/null
+}
+
+# Whether two frames are the same, pixel for pixel.
+same() {  # label label
+    python3 - "$SB/shots/$1.png" "$SB/shots/$2.png" <<'PY'
+import sys
+from PIL import Image, ImageChops
+a, b = (Image.open(p).convert("RGB") for p in sys.argv[1:3])
+sys.exit(0 if a.size == b.size and ImageChops.difference(a, b).getbbox() is None else 1)
+PY
+}
+
+# Shoot the nested screen, and keep the frame once two in a row match. Parked
+# off screen, the nested niri draws only when asked, so the first frame after
+# a change can still show the last one, or the panel half way through sliding.
+shot() {  # label
+    local label="$1" n
+    guard
+    rm -f "$SB/shots/.prev.png"
+    for n in $(seq 1 10); do
+        rm -f "$SB/shots/.this.png"
+        "${NENV[@]}" niri msg action screenshot-screen --show-pointer false \
+            --path "$SB/shots/.this.png" >/dev/null 2>&1
+        for _ in $(seq 1 25); do loads "$SB/shots/.this.png" && break; sleep 0.1; done
+        loads "$SB/shots/.this.png" || { bad "the nested niri wrote no screenshot for $label"; return 1; }
+        if [ "$n" -gt 1 ] && same .prev .this; then
+            mv "$SB/shots/.this.png" "$SB/shots/$label.png"
+            rm -f "$SB/shots/.prev.png"
+            guard
+            return 0
+        fi
+        mv "$SB/shots/.this.png" "$SB/shots/.prev.png"
+        sleep 0.3
+    done
+    bad "the nested screen never held still for $label: ten frames, no two alike"
+    return 1
+}
+
+frame_size() {  # label
+    python3 -c 'import sys; from PIL import Image; print(*Image.open(sys.argv[1]).size)' "$SB/shots/$1.png"
+}
+
+# Where a frame differs from another (the baseline unless given), as
+# "<x0> <x1> <y0> <y1>": the first column that changed and one past the last,
+# the same for rows; "0 0 0 0" when nothing did.
+#
+# A line counts only when more than MIN_RUN of its pixels changed by more than
+# SENSITIVITY levels. The cards' shadows fade into the background over many
+# pixels, and these two numbers are what put the panel's edge at the same
+# column every run; the exact expectations below were measured with them.
+measure() {  # label [against]
+    python3 - "$SB/shots/${2:-baseline}.png" "$SB/shots/$1.png" <<'PY'
+import sys
+from PIL import Image, ImageChops
+
+SENSITIVITY = 6   # levels of difference that count as changed at all
+MIN_RUN = 20      # changed pixels in a line before it is panel
+
+base = Image.open(sys.argv[1]).convert("RGB")
+frame = Image.open(sys.argv[2]).convert("RGB")
+mask = (ImageChops.difference(base, frame)
+        .convert("L")
+        .point(lambda p: 255 if p > SENSITIVITY else 0))
+
+def lines(img):
+    w, h = img.size
+    data = img.tobytes()
+    return [y for y in range(h) if data[y * w:(y + 1) * w].count(255) >= MIN_RUN]
+
+rows = lines(mask)
+cols = lines(mask.transpose(Image.Transpose.TRANSPOSE))
+if cols and rows:
+    print(cols[0], cols[-1] + 1, rows[0], rows[-1] + 1)
+else:
+    print(0, 0, 0, 0)
+PY
+}
+
 TAG=$("${NENV[@]}" "$NIRITASKS" tag 2>/dev/null)
 if [ "$TAG" = e2e ]; then
     ok "the nested niri's workspace files its tasks under e2e"
@@ -264,6 +345,56 @@ DAEMON=$!
 sleep 3
 kill -0 "$DAEMON" 2>/dev/null || die "the daemon exited at once:
 $(tail -n 20 "$SB/daemon.err")"
+
+# ─── baseline: the nested screen with nothing on it ──────────────────────────
+shot baseline || exit 1
+read -r base_w base_h < <(frame_size baseline)
+[ "$base_w $base_h" = "$OUT_W $OUT_H" ] ||
+    die "the nested screen shoots at ${base_w}x${base_h}, not ${OUT_W}x${OUT_H} — every number below assumes it"
+
+# ─── one task: a peek on the right edge ──────────────────────────────────────
+add "ship it"
+settle
+shot one || exit 1
+read -r x0 x1 y0 y1 < <(measure one)
+one_h=$((y1 - y0))
+if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ]; then
+    ok "one task pokes out a ${PEEK}px peek and its ${RING}px ring (columns ${x0}-${x1})"
+else
+    bad "one task drew columns ${x0}-${x1}, expected ${PEEK_X}-${OUT_W} —
+      0-0 means nothing drew; an earlier start means it is not tucked away.
+      NIRITASKS_E2E_KEEP=1 keeps the frames to tell which"
+fi
+
+# ─── three tasks: taller, same peek ──────────────────────────────────────────
+add "write the glossary"
+add "a much longer description that has to ellipsise rather than wrap onto a second line"
+settle
+shot three || exit 1
+read -r x0 x1 y0 y1 < <(measure three)
+three_h=$((y1 - y0))
+if [ "$one_h" -gt 0 ] && [ "$three_h" -gt $((one_h * 2)) ]; then
+    ok "three tasks stack three cards (${three_h}px tall vs ${one_h}px for one)"
+else
+    bad "three tasks drew ${three_h}px of panel against ${one_h}px for one —
+      the cards are not stacking, or a long one wrapped"
+fi
+if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ]; then
+    ok "and the peek stays the same width (columns ${x0}-${x1})"
+else
+    bad "the peek moved with the task count: columns ${x0}-${x1}, expected ${PEEK_X}-${OUT_W}"
+fi
+
+# ─── a task on another tag stays off this panel ──────────────────────────────
+task rc.verbose=nothing rc.confirmation=no add +niritasks_e2e_elsewhere -- "not here" >/dev/null 2>&1
+settle
+shot elsewhere || exit 1
+if same three elsewhere; then
+    ok "a task on another workspace's tag changes nothing on screen"
+else
+    read -r x0 x1 y0 y1 < <(measure elsewhere three)
+    bad "a task on another tag changed columns ${x0}-${x1}, rows ${y0}-${y1}"
+fi
 
 # ─── the real daemon, untouched ──────────────────────────────────────────────
 guard
