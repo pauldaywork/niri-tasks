@@ -70,6 +70,12 @@ pub const PEEK_PX: i32 = 30;
 /// contain or it is cut off square.
 const SHADOW_PX: i32 = 16;
 
+/// The spread of each card's outline ring (style.rs's `OUTLINE`), which is
+/// drawn outside the card's box. The scroller clips its content, so the column
+/// keeps this much margin inside it and the scroller is this much bigger than
+/// the cards on every side; SHADOW_PX already leaves the surface room for it.
+const RING_PX: i32 = 4;
+
 /// The expanded cards' distance from the screen edge, matching mako's
 /// `outer-margin`.
 const EDGE_GAP_PX: i32 = 8;
@@ -144,6 +150,10 @@ impl Panel {
         window.set_exclusive_zone(0);
 
         let column = gtk4::Box::new(gtk4::Orientation::Vertical, GAP_PX);
+        column.set_margin_top(RING_PX);
+        column.set_margin_bottom(RING_PX);
+        column.set_margin_start(RING_PX);
+        column.set_margin_end(RING_PX);
         let base = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         let overlay = gtk4::Overlay::new();
         overlay.set_child(Some(&base));
@@ -155,7 +165,9 @@ impl Panel {
         viewport.set_child(Some(&column));
         let scroller = gtk4::ScrolledWindow::builder()
             .hscrollbar_policy(gtk4::PolicyType::Never)
-            .vscrollbar_policy(gtk4::PolicyType::Automatic)
+            // External still scrolls (follow_focus, the wheel) but draws no
+            // bar over the Remove button or out of the 760px column's width.
+            .vscrollbar_policy(gtk4::PolicyType::External)
             .child(&viewport)
             .build();
         overlay.add_overlay(&scroller);
@@ -189,10 +201,10 @@ impl Panel {
             let slide = panel.slide.clone();
             overlay.connect_get_child_position(move |_, _| {
                 Some(gdk::Rectangle::new(
-                    slide.x.get().round() as i32,
-                    SHADOW_PX,
-                    CARD_WIDTH_PX,
-                    slide.cards_h.get(),
+                    slide.x.get().round() as i32 - RING_PX,
+                    SHADOW_PX - RING_PX,
+                    CARD_WIDTH_PX + 2 * RING_PX,
+                    slide.cards_h.get() + 2 * RING_PX,
                 ))
             });
         }
@@ -413,7 +425,11 @@ impl Panel {
         }
         *self.heights.borrow_mut() = heights;
 
-        let (_, cards_h, _, _) = self.column.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX);
+        // The column's margins are in what it measures, and in the width it
+        // is measured for; the cards' height is without them.
+        let (_, with_ring, _, _) =
+            self.column.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX);
+        let cards_h = with_ring - 2 * RING_PX;
         let shown = shown_height(cards_h, self.monitor.geometry().height());
         self.slide.cards_h.set(shown);
         let height = shown + 2 * SHADOW_PX;
@@ -603,8 +619,12 @@ impl Panel {
             let Some(card) = p.card_of(&focus) else { return };
             let Some(bounds) = card.compute_bounds(&p.column) else { return };
             let adjustment = p.scroller.vadjustment();
+            // Bounds are in the column; the viewport's content starts RING_PX
+            // above it, and the card's ring takes RING_PX on each side. So
+            // the card's ring box runs from its top to that plus its height
+            // and both rings, and scrolled there the card sits in the band.
             let top = bounds.y() as f64;
-            let bottom = top + bounds.height() as f64;
+            let bottom = top + bounds.height() as f64 + 2.0 * RING_PX as f64;
             adjustment.set_value(scroll_to_show(adjustment.value(), adjustment.page_size(), top, bottom));
         });
     }
