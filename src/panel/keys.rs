@@ -22,7 +22,7 @@ pub enum KeyAction {
     NextSlot,
     /// Press this button on the focused card, if it has one.
     Run(Action),
-    /// 1 to 4: show this filter tab's cards.
+    /// 1 to 5: show this filter tab's cards, when it is shown.
     Filter(Filter),
     /// [ and ]: the tab either side, stopping at the ends as the cards do.
     PrevFilter,
@@ -43,6 +43,7 @@ pub fn key_action(key: gdk::Key) -> KeyAction {
         gdk::Key::Left | gdk::Key::ISO_Left_Tab => KeyAction::PrevSlot,
         gdk::Key::Right | gdk::Key::Tab => KeyAction::NextSlot,
         gdk::Key::g => KeyAction::Run(Action::Session),
+        gdk::Key::b => KeyAction::Run(Action::Back),
         gdk::Key::s => KeyAction::Run(Action::Start),
         gdk::Key::r => KeyAction::Run(Action::Refine),
         gdk::Key::e => KeyAction::Run(Action::Edit),
@@ -52,6 +53,7 @@ pub fn key_action(key: gdk::Key) -> KeyAction {
         gdk::Key::_2 => KeyAction::Filter(Filter::TABS[1]),
         gdk::Key::_3 => KeyAction::Filter(Filter::TABS[2]),
         gdk::Key::_4 => KeyAction::Filter(Filter::TABS[3]),
+        gdk::Key::_5 => KeyAction::Filter(Filter::TABS[4]),
         gdk::Key::bracketleft => KeyAction::PrevFilter,
         gdk::Key::bracketright => KeyAction::NextFilter,
         _ => KeyAction::Ignore,
@@ -95,6 +97,7 @@ mod tests {
     #[test]
     fn letters_and_delete_run_their_buttons() {
         assert_eq!(key_action(gdk::Key::g), KeyAction::Run(Action::Session));
+        assert_eq!(key_action(gdk::Key::b), KeyAction::Run(Action::Back));
         assert_eq!(key_action(gdk::Key::s), KeyAction::Run(Action::Start));
         assert_eq!(key_action(gdk::Key::r), KeyAction::Run(Action::Refine));
         assert_eq!(key_action(gdk::Key::e), KeyAction::Run(Action::Edit));
@@ -106,6 +109,7 @@ mod tests {
     #[test]
     fn capitals_run_their_buttons_too() {
         assert_eq!(key_action(gdk::Key::G), KeyAction::Run(Action::Session));
+        assert_eq!(key_action(gdk::Key::B), KeyAction::Run(Action::Back));
         assert_eq!(key_action(gdk::Key::S), KeyAction::Run(Action::Start));
         assert_eq!(key_action(gdk::Key::R), KeyAction::Run(Action::Refine));
         assert_eq!(key_action(gdk::Key::E), KeyAction::Run(Action::Edit));
@@ -129,10 +133,10 @@ mod tests {
         assert_eq!(step(0, 0, true), 0);
     }
 
-    /// 1 to 4 are the tabs left to right.
+    /// 1 to 5 are the tabs left to right.
     #[test]
     fn numbers_pick_the_tabs_in_order() {
-        let numbers = [gdk::Key::_1, gdk::Key::_2, gdk::Key::_3, gdk::Key::_4];
+        let numbers = [gdk::Key::_1, gdk::Key::_2, gdk::Key::_3, gdk::Key::_4, gdk::Key::_5];
         for (key, filter) in numbers.into_iter().zip(Filter::TABS) {
             assert_eq!(key_action(key), KeyAction::Filter(filter), "{key:?}");
         }
@@ -144,10 +148,10 @@ mod tests {
         assert_eq!(key_action(gdk::Key::bracketright), KeyAction::NextFilter);
     }
 
-    /// Past the four tabs a number is nothing, not a fifth tab.
+    /// Past the five tabs a number is nothing, not a sixth tab.
     #[test]
     fn other_numbers_pass_through() {
-        for key in [gdk::Key::_0, gdk::Key::_5, gdk::Key::_9] {
+        for key in [gdk::Key::_0, gdk::Key::_6, gdk::Key::_9] {
             assert_eq!(key_action(key), KeyAction::Ignore, "{key:?}");
         }
     }

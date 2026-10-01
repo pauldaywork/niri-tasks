@@ -232,51 +232,57 @@ fi
 # two cards: their columns, and with their action rows, well over twice the
 # height of one card's one-line peek.
 if command -v wtype >/dev/null; then
-    # 3 is the Planned tab, and none of these tasks is planned: the panel
-    # keeps the keyboard in the middle, with the tabs and one line saying so,
-    # shorter than the three cards it had.
+    # None of these tasks is started, planned or waiting, so only All and To
+    # refine have a tab. 3 is Planned's key, and its tab is hidden: nothing.
     "${NENV[@]}" wtype 3
     sleep 1
-    shot tab_planned || { summary; exit 1; }
-    read -r x0 x1 y0 y1 < <(measure tab_planned)
-    if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ] &&
-        [ "$((y1 - y0))" -lt "$keyboard_h" ]; then
-        ok "an empty tab keeps the panel in the middle, shorter (${keyboard_h}px to $((y1 - y0))px)"
+    shot tab_hidden || { summary; exit 1; }
+    if same keyboard tab_hidden; then
+        ok "3 does nothing while no task is planned, its tab hidden"
     else
-        bad "on the empty Planned tab the panel covers columns ${x0}-${x1}, rows ${y0}-${y1},
-      against ${keyboard_h}px tall on All — 0-0 means it gave up the keyboard"
+        bad "3 changed the panel with no planned task; Planned's tab should be hidden"
     fi
 
-    # 1 is All again, with focus back on the first card: the first frame.
-    "${NENV[@]}" wtype 1
+    # 4 is To refine: the same three cards, so only the tab bar changes, the
+    # picked tab's fill moving off All.
+    "${NENV[@]}" wtype 4
     sleep 1
-    shot tab_all || { summary; exit 1; }
-    if same keyboard tab_all; then
-        ok "1 brings back All, focus on the first card, as the panel opened"
+    shot tab_refine || { summary; exit 1; }
+    read -r x0 x1 y0 y1 < <(measure tab_refine keyboard)
+    if [ "$y1" -gt 0 ] && [ "$((y1 - y0))" -lt 60 ]; then
+        ok "4 picks To refine, moving only the tab bar's fill (rows ${y0}-${y1})"
     else
-        bad "after 3 then 1 the panel is not as it opened on All"
+        bad "4 changed rows ${y0}-${y1} of the keyboard's panel — 0-0 means it did
+      nothing; more than the tab bar means the cards changed too"
     fi
 
-    # [ stops at All; ] twice reaches Planned, as 3 did.
+    # ] from All skips the hidden Active and Planned to To refine, and stops
+    # there, Waiting being hidden too; [ goes back to All.
+    "${NENV[@]}" wtype 1
+    "${NENV[@]}" wtype -k bracketright
+    sleep 1
+    shot tab_right || { summary; exit 1; }
+    if same tab_refine tab_right; then
+        ok "] from All skips the hidden tabs to To refine"
+    else
+        bad "] from All did not land on To refine, the next tab shown"
+    fi
+    "${NENV[@]}" wtype -k bracketright
+    sleep 1
+    shot tab_end || { summary; exit 1; }
+    if same tab_refine tab_end; then
+        ok "] on the last tab shown stays there"
+    else
+        bad "] on To refine moved; it is the last tab shown and should stop"
+    fi
     "${NENV[@]}" wtype -k bracketleft
     sleep 1
     shot tab_left || { summary; exit 1; }
     if same keyboard tab_left; then
-        ok "[ on the first tab stays there"
+        ok "[ steps back to All, as the panel opened"
     else
-        bad "[ on All changed the panel; it should stop at the end"
+        bad "[ from To refine is not All as the panel opened"
     fi
-    "${NENV[@]}" wtype -k bracketright
-    "${NENV[@]}" wtype -k bracketright
-    sleep 1
-    shot tab_right || { summary; exit 1; }
-    if same tab_planned tab_right; then
-        ok "] twice steps from All to Planned"
-    else
-        bad "] twice from All is not the Planned tab 3 showed"
-    fi
-    "${NENV[@]}" wtype 1
-    sleep 1
 
     "${NENV[@]}" wtype -k Down
     sleep 1
@@ -298,7 +304,7 @@ if command -v wtype >/dev/null; then
 
     # Escape from a tab other than All: the hover panel has no tabs, so it
     # comes back exactly as before, and the next keyboard opens on All.
-    "${NENV[@]}" wtype 3
+    "${NENV[@]}" wtype 4
     sleep 1
     "${NENV[@]}" wtype -k Escape
     settle
@@ -319,8 +325,36 @@ if command -v wtype >/dev/null; then
     else
         bad "the keyboard reopened on something other than All with the first card focused"
     fi
+
+    # Park one as waiting while the panel is open: All loses it and the
+    # Waiting tab comes up, and 5 shows it there alone.
+    task rc.verbose=nothing rc.confirmation=no "+$TAG" "description.is:ship it" \
+        modify wait:someday </dev/null >/dev/null 2>&1
+    settle
+    "${NENV[@]}" wtype 5
+    sleep 1
+    shot tab_waiting || { summary; exit 1; }
+    read -r x0 x1 y0 y1 < <(measure tab_waiting)
+    if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ] &&
+        [ "$((y1 - y0))" -lt "$keyboard_h" ]; then
+        ok "5 shows the waiting task alone, shorter (${keyboard_h}px to $((y1 - y0))px)"
+    else
+        bad "on the Waiting tab the panel covers columns ${x0}-${x1}, rows ${y0}-${y1},
+      against ${keyboard_h}px for three cards — the tab is missing or shows more"
+    fi
+
+    # Off the keyboard, the waiting task is off the hover panel too: two
+    # cards tucked away, where there were three.
     "${NENV[@]}" wtype -k Escape
     settle
+    shot parked || { summary; exit 1; }
+    read -r x0 x1 y0 y1 < <(measure parked)
+    if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ] && [ "$((y1 - y0))" -lt "$three_h" ]; then
+        ok "a waiting task leaves the tucked panel (${three_h}px to $((y1 - y0))px)"
+    else
+        bad "with one task waiting the tucked panel covers columns ${x0}-${x1}, rows
+      ${y0}-${y1}, against ${three_h}px for three — the waiting task is still on it"
+    fi
 else
     skip "the panel's cards in the middle of the screen, their buttons, the filter tabs, and Escape back (needs wtype)"
 fi

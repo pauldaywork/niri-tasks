@@ -139,6 +139,21 @@ pub fn pending_for_tag(tag: &str) -> Result<Vec<Task>> {
     Ok(tasks)
 }
 
+/// The tasks for `tag` parked as waiting, for the keyboard panel's Waiting
+/// tab: those with a wait date still to come, which `pending_for_tag` leaves
+/// out.
+///
+/// Taskwarrior 2.6 matches them with `status:waiting` but exports them as
+/// `pending`, so their status is set to `waiting` here, where it is known,
+/// for the panel to tell them apart.
+pub fn waiting_for_tag(tag: &str) -> Result<Vec<Task>> {
+    let mut tasks = export(&[&format!("+{tag}"), "status:waiting"])?;
+    for t in &mut tasks {
+        t.status = "waiting".into();
+    }
+    Ok(tasks)
+}
+
 /// The active (started) pending tasks for `tag`. Several at once is normal:
 /// each agent working a task in its own worktree has one.
 pub fn active_for_tag(tag: &str) -> Result<Vec<Task>> {

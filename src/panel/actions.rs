@@ -15,6 +15,10 @@ use super::model::Status;
 pub enum Action {
     /// Back to the Claude working on the task; only on a card that has one.
     Session,
+    /// Off waiting and back on the list: the menu's Update status → Stopped,
+    /// which clears the wait date. Only on a waiting task, which Start working
+    /// and Refine refuse.
+    Back,
     Start,
     Refine,
     Edit,
@@ -28,7 +32,7 @@ use Action::*;
 
 impl Action {
     /// In the order the buttons sit, left to right.
-    pub const ALL: [Action; 7] = [Session, Start, Refine, Edit, Stop, Wait, Remove];
+    pub const ALL: [Action; 8] = [Session, Back, Start, Refine, Edit, Stop, Wait, Remove];
 
     /// What Remove reads between its first press and its second, the way the
     /// menu's delete asks "delete?" before it deletes.
@@ -37,32 +41,35 @@ impl Action {
     /// The buttons a card gets, left to right. Go to session leads while a
     /// Claude is working on the task (`has_session`), as it leads the menu. An
     /// active task is already being worked, so it gets Stop and no Start
-    /// working; the rest have nothing to stop. None on "+N more", which stands
-    /// for no one task.
+    /// working; the rest have nothing to stop. A waiting task gets only Back
+    /// to list, Edit and Remove: Start working and Refine refuse a task that
+    /// is not pending. None on "+N more", which stands for no one task.
     pub fn for_status(status: Status, has_session: bool) -> Vec<Action> {
         let skip = match status {
             Status::More => return Vec::new(),
+            Status::Waiting => return vec![Back, Edit, Remove],
             Status::Active => Start,
             Status::Pending | Status::Blocked | Status::Planned => Stop,
         };
         Self::ALL
             .into_iter()
-            .filter(|a| *a != skip && (*a != Session || has_session))
+            .filter(|a| *a != skip && *a != Back && (*a != Session || has_session))
             .collect()
     }
 
-    /// Whether the panel keeps the keyboard after the button runs. Waiting and
-    /// Remove only change the task and open nothing that needs the keyboard,
+    /// Whether the panel keeps the keyboard after the button runs. Back to
+    /// list, Waiting and Remove only change the task and open nothing that needs the keyboard,
     /// so the list stays up for the next one; the rest open a box, a terminal
     /// or a menu, which takes it.
     pub fn keeps_keyboard(self) -> bool {
-        matches!(self, Wait | Remove)
+        matches!(self, Back | Wait | Remove)
     }
 
     /// The button's name in words, the menu's own: its icon's tooltip.
     pub fn label(self) -> &'static str {
         match self {
             Session => "Go to session",
+            Back => "Back to list",
             Start => "Start working",
             Refine => "Refine",
             Edit => "Edit",
@@ -74,10 +81,11 @@ impl Action {
 
     /// What the button shows: a glyph, so the row stays narrow. Font Awesome's,
     /// from the same Nerd Font as the cards' lock: terminal, play, magic wand,
-    /// pencil, stop, pause and trash can.
+    /// pencil, stop, pause and trash can, and Back to list's undo arrow.
     pub fn icon(self) -> &'static str {
         match self {
             Session => "\u{f120}",
+            Back => "\u{f0e2}",
             Start => "\u{f04b}",
             Refine => "\u{f0d0}",
             Edit => "\u{f040}",
@@ -92,6 +100,7 @@ impl Action {
     pub fn name(self) -> &'static str {
         match self {
             Session => "session",
+            Back => "back",
             Start => "start",
             Refine => "refine",
             Edit => "edit",
@@ -107,6 +116,7 @@ impl Action {
     pub fn args(self, uuid: &str) -> Vec<String> {
         let words: &[&str] = match self {
             Session => &["task", "session", uuid],
+            Back => &["task", "status", uuid, "stopped"],
             Start => &["task", "start", uuid],
             Refine => &["task", "refine", uuid],
             Edit => &["task", "edit", uuid],
@@ -151,6 +161,23 @@ mod tests {
         );
     }
 
+    /// Start working and Refine refuse a task that is not pending, so a
+    /// waiting one gets the way back instead, and what still works on it.
+    #[test]
+    fn a_waiting_task_gets_back_to_list_edit_and_remove() {
+        assert_eq!(
+            Action::for_status(Status::Waiting, false),
+            vec![Action::Back, Action::Edit, Action::Remove]
+        );
+    }
+
+    #[test]
+    fn back_to_list_is_only_on_a_waiting_task() {
+        for status in [Status::Active, Status::Pending, Status::Blocked, Status::Planned] {
+            assert!(!Action::for_status(status, true).contains(&Action::Back), "{status:?}");
+        }
+    }
+
     #[test]
     fn more_is_no_one_task_and_gets_no_buttons() {
         assert!(Action::for_status(Status::More, false).is_empty());
@@ -158,15 +185,15 @@ mod tests {
     }
 
     #[test]
-    fn only_wait_and_remove_keep_the_list_open() {
+    fn only_back_wait_and_remove_keep_the_list_open() {
         let kept: Vec<Action> = Action::ALL.into_iter().filter(|a| a.keeps_keyboard()).collect();
-        assert_eq!(kept, vec![Action::Wait, Action::Remove]);
+        assert_eq!(kept, vec![Action::Back, Action::Wait, Action::Remove]);
     }
 
     #[test]
     fn labels_read_as_the_menu_does() {
         let labels: Vec<&str> = Action::ALL.iter().map(|a| a.label()).collect();
-        assert_eq!(labels, vec!["Go to session", "Start working", "Refine", "Edit", "Stop", "Waiting", "Remove"]);
+        assert_eq!(labels, vec!["Go to session", "Back to list", "Start working", "Refine", "Edit", "Stop", "Waiting", "Remove"]);
         assert_eq!(Action::CONFIRM_REMOVE, "Confirm remove");
     }
 
@@ -189,6 +216,8 @@ mod tests {
         assert_eq!(Action::Edit.args(u), vec!["task", "edit", u]);
         assert_eq!(Action::Stop.args(u), vec!["task", "status", u, "stopped"]);
         assert_eq!(Action::Wait.args(u), vec!["task", "status", u, "waiting"]);
+        // Stopped is the status that clears a wait date.
+        assert_eq!(Action::Back.args(u), vec!["task", "status", u, "stopped"]);
         assert_eq!(Action::Remove.args(u), vec!["task", "status", u, "deleted", "--yes"]);
     }
 

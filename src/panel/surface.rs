@@ -38,21 +38,25 @@
 //! keyboard back, folds the cards to one line again, and puts the panel back
 //! on the right edge as a peek.
 //!
-//! Above the cards, a bar of filter tabs, All, Active, Planned and To refine,
-//! each with its count, narrows them to the tasks it names. 1 to 4 pick one,
-//! [ and ] step along them stopping at the ends, and a click picks one too.
-//! The tabs never take focus, so the arrows and Tab still move only between
-//! cards and buttons. The panel takes the keyboard on All every time; a
-//! refresh keeps the tab, and focus falls back to the first card when the
-//! one it was on has left it. A tab with nothing under it shows one line
-//! saying so and keeps the keyboard: only a workspace with no tasks at all
-//! hides the panel. The hover and the peek have no tabs.
+//! Above the cards, a bar of filter tabs, All, Active, Planned, To refine and
+//! Waiting, narrows them to the tasks it names. A tab shows only while it has
+//! a task under it, All apart. 1 to 5 pick one, always the same one, and do
+//! nothing for a hidden tab; [ and ] step along the shown ones, stopping at
+//! the ends; a click picks one too. The tabs never take focus, so the arrows
+//! and Tab still move only between cards and buttons. The panel takes the
+//! keyboard on All every time; a refresh keeps the tab, falling back to All
+//! once it has nothing left, and focus falls back to the first card when the
+//! one it was on has left it.
+//!
+//! Waiting tasks are on the Waiting tab and nowhere else: not on All, not on
+//! the hover or the peek, so a workspace whose tasks are all waiting shows
+//! nothing on its edge. With the keyboard it opens on All, which then says it
+//! has no tasks, beside the Waiting tab.
 //!
 //! Wrapped, the cards can stand taller than the screen, so the column sits in
 //! a scroller under the tabs, capped at the screen's height less its margins
-//! and the tabs. Moving the focus
-//! scrolls the focused card wholly into view, and the blur region moves with
-//! the scroll and stops at the view's edges.
+//! and the tabs. Moving the focus scrolls the focused card wholly into view,
+//! and the blur region moves with the scroll and stops at the view's edges.
 //!
 //! To sit in the middle, the surface keeps its right anchor, which centres it
 //! vertically, and grows its right margin to half the room it leaves on the
@@ -131,7 +135,7 @@ pub struct Panel {
     /// The filter tabs above the scroller, shown only while the panel has the
     /// keyboard. It does not scroll with the cards.
     tabs: gtk4::Box,
-    /// One button per filter tab, in `Filter::TABS` order, for their labels
+    /// One button per filter tab, in `Filter::TABS` order, for which ones show
     /// and which one is picked.
     tab_buttons: Vec<gtk4::Button>,
     /// For its height, which caps the column's: read at each render, since a
@@ -238,8 +242,8 @@ impl Panel {
         tabs.set_visible(false);
         let tab_buttons: Vec<gtk4::Button> = Filter::TABS
             .iter()
-            .map(|_| {
-                let button = gtk4::Button::new();
+            .map(|filter| {
+                let button = gtk4::Button::with_label(filter.label());
                 // Out of the focus chain: the arrows and Tab stay between the
                 // cards and their buttons, and a click does not take the
                 // focus.
@@ -501,20 +505,22 @@ impl Panel {
 
     /// Show the cards under this filter tab. Focus stays on the card it was
     /// on when the tab has it, and goes to the first card otherwise, as on a
-    /// refresh. Nothing without the keyboard, whose panel has no tabs.
+    /// refresh. Nothing without the keyboard, whose panel has no tabs, or for
+    /// a tab hidden for having no tasks.
     fn pick(self: &Rc<Self>, filter: Filter) {
-        if !self.keyboard.get() || self.filter.replace(filter) == filter {
+        if !self.keyboard.get() || !Filter::shown(&self.all.borrow()).contains(&filter) {
             return;
         }
-        self.render();
+        if self.filter.replace(filter) != filter {
+            self.render();
+        }
     }
 
-    /// Each tab's label with its count over every card, and which one is
-    /// picked.
+    /// Which tabs show, and which one is picked.
     fn update_tabs(&self) {
-        let counts = Filter::counts(&self.all.borrow());
-        for ((button, filter), count) in self.tab_buttons.iter().zip(Filter::TABS).zip(counts) {
-            button.set_label(&filter.tab_label(count));
+        let shown = Filter::shown(&self.all.borrow());
+        for (button, filter) in self.tab_buttons.iter().zip(Filter::TABS) {
+            button.set_visible(shown.contains(&filter));
             if filter == self.filter.get() {
                 button.add_css_class("current");
             } else {
@@ -524,7 +530,16 @@ impl Panel {
     }
 
     fn render(self: &Rc<Self>) {
-        if self.all.borrow().is_empty() {
+        let keyboard = self.keyboard.get();
+        // The hover and the peek show no waiting task, so they hide with
+        // nothing else to show; the keyboard's panel still has the Waiting
+        // tab, and hides only with no task at all.
+        let nothing = if keyboard {
+            self.all.borrow().is_empty()
+        } else {
+            Filter::All.pick(&self.all.borrow()).is_empty()
+        };
+        if nothing {
             // The last task went while the panel had the keyboard: back to
             // the right edge, so the next card shows as a peek there, and the
             // next Mod+Alt+Ctrl+T opens on All, as after Escape.
@@ -542,9 +557,13 @@ impl Panel {
             return;
         }
 
-        let keyboard = self.keyboard.get();
+        // A tab shows only while it has tasks, so once the last one under the
+        // picked tab goes (started, off Planned, say), the panel is on All.
+        if keyboard && !Filter::shown(&self.all.borrow()).contains(&self.filter.get()) {
+            self.filter.set(Filter::All);
+        }
         // Only the keyboard's panel has tabs; the peek and the hover show
-        // every card. Filtered before the cap, so "+N more" is the rest of
+        // All's cards. Filtered before the cap, so "+N more" is the rest of
         // this tab.
         let filter = if keyboard { self.filter.get() } else { Filter::All };
         let picked = filter.pick(&self.all.borrow());
@@ -568,8 +587,8 @@ impl Panel {
             self.column.append(&self.card_widget(card));
         }
         if cards.is_empty() {
-            // A tab with nothing under it says so and keeps the keyboard:
-            // only a workspace with no tasks at all hides the panel, above.
+            // Only All, with every task waiting: it says so, and the
+            // Waiting tab beside it has them.
             self.column.append(&empty_line(filter));
         }
         // Measured only once they are in the window: a label outside it has no
@@ -649,6 +668,7 @@ impl Panel {
             Status::Blocked => widget.add_css_class("blocked"),
             Status::Planned => widget.add_css_class("planned"),
             Status::More => widget.add_css_class("more"),
+            Status::Waiting => widget.add_css_class("waiting"),
             Status::Pending => {}
         }
         widget.set_size_request(CARD_WIDTH_PX, -1);
@@ -764,16 +784,18 @@ impl Panel {
     /// next card's body, Left, Right and Tab move along the focused card, and
     /// a letter presses that card's button. If the card has no such button
     /// (Stop on a task that is not active, Go to session on one with no Claude,
-    /// anything on "+N more"), nothing happens. 1 to 4, [ and ] pick a filter
+    /// anything on "+N more"), nothing happens. 1 to 5, [ and ] pick a filter
     /// tab instead, whatever has focus.
     fn key(self: &Rc<Self>, action: KeyAction) {
         match action {
             KeyAction::Release => return self.release_keyboard(),
             KeyAction::Filter(filter) => return self.pick(filter),
             KeyAction::PrevFilter | KeyAction::NextFilter => {
-                let at = Filter::TABS.iter().position(|f| *f == self.filter.get()).unwrap_or(0);
-                let to = keys::step(at, Filter::TABS.len(), action == KeyAction::NextFilter);
-                return self.pick(Filter::TABS[to]);
+                // Along the tabs on show, skipping the hidden ones.
+                let shown = Filter::shown(&self.all.borrow());
+                let at = shown.iter().position(|f| *f == self.filter.get()).unwrap_or(0);
+                let to = keys::step(at, shown.len(), action == KeyAction::NextFilter);
+                return self.pick(shown[to]);
             }
             _ => {}
         }
@@ -781,7 +803,8 @@ impl Panel {
         let mut child = self.column.first_child();
         while let Some(c) = child {
             child = c.next_sibling();
-            // Not an empty tab's line, which has nothing to focus.
+            // Not the line All shows when every task is waiting, which has
+            // nothing to focus.
             if c.has_css_class("task-card") {
                 cards.push(c);
             }
@@ -1028,7 +1051,7 @@ fn card_label(card: &Card, wrap: bool) -> gtk4::Box {
 }
 
 /// The one line a filter tab with nothing under it shows where its cards
-/// would be, in a card's look so it reads as part of the panel. Not a card:
+/// would be (only All, when every task is waiting), in a card's look so it reads as part of the panel. Not a card:
 /// it has no task and nothing to focus, and the keys pass over it.
 fn empty_line(filter: Filter) -> gtk4::Label {
     let line = gtk4::Label::new(Some(filter.empty_text()));

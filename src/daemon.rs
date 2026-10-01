@@ -67,9 +67,12 @@ fn cards_for_workspace(name: Option<&str>) -> Vec<model::Card> {
     if t.is_empty() {
         return Vec::new();
     }
-    let Ok(tasks) = task::pending_for_tag(&t) else {
+    let Ok(mut tasks) = task::pending_for_tag(&t) else {
         return Vec::new();
     };
+    // Waiting ones too, for the keyboard's Waiting tab; the panel keeps them
+    // off the hover and the peek.
+    tasks.extend(task::waiting_for_tag(&t).unwrap_or_default());
     if tasks.is_empty() {
         return Vec::new();
     }

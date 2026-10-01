@@ -47,7 +47,7 @@ pub const TEXT: &str = "#f0f0f0";
 /// the palette the desktop's error and warning colours come from.
 pub const ACTIVE: &str = "#8cd283";
 /// The keyboard's action buttons, each its own colour from the same Catppuccin
-/// palette as [`ACTIVE`] (mocha's): Go to session blue, Refine mauve, Edit
+/// palette as [`ACTIVE`] (mocha's): Go to session blue, Back to list lavender, Refine mauve, Edit
 /// yellow, Stop peach, Waiting teal, Remove red. Start shares [`ACTIVE`]'s green, because
 /// starting a task is what turns its card green.
 pub const REFINE: &str = "#cba6f7";
@@ -59,14 +59,18 @@ pub const STOP: &str = "#fab387";
 pub const WAIT: &str = "#94e2d5";
 /// Remove red.
 pub const REMOVE: &str = "#f38ba8";
+/// Back to list lavender: mocha's `lavender`, the colour nearest Go to
+/// session's blue, for the other button that takes you back to something.
+pub const BACK: &str = "#b4befe";
 /// Go to session blue: mocha's `blue`, apart from every other button's colour.
 pub const SESSION: &str = "#89b4fa";
 /// Text on a solid colour fill, the armed Remove: mocha's `base`, so it reads
 /// as dark on red.
 pub const ON_FILL: &str = "#1e1e2e";
 /// Each button's class, as `Action::name()` gives it, and its colour.
-pub const ACTION_COLOURS: [(&str, &str); 7] = [
+pub const ACTION_COLOURS: [(&str, &str); 8] = [
     ("session", SESSION),
+    ("back", BACK),
     ("start", ACTIVE),
     ("refine", REFINE),
     ("edit", EDIT),
@@ -179,6 +183,7 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .task-card:focus-within {{ background-color: {FOCUSED_BACKGROUND}; }}
 .task-panel .task-card.active {{ color: {ACTIVE}; }}
 .task-panel .task-card.blocked,
+.task-panel .task-card.waiting,
 .task-panel .task-card.more {{ color: alpha({TEXT}, 0.55); }}
 "
     );

@@ -53,18 +53,19 @@ _Avoid_: row (that is the picker's word), item, block
 
 **Action row**:
 The buttons along a task card's bottom edge while the task panel has the
-keyboard — Go to session, Start working, Refine, Edit, Stop and Remove, an
-active task getting Stop in place of Start working, and only a task with a
-live Claude getting Go to session — each running what the same entry in the
+keyboard — Go to session, Start working, Refine, Edit, Stop, Waiting and
+Remove, an active task getting Stop in place of Start working, only a task
+with a live Claude getting Go to session, and a waiting task getting just
+Back to list, Edit and Remove — each running what the same entry in the
 task's action menu runs.
 _Avoid_: toolbar, button bar, quick actions
 
 **Filter tab**:
-One of the four tabs above the task cards while the task panel has the
-keyboard — All, Active, Planned and To refine — narrowing the cards to the
-tasks it names and showing how many there are. A filter, not a status: a
-started planned task is under Active and not Planned, and To refine is
-every task that is not a planned task.
+One of the tabs above the task cards while the task panel has the keyboard —
+All, Active, Planned, To refine and Waiting — narrowing the cards to the tasks
+it names, and shown only while it has any, All apart. A filter, not a status:
+a started planned task is under Active and not Planned, To refine is every
+task that is not a planned task, and a waiting task is under Waiting alone.
 _Avoid_: tab alone (Tab is also a key), category, view, status
 
 **Peek**:

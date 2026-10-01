@@ -16,7 +16,7 @@ from — opening one, or moving a task to another workspace.
 | Key | Does |
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
-| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, with buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Tabs above the cards, picked with 1–4 or [ and ], narrow them to All, Active, Planned or To refine. With no tasks, or no daemon, the fuzzel list instead |
+| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, with buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Tabs above the cards, picked with 1–5 or [ and ], narrow them to All, Active, Planned, To refine or Waiting. With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+W` | Create a new workspace and name it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
@@ -51,6 +51,8 @@ to its whole description, wrapped, above a row of buttons:
 | **Refine** (mauve) | `r` | Work it up into a plan with Claude |
 | **Edit** (yellow) | `e` | Open it in the task box |
 | **Stop** (peach) | `t` | Stop it — only on an active task |
+| **Waiting** (teal) | | Park it as waiting: off the panel, and on the Waiting tab instead |
+| **Back to list** (lavender) | `b` | Off waiting and back on the list — only on a waiting task, which gets just this, Edit and Remove |
 | **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back |
 
 Up and Down move a darker fill between cards; Left, Right and Tab move
@@ -64,14 +66,16 @@ one line. A list
 taller than the screen scrolls, keeping the focused card in view. Hovering
 never shows the buttons — only the keyboard does.
 
-Above the cards, four tabs narrow them while the panel has the keyboard:
-**All**, **Active** (started), **Planned** (refined or grilled into a plan,
-and not started yet) and **To refine** (not planned yet), each with how many
-tasks it holds. `1` to `4` pick one, `[` and `]` step to the one either side,
-and a click picks one too; the arrows and Tab still move only between cards
-and buttons. A started planned task is under Active, not Planned. A tab with
-nothing under it says so and keeps the keyboard. The panel opens on All every
-time.
+Above the cards, tabs narrow them while the panel has the keyboard: **All**,
+**Active** (started), **Planned** (refined or grilled into a plan, and not
+started yet), **To refine** (not planned yet) and **Waiting** (parked). A tab
+shows only while it has a task under it, All apart. `1` to `5` pick one, each
+always the same tab and doing nothing while it is hidden; `[` and `]` step to
+the shown tab either side; a click picks one too. The arrows and Tab still
+move only between cards and buttons. A started planned task is under Active,
+not Planned. Waiting tasks are on the Waiting tab only: not on All, the hover
+or the peek. The panel opens on All every time, and goes back to All when the
+tab it is on runs out of tasks.
 
 The cards are shaped like mako notifications and take a terminal window's font
 and colours: a dark tint over blurred wallpaper, with niri's faint focus-ring outline
@@ -296,7 +300,7 @@ Tab along the buttons; `s` starts working exactly as the menu does, `r`
 refines, `e` opens the box, `t` stops; Delete arms Remove and only a second
 Delete deletes, while moving away disarms it; Enter on a card opens the menu,
 Enter on "+N more" shows the rest, and a list taller than the screen scrolls
-with the focus; a click on a filter tab switches the cards and does not take the focus (the focus still falls back to the first card when the focused one is not under the new tab), and a started planned task shows under Active but not Planned; Escape tucks it away to the one-line peek.
+with the focus; a click on a filter tab switches the cards and does not take the focus (the focus still falls back to the first card when the focused one is not under the new tab), a started planned task shows under Active but not Planned, and Back to list on a waiting task brings it back to All; Escape tucks it away to the one-line peek.
 
 `e2e-box.sh` runs in the same kind of nested niri (`tests/lib/nested-niri.sh`
 starts it for both). Its keys are pressed with `wtype` pointed at that nested
@@ -357,9 +361,10 @@ mapped reports nothing wrong while showing nothing — the overlay the panel
 replaced was invisible for whole sessions that way, past every unit test. So it
 screenshots a nested niri of its own and measures the panel against a frame taken
 with no tasks: the peek's width, the stack's height as tasks are added, the
-keyboard's cards in the middle of the screen, its filter tabs (an empty one
-keeping the keyboard, the keys stopping at the ends, reopening on All), and
-Escape putting them back,
+keyboard's cards in the middle of the screen, its filter tabs (a tab hidden while
+empty, the keys skipping hidden tabs and stopping at the ends, reopening on
+All, a waiting task on the Waiting tab and off the tucked panel), and Escape
+putting them back,
 nothing for another tag's task, nothing once they are done, and a daemon
 cold-started with nothing to show.
 

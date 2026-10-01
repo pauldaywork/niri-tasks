@@ -17,6 +17,9 @@ pub enum Status {
     Blocked,
     /// Worked up into a plan by the `refine-task` skill.
     Planned,
+    /// Parked with the Waiting button. Off the hover panel and the peek, and
+    /// on the keyboard's Waiting tab only.
+    Waiting,
     /// The "+N more" card standing in for everything past the cap.
     More,
 }
@@ -45,6 +48,8 @@ impl Card {
             Status::Blocked => "\u{f023}",
             // The pending circle filled in: still waiting, but worked up.
             Status::Planned => "●",
+            // Font Awesome's pause, the Waiting button's own icon.
+            Status::Waiting => "\u{f04c}",
             // The count is the text, so the peek reads "+3".
             Status::More => "",
         }
@@ -55,7 +60,9 @@ impl Card {
 ///
 /// A filter, not a status: Planned and To refine go by the `+planned` tag,
 /// which a card's icon can hide behind ▶ or the lock. A started task is
-/// under Active and not Planned, which is for picking what to start next.
+/// under Active and not Planned, which is for picking what to start next. A
+/// waiting task is under Waiting and no other tab: it is parked, and All is
+/// what the hover shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Filter {
     All,
@@ -65,11 +72,19 @@ pub enum Filter {
     Planned,
     /// Tasks without `+planned`: the ones still worth refining.
     ToRefine,
+    /// Tasks parked as waiting.
+    Waiting,
 }
 
 impl Filter {
-    /// The tabs left to right, which is also the order 1 to 4 pick them in.
-    pub const TABS: [Filter; 4] = [Filter::All, Filter::Active, Filter::Planned, Filter::ToRefine];
+    /// The tabs left to right, which is also the order 1 to 5 pick them in.
+    pub const TABS: [Filter; 5] = [
+        Filter::All,
+        Filter::Active,
+        Filter::Planned,
+        Filter::ToRefine,
+        Filter::Waiting,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -77,22 +92,20 @@ impl Filter {
             Filter::Active => "Active",
             Filter::Planned => "Planned",
             Filter::ToRefine => "To refine",
+            Filter::Waiting => "Waiting",
         }
     }
 
-    /// The tab's label with how many tasks are under it, so a tab worth
-    /// opening shows before it is opened.
-    pub fn tab_label(self, count: usize) -> String {
-        format!("{} {count}", self.label())
-    }
-
-    /// The one line a tab with nothing under it shows in place of cards.
+    /// The one line a tab with nothing under it shows in place of cards. Only
+    /// All is ever shown empty, on a workspace whose tasks are all waiting;
+    /// every other tab is hidden while it has nothing.
     pub fn empty_text(self) -> &'static str {
         match self {
             Filter::All => "No tasks",
             Filter::Active => "No active tasks",
             Filter::Planned => "No planned tasks",
             Filter::ToRefine => "No tasks to refine",
+            Filter::Waiting => "No waiting tasks",
         }
     }
 
@@ -100,6 +113,8 @@ impl Filter {
     /// "+N more" card stands for no one task, so it is made after filtering.
     pub fn matches(self, card: &Card) -> bool {
         match self {
+            Filter::Waiting => card.status == Status::Waiting,
+            _ if card.status == Status::Waiting => false,
             Filter::All => true,
             Filter::Active => card.status == Status::Active,
             Filter::Planned => card.planned && card.status != Status::Active,
@@ -112,9 +127,13 @@ impl Filter {
         cards.iter().filter(|c| self.matches(c)).cloned().collect()
     }
 
-    /// How many of these cards each tab shows, in `TABS` order.
-    pub fn counts(cards: &[Card]) -> [usize; 4] {
-        Filter::TABS.map(|f| cards.iter().filter(|c| f.matches(c)).count())
+    /// The tabs worth showing over these cards, in `TABS` order: All, where
+    /// the panel opens, and every other tab with a task under it.
+    pub fn shown(cards: &[Card]) -> Vec<Filter> {
+        Filter::TABS
+            .into_iter()
+            .filter(|f| *f == Filter::All || cards.iter().any(|c| f.matches(c)))
+            .collect()
     }
 }
 
@@ -138,7 +157,11 @@ pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
     sorted
         .iter()
         .map(|t| Card {
-            status: if t.is_active() {
+            // Waiting first: parking a task stops it, so a waiting task is
+            // not the work in progress whatever else it carries.
+            status: if t.status == "waiting" {
+                Status::Waiting
+            } else if t.is_active() {
                 Status::Active
             } else if blocked.contains(&t.uuid) {
                 Status::Blocked
@@ -301,16 +324,45 @@ mod tests {
         assert!(!cap(&cards(&many, &[]), CAP).last().unwrap().planned);
     }
 
-    #[test]
-    fn the_tabs_run_all_active_planned_to_refine() {
-        let labels: Vec<&str> = Filter::TABS.iter().map(|f| f.label()).collect();
-        assert_eq!(labels, vec!["All", "Active", "Planned", "To refine"]);
+    fn waiting(uuid: &str) -> Task {
+        let mut t = task(uuid, 1.0, false);
+        t.status = "waiting".into();
+        t
     }
 
     #[test]
-    fn a_tab_label_carries_its_count() {
-        assert_eq!(Filter::Planned.tab_label(3), "Planned 3");
-        assert_eq!(Filter::ToRefine.tab_label(0), "To refine 0");
+    fn the_tabs_run_all_active_planned_to_refine_waiting() {
+        let labels: Vec<&str> = Filter::TABS.iter().map(|f| f.label()).collect();
+        assert_eq!(labels, vec!["All", "Active", "Planned", "To refine", "Waiting"]);
+    }
+
+    #[test]
+    fn a_waiting_task_gets_the_pause_icon() {
+        let got = cards(&[waiting("parked")], &[]);
+        assert_eq!(got[0].status, Status::Waiting);
+        assert_eq!(got[0].icon(), "\u{f04c}");
+    }
+
+    /// Parked is parked: a waiting task is under Waiting and nowhere else,
+    /// planned or not, so All stays what the hover shows.
+    #[test]
+    fn a_waiting_task_is_only_under_waiting() {
+        let mut planned_parked = waiting("planned-parked");
+        planned_parked.tags = vec![crate::task::PLANNED_TAG.into()];
+        let all = cards(&[task("plain", 9.0, false), waiting("parked"), planned_parked], &[]);
+        assert_eq!(texts(&Filter::All.pick(&all)), vec!["plain"]);
+        assert!(Filter::Planned.pick(&all).is_empty());
+        assert_eq!(texts(&Filter::ToRefine.pick(&all)), vec!["plain"]);
+        assert_eq!(texts(&Filter::Waiting.pick(&all)), vec!["parked", "planned-parked"]);
+    }
+
+    /// All always, since it is where the panel opens; the rest only when they
+    /// have a task under them.
+    #[test]
+    fn only_tabs_with_tasks_are_shown() {
+        let all = cards(&[task("plain", 9.0, false), waiting("parked")], &[]);
+        assert_eq!(Filter::shown(&all), vec![Filter::All, Filter::ToRefine, Filter::Waiting]);
+        assert_eq!(Filter::shown(&[]), vec![Filter::All]);
     }
 
     #[test]
@@ -319,6 +371,7 @@ mod tests {
         assert_eq!(Filter::Active.empty_text(), "No active tasks");
         assert_eq!(Filter::Planned.empty_text(), "No planned tasks");
         assert_eq!(Filter::ToRefine.empty_text(), "No tasks to refine");
+        assert_eq!(Filter::Waiting.empty_text(), "No waiting tasks");
     }
 
     /// A filter, not a status. A started planned task is under Active alone:
@@ -339,15 +392,5 @@ mod tests {
         assert_eq!(texts(&Filter::Active.pick(&all)), vec!["started", "started-planned"]);
         assert_eq!(texts(&Filter::Planned.pick(&all)), vec!["planned"]);
         assert_eq!(texts(&Filter::ToRefine.pick(&all)), vec!["started", "plain"]);
-    }
-
-    #[test]
-    fn counts_are_per_tab_in_tab_order() {
-        let all = cards(
-            &[task("plain", 9.0, false), planned("started-planned", true), planned("planned", false)],
-            &[],
-        );
-        assert_eq!(Filter::counts(&all), [3, 1, 1, 1]);
-        assert_eq!(Filter::counts(&[]), [0, 0, 0, 0]);
     }
 }
