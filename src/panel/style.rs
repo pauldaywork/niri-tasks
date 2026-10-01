@@ -10,9 +10,11 @@
 //! than the rest. The active task is marked by colour alone: its ▶ and its
 //! text are green.
 //!
-//! The cards are buttons, so the keyboard can move between them, and the
-//! theme's button look — border, gradient, minimum height, hover and press
-//! colours — is reset away so a card looks the same as a plain label would.
+//! A card is a box holding a body button and, while the panel has the
+//! keyboard, a row of action buttons along its bottom edge. The theme's button
+//! look (border, gradient, minimum height, hover and press colours) is reset
+//! away from both, so the body looks the same as a plain label would, and the
+//! card's box carries the fill, the rounding and the outline.
 //!
 //! Every rule is scoped to `.task-panel`, because the provider is installed for
 //! the whole display and the daemon also opens task boxes, which must not pick
@@ -40,10 +42,32 @@ pub const TEXT: &str = "#f0f0f0";
 /// mocha's `#a6e3a1` (which read too pale) than latte's `#40a02b` (too dark);
 /// the palette the desktop's error and warning colours come from.
 pub const ACTIVE: &str = "#8cd283";
+/// The keyboard's action buttons, each its own colour from the same Catppuccin
+/// palette as [`ACTIVE`] (mocha's): Refine mauve, Edit yellow, Stop peach,
+/// Remove red. Start shares [`ACTIVE`]'s green, because starting a task is what
+/// turns its card green.
+pub const REFINE: &str = "#cba6f7";
+pub const EDIT: &str = "#f9e2af";
+pub const STOP: &str = "#fab387";
+pub const REMOVE: &str = "#f38ba8";
+/// Text on a solid colour fill, the armed Remove: mocha's `base`, so it reads
+/// as dark on red.
+pub const ON_FILL: &str = "#1e1e2e";
+/// Each button's class, as `Action::name()` gives it, and its colour.
+pub const ACTION_COLOURS: [(&str, &str); 5] = [
+    ("start", ACTIVE),
+    ("refine", REFINE),
+    ("edit", EDIT),
+    ("stop", STOP),
+    ("remove", REMOVE),
+];
 /// mako `border-radius`.
 pub const RADIUS_PX: i32 = 8;
 /// mako `padding`.
 pub const PADDING_PX: i32 = 12;
+/// The action row's buttons: half a card's padding top and bottom, so the row
+/// reads as a footer to the description rather than a second card.
+pub const ACTION_PADDING: &str = "6px 12px";
 /// ghostty `font-family` and `font-size`, which is in points too.
 pub const FONT: &str = "10pt \"Iosevka Term Extended\"";
 /// mako `margin=0,0,8`: the gap between stacked notifications.
@@ -61,34 +85,62 @@ pub const FOCUS: &str = "1px solid #ffffff";
 pub const FOCUSED_BACKGROUND: &str = "rgba(0, 0, 0, 0.6)";
 
 pub fn css() -> String {
-    format!(
+    let mut css = format!(
         "
 window.task-panel {{ background-color: transparent; }}
-.task-panel .task-card,
-.task-panel .task-card:hover,
-.task-panel .task-card:active {{
+.task-panel .task-card {{
     background-color: {BACKGROUND};
-    background-image: none;
     color: {TEXT};
-    border: none;
     border-radius: {RADIUS_PX}px;
+    font: {FONT};
+    box-shadow: {OUTLINE};
+}}
+.task-panel .card-body,
+.task-panel .card-body:hover,
+.task-panel .card-body:active,
+.task-panel .card-actions button,
+.task-panel .card-actions button:hover,
+.task-panel .card-actions button:active {{
+    background-color: transparent;
+    background-image: none;
+    color: inherit;
+    border: none;
+    border-radius: 0;
     padding: {PADDING_PX}px;
     min-height: 0;
     min-width: 0;
-    font: {FONT};
+    font: inherit;
     font-weight: normal;
-    box-shadow: {OUTLINE};
+    box-shadow: none;
     outline: none;
     transition: none;
 }}
-/* :focus, not :focus-visible: GTK clears focus-visible 3s after the last key
-   press (VISIBLE_FOCUS_DURATION), and the darker fill would vanish mid-pick. */
-.task-panel .task-card:focus {{ background-color: {FOCUSED_BACKGROUND}; }}
+/* The body keeps the card's whole rounding while it is the only thing in it. */
+.task-panel .card-body {{ border-radius: {RADIUS_PX}px; }}
+.task-panel .card-actions button {{ padding: {ACTION_PADDING}; }}
+.task-panel .card-actions button:first-child {{ border-bottom-left-radius: {RADIUS_PX}px; }}
+.task-panel .card-actions button:last-child {{ border-bottom-right-radius: {RADIUS_PX}px; }}
+/* :focus-within, not :focus-visible: GTK clears focus-visible 3s after the
+   last key press (VISIBLE_FOCUS_DURATION), and the darker fill would vanish
+   mid-pick. Within, so the card stays darkened while one of its buttons is
+   focused. */
+.task-panel .task-card:focus-within {{ background-color: {FOCUSED_BACKGROUND}; }}
 .task-panel .task-card.active {{ color: {ACTIVE}; }}
 .task-panel .task-card.blocked,
 .task-panel .task-card.more {{ color: alpha({TEXT}, 0.55); }}
 "
-    )
+    );
+    for (name, colour) in ACTION_COLOURS {
+        css.push_str(&format!(
+            ".task-panel .card-actions .{name} {{ color: {colour}; }}\n\
+             .task-panel .card-actions .{name}:focus {{ background-color: alpha({colour}, 0.2); }}\n"
+        ));
+    }
+    css.push_str(&format!(
+        ".task-panel .card-actions .remove.confirm,\n\
+         .task-panel .card-actions .remove.confirm:focus {{ background-color: {REMOVE}; color: {ON_FILL}; }}\n"
+    ));
+    css
 }
 
 #[cfg(test)]
@@ -108,7 +160,7 @@ mod tests {
             ".task-card.active { color: #8cd283; }",
             "padding: 12px",
             "font: 10pt \"Iosevka Term Extended\"",
-            ".task-card:focus { background-color: rgba(0, 0, 0, 0.6); }",
+            ".task-card:focus-within { background-color: rgba(0, 0, 0, 0.6); }",
         ] {
             assert!(css.contains(want), "missing `{want}`");
         }
@@ -124,6 +176,30 @@ mod tests {
                 "rule escapes the panel: {line}"
             );
         }
+    }
+
+    /// Each button in its own colour, Start sharing the active task's green.
+    /// A new Action without a colour fails here, not as a grey button.
+    #[test]
+    fn every_action_button_has_its_colour() {
+        let css = css();
+        for action in crate::panel::actions::Action::ALL {
+            let (_, colour) = ACTION_COLOURS
+                .iter()
+                .find(|(name, _)| *name == action.name())
+                .unwrap_or_else(|| panic!("no colour for {}", action.name()));
+            let rule = format!(".card-actions .{} {{ color: {colour}; }}", action.name());
+            assert!(css.contains(&rule), "missing `{rule}`");
+        }
+        assert!(css.contains(".card-actions .start { color: #8cd283; }"), "Start is ACTIVE's green");
+    }
+
+    /// The row shares the card's rounded bottom corners.
+    #[test]
+    fn the_action_row_rounds_off_with_the_card() {
+        let css = css();
+        assert!(css.contains(".card-actions button:first-child { border-bottom-left-radius: 8px; }"));
+        assert!(css.contains(".card-actions button:last-child { border-bottom-right-radius: 8px; }"));
     }
 
     /// The card the keyboard is on is picked out by its fill alone. A border
