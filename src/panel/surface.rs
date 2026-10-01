@@ -241,8 +241,8 @@ impl Panel {
             .map(|_| {
                 let button = gtk4::Button::new();
                 // Out of the focus chain: the arrows and Tab stay between the
-                // cards and their buttons, and a click leaves the focus where
-                // it was.
+                // cards and their buttons, and a click does not take the
+                // focus.
                 button.set_focusable(false);
                 button.set_focus_on_click(false);
                 tabs.append(&button);
@@ -450,6 +450,8 @@ impl Panel {
         self.keyboard.set(true);
         self.cancel_grace();
         self.window.set_keyboard_mode(KeyboardMode::Exclusive);
+        // Opens on All every time, also when pressed again while open.
+        self.filter.set(Filter::All);
         self.render();
         // After render(), which measures the cards the region needs.
         self.slide_to(CENTRED_X, centre_margin(self.monitor.geometry().width()));
@@ -619,8 +621,16 @@ impl Panel {
                 }
                 child = c.next_sibling();
             }
-            if let Some(c) = child.or_else(|| self.column.first_child()) {
-                focus_card(&c, focused.as_ref().map(|(_, slot)| slot.as_str()));
+            // The slot only goes with the same card: on the first card, which
+            // stands in when the focused one left, it would land on a button
+            // of that name rather than on the body.
+            match child {
+                Some(c) => focus_card(&c, focused.as_ref().map(|(_, slot)| slot.as_str())),
+                None => {
+                    if let Some(first) = self.column.first_child() {
+                        focus_card(&first, None);
+                    }
+                }
             }
         }
     }
