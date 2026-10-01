@@ -41,7 +41,8 @@ _Avoid_: ready (Taskwarrior's `+READY` means something else), refined, groomed
 **Task panel**:
 The list of task cards on a monitor's right edge, showing the pending tasks of
 that monitor's active workspace. It is tucked away to a peek until hovered,
-or until Mod+Alt+Ctrl+T slides it out and hands it the keyboard.
+or until Mod+Alt+Ctrl+T hands it the keyboard, which moves it to the middle of the
+screen until the keyboard is given back.
 _Avoid_: pill, overlay, widget, sidebar, drawer
 
 **Task card**:

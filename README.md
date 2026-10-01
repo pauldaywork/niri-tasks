@@ -16,7 +16,7 @@ from — opening one, or moving a task to another workspace.
 | Key | Does |
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
-| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard: every card shows its whole description, with buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, stop it, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). With no tasks, or no daemon, the fuzzel list instead |
+| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, with buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, stop it, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+W` | Create a new workspace and name it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
@@ -40,8 +40,9 @@ Click a card to open that task's actions in fuzzel — the same menu the picker
 shows once you pick a task — on the monitor you clicked. The "+N more" card
 shows the rest of the tasks in the panel.
 
-`Mod+Alt+Ctrl+T` slides the panel out and hands it the keyboard. Every card
-opens up to its whole description, wrapped, above a row of buttons:
+`Mod+Alt+Ctrl+T` hands the panel the keyboard and moves it to the middle of the
+screen, leaving no peek on the right edge while it is there. Every card opens up
+to its whole description, wrapped, above a row of buttons:
 
 | Button | Key | Does |
 |---|---|---|
@@ -57,8 +58,9 @@ along the focused card's buttons, whose name shows beside them while one is
 focused, and Enter presses the focused one. Enter on
 the card itself opens its full menu, which also has Note, Grill me, Update
 status and Move to workspace — led by Go to session while a Claude is working
-on the task. Every button gives the keyboard back as it runs,
-and Escape tucks the panel away, folding the cards back to one line. A list
+on the task. Every button gives the keyboard back as it runs, and Escape puts
+the panel back on the right edge, tucked away with the cards folded back to
+one line. A list
 taller than the screen scrolls, keeping the focused card in view. Hovering
 never shows the buttons — only the keyboard does.
 
@@ -272,8 +274,9 @@ It cannot move the pointer, so the hover is checked by hand after a change to
 about 0.4s after it leaves, the slide is smooth, and a click just left of the
 peek, or between two cards, lands on the window beneath, while a click on a
 card opens its actions on that monitor. And the keyboard, past what the script
-measures: `Mod+Alt+Ctrl+T` slides the panel out with every card wrapped and the
-first darkened, active tasks with Stop and no Start working; Up and Down move
+measures: `Mod+Alt+Ctrl+T` shows the panel in the middle of the screen, without
+a slide, with every card wrapped and the first darkened, and the pointer passing
+over it does not move it; active tasks with Stop and no Start working; Up and Down move
 the darkening between cards, Left, Right and Tab along the buttons; `s` starts
 working exactly as the menu does, `r` refines, `e` opens the box, `t` stops;
 Delete arms Remove and only a second Delete deletes, while moving away disarms

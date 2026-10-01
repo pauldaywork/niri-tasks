@@ -17,14 +17,16 @@
 # What it cannot check is the hover: nothing on this machine can move the
 # pointer, so the slide out, the slide back, and clicks passing beside the peek
 # are checked by hand (README, "Testing"). The keyboard it can: `task panel`
-# slides the panel out, and with wtype installed, Escape tucks it away again.
+# moves the panel to the middle of the screen, and with wtype installed, Escape
+# puts it back on the right edge.
 #
-# It needs the right edge of the screen to hold still, so it checks that first
-# and says so rather than producing a flaky answer. Do not switch workspaces
-# while it runs: the panel follows the workspace, and so does the tag its tasks
-# are filed under. And not over a fullscreen window, which covers the panel.
+# It needs the right edge and the middle of the screen to hold still, so it
+# checks that first and says so rather than producing a flaky answer. Do not
+# switch workspaces while it runs: the panel follows the workspace, and so does
+# the tag its tasks are filed under. And not over a fullscreen window, which
+# covers the panel.
 #
-# Park the pointer away from the right edge first. A pointer resting against
+# Park the pointer away from the right edge and the middle first. A pointer resting against
 # the edge is inside the panel once it grows tall enough, and the panel slides
 # out for it exactly as it should — which reads here as a peek 300px wide.
 set -uo pipefail
@@ -106,6 +108,9 @@ shot() {
 
 # Compare a frame against the baseline and print "<width> <height>" of the
 # panel: the span of columns, and of rows, that changed over most of a run.
+# With "centre" it looks at the middle of the screen instead of the right edge,
+# and adds "<left> <right>": the unchanged columns either side of the panel in
+# that box, which match when the panel is centred.
 #
 # Counting changed pixels does not work: the cards are translucent, so much of
 # them differs from the wallpaper by only a few levels, while a window
@@ -115,7 +120,7 @@ shot() {
 # while noise changes a handful of pixels. Columns and rows over MIN_RUN are
 # panel and nothing else.
 measure() {
-    python3 - "$SB/shots/baseline.png" "$SB/shots/$1.png" <<'PY'
+    python3 - "$SB/shots/baseline.png" "$SB/shots/$1.png" "${2:-right}" <<'PY'
 import sys
 from PIL import Image, ImageChops
 
@@ -124,15 +129,23 @@ MIN_RUN = 20      # changed pixels in a line before it is panel rather than nois
 
 base = Image.open(sys.argv[1]).convert("RGB")
 frame = Image.open(sys.argv[2]).convert("RGB")
+region = sys.argv[3]
 w, h = base.size
-# The right edge, well wider than the peek so an overlong one is seen, and a
-# band across the middle, where a vertically centred panel sits.
-#
-# The band is kept narrow on purpose. Every screenshot this takes makes niri
-# post a "Screenshot captured" notification, and they stack down from the top
-# right — into the very strip being measured, by the third shot, if it runs
-# much above the middle. Three cards fit in this band with room to spare.
-box = (w - 300, int(h * 0.36), w, int(h * 0.64))
+if region == "centre":
+    # The middle half of the screen, both ways, and symmetric about its
+    # centre, so a centred panel leaves equal gaps either side. Clear of the
+    # screenshot notifications, which stack down from the top right corner.
+    box = (w // 4, h // 4, w - w // 4, h - h // 4)
+else:
+    # The right edge, well wider than the peek so an overlong one is seen, and
+    # a band across the middle, where a vertically centred panel sits.
+    #
+    # The band is kept narrow on purpose. Every screenshot this takes makes
+    # niri post a "Screenshot captured" notification, and they stack down from
+    # the top right — into the very strip being measured, by the third shot, if
+    # it runs much above the middle. Three cards fit in this band with room to
+    # spare.
+    box = (w - 300, int(h * 0.36), w, int(h * 0.64))
 mask = (ImageChops.difference(base.crop(box), frame.crop(box))
         .convert("L")
         .point(lambda p: 255 if p > SENSITIVITY else 0))
@@ -142,7 +155,12 @@ cols = [x for x in range(cw) if sum(1 for y in range(ch) if px[x, y]) >= MIN_RUN
 rows = [y for y in range(ch) if sum(1 for x in range(cw) if px[x, y]) >= MIN_RUN]
 width = (cols[-1] - cols[0] + 1) if cols else 0
 height = (rows[-1] - rows[0] + 1) if rows else 0
-print(width, height)
+if region == "centre":
+    left = cols[0] if cols else 0
+    right = (cw - 1 - cols[-1]) if cols else 0
+    print(width, height, left, right)
+else:
+    print(width, height)
 PY
 }
 
@@ -165,10 +183,12 @@ echo "workspace tag: $TAG   screenshots via $SHOTDIR"
 shot baseline || exit 1
 shot stillness || exit 1
 read -r noise _ < <(measure stillness)
+read -r mid_noise _ < <(measure stillness centre)
+noise=$((noise + mid_noise))
 if [ "$noise" -eq 0 ]; then
-    ok "the right edge holds still between two identical frames"
+    ok "the right edge and the middle hold still between two identical frames"
 else
-    bad "the right edge is not static ($noise columns changed between two
+    bad "the right edge or the middle of the screen is not static ($noise columns changed between two
       identical frames) — move or close whatever is animating there, or this
       measures that instead of the panel"
     echo; echo "passed: $pass   failed: $fail"; exit 1
@@ -214,19 +234,33 @@ delta=$(( other_h > three_h ? other_h - three_h : three_h - other_h ))
 [ "$delta" -le 6 ] && ok "a task on another workspace's tag does not appear" \
     || bad "the panel changed height (${other_h}px vs ${three_h}px) for a task on another tag"
 
-# ─── the keyboard: every card out, wrapped, with its buttons ─────────────────
+# ─── the keyboard: every card wrapped, with its buttons, mid-screen ──────────
 # `task panel` is the keybind's command: it asks this sandbox's daemon to hand
-# its panel the keyboard. The cards slide all the way out, so the measured
-# strip is as wide as it can be, and each grows an action row, so the three of
-# them stand taller than their one-line peek.
+# its panel the keyboard. The panel leaves the right edge for the middle of the
+# screen, so the right edge goes back to the baseline and the middle changes,
+# by the same amount either side. Each card grows an action row, so the three
+# of them stand taller than their one-line peek.
+#
+# A panel wider than the middle half of the screen (a small or scaled monitor)
+# fills the box and leaves no gap either side, which still reads as centred.
 "$NIRITASKS" task panel >/dev/null 2>&1
 settle
 shot keyboard || exit 1
-read -r key_w key_h < <(measure keyboard)
-if [ "$key_w" -ge 250 ]; then
-    ok "the keyboard slides the panel out (${key_w}px of the 300px strip)"
+read -r key_edge_w _ < <(measure keyboard)
+read -r key_w key_h key_l key_r < <(measure keyboard centre)
+if [ "$key_edge_w" -eq 0 ]; then
+    ok "the keyboard takes the panel off the right edge"
 else
-    bad "the panel is ${key_w}px wide with the keyboard, expected it slid out"
+    bad "the right edge still shows ${key_edge_w}px of panel with the keyboard —
+      the surface kept its right anchor"
+fi
+off=$(( key_l > key_r ? key_l - key_r : key_r - key_l ))
+if [ "$key_w" -gt 0 ] && [ "$off" -le 10 ]; then
+    ok "and shows it in the middle of the screen (${key_w}px wide, ${key_l}px | ${key_r}px either side)"
+else
+    bad "the middle of the screen shows ${key_w}px of panel, ${key_l}px from the
+      left of the box and ${key_r}px from its right — 0 wide means it is not
+      there; uneven gaps mean it is not centred"
 fi
 if [ "$key_h" -ge $((three_h + 40)) ]; then
     ok "and each card grows its buttons (${key_h}px tall vs ${three_h}px)"
@@ -243,13 +277,16 @@ if command -v wtype >/dev/null; then
     settle
     shot released || exit 1
     read -r rel_w rel_h < <(measure released)
+    read -r rel_mid_w _ < <(measure released centre)
     delta=$(( rel_h > three_h ? rel_h - three_h : three_h - rel_h ))
     if [ "$rel_w" -le $((PEEK + 30)) ] && [ "$delta" -le 6 ]; then
-        ok "Escape tucks it back to the one-line peek (${rel_w}x${rel_h}px)"
+        ok "Escape puts it back to the one-line peek (${rel_w}x${rel_h}px)"
     else
-        bad "after Escape the panel is ${rel_w}x${rel_h}px, expected the
+        bad "after Escape the right edge shows ${rel_w}x${rel_h}px, expected the
       ${three_w}x${three_h}px peek it started from"
     fi
+    [ "$rel_mid_w" -eq 0 ] && ok "and leaves the middle of the screen clear" \
+        || bad "after Escape the middle of the screen still shows ${rel_mid_w}px of panel"
 else
     echo "  SKIP  Escape back to the peek (needs wtype)"
 fi

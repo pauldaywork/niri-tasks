@@ -72,10 +72,10 @@ binds {
     Mod+Alt+P hotkey-overlay-title="Open Project Workspace" { spawn "niritasks" "project" "open"; }
 
     // Taskwarrior, scoped to the current workspace's name as a tag.
-    // Mod+Alt+T writes a new task; its Ctrl companion, Mod+Alt+Ctrl+T, slides out
-    // the task panel to pick one with the arrow keys, and Enter offers edit / note
-    // / delete / complete / set-active on it. With no tasks on the workspace (or
-    // no daemon) it opens the fuzzel list instead.
+    // Mod+Alt+T writes a new task; its Ctrl companion, Mod+Alt+Ctrl+T, shows the
+    // task panel in the middle of the screen to pick one with the arrow keys, and
+    // Enter offers edit / note / delete / complete / set-active on it. With no
+    // tasks on the workspace (or no daemon) it opens the fuzzel list instead.
     Mod+Alt+T hotkey-overlay-title="Add Task" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niritasks-taskbox.lock\" niritasks task add"; }
     Mod+Alt+Ctrl+T hotkey-overlay-title="Workspace Tasks: pick on the panel" { spawn "niritasks" "task" "panel"; }
 }
