@@ -396,6 +396,92 @@ else
     bad "a task on another tag changed columns ${x0}-${x1}, rows ${y0}-${y1}"
 fi
 
+# ─── the keyboard: every card wrapped, with its buttons, mid-screen ──────────
+# `task panel` is the keybind's command: it asks this sandbox's daemon to hand
+# its panel the keyboard, and the panel leaves the right edge for the middle of
+# the screen. Everything it draws is then inside the centred surface.
+"${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
+settle
+shot keyboard || exit 1
+read -r x0 x1 _ _ < <(measure keyboard)
+if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ]; then
+    ok "the keyboard takes the panel off the right edge to the middle (columns ${x0}-${x1})"
+else
+    bad "with the keyboard the panel covers columns ${x0}-${x1}, expected within
+      ${SURFACE_LEFT}-${SURFACE_RIGHT} — 0-0 means nothing drew; reaching ${OUT_W} means it
+      did not leave the edge"
+fi
+
+# Down moves the darker fill from the first card to the second, and nothing
+# else in the frame changes, so what differs between the two frames is exactly
+# two cards: their columns, and with their action rows, well over twice the
+# height of one card's one-line peek.
+if command -v wtype >/dev/null; then
+    "${NENV[@]}" wtype -k Down
+    sleep 1
+    shot keyboard_down || exit 1
+    read -r x0 x1 y0 y1 < <(measure keyboard_down keyboard)
+    key_h=$((y1 - y0))
+    if [ "$x0" -eq "$CARD_X" ] && [ "$x1" -eq $((CARD_X + CARD)) ]; then
+        ok "and shows its cards in the middle of the screen (columns ${x0}-${x1})"
+    else
+        bad "the keyboard's cards cover columns ${x0}-${x1}, expected
+      ${CARD_X}-$((CARD_X + CARD)) — 0-0 means Down did not move the focus"
+    fi
+    if [ "$key_h" -ge $((one_h * 2 + 40)) ]; then
+        ok "and each card grows its buttons (${key_h}px for two cards vs ${one_h}px for one tucked away)"
+    else
+        bad "two of the keyboard's cards are ${key_h}px tall against ${one_h}px for
+      one tucked away — the action rows are missing"
+    fi
+
+    "${NENV[@]}" wtype -k Escape
+    settle
+    shot released || exit 1
+    if same three released; then
+        ok "Escape puts it back exactly as it was before the keyboard took it"
+    else
+        read -r x0 x1 y0 y1 < <(measure released three)
+        bad "after Escape the screen differs from the tucked panel in columns
+      ${x0}-${x1}, rows ${y0}-${y1}"
+    fi
+else
+    skip "the panel's cards in the middle of the screen, their buttons, and Escape back (needs wtype)"
+fi
+
+# ─── nothing pending shows nothing ───────────────────────────────────────────
+# rc.bulk=0: completing more than two tasks at once otherwise stops to ask,
+# and with no terminal to answer, completes none of them. A panel with no
+# tasks also gives the keyboard back, when wtype was not there to press Escape.
+task rc.verbose=nothing rc.confirmation=no rc.bulk=0 "+$TAG" done </dev/null >/dev/null 2>&1
+settle
+shot empty || exit 1
+if same baseline empty; then
+    ok "the panel goes away when the workspace has no tasks"
+else
+    read -r x0 x1 y0 y1 < <(measure empty)
+    bad "something is still drawn with no tasks (columns ${x0}-${x1}, rows ${y0}-${y1})"
+fi
+
+# ─── the map-once trap: a daemon that starts with nothing to show ────────────
+# A layer surface that has never been mapped does not respond to a later
+# present(), so this once stayed invisible for an entire session however many
+# tasks were added afterwards.
+kill "$DAEMON" 2>/dev/null; wait "$DAEMON" 2>/dev/null
+sleep 1
+"${NENV[@]}" "$NIRITASKS" daemon >"$SB/daemon2.err" 2>&1 &
+DAEMON=$!
+sleep 3
+add "after a cold start"
+settle
+shot cold_start || exit 1
+read -r x0 x1 _ _ < <(measure cold_start)
+if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ]; then
+    ok "a daemon started with nothing to show still shows the next task (columns ${x0}-${x1})"
+else
+    bad "after a cold start with no tasks the panel drew columns ${x0}-${x1}, expected ${PEEK_X}-${OUT_W}"
+fi
+
 # ─── the real daemon, untouched ──────────────────────────────────────────────
 guard
 now=$(systemctl --user show -p MainPID --value niri-tasks.service 2>/dev/null || echo 0)
