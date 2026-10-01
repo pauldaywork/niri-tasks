@@ -34,7 +34,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Print the workspace's task tag, or exit 1 if it has none
+    /// Print the focused workspace's task tag, or exit 1 if it has none
+    ///
+    /// From a terminal, a script or anything that runs for more than a
+    /// moment, pass --session: the user switches workspace while it runs,
+    /// and the focused answer moves with them.
     Tag {
         /// Take the workspace from this terminal's herdr session, or failing
         /// that its ~/Projects folder, rather than from whatever is focused.
@@ -59,7 +63,7 @@ enum Command {
     /// Open a terminal in the focused workspace's ~/Projects folder (Mod+Return)
     Terminal,
 
-    /// Run the task panels and the task-box server (long-running; started by a systemd user unit)
+    /// Internal: run the task panels and the task-box server (long-running; the niri-tasks systemd user unit starts it)
     Daemon,
 }
 
@@ -67,7 +71,7 @@ enum Command {
 enum TaskCommand {
     /// Print each active task's description, one per line, or nothing
     Active,
-    /// Pick a task from this workspace and act on it
+    /// Pick a task from this workspace and act on it (opens fuzzel)
     List {
         /// Print the rows that would be shown, instead of opening the picker.
         /// Exists so the list can be diffed against the shell original without
@@ -77,51 +81,98 @@ enum TaskCommand {
     },
     /// Slide out the task panel and pick a task with the keyboard (Mod+Alt+Ctrl+T)
     Panel,
-    /// Open the action menu for one task (clicking its task card)
-    Menu { uuid: String },
+    /// Open the action menu for one task, as clicking its task card does (opens fuzzel)
+    Menu {
+        /// The task's uuid, or its first 8 characters
+        uuid: String,
+    },
     /// Move a task to a state, as the menu's "Update status" does
     ///
     /// The same states, code and notification as the menu, for scripts and for
-    /// finishing a task's worktree. The uuid can be the full one or its first
-    /// 8 characters, as in a `task/<slug>-<uuid8>` branch.
+    /// finishing a task's worktree. Use it rather than `task <uuid> done`,
+    /// `start` or `stop`: `active` also links the herdr pane it runs in to the
+    /// task, and every change sends the menu's notification.
     Status {
+        /// The task's uuid, or its first 8 characters, as in a
+        /// `task/<slug>-<uuid8>` branch
         uuid: String,
+        /// Where to move it; `stopped` also brings back a waiting task
         state: task::Status,
         /// Confirm `deleted`, which the menu asks about and a script cannot be asked
         #[arg(long)]
         yes: bool,
     },
-    /// Add a task
-    Add { text: Vec<String> },
-    /// Print a task's description by uuid
-    GetText { uuid: String },
-    /// Replace a task's description
-    Edit { uuid: String, text: Vec<String> },
-    /// Print a task's notes, one per line
-    GetNotes { uuid: String },
-    /// Attach a note to a task
-    Note { uuid: String, text: Vec<String> },
+    /// Add a task to the focused workspace, or open the task box with no text
+    ///
+    /// The text is word-split, so taskwarrior reads its own attributes in it:
+    /// `niritasks task add ship it due:friday` sets a due date. With no text
+    /// it opens the task box, a window, instead.
+    Add {
+        /// The description, taskwarrior attributes and all; leave it out for the task box
+        text: Vec<String>,
+    },
+    /// Print a task's description
+    GetText {
+        /// The task's uuid, or its first 8 characters
+        uuid: String,
+    },
+    /// Replace a task's description, or open the task box on it with no text
+    ///
+    /// The text is not word-split: it becomes the description as typed, so a
+    /// `due:friday` in it stays literal. With no text it opens the task box,
+    /// a window, on the task's description and notes.
+    Edit {
+        /// The task's uuid, or its first 8 characters
+        uuid: String,
+        /// The new description, kept literal; leave it out for the task box
+        text: Vec<String>,
+    },
+    /// Print a task's notes, one per line: its date, two spaces, its text
+    GetNotes {
+        /// The task's uuid, or its first 8 characters
+        uuid: String,
+    },
+    /// Attach a note to a task, or open the task box on a new note with no text
+    ///
+    /// The text is not word-split, so a `due:friday` in it stays literal.
+    /// With no text it opens the task box, a window, with the cursor in a new
+    /// empty note.
+    Note {
+        /// The task's uuid, or its first 8 characters
+        uuid: String,
+        /// The note, kept literal; leave it out for the task box
+        text: Vec<String>,
+    },
     /// Work a task up into a plan with Claude, in a new tab of the workspace's herdr session
     Refine {
+        /// The task's uuid, or its first 8 characters
         uuid: String,
         /// Interview first, via the `grilling` skill, rather than drafting straight away
         #[arg(long)]
         grill: bool,
     },
     /// Start working on a task in its own git worktree, with Claude planning it
+    ///
+    /// Opens a herdr tab that makes the worktree (branch
+    /// `task/<slug>-<uuid8>`) and starts Claude in it. Run again on the same
+    /// task, it goes back to both.
     Start {
+        /// The task's uuid, or its first 8 characters
         uuid: String,
-        /// The setup step, run inside the tab `task start` opens: make the
-        /// worktree, open it, start Claude, close the tab
+        /// Internal: the setup step, run inside the tab `task start` opens:
+        /// make the worktree, open it, start Claude, close the tab
         #[arg(long, requires = "workspace")]
         here: bool,
-        /// The workspace the task belongs to (only with --here, which runs
-        /// inside herdr where niri's focus says nothing about it)
+        /// Internal: the workspace the task belongs to (only with --here,
+        /// which runs inside herdr where niri's focus says nothing about it)
         #[arg(long)]
         workspace: Option<String>,
     },
     /// Go to the Claude working on a task, in the workspace's herdr session
-    Session { uuid: String },
+    Session {
+        /// The task's uuid, or its first 8 characters
+        uuid: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -717,6 +768,7 @@ fn terminal() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
     use niri_tasks::panel::actions::Action;
 
     /// Every button on a task card spawns `niritasks` with these arguments, so
@@ -751,5 +803,53 @@ mod tests {
         let with = menu_entries(true);
         assert_eq!(with[0], GO_TO_SESSION);
         assert_eq!(with[1..], without[..]);
+    }
+
+    /// Every subcommand a person can run, as the words that run it ("task
+    /// get-text"), with the command itself. Groups like `task` are walked
+    /// into rather than listed: on their own they only print help.
+    fn leaf_commands() -> Vec<(String, clap::Command)> {
+        fn walk(prefix: &str, cmd: &clap::Command, out: &mut Vec<(String, clap::Command)>) {
+            for sub in cmd.get_subcommands().filter(|s| s.get_name() != "help") {
+                let path = if prefix.is_empty() {
+                    sub.get_name().to_string()
+                } else {
+                    format!("{prefix} {}", sub.get_name())
+                };
+                if sub.has_subcommands() {
+                    walk(&path, sub, out);
+                } else {
+                    out.push((path, sub.clone()));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk("", &Cli::command(), &mut out);
+        out
+    }
+
+    /// The arguments a person passes, not the --help and --version clap adds.
+    fn own_args(cmd: &clap::Command) -> impl Iterator<Item = &clap::Arg> {
+        cmd.get_arguments()
+            .filter(|a| !matches!(a.get_id().as_str(), "help" | "version"))
+    }
+
+    /// `niritasks <cmd> --help` is the first reference a script or an agent
+    /// reaches for, so nothing in it may come out blank: not a subcommand,
+    /// and not a bare `<UUID>` with nothing beside it.
+    #[test]
+    fn every_subcommand_and_argument_has_help() {
+        let mut blank = Vec::new();
+        for (path, cmd) in leaf_commands() {
+            if cmd.get_about().is_none() {
+                blank.push(path.clone());
+            }
+            for arg in own_args(&cmd) {
+                if arg.get_help().is_none() {
+                    blank.push(format!("{path} <{}>", arg.get_id()));
+                }
+            }
+        }
+        assert!(blank.is_empty(), "no --help text for: {blank:?}");
     }
 }
