@@ -6,9 +6,9 @@
 //! outline are a ghostty window's under niri, from the same repo:
 //! `config/ghostty/` and `config/niri/window-rules/`. Change them together.
 //!
-//! No card has a border, except the one the keyboard is on, which gets a 1px
-//! white one. The active task is marked by colour alone: its ▶ and its text
-//! are green.
+//! No card has a border. The one the keyboard is on is filled a darker black
+//! than the rest. The active task is marked by colour alone: its ▶ and its
+//! text are green.
 //!
 //! The cards are buttons, so the keyboard can move between them, and the
 //! theme's button look — border, gradient, minimum height, hover and press
@@ -52,8 +52,13 @@ pub const GAP_PX: i32 = 8;
 /// measured from the screen edge, so this does not change how much shows while
 /// tucked away.
 pub const CARD_WIDTH_PX: i32 = 760;
-/// The border on the card the keyboard is on.
+/// The border on whatever the keyboard is on in the task box: a field or a
+/// button. The panel's cards used to wear it too; they are darkened instead,
+/// with [`FOCUSED_BACKGROUND`].
 pub const FOCUS: &str = "1px solid #ffffff";
+/// The fill of the card the keyboard is on: the same black as [`BACKGROUND`],
+/// stronger, so the card stands out without a border drawn round it.
+pub const FOCUSED_BACKGROUND: &str = "rgba(0, 0, 0, 0.6)";
 
 pub fn css() -> String {
     format!(
@@ -77,8 +82,8 @@ window.task-panel {{ background-color: transparent; }}
     transition: none;
 }}
 /* :focus, not :focus-visible: GTK clears focus-visible 3s after the last key
-   press (VISIBLE_FOCUS_DURATION), and the border would vanish mid-pick. */
-.task-panel .task-card:focus {{ outline: {FOCUS}; outline-offset: -1px; }}
+   press (VISIBLE_FOCUS_DURATION), and the darker fill would vanish mid-pick. */
+.task-panel .task-card:focus {{ background-color: {FOCUSED_BACKGROUND}; }}
 .task-panel .task-card.active {{ color: {ACTIVE}; }}
 .task-panel .task-card.blocked,
 .task-panel .task-card.more {{ color: alpha({TEXT}, 0.55); }}
@@ -103,7 +108,7 @@ mod tests {
             ".task-card.active { color: #8cd283; }",
             "padding: 12px",
             "font: 10pt \"Iosevka Term Extended\"",
-            ".task-card:focus { outline: 1px solid #ffffff; outline-offset: -1px; }",
+            ".task-card:focus { background-color: rgba(0, 0, 0, 0.6); }",
         ] {
             assert!(css.contains(want), "missing `{want}`");
         }
@@ -119,5 +124,28 @@ mod tests {
                 "rule escapes the panel: {line}"
             );
         }
+    }
+
+    /// The card the keyboard is on is picked out by its fill alone. A border
+    /// or outline there is the look this replaced.
+    #[test]
+    fn the_focused_card_is_darker_and_unbordered() {
+        let css = css();
+        let focus = css
+            .lines()
+            .find(|l| l.contains(".task-card:focus"))
+            .expect("no :focus rule");
+        assert!(
+            !focus.contains("outline"),
+            "focused card has an outline: {focus}"
+        );
+        assert!(
+            !focus.contains("border"),
+            "focused card has a border: {focus}"
+        );
+        assert_ne!(
+            FOCUSED_BACKGROUND, BACKGROUND,
+            "focused card is not picked out"
+        );
     }
 }

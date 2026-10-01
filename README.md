@@ -41,7 +41,7 @@ shows once you pick a task — on the monitor you clicked. The "+N more" card
 shows the rest of the tasks in the panel.
 
 `Mod+Alt+Ctrl+T` does the same from the keyboard: the panel slides out and
-takes the keyboard, the arrow keys move a 1px white border between cards, and
+takes the keyboard, the arrow keys move a darker fill between cards, and
 Enter acts as a click. Escape tucks it away again.
 
 The cards are shaped like mako notifications and take a terminal window's font
@@ -248,7 +248,7 @@ It cannot move the pointer, so the hover is checked by hand after a change to
 about 0.4s after it leaves, the slide is smooth, and a click just left of the
 peek, or between two cards, lands on the window beneath, while a click on a
 card opens its actions on that monitor. And the keyboard: `Mod+Alt+Ctrl+T`
-slides the panel out with the first card bordered, the arrows move the border,
+slides the panel out with the first card darkened, the arrows move the darkening,
 Enter opens the menu, Enter on "+N more" shows the rest, and Escape tucks it
 away.
 

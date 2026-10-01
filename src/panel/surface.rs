@@ -26,9 +26,9 @@
 //!
 //! Mod+Alt+Ctrl+T slides the panel out and hands it the keyboard. The cards
 //! are buttons so GTK does the rest: the arrow keys move focus between them,
-//! Enter clicks the focused one, and `:focus` draws its border. A
-//! click and Enter are then the same `clicked`. Escape, or a click on a card,
-//! hands the keyboard back.
+//! Enter clicks the focused one, and `:focus` darkens it. A click and Enter
+//! are then the same `clicked`. Escape, or a click on a card, hands the
+//! keyboard back.
 //!
 //! It is held with exclusive keyboard mode throughout, as fuzzel does. niri
 //! gives an on-demand layer surface focus only after a click on it, so
@@ -372,7 +372,7 @@ impl Panel {
             Status::Pending => {}
         }
         button.set_size_request(CARD_WIDTH_PX, -1);
-        // A mouse click opens the menu without leaving the card bordered.
+        // A mouse click opens the menu without leaving the card darkened.
         button.set_focus_on_click(false);
         button.set_widget_name(card.uuid.as_deref().unwrap_or("more"));
         let weak = Rc::downgrade(self);
