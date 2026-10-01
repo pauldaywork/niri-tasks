@@ -18,7 +18,12 @@ pub enum Place {
 /// What a keypress in the box should do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyAction {
+    /// Press the default button: Add or Save, or Add & refine in a box opened
+    /// to refine.
     Save,
+    /// Press Add & refine. Only add mode has that button; elsewhere the box
+    /// treats this as Save, which is what Ctrl+Shift+Enter did before it.
+    Refine,
     Cancel,
     /// From the description to the first note, making one if there are none.
     ToFirstNote,
@@ -33,10 +38,11 @@ pub enum KeyAction {
 
 /// Map a keypress to what it should do. `place` is `None` when the focus is
 /// on something other than a text field — a button.
-pub fn key_action(key: gdk::Key, ctrl: bool, place: Option<Place>) -> KeyAction {
+pub fn key_action(key: gdk::Key, ctrl: bool, shift: bool, place: Option<Place>) -> KeyAction {
     let enter = matches!(key, gdk::Key::Return | gdk::Key::KP_Enter);
     match (key, place) {
         (gdk::Key::Escape, _) => KeyAction::Cancel,
+        _ if enter && ctrl && shift => KeyAction::Refine,
         _ if enter && ctrl => KeyAction::Save,
         (_, Some(Place::Description)) if enter => KeyAction::ToFirstNote,
         (_, Some(Place::Note { index, .. })) if enter => KeyAction::NewNoteBelow(index),
@@ -59,27 +65,27 @@ mod tests {
     #[test]
     fn escape_discards_from_anywhere() {
         for place in EVERYWHERE {
-            assert_eq!(key_action(gdk::Key::Escape, false, place), KeyAction::Cancel);
-            assert_eq!(key_action(gdk::Key::Escape, true, place), KeyAction::Cancel);
+            assert_eq!(key_action(gdk::Key::Escape, false, false, place), KeyAction::Cancel);
+            assert_eq!(key_action(gdk::Key::Escape, true, false, place), KeyAction::Cancel);
         }
     }
 
     #[test]
     fn ctrl_enter_saves_from_anywhere() {
         for place in EVERYWHERE {
-            assert_eq!(key_action(gdk::Key::Return, true, place), KeyAction::Save);
-            assert_eq!(key_action(gdk::Key::KP_Enter, true, place), KeyAction::Save);
+            assert_eq!(key_action(gdk::Key::Return, true, false, place), KeyAction::Save);
+            assert_eq!(key_action(gdk::Key::KP_Enter, true, false, place), KeyAction::Save);
         }
     }
 
     #[test]
     fn enter_in_the_description_moves_to_the_first_note() {
         assert_eq!(
-            key_action(gdk::Key::Return, false, Some(Place::Description)),
+            key_action(gdk::Key::Return, false, false, Some(Place::Description)),
             KeyAction::ToFirstNote
         );
         assert_eq!(
-            key_action(gdk::Key::KP_Enter, false, Some(Place::Description)),
+            key_action(gdk::Key::KP_Enter, false, false, Some(Place::Description)),
             KeyAction::ToFirstNote
         );
     }
@@ -88,7 +94,7 @@ mod tests {
     fn enter_in_a_note_adds_a_row_below_it() {
         for empty in [true, false] {
             assert_eq!(
-                key_action(gdk::Key::Return, false, Some(Place::Note { index: 3, empty })),
+                key_action(gdk::Key::Return, false, false, Some(Place::Note { index: 3, empty })),
                 KeyAction::NewNoteBelow(3)
             );
         }
@@ -97,22 +103,22 @@ mod tests {
     /// A focused button is pressed by Enter; taking the key would break it.
     #[test]
     fn enter_on_a_button_is_passed_through() {
-        assert_eq!(key_action(gdk::Key::Return, false, None), KeyAction::Ignore);
+        assert_eq!(key_action(gdk::Key::Return, false, false, None), KeyAction::Ignore);
     }
 
     #[test]
     fn backspace_deletes_only_an_empty_row() {
         assert_eq!(
-            key_action(gdk::Key::BackSpace, false, Some(Place::Note { index: 1, empty: true })),
+            key_action(gdk::Key::BackSpace, false, false, Some(Place::Note { index: 1, empty: true })),
             KeyAction::DeleteNote(1)
         );
         assert_eq!(
-            key_action(gdk::Key::BackSpace, false, Some(Place::Note { index: 1, empty: false })),
+            key_action(gdk::Key::BackSpace, false, false, Some(Place::Note { index: 1, empty: false })),
             KeyAction::Ignore,
             "in a row with text, Backspace deletes a character"
         );
         assert_eq!(
-            key_action(gdk::Key::BackSpace, false, Some(Place::Description)),
+            key_action(gdk::Key::BackSpace, false, false, Some(Place::Description)),
             KeyAction::Ignore,
             "the description is never deleted"
         );
@@ -124,9 +130,35 @@ mod tests {
     fn ordinary_typing_is_passed_through() {
         for key in [gdk::Key::a, gdk::Key::space, gdk::Key::Tab, gdk::Key::Up] {
             for place in EVERYWHERE {
-                assert_eq!(key_action(key, false, place), KeyAction::Ignore);
-                assert_eq!(key_action(key, true, place), KeyAction::Ignore);
+                for (ctrl, shift) in [(false, false), (true, false), (false, true), (true, true)] {
+                    assert_eq!(key_action(key, ctrl, shift, place), KeyAction::Ignore);
+                }
             }
         }
+    }
+
+    /// The second button's shortcut. Shift is what tells it from Ctrl+Enter,
+    /// which presses whichever button is the default.
+    #[test]
+    fn ctrl_shift_enter_refines_from_anywhere() {
+        for place in EVERYWHERE {
+            assert_eq!(key_action(gdk::Key::Return, true, true, place), KeyAction::Refine);
+            assert_eq!(key_action(gdk::Key::KP_Enter, true, true, place), KeyAction::Refine);
+        }
+    }
+
+    /// Shift alone changes nothing: Shift+Enter is still Enter, so a slip on
+    /// Shift while typing never adds the task.
+    #[test]
+    fn shift_enter_without_ctrl_is_plain_enter() {
+        assert_eq!(
+            key_action(gdk::Key::Return, false, true, Some(Place::Description)),
+            KeyAction::ToFirstNote
+        );
+        assert_eq!(
+            key_action(gdk::Key::Return, false, true, Some(Place::Note { index: 2, empty: false })),
+            KeyAction::NewNoteBelow(2)
+        );
+        assert_eq!(key_action(gdk::Key::Return, false, true, None), KeyAction::Ignore);
     }
 }

@@ -421,11 +421,12 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
                 return gtk4::glib::Propagation::Proceed;
             };
             let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
+            let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
             // GtkWindowExt and RootExt both have a `focus()`; either answers.
             let place = GtkWindowExt::focus(&window).and_then(|w| notes.place_of(&w));
-            match keys::key_action(key, ctrl, place) {
+            match keys::key_action(key, ctrl, shift, place) {
                 KeyAction::Cancel => window.close(),
-                KeyAction::Save => do_submit(),
+                KeyAction::Save | KeyAction::Refine => do_submit(),
                 KeyAction::ToFirstNote => focus_end(&notes.first_or_new()),
                 KeyAction::NewNoteBelow(i) => focus_end(&notes.insert(i + 1, None)),
                 KeyAction::DeleteNote(i) => notes.remove(i),
