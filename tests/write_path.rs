@@ -99,6 +99,22 @@ fn write_path_lifecycle() {
     );
     assert_eq!(raw(&with_attrs.uuid, "priority"), "H");
 
+    // ---- add with notes hands back the uuid -------------------------------
+    // Add & refine needs it: the refine tab opens on the task just made.
+    // A tag of its own, so the counts on TAG below are unchanged.
+    let added = task::add_with_notes("refinesandbox", &text::add_args("refine me next"), &["a first note".into()])
+        .expect("add with notes")
+        .expect("a description was given, so a task was made");
+    let fresh = task::get(&added).expect("get").expect("the uuid names the new task");
+    assert_eq!(fresh.uuid, added, "the full uuid, not a prefix");
+    assert_eq!(fresh.description, "refine me next");
+    assert_eq!(fresh.annotations.len(), 1);
+    assert_eq!(
+        task::add_with_notes("refinesandbox", &[], &[]).expect("empty add"),
+        None,
+        "nothing added, so no uuid"
+    );
+
     // ---- edit does NOT split --------------------------------------------
     // The opposite rule: text typed into the edit box stays literal.
     let uuid = tasks[0].uuid.clone();

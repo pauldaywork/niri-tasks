@@ -236,7 +236,8 @@ fn parse_new_uuid(stdout: &str) -> Option<String> {
         })
 }
 
-/// Add a task and attach one annotation per note.
+/// Add a task and attach one annotation per note, returning the new task's
+/// uuid — `None` when the description was empty and nothing was added.
 ///
 /// The notes are the add box's rows, in order, empty ones already dropped.
 /// They are attached one at a time rather than joined, because separate
@@ -246,14 +247,16 @@ fn parse_new_uuid(stdout: &str) -> Option<String> {
 /// A note that cannot be attached fails the whole call: the task is already
 /// added by then, so the caller is told rather than left believing the notes
 /// went with it.
-pub fn add_with_notes(tag: &str, description_args: &[&str], notes: &[String]) -> Result<()> {
+///
+/// The uuid is what Add & refine hands to `niritasks task refine`.
+pub fn add_with_notes(tag: &str, description_args: &[&str], notes: &[String]) -> Result<Option<String>> {
     let Some(uuid) = add(tag, description_args)? else {
-        return Ok(());
+        return Ok(None);
     };
     for note in notes {
         annotate(&uuid, note)?;
     }
-    Ok(())
+    Ok(Some(uuid))
 }
 
 /// Replace a task's description.
