@@ -42,10 +42,10 @@
 | `niritasks task start <uuid>` | Make the task's own git worktree, branch `task/<slug>-<uuid8>`, and open it in a herdr tab with Claude planning it; run again, go back to both; it also marks the task active, so do not run `task status <uuid> active` after it | herdr tab, follows focus |
 | `niritasks task start <uuid> --here --workspace <name>` | Internal: the setup step `task start` runs inside the tab it opens | internal |
 | `niritasks task session <uuid>` | Go to the herdr tab of the Claude working on it | herdr tab, follows focus |
-| `niritasks workspace new` | Ask for a name, then make a new workspace with it (Mod+Alt+W) | GUI (fuzzel) |
+| `niritasks workspace new` | Ask for a name, then make a new workspace with it | GUI (fuzzel) |
 | `niritasks workspace rename` | Ask for a new name for the focused workspace, which changes its tasks' tag too (Mod+Alt+Ctrl+W) | GUI (fuzzel) |
 | `niritasks workspace default` | Name workspace 1 `general` if it is unnamed; niri runs it at startup | scriptable |
-| `niritasks project open` | Pick a `~/Projects` folder, put it on its own named workspace, and open a terminal there, and VS Code too when `code` is on `$PATH` (Mod+Alt+P) | GUI (fuzzel, windows) |
+| `niritasks project open` | Pick a `~/Projects` folder, put it on its own named workspace, and open a terminal there, and VS Code too when `code` is on `$PATH` (Mod+Alt+W) | GUI (fuzzel, windows) |
 | `niritasks terminal` | Open a terminal in the focused workspace's `~/Projects` folder (Mod+Return) | GUI (window) |
 | `niritasks daemon` | Internal: the task panels and the task-box server, run by the niri-tasks systemd user unit | internal |
 

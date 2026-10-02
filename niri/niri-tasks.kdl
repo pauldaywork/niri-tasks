@@ -51,10 +51,9 @@ layer-rule {
 // that outlives it, which is what makes holding a lock across it safe where the
 // same trick was not safe for the pickers.
 binds {
-    // Create a new workspace and name it.
-    Mod+Alt+W hotkey-overlay-title="New Named Workspace" { spawn "niritasks" "workspace" "new"; }
-
     // Rename the current workspace — and with it, which tag its tasks carry.
+    // It is also how to get a named workspace with no project folder: go to
+    // the empty workspace at the end and name it here.
     Mod+Alt+Ctrl+W hotkey-overlay-title="Rename Workspace" { spawn "niritasks" "workspace" "rename"; }
 
     // A terminal in the focused workspace's project folder, ~/Projects/<name>
@@ -63,13 +62,14 @@ binds {
     // are positional, so this later bind of the same key wins.
     Mod+Return hotkey-overlay-title="Open Terminal" { spawn "niritasks" "terminal"; }
 
-    // Pick a folder from ~/Projects, put it on its own named workspace, and
-    // open a terminal on that workspace's herdr session
-    // (`herdr --session <workspace>`) and VS Code in it. herdr reattaches the
-    // session if it exists and creates it in the project folder if not. The
-    // editor is skipped when `code` is not on $PATH — it is a nicety here, not
-    // a requirement.
-    Mod+Alt+P hotkey-overlay-title="Open Project Workspace" { spawn "niritasks" "project" "open"; }
+    // Pick a folder from ~/Projects (or type a new name to make one), put it on
+    // its own named workspace, and open a terminal on that workspace's herdr
+    // session (`herdr --session <workspace>`) and VS Code in it. herdr
+    // reattaches the session if it exists and creates it in the project folder
+    // if not. The editor is skipped when `code` is not on $PATH — it is a
+    // nicety here, not a requirement. W for workspace; its Ctrl companion,
+    // Mod+Alt+Ctrl+W, renames one.
+    Mod+Alt+W hotkey-overlay-title="Open Project Workspace" { spawn "niritasks" "project" "open"; }
 
     // Taskwarrior, scoped to the current workspace's name as a tag.
     // Mod+Alt+T writes a new task; its Ctrl companion, Mod+Alt+Ctrl+T, shows the

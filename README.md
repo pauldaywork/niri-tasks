@@ -17,8 +17,7 @@ from — opening one, or moving a task to another workspace.
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
 | `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Tabs above the cards, picked with 1–5 or [ and ], narrow them to All, Active, Planned, To refine or Waiting. With no tasks, or no daemon, the fuzzel list instead |
-| `Mod+Alt+P` | Pick a folder from `~/Projects`, put it on its own named workspace, open a terminal and an editor in it |
-| `Mod+Alt+W` | Create a new workspace and name it |
+| `Mod+Alt+W` | Pick a folder from `~/Projects` (or type a new name to make one), put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
 
 ## Task panel
@@ -177,10 +176,10 @@ niritasks task start <uuid>        # its own worktree (task/<slug>-<uuid8>), ope
 niritasks task start <uuid> --here --workspace <name>
                                    # internal: the setup step, run inside the tab `task start` opens
 niritasks task session <uuid>      # back to the Claude working on it (work-/task-<uuid8>) in the herdr session
-niritasks workspace new            # create a workspace and name it (Mod+Alt+W)
+niritasks workspace new            # create a workspace and name it
 niritasks workspace rename         # rename the focused workspace, and with it its tag (Mod+Alt+Ctrl+W)
 niritasks workspace default        # name workspace 1 "general" if it is unnamed (niri runs it at startup)
-niritasks project open             # pick a ~/Projects folder onto its own named workspace (Mod+Alt+P)
+niritasks project open             # pick a ~/Projects folder onto its own named workspace (Mod+Alt+W)
 niritasks terminal                 # a terminal in the focused workspace's ~/Projects folder (Mod+Return)
 niritasks daemon                   # internal: the task panels and task-box server, run by the
                                    #   niri-tasks systemd user unit
