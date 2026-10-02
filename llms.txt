@@ -41,6 +41,7 @@
 | `niritasks task note <uuid>` | With no text, the task box with the cursor in a new note | GUI |
 | `niritasks task speak <uuid>` | Read its description and notes aloud in the background, rewritten by Claude Haiku for listening and spoken by a local Kokoro server, which it starts in docker if needed; returns at once. Run while any task is being spoken, it stops that instead. It sends the task's text to Anthropic | audio |
 | `niritasks task speak <uuid> --here` | Internal: the speaking itself, which `task speak` runs in the background | internal |
+| `niritasks task up-next <uuid>` | Mark it up next with Taskwarrior's own `+next` tag: its task card turns yellow and sorts under the active tasks, and its urgency rises by 15. Run again to clear it. Nothing else about the task changes | scriptable |
 | `niritasks task refine <uuid>` | Open a tab in the workspace's herdr session with Claude working the task into a plan (the `refine-task` skill) | herdr tab, follows focus |
 | `niritasks task refine <uuid> --grill` | The same, interviewing the user first | herdr tab, follows focus |
 | `niritasks task start <uuid>` | Make the task's own git worktree, branch `task/<slug>-<uuid8>`, and open it in a herdr tab with Claude planning it; run again, go back to both; it also marks the task active, so do not run `task status <uuid> active` after it | herdr tab, follows focus |

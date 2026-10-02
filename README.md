@@ -213,6 +213,8 @@ niritasks task note <uuid>         #   with no text, the task box with the curso
 niritasks task speak <uuid>        # read its description and notes aloud, rewritten by Claude for listening;
                                    #   run again, or on any task while one is speaking, to stop
 niritasks task speak <uuid> --here # internal: the speaking itself, run in the background by `task speak`
+niritasks task up-next <uuid>      # mark it up next: its card turns yellow and sits under the active tasks;
+                                   #   run again to clear it
 niritasks task refine <uuid>       # work it up into a plan with Claude, in the workspace's herdr session
 niritasks task refine <uuid> --grill  #   the same, interviewing you first
 niritasks task start <uuid>        # its own worktree (task/<slug>-<uuid8>), opened in the herdr session,

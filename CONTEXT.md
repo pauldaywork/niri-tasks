@@ -36,6 +36,14 @@ description and a consolidated set of notes — marked with the `+planned` tag
 and a clipboard-check icon on its task card and picker row.
 _Avoid_: ready (Taskwarrior's `+READY` means something else), refined, groomed
 
+**Up next task**:
+A pending task marked as the one to do next, with Taskwarrior's own `+next`
+tag, from Up next in its action menu or on its action row. Its task card is
+yellow and sits directly under the active tasks, unless it is active itself
+(green) or waiting; the tag adds urgency, so the picker lifts it too. Up
+next again takes the mark off.
+_Avoid_: priority, starred, pinned
+
 ### On screen
 
 **Task panel**:
@@ -82,9 +90,10 @@ _Avoid_: menu, launcher
 **Action menu**:
 The fuzzel menu of what can be done to one task, opened by picking it in the
 picker, clicking its task card, or Enter on the card: Go to session while a
-Claude is working on it, then Edit, Note, Speak, Refine, Grill me, Start
-working, Update status and Move to workspace. Speak reads the task aloud in
-the background; picked again, on any task, it stops.
+Claude is working on it, then Edit, Note, Speak, Up next (Not up next on a
+task already up next), Refine, Grill me, Start working, Update status and
+Move to workspace. Speak reads the task aloud in the background; picked
+again, on any task, it stops.
 _Avoid_: context menu, actions list
 
 **Task box**:

@@ -19,6 +19,11 @@ use std::process::{Command, Stdio};
 /// meaning something else, one Shift key away.
 pub const PLANNED_TAG: &str = "planned";
 
+/// The tag that marks a task as the one to do next. Taskwarrior's own: its
+/// `urgency.next.coefficient` adds 15 urgency to a `+next` task, so the
+/// picker and `task next`, which sort by urgency, lift it with no code here.
+pub const UP_NEXT_TAG: &str = "next";
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Task {
     pub uuid: String,
@@ -60,6 +65,11 @@ impl Task {
     /// Worked up into a plan by the `refine-task` skill.
     pub fn is_planned(&self) -> bool {
         self.tags.iter().any(|t| t == PLANNED_TAG)
+    }
+
+    /// Marked as the one to do next, with Up next.
+    pub fn is_up_next(&self) -> bool {
+        self.tags.iter().any(|t| t == UP_NEXT_TAG)
     }
 }
 
@@ -513,6 +523,35 @@ pub fn set_active(uuid: &str) -> Result<()> {
     Ok(())
 }
 
+/// What the action menu and the action row call the up next toggle on a
+/// task that is, or is not, up next: the step it would take. So it is also
+/// the word for where the task is once that step is taken, which is what
+/// `niritasks task up-next` notifies.
+pub fn up_next_label(up_next: bool) -> &'static str {
+    if up_next {
+        "Not up next"
+    } else {
+        "Up next"
+    }
+}
+
+/// Put the up next tag on a task, or take it off. Only the tag changes:
+/// `+next` or `-next` goes as one argument of its own, so taskwarrior reads
+/// it as a tag and not as words for the description, and the task's status,
+/// start, wait, other tags and notes stay as they were. A started task stays
+/// started.
+pub fn set_up_next(uuid: &str, on: bool) -> Result<()> {
+    let sign = if on { '+' } else { '-' };
+    let status = base()
+        .arg(uuid)
+        .arg("modify")
+        .arg(format!("{sign}{UP_NEXT_TAG}"))
+        .status()
+        .context("could not run `task modify`")?;
+    anyhow::ensure!(status.success(), "`task modify {sign}{UP_NEXT_TAG}` failed");
+    Ok(())
+}
+
 /// Where a task can be moved to: the menu's "Update status" list, and
 /// `niritasks task status`'s argument. One list for both, so a script and the
 /// menu can never offer different states.
@@ -668,6 +707,31 @@ mod tests {
         let t: Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
         assert!(t.tags.is_empty());
         assert!(!t.is_planned());
+    }
+
+    #[test]
+    fn the_next_tag_marks_a_task_up_next() {
+        let t: Task =
+            serde_json::from_str(r#"{"uuid":"u","description":"d","tags":["proj","next"]}"#).unwrap();
+        assert!(t.is_up_next());
+        let bare: Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
+        assert!(!bare.is_up_next());
+    }
+
+    /// Tags are case-sensitive, and `+NEXT` is not Taskwarrior's `next`.
+    #[test]
+    fn up_next_is_matched_exactly() {
+        let t: Task =
+            serde_json::from_str(r#"{"uuid":"u","description":"d","tags":["NEXT","next_x"]}"#).unwrap();
+        assert!(!t.is_up_next());
+    }
+
+    /// The toggle is named for the step it takes: a task already up next is
+    /// offered Not up next.
+    #[test]
+    fn the_toggle_reads_as_the_step_it_takes() {
+        assert_eq!(up_next_label(false), "Up next");
+        assert_eq!(up_next_label(true), "Not up next");
     }
 
     /// `refine` refuses a task that is not pending; this is the field it

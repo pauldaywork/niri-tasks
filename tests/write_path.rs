@@ -497,6 +497,48 @@ fn write_path_lifecycle() {
         "an unknown uuid is an error, not a silent success"
     );
 
+    // ---- up next toggles the next tag and nothing else --------------------
+    // Up next must leave a started task started, a parked one parked, and its
+    // notes and workspace tag where they were: only `+next` comes and goes.
+    task::add(TAG, &text::add_args("do me next")).expect("add");
+    let nx = task::pending_for_tag(TAG)
+        .expect("list")
+        .into_iter()
+        .find(|t| t.description == "do me next")
+        .expect("find the up next task")
+        .uuid;
+    task::annotate(&nx, "a note").expect("annotate");
+    task::set_status(&nx, Status::Active).expect("start");
+    let before = task::get(&nx).expect("get").expect("task");
+    assert!(!before.is_up_next());
+
+    task::set_up_next(&nx, true).expect("up next");
+    let marked = task::get(&nx).expect("get").expect("task");
+    assert!(marked.is_up_next(), "the next tag is on");
+    assert!(marked.tags.iter().any(|t| t == TAG), "the workspace tag stays");
+    assert!(marked.is_active(), "a started task stays started");
+    assert_eq!(marked.annotations.len(), 1, "the notes stay");
+    assert_eq!(marked.description, "do me next");
+    assert!(
+        marked.urgency >= before.urgency + 15.0,
+        "taskwarrior's next coefficient is what lifts it in the picker: {} -> {}",
+        before.urgency,
+        marked.urgency
+    );
+
+    task::set_up_next(&nx, false).expect("not up next");
+    let cleared = task::get(&nx).expect("get").expect("task");
+    assert!(!cleared.is_up_next(), "the next tag is off");
+    assert!(cleared.tags.iter().any(|t| t == TAG), "the workspace tag stays");
+    assert!(cleared.is_active(), "still started");
+    assert_eq!(cleared.annotations.len(), 1, "the notes stay");
+
+    // A parked task keeps its wait date.
+    task::set_status(&nx, Status::Waiting).expect("waiting");
+    task::set_up_next(&nx, true).expect("up next while waiting");
+    assert!(!raw(&nx, "wait").is_empty(), "up next must not clear a wait date");
+    assert!(task::get(&nx).expect("get").expect("task").is_up_next());
+
     // ---- tags scope the list --------------------------------------------
     task::add("othertag", &text::add_args("not mine")).expect("add to other tag");
     assert!(
