@@ -64,7 +64,12 @@ Show the proposal in your reply, then ask with AskUserQuestion — one question,
 **Change something**. The proposal contains:
 
 1. **New description** — one line, about 50 characters or fewer: the card and
-   picker row show one line at that width. Imperative, specific.
+   picker row show one line at that width. It starts with a Conventional
+   Commits type, lowercase, a colon and a space — `feat`, `fix`, `docs`,
+   `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `style` or `revert` —
+   and the type counts toward the 50. A bug is `fix:`; there is no `bug:`.
+   Keep the type the task already has unless it is wrong. After it,
+   imperative and specific: `fix: Keep the daemon to one task box`.
 2. **New notes** — each one line, each becoming one annotation, in this order
    where they apply: `Goal: …`, `Context: …`, `Decided: …` (one per decision),
    `Steps: …`, `Done when: …`, `Out of scope: …`. They **replace** the existing
@@ -79,7 +84,7 @@ line:
 
 ```json
 {
-  "description": "Show each Claude agent's topic in herdr's sidebar",
+  "description": "feat: Show each Claude agent's topic in herdr's sidebar",
   "notes": [
     "Goal: …",
     "Done when: …"

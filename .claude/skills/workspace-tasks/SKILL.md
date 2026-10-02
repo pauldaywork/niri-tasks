@@ -210,7 +210,7 @@ For each one they accept, file the line and then put the context on it as an
 annotation:
 
 ```bash
-finding="the finding, as one actionable line"
+finding="fix: the finding, as one actionable line"
 task add "+<tag>" -- "$finding"
 uuid=$(task "+<tag>" status:pending export | python3 -c "
 import json,sys
@@ -218,6 +218,10 @@ print(next(t['uuid'] for t in json.load(sys.stdin) if t['description'] == sys.ar
 " "$finding")
 task "$uuid" annotate -- "src/daemon.rs:120 — what you saw, and why it matters"
 ```
+
+Start the line with its Conventional Commits type — `fix:` for a bug, `test:`
+for a missing test, `docs:`, `refactor:`, `perf:`, `chore:` and so on, never
+`bug:` — as every task description does (see `claude/rules/niri-tasks.md`).
 
 Using the tag **captured in Phase 1**, not a freshly resolved one — see the
 table there.
