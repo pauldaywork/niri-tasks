@@ -430,12 +430,14 @@ mapped reports nothing wrong while showing nothing — the overlay the panel
 replaced was invisible for whole sessions that way, past every unit test. So it
 screenshots a nested niri of its own and measures the panel against a frame taken
 with no tasks: the peek's width, the stack's height as tasks are added, the
-keyboard's cards in the middle of the screen, its filter tabs (a tab hidden while
-empty, the keys skipping hidden tabs and stopping at the ends, reopening on
-All, a waiting task on the Waiting tab and off the tucked panel, Clear all arming on its first Ctrl+Delete and taking the focus off the cards, ignoring a card's key while armed, cancelling on Escape and on a tab switch, and Enter then deleting both waiting tasks and nothing else), and Escape
-putting them back,
-nothing for another tag's task, nothing once they are done, and a daemon
-cold-started with nothing to show.
+keyboard's cards in the middle of the screen and the focused one's buttons, a
+filter tab's fill, a waiting task on the Waiting tab and off the tucked panel,
+Clear all taking the focus off the cards on its first Ctrl+Delete and Enter then
+deleting both waiting tasks and nothing else, "+N more" opening on Down, Escape
+putting them back, nothing for another tag's task, nothing once they are done,
+and a daemon cold-started with nothing to show. Which tab, card and button a key
+leads to, and what it arms, are `src/panel/state.rs`'s unit tests, which need no
+display.
 
 The nested screen is a flat colour at a fixed size, so its numbers are exact:
 the peek starts at column 1566 of 1600, the keyboard's cards span 420-1180, and

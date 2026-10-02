@@ -33,9 +33,14 @@
 # out, the slide back and clicks passing beside the peek are checked by hand
 # (README, "Testing"). The keyboard it can: `task panel` moves the panel to the
 # middle of the screen, and with wtype, Down (which moves the action row, and
-# shows the rest on reaching "+N more"), the filter tabs' keys, Ctrl+Delete and
-# Enter for the Waiting tab's Clear all, and Escape are pressed in the nested
-# niri, never on your desktop.
+# shows the rest on reaching "+N more"), the filter tabs' keys, Ctrl+Enter,
+# Ctrl+Delete and Enter for the Waiting tab's Clear all, and Escape are
+# pressed in the nested niri, never on your desktop.
+#
+# What a key does to the panel's state (which tab, which card has the focus,
+# what is armed) is src/panel/state.rs's, and its unit tests check every rule
+# of it. This checks that GTK draws what the state says and that what it runs
+# reaches taskwarrior: one press of each kind, not every rule again.
 set -uo pipefail
 
 python3 -c "import PIL" 2>/dev/null || {
@@ -237,18 +242,8 @@ fi
 # frames is those two cards' columns, and the panel is as tall as it was.
 if command -v wtype >/dev/null; then
     # None of these tasks is started, planned or waiting, so only All and To
-    # refine have a tab. 3 is Planned's key, and its tab is hidden: nothing.
-    "${NENV[@]}" wtype 3
-    sleep 1
-    shot tab_hidden || { summary; exit 1; }
-    if same keyboard tab_hidden; then
-        ok "3 does nothing while no task is planned, its tab hidden"
-    else
-        bad "3 changed the panel with no planned task; Planned's tab should be hidden"
-    fi
-
-    # 4 is To refine: the same three cards, so only the tab bar changes, the
-    # picked tab's fill moving off All.
+    # refine have a tab. 4 is To refine: the same three cards, so only the
+    # tab bar changes, the picked tab's fill moving off All.
     "${NENV[@]}" wtype 4
     sleep 1
     shot tab_refine || { summary; exit 1; }
@@ -260,33 +255,9 @@ if command -v wtype >/dev/null; then
       nothing; more than the tab bar means the cards changed too"
     fi
 
-    # ] from All skips the hidden Active and Planned to To refine, and stops
-    # there, Waiting being hidden too; [ goes back to All.
+    # Back to All for Down.
     "${NENV[@]}" wtype 1
-    "${NENV[@]}" wtype -k bracketright
     sleep 1
-    shot tab_right || { summary; exit 1; }
-    if same tab_refine tab_right; then
-        ok "] from All skips the hidden tabs to To refine"
-    else
-        bad "] from All did not land on To refine, the next tab shown"
-    fi
-    "${NENV[@]}" wtype -k bracketright
-    sleep 1
-    shot tab_end || { summary; exit 1; }
-    if same tab_refine tab_end; then
-        ok "] on the last tab shown stays there"
-    else
-        bad "] on To refine moved; it is the last tab shown and should stop"
-    fi
-    "${NENV[@]}" wtype -k bracketleft
-    sleep 1
-    shot tab_left || { summary; exit 1; }
-    if same keyboard tab_left; then
-        ok "[ steps back to All, as the panel opened"
-    else
-        bad "[ from To refine is not All as the panel opened"
-    fi
 
     "${NENV[@]}" wtype -k Down
     sleep 1
@@ -335,17 +306,11 @@ if command -v wtype >/dev/null; then
 
     "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
     settle
-    shot reopened || { summary; exit 1; }
-    if same keyboard reopened; then
-        ok "taking the keyboard again opens on All, whatever tab it was left on"
-    else
-        bad "the keyboard reopened on something other than All with the first card focused"
-    fi
 
-    # Ctrl+Enter acts on the focused card (the first, as the panel opened) and
-    # leaves the panel as it was. The spawned refine stops at the missing herdr.
+    # Ctrl+Enter refines the focused card, the first as the panel opened. The
+    # spawned refine stops at the missing herdr.
     if PATH="$NESTED_SPAWN_PATH" command -v herdr >/dev/null; then
-        skip "Ctrl+Enter refining and starting (herdr is in $NESTED_SPAWN_PATH, so a refine would really open)"
+        skip "Ctrl+Enter refining (herdr is in $NESTED_SPAWN_PATH, so a refine would really open)"
     else
         refines() { cat "$SB/notifications" 2>/dev/null | grep -c "herdr is not installed"; }
         before=$(refines)
@@ -355,41 +320,6 @@ if command -v wtype >/dev/null; then
             ok "Ctrl+Enter on an unrefined card starts a refine"
         else
             bad "Ctrl+Enter started no refine (notifications: $(tail -n 3 "$SB/notifications" 2>/dev/null | tr '\n' '|'))"
-        fi
-        sleep 1
-        shot ctrl_enter || { summary; exit 1; }
-        if same reopened ctrl_enter; then
-            ok "and leaves the panel up with the same card focused, as it was"
-        else
-            read -r x0 x1 y0 y1 < <(measure ctrl_enter reopened)
-            bad "Ctrl+Enter changed the screen in columns ${x0}-${x1}, rows ${y0}-${y1}"
-        fi
-
-        # Once planned, the same key starts working. That is `task start`, which
-        # in this sandbox stops at once: ~/Projects/e2e is no git repository, and
-        # wt is not on the spawn PATH, so no worktree or herdr is ever touched.
-        if PATH="$NESTED_SPAWN_PATH" command -v wt >/dev/null; then
-            skip "Ctrl+Enter starting a planned task (wt is in $NESTED_SPAWN_PATH)"
-        else
-            first=$(grep -o "Refining: .*" "$SB/notifications" | tail -n 1 | sed 's/^Refining: //')
-            task rc.verbose=nothing rc.confirmation=no "+$TAG" "description.is:$first" \
-                modify +planned </dev/null >/dev/null 2>&1
-            settle
-            "${NENV[@]}" wtype -M ctrl -k Return -m ctrl
-            for _ in $(seq 1 50); do grep -q "Starting: $first" "$SB/notifications" 2>/dev/null && break; sleep 0.1; done
-            if grep -q "Starting: $first" "$SB/notifications" 2>/dev/null; then
-                ok "Ctrl+Enter on a planned card starts working on it"
-            else
-                bad "Ctrl+Enter on the planned '$first' did not start it (notifications: $(tail -n 3 "$SB/notifications" 2>/dev/null | tr '\n' '|'))"
-            fi
-            sleep 1
-            shot ctrl_enter_start || { summary; exit 1; }
-            read -r x0 x1 y0 y1 < <(measure ctrl_enter_start)
-            if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ]; then
-                ok "and the panel is still up in the middle of the screen"
-            else
-                bad "after Ctrl+Enter started a task the panel covers columns ${x0}-${x1}, not the middle"
-            fi
         fi
     fi
 
@@ -469,47 +399,11 @@ if command -v wtype >/dev/null; then
       card's row gone, and 2"
     fi
 
-    # Armed, a card's key has no card to act on: e opens no box.
-    "${NENV[@]}" wtype e
-    sleep 1
-    shot clear_armed_e || { summary; exit 1; }
-    if same clear_armed clear_armed_e; then
-        ok "a card's key does nothing while Clear all is armed"
-    else
-        bad "e changed the screen while Clear all was armed; it should do nothing"
-    fi
-
-    # Escape cancels: Clear all back, the focus back on the card it was on,
-    # and the panel still up.
-    "${NENV[@]}" wtype -k Escape
-    sleep 1
-    shot clear_cancelled || { summary; exit 1; }
-    if same clear_before clear_cancelled; then
-        ok "Escape puts Clear all back and the focus on its card, keeping the panel"
-    else
-        bad "after Escape on an armed Clear all the screen is not as it was before arming"
-    fi
-
-    # Moving away disarms it: off the tab and back is the frame from before.
-    "${NENV[@]}" wtype -M ctrl -k Delete -m ctrl
-    sleep 0.5
-    "${NENV[@]}" wtype 1
-    "${NENV[@]}" wtype 5
-    sleep 1
-    shot clear_disarmed || { summary; exit 1; }
-    if same clear_before clear_disarmed; then
-        ok "switching tab puts Clear all back"
-    else
-        bad "Clear all is still armed after switching tab and back"
-    fi
-
-    # Armed, Enter confirms: both waiting tasks deleted, one after the other,
+    # Still armed, Enter confirms: both waiting tasks deleted, one after the other,
     # each through task status; the task still on All and the other tag's are
     # left alone.
     notified_before=$(grep -c '^Tasks Deleted: ' "$SB/notifications" 2>/dev/null || true)
     notified_before=${notified_before:-0}
-    "${NENV[@]}" wtype -M ctrl -k Delete -m ctrl
-    sleep 0.5
     "${NENV[@]}" wtype -k Return
     for _ in $(seq 1 20); do
         [ "$(count "+$TAG" status:waiting)" = 0 ] && break
@@ -534,8 +428,7 @@ if command -v wtype >/dev/null; then
       run task status on each"
     fi
 
-    # The panel keeps the keyboard, back on All with the one task left, and
-    # the Waiting tab is gone, so 5 does nothing.
+    # The panel keeps the keyboard, back on All with the one task left.
     shot clear_after || { summary; exit 1; }
     read -r x0 x1 y0 y1 < <(measure clear_after)
     if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ] &&
@@ -544,14 +437,6 @@ if command -v wtype >/dev/null; then
     else
         bad "after Clear all the panel covers columns ${x0}-${x1}, rows ${y0}-${y1} —
       reaching ${OUT_W} means it gave up the keyboard; 0-0 means it is gone"
-    fi
-    "${NENV[@]}" wtype 5
-    sleep 1
-    shot clear_no_tab || { summary; exit 1; }
-    if same clear_after clear_no_tab; then
-        ok "and the Waiting tab is gone: 5 does nothing"
-    else
-        bad "5 changed the panel after Clear all; the Waiting tab should be hidden"
     fi
     "${NENV[@]}" wtype -k Escape
     settle
@@ -581,18 +466,6 @@ if command -v wtype >/dev/null; then
         bad "Down from the eighth card took the panel from ${eighth_h}px to ${more_h}px —
       it should grow by the two cards \"+2 more\" hid; shorter means it focused
       \"+2 more\" instead of showing them"
-    fi
-    # The focus is on the ninth card, not the last, so one more Down moves the
-    # buttons to the tenth: the screen changes, the panel as tall as before.
-    "${NENV[@]}" wtype -k Down
-    sleep 1
-    shot long_tenth || { summary; exit 1; }
-    read -r x0 x1 y0 y1 < <(measure long_tenth)
-    if ! same long_more long_tenth && [ "$((y1 - y0))" -eq "$more_h" ]; then
-        ok "and focuses the first card it hid, so Down goes on to the next"
-    else
-        bad "after showing every card, Down changed nothing or the panel's height
-      (${more_h}px to $((y1 - y0))px) — the focus was not on the ninth card"
     fi
     "${NENV[@]}" wtype -k Escape
     settle
