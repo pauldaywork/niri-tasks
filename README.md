@@ -63,11 +63,10 @@ Up and Down move a darker fill and the buttons between cards, and Down onto
 "+N more" shows the rest in its place, carrying on to the first of them; Left,
 Right and Tab move along the focused card's buttons, whose name shows beside
 them while one is focused, and Enter presses the focused one. Enter on the
-card itself opens its full menu, which also has Note, Grill me, Update status
-and Move to
-workspace — led by Go to session while a Claude is working on the task, and
-on a waiting task just Edit, Note, Speak, Update status and Move to
-workspace. Every
+card itself opens its full menu, which also has Note, Grill me, Update
+status and Move to workspace — led by Go to session while a Claude is
+working on the task, and on a waiting task just Edit, Note, Speak, Update
+status and Move to workspace. Every
 button that opens something gives the keyboard back as it runs; Speak, Up next, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
 right edge, tucked away with the cards folded back to one line. A list taller
 than the screen scrolls, keeping the focused card in view. Hovering never shows
