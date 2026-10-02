@@ -234,9 +234,11 @@ impl PanelState {
 
     /// GTK moved the focus: a click on a button, or the focus an
     /// [`Effect::Focus`] asked for, which is no change. Moving off an armed
-    /// Remove disarms it, and moving at all disarms Clear all.
+    /// Remove disarms it, and moving at all disarms Clear all. Without the
+    /// keyboard it is ignored: GTK moves focus in a window that is only being
+    /// shown, and the hover has none.
     pub fn on_focus(&mut self, focus: Option<Focus>) {
-        if self.focus == focus {
+        if !self.keyboard || self.focus == focus {
             return;
         }
         self.focus = focus;
@@ -257,8 +259,12 @@ impl PanelState {
     /// button. Armed, Clear all takes every key: Enter confirms rather than
     /// opening a card, Escape and the keys that move cancel, the tab keys
     /// switch tab as ever, and a card's keys do nothing, there being no card
-    /// focused to act on.
+    /// focused to act on. Without the keyboard no key is the panel's: one
+    /// landing after it was given back is not for it.
     pub fn on_key(&mut self, key: KeyAction) -> Option<Vec<Effect>> {
+        if !self.keyboard {
+            return None;
+        }
         if matches!(self.armed, Armed::ClearAll { .. }) {
             return Some(match key {
                 KeyAction::Enter | KeyAction::ClearAll => self.on_clear_all(),
@@ -496,7 +502,6 @@ impl PanelState {
         let next = tasks.get(at + 1).or_else(|| at.checked_sub(1).and_then(|i| tasks.get(i)));
         next.map(|u| Focus::body(u))
     }
-
 }
 
 /// The first task card's body: where the focus goes with nowhere better.
@@ -673,7 +678,7 @@ mod tests {
         assert_eq!(state.filter(), Filter::All);
         assert_eq!(state.focus(), None);
         assert_eq!(uuids(&state), vec!["p"]);
-        assert_eq!(key(&mut state, KeyAction::Release), Vec::new(), "already given back");
+        assert_eq!(state.on_key(KeyAction::Release), None, "already given back, not the panel's key");
     }
 
     #[test]
@@ -965,5 +970,37 @@ mod tests {
         state.set_cards(&[card("p", Status::Pending), card("w1", Status::Waiting)]);
         assert_eq!(state.armed(), &Armed::None);
         assert_eq!(state.focus(), focused("w1", Slot::Body).as_ref());
+    }
+
+    #[test]
+    fn leaving_the_list_above_more_focuses_the_one_above() {
+        let names: Vec<String> = (0..model::CAP + 2).map(|i| format!("t{i}")).collect();
+        let mut state = keyboard(pending(&names.iter().map(String::as_str).collect::<Vec<_>>()));
+        for _ in 0..model::CAP - 1 {
+            key(&mut state, KeyAction::NextCard);
+        }
+        let last = format!("t{}", model::CAP - 1);
+        let above = format!("t{}", model::CAP - 2);
+        assert_eq!(state.focus(), focused(&last, Slot::Body).as_ref());
+        assert_eq!(
+            state.on_press(&last, Slot::Button(Action::Wait)),
+            vec![Effect::Focus(focused(&above, Slot::Body)), Effect::Spawn(Action::Wait.args(&last))],
+            "the next task card, not \"+N more\""
+        );
+    }
+
+    #[test]
+    fn focus_moves_without_the_keyboard_are_ignored() {
+        let mut state = PanelState::default();
+        state.set_cards(&pending(&["a", "b"]));
+        state.on_focus(focused("a", Slot::Body));
+        assert_eq!(state.focus(), None);
+    }
+
+    #[test]
+    fn keys_without_the_keyboard_are_not_the_panels() {
+        let mut state = PanelState::default();
+        state.set_cards(&pending(&["a", "b"]));
+        assert_eq!(state.on_key(KeyAction::NextCard), None);
     }
 }

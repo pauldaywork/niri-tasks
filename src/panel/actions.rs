@@ -144,8 +144,7 @@ impl Action {
         }
     }
 
-    /// The button's CSS class, which gives it its colour, and its widget name,
-    /// which lets a re-render put focus back on the same button.
+    /// The button's CSS class, which gives it its colour.
     pub fn name(self) -> &'static str {
         match self {
             Session => "session",

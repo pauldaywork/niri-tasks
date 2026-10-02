@@ -1129,7 +1129,6 @@ fn set_class(widget: &impl IsA<gtk4::Widget>, class: &str, on: bool) {
     }
 }
 
-
 /// Run a `niritasks` command on this monitor: a task's action menu, the
 /// fuzzel list, or one of a card's buttons. See `spawn_on`.
 pub fn open_menu(output: &str, args: &[String]) {

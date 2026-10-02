@@ -399,9 +399,22 @@ if command -v wtype >/dev/null; then
       card's row gone, and 2"
     fi
 
-    # Still armed, Enter confirms: both waiting tasks deleted, one after the
+    # Escape cancels: Clear all back, the focus back on the card it was on,
+    # and the panel still up.
+    "${NENV[@]}" wtype -k Escape
+    sleep 1
+    shot clear_cancelled || { summary; exit 1; }
+    if same clear_before clear_cancelled; then
+        ok "Escape puts Clear all back and the focus on its card, keeping the panel"
+    else
+        bad "after Escape on an armed Clear all the screen is not as it was before arming"
+    fi
+
+    # Armed again, Enter confirms: both waiting tasks deleted, one after the
     # other, each through task status; the task still on All and the other
     # tag's are left alone.
+    "${NENV[@]}" wtype -M ctrl -k Delete -m ctrl
+    sleep 0.5
     notified_before=$(grep -c '^Tasks Deleted: ' "$SB/notifications" 2>/dev/null || true)
     notified_before=${notified_before:-0}
     "${NENV[@]}" wtype -k Return
