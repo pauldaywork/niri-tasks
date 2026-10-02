@@ -75,8 +75,9 @@ impl Card {
 /// under Active and not Planned, which is for picking what to start next. A
 /// waiting task is under Waiting and no other tab: it is parked, and All is
 /// what the hover shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Filter {
+    #[default]
     All,
     /// Started tasks.
     Active,
