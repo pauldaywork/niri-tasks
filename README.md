@@ -60,8 +60,9 @@ under it:
 Up and Down move a darker fill and the buttons between cards, and Down onto
 "+N more" shows the rest in its place, carrying on to the first of them; Left,
 Right and Tab move along the focused card's buttons, whose name shows beside
-them while one is focused, and Enter presses the focused one. Enter on the card itself
-opens its full menu, which also has Note, Grill me, Update status and Move to
+them while one is focused, and Enter presses the focused one. Enter on the
+card itself opens its full menu, which also has Note, Grill me, Update status
+and Move to
 workspace — led by Go to session while a Claude is working on the task. Every
 button gives the keyboard back as it runs, and Escape puts the panel back on the
 right edge, tucked away with the cards folded back to one line. A list taller
@@ -334,7 +335,8 @@ It cannot move the pointer, so the hover is checked by hand after a change to
 `src/panel/surface.rs`: the peek slides out when the pointer reaches it and back
 about 0.4s after it leaves, the slide is smooth, and a click just left of the
 peek, or between two cards, lands on the window beneath, while a click on a
-card opens its actions on that monitor, and a click on "+N more" shows the rest. And the keyboard, past what the
+card opens its actions on that monitor, and a click on "+N more" shows the
+rest. And the keyboard, past what the
 script measures: `Mod+Alt+Ctrl+T` slides the panel from the right edge to the
 middle of the screen, smoothly, with every card wrapped and the first
 darkened. The pointer passing over it does not move it. Check also active tasks with Stop and no

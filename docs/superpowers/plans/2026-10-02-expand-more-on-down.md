@@ -116,7 +116,7 @@ The later "nothing pending shows nothing" section already completes every `+$TAG
 
 - [ ] **Step 2: Run the e2e test to verify the new check fails**
 
-Run: `cargo build && bash tests/e2e-panel.sh`
+Run: `cargo build && NIRITASKS=./target/debug/niritasks bash tests/e2e-panel.sh`
 Expected: every earlier check `ok`; the new one reports `bad "Down from the eighth card took the panel from …px to …px"` with the second number *smaller* than the first (today Down focuses "+2 more", whose card has no buttons, and the eighth card's row hides). The follow-up check also fails (Down on the last card changes nothing). If `wtype` is missing the whole keyboard block is skipped — install it (`sudo apt install wtype`) rather than going on blind.
 
 If the script uses a release build or a different binary, check `tests/lib/nested-niri.sh` for how `$NIRITASKS` is found and build that one.
@@ -254,7 +254,7 @@ and re-wrap. In the hover half of the same manual check (around line 325), after
 Run: `cargo test`
 Expected: all pass (no Rust test changes; this guards the build and the llms.txt/README command-reference tests).
 
-Run: `cargo build && bash tests/e2e-panel.sh`
+Run: `cargo build && NIRITASKS=./target/debug/niritasks bash tests/e2e-panel.sh`
 Expected: every check `ok`, including `Down onto "+2 more" shows every card (…px to …px)` and `and focuses the first card it hid, so Down goes on to the next`, and the summary reports no failures.
 
 - [ ] **Step 7: Check the mouse path by hand**

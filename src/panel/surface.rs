@@ -38,9 +38,9 @@
 //! `clicked`, so a key, Enter on the focused button, and a click all take one
 //! path. The controller runs in the capture phase, ahead of GTK's own focus
 //! chain, which would otherwise walk every button on the panel. The focused
-//! card is darkened. The body opens the whole menu. Escape, or anything that runs, hands the
-//! keyboard back, folds the cards to one line again, and puts the panel back
-//! on the right edge as a peek.
+//! card is darkened. The body opens the whole menu. Escape, or anything
+//! that runs, hands the keyboard back, folds the cards to one line again,
+//! and puts the panel back on the right edge as a peek.
 //!
 //! Above the cards, a bar of filter tabs, All, Active, Planned, To refine and
 //! Waiting, narrows them to the tasks it names. A tab shows only while it has
@@ -865,12 +865,12 @@ impl Panel {
     /// Act on a key while the panel has the keyboard. Up and Down land on the
     /// next card's body, or, Down reaching "+N more", show every card in its
     /// place, focused on the first it hid. Left, Right and Tab move along the
-    /// focused card, and a letter presses that card's button. If the card has no such button
-    /// (Stop on a task that is not active, Go to session on one with no Claude,
-    /// anything on "+N more"), nothing happens. 1 to 5, [ and ] pick a filter
-    /// tab instead, and Ctrl+Delete presses Clear all, whatever has focus.
-    /// Ctrl+Enter refines the focused task, or starts it once it is planned,
-    /// and keeps the keyboard so the list stays up.
+    /// focused card, and a letter presses that card's button. If the card has
+    /// no such button (Stop on a task that is not active, Go to session on
+    /// one with no Claude, a letter on "+N more"), nothing happens. 1 to 5,
+    /// [ and ] pick a filter tab instead, and Ctrl+Delete presses Clear all,
+    /// whatever has focus. Ctrl+Enter refines the focused task, or starts it
+    /// once it is planned, and keeps the keyboard so the list stays up.
     fn key(self: &Rc<Self>, action: KeyAction) {
         match action {
             KeyAction::Release => return self.release_keyboard(),
