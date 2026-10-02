@@ -17,6 +17,7 @@ pub mod project;
 pub mod refine;
 pub mod rows;
 pub mod session;
+pub mod speak;
 pub mod tag;
 pub mod taskbox;
 pub mod task;
