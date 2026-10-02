@@ -241,7 +241,10 @@ fn run_with_timeout(mut command: Command, input: &str, limit: Duration) -> Resul
 
     let deadline = Instant::now() + limit;
     let status = loop {
-        if let Some(status) = child.try_wait()? {
+        let polled = child
+            .try_wait()
+            .map_err(|e| anyhow::anyhow!("Could not check whether {name} had finished: {e}"))?;
+        if let Some(status) = polled {
             break status;
         }
         if Instant::now() >= deadline {
@@ -378,7 +381,9 @@ fn play(script: &str) -> Result<()> {
         .stderr(Stdio::null())
         .status()
         .map_err(|e| anyhow::anyhow!("Could not run ffplay: {e}"))?;
-    let curl = curl.wait_with_output()?;
+    let curl = curl
+        .wait_with_output()
+        .map_err(|e| anyhow::anyhow!("Could not wait for curl to finish: {e}"))?;
     if !curl.status.success() {
         bail!("curl failed to fetch the speech from Kokoro ({}): {}", curl.status, tail(&curl.stderr));
     }
@@ -440,6 +445,12 @@ pub fn toggle(uuid: &str, description: &str) -> Result<()> {
         anyhow::ensure!(project::on_path(program), "{program} is not installed.");
     }
     let exe = std::env::current_exe().context("could not find the niritasks binary")?;
+    // The directory is made before the speech starts, so the likeliest write
+    // failure is found while there is nothing to clean up.
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| anyhow::anyhow!("Could not create the speech's pid directory {}: {e}", dir.display()))?;
+    }
     let child = Command::new(exe)
         .args(worker_args(uuid))
         .process_group(0)
@@ -448,10 +459,13 @@ pub fn toggle(uuid: &str, description: &str) -> Result<()> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| anyhow::anyhow!("Could not start speaking: {e}"))?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+    if let Err(e) = std::fs::write(&path, child.id().to_string()) {
+        // Without its pid on file a second press could not find this speech
+        // to stop it, and would start another on top, so it is stopped now.
+        let argv = kill_command(child.id());
+        let _ = Command::new(&argv[0]).args(&argv[1..]).status();
+        bail!("Could not write the speech's pid file {}: {e}", path.display());
     }
-    std::fs::write(&path, child.id().to_string())?;
     notify::tasks(&format!("Speaking: {description}"));
     Ok(())
 }
