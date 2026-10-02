@@ -99,6 +99,24 @@ fn write_path_lifecycle() {
     );
     assert_eq!(raw(&with_attrs.uuid, "priority"), "H");
 
+    // ---- add keeps a Conventional Commits type as text --------------------
+    // Every task description starts with a type, "feat: …" or "fix: …". Split
+    // into words, "feat:" is a word of its own in attribute shape, so pin that
+    // taskwarrior leaves each type in the description instead of eating it.
+    for kind in [
+        "feat", "fix", "docs", "refactor", "perf", "test", "build", "ci", "chore", "style", "revert",
+    ] {
+        let typed = format!("{kind}: keep the type");
+        let uuid = task::add("typesandbox", &text::add_args(&typed))
+            .expect("add with a type")
+            .expect("a description was given, so a task was made");
+        assert_eq!(
+            task::get(&uuid).expect("get").expect("exists").description,
+            typed,
+            "{kind}: must stay in the description, not be read as an attribute"
+        );
+    }
+
     // ---- add with notes hands back the uuid -------------------------------
     // Add & refine needs it: the refine tab opens on the task just made.
     // A tag of its own, so the counts on TAG below are unchanged.
