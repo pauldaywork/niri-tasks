@@ -12,7 +12,7 @@
 4. **Change a task's status with `niritasks task status <uuid> <state>`, never `task <uuid> done`, `start` or `stop`.** It is the same path the task menu uses. `active` also links the herdr pane you run it in to the task, so its menu can find you, and every change sends the menu's notification. The states are `active`, `stopped` (which also brings back a waiting task), `waiting`, `completed` and `deleted`.
 5. **`deleted` needs `--yes`.** `niritasks task status <uuid> deleted --yes` is the menu's confirmation, given up front. Pass it only when the user asked for the task to be deleted.
 6. **Never run a GUI command unattended.** The Runs column below says which commands open a window and wait for a person, which open a herdr tab, and which are scriptable. A scriptable command prints, or changes the database, and exits.
-7. **`niritasks daemon` and `niritasks task start <uuid> --here --workspace <name>` are internal.** The niri-tasks systemd user unit runs the daemon. `task start` runs `--here` inside the herdr tab it opens. Do not run either yourself.
+7. **`niritasks daemon`, `niritasks task start <uuid> --here --workspace <name>` and `niritasks task speak <uuid> --here` are internal.** The niri-tasks systemd user unit runs the daemon. `task start` runs `--here` inside the herdr tab it opens, and `task speak` runs `--here` in the background to do the speaking. Do not run any of them yourself.
 
 **Reading tasks.** `niritasks` has no JSON output of its own; read tasks with Taskwarrior: `task rc.json.array=on <uuid8> export` for one task, or `task "+$(niritasks tag --session)" status:pending export` for this workspace's pending tasks. `niritasks task get-text <uuid>` and `niritasks task get-notes <uuid>` print one task's description and notes as plain text.
 
@@ -38,6 +38,8 @@
 | `niritasks task get-notes <uuid>` | Print its notes, one per line: date, two spaces, text | scriptable |
 | `niritasks task note <uuid> <text>` | Add a note, as typed | scriptable |
 | `niritasks task note <uuid>` | With no text, the task box with the cursor in a new note | GUI |
+| `niritasks task speak <uuid>` | Read its description and notes aloud in the background, rewritten by Claude Haiku for listening and spoken by a local Kokoro server, which it starts in docker if needed; returns at once. Run while any task is being spoken, it stops that instead. It sends the task's text to Anthropic | audio |
+| `niritasks task speak <uuid> --here` | Internal: the speaking itself, which `task speak` runs in the background | internal |
 | `niritasks task refine <uuid>` | Open a tab in the workspace's herdr session with Claude working the task into a plan (the `refine-task` skill) | herdr tab, follows focus |
 | `niritasks task refine <uuid> --grill` | The same, interviewing the user first | herdr tab, follows focus |
 | `niritasks task start <uuid>` | Make the task's own git worktree, branch `task/<slug>-<uuid8>`, and open it in a herdr tab with Claude planning it; run again, go back to both; it also marks the task active, so do not run `task status <uuid> active` after it | herdr tab, follows focus |

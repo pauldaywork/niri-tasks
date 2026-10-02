@@ -146,6 +146,15 @@ folder to be a git repository: worktrunk makes the task's worktree and runs the
 repo's `.config/wt.toml` hooks, asking in a herdr tab the first time a repo's
 hooks need approving.
 
+**Speak** needs Claude Code (`claude`), `curl`, `ffplay` (from ffmpeg) and a
+[Kokoro](https://github.com/remsky/Kokoro-FastAPI) server on
+`127.0.0.1:8880`. If Kokoro is not answering, Speak starts it: the
+`kokoro-tts` container if there is one, otherwise a new one from
+`ghcr.io/remsky/kokoro-fastapi-gpu`. That needs `docker`, an NVIDIA GPU and
+the NVIDIA Container Toolkit, and the first start downloads the image. The
+container is the one [herdr-speak](https://github.com/pauldaywork/herdr-speak)
+uses, so the two share one server.
+
 A Claude you start by hand in a herdr pane is linked to a task when it marks
 that task active (`niritasks task status <uuid> active`): its agent is named
 `work-<uuid8>`, the name Start working gives its own, so the task's menu can
@@ -163,6 +172,14 @@ is there because niri answers a spawn of a missing binary with a desktop
 notification, which would otherwise fire on every project you opened.
 
 Tested against niri 26.04 and taskwarrior 2.6.2.
+
+### Privacy
+
+Speak sends the task's description and notes to Anthropic: `claude -p`
+rewrites them for listening, on Claude Haiku, with no tools and no saved
+session. The speech is made locally by Kokoro, and nothing is saved, neither
+the rewrite nor the audio. Refine and Start working send the task to Claude
+too, since a Claude session works on it.
 
 ## Commands
 
@@ -192,6 +209,9 @@ niritasks task edit <uuid>         #   with no text, the task box on its descrip
 niritasks task get-notes <uuid>    # print its notes, one per line: date, two spaces, text
 niritasks task note <uuid> <text>  # attaches an annotation, literal too
 niritasks task note <uuid>         #   with no text, the task box with the cursor in a new note
+niritasks task speak <uuid>        # read its description and notes aloud, rewritten by Claude for listening;
+                                   #   run again, or on any task while one is speaking, to stop
+niritasks task speak <uuid> --here # internal: the speaking itself, run in the background by `task speak`
 niritasks task refine <uuid>       # work it up into a plan with Claude, in the workspace's herdr session
 niritasks task refine <uuid> --grill  #   the same, interviewing you first
 niritasks task start <uuid>        # its own worktree (task/<slug>-<uuid8>), opened in the herdr session,

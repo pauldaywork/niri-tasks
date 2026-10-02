@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
     github, ipc, link, niri, notify, picker::Picker, project, refine, require_workspace_tag, session,
-    task, taskbox, text, work,
+    speak, task, taskbox, text, work,
 };
 
 /// Hand the box to the daemon if one is listening.
@@ -146,6 +146,21 @@ enum TaskCommand {
         uuid: String,
         /// The note, kept literal; leave it out for the task box
         text: Vec<String>,
+    },
+
+    /// Read a task's description and notes aloud; run again to stop
+    ///
+    /// Claude (Haiku) rewrites the task for listening and a local Kokoro
+    /// server speaks it, started in docker if it is not running. It plays in
+    /// the background, so this returns at once; run while anything is being
+    /// spoken, it stops that instead.
+    Speak {
+        /// The task's uuid, or its first 8 characters
+        uuid: String,
+        /// Internal: speak in this process — the background process `task
+        /// speak` starts
+        #[arg(long)]
+        here: bool,
     },
 
     /// Work a task up into a plan with Claude, in a new tab of the workspace's herdr session
@@ -356,6 +371,16 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
                 return Ok(());
             }
             task::annotate(&uuid, &note)?;
+        }
+
+        TaskCommand::Speak { uuid, here } => {
+            if here {
+                return speak::run(&uuid);
+            }
+            // The uuid as found, not as typed, so the background process
+            // looks up the same task the press was on.
+            let t = task::get(&uuid)?.context("task not found")?;
+            speak::toggle(&t.uuid, &t.description)?;
         }
 
         TaskCommand::Start { uuid, here, workspace } => {
@@ -800,6 +825,24 @@ mod tests {
     #[test]
     fn going_to_a_tasks_session_is_a_command() {
         assert!(Cli::try_parse_from(["niritasks", "task", "session", "c53b6e3d"]).is_ok());
+    }
+
+    /// The menu's Speak runs this, and so does the panel's button.
+    #[test]
+    fn speaking_a_task_is_a_command() {
+        assert!(Cli::try_parse_from(["niritasks", "task", "speak", "c53b6e3d"]).is_ok());
+    }
+
+    /// `task speak` starts the speech in the background with these
+    /// arguments, so they have to be ones the CLI accepts, or a press would
+    /// start a process that only prints usage.
+    #[test]
+    fn the_background_speech_is_a_command_the_cli_accepts() {
+        let mut argv = vec!["niritasks".to_string()];
+        argv.extend(niri_tasks::speak::worker_args("c53b6e3d"));
+        if let Err(e) = Cli::try_parse_from(&argv) {
+            panic!("speak starts {argv:?}, which the CLI rejects: {e}");
+        }
     }
 
     /// Go to session leads the menu when there is a session to go to, and a
