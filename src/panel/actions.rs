@@ -92,7 +92,7 @@ impl Action {
             Refine => "Refine",
             Edit => "Edit",
             Speak => "Speak",
-            UpNext => crate::task::up_next_label(false),
+            UpNext => crate::actions::Action::UpNext.label(false),
             Stop => "Stop",
             Wait => "Waiting",
             Remove => "Remove",
@@ -104,7 +104,7 @@ impl Action {
     /// does. Every other button reads its [`Action::label`].
     pub fn label_on(self, up_next: bool) -> &'static str {
         match self {
-            UpNext => crate::task::up_next_label(up_next),
+            UpNext => crate::actions::Action::UpNext.label(up_next),
             _ => self.label(),
         }
     }

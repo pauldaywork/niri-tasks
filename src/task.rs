@@ -523,18 +523,6 @@ pub fn set_active(uuid: &str) -> Result<()> {
     Ok(())
 }
 
-/// What the action menu and the action row call the up next toggle on a
-/// task that is, or is not, up next: the step it would take. So it is also
-/// the word for where the task is once that step is taken, which is what
-/// `niritasks task up-next` notifies.
-pub fn up_next_label(up_next: bool) -> &'static str {
-    if up_next {
-        "Not up next"
-    } else {
-        "Up next"
-    }
-}
-
 /// Put the up next tag on a task, or take it off. Only the tag changes:
 /// `+next` or `-next` goes as one argument of its own, so taskwarrior reads
 /// it as a tag and not as words for the description, and the task's status,
@@ -724,14 +712,6 @@ mod tests {
         let t: Task =
             serde_json::from_str(r#"{"uuid":"u","description":"d","tags":["NEXT","next_x"]}"#).unwrap();
         assert!(!t.is_up_next());
-    }
-
-    /// The toggle is named for the step it takes: a task already up next is
-    /// offered Not up next.
-    #[test]
-    fn the_toggle_reads_as_the_step_it_takes() {
-        assert_eq!(up_next_label(false), "Up next");
-        assert_eq!(up_next_label(true), "Not up next");
     }
 
     /// `refine` refuses a task that is not pending; this is the field it

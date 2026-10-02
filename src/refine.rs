@@ -366,12 +366,12 @@ fn wait_for_session(s: &str) -> Result<Value> {
     }
 }
 
-/// The command the panel's Refine button runs on `uuid`, with `exe` as the
-/// `niritasks` binary — built from the button's own arguments, so the two
-/// cannot drift apart.
+/// Refine's own command on `uuid`, with `exe` as the `niritasks` binary:
+/// built from the task action's arguments, so Add & refine runs what the
+/// menu's Refine and the panel's button run.
 pub fn quick_command(exe: &str, uuid: &str) -> Vec<String> {
     let mut command = vec![exe.to_string()];
-    command.extend(crate::panel::actions::Action::Refine.args(uuid));
+    command.extend(crate::actions::Action::Refine.args(uuid));
     command
 }
 

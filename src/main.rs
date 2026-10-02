@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
-    github, ipc, link, niri, notify, picker::Picker, project, refine, require_workspace_tag, session,
+    actions::Action, github, ipc, link, niri, notify, picker::Picker, project, refine, require_workspace_tag, session,
     speak, task, taskbox, text, work,
 };
 
@@ -399,7 +399,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             let t = task::get(&uuid)?.context("task not found")?;
             task::set_up_next(&t.uuid, !t.is_up_next())?;
             // The words that were picked, as Update status notifies its state.
-            notify::tasks(&format!("{}: {}", task::up_next_label(t.is_up_next()), t.description));
+            notify::tasks(&format!("{}: {}", Action::UpNext.label(t.is_up_next()), t.description));
         }
 
         TaskCommand::Start { uuid, here, workspace } => {
@@ -512,7 +512,7 @@ fn menu_entries(has_session: bool, up_next: bool) -> Vec<String> {
             "Edit",
             "Note",
             "Speak",
-            task::up_next_label(up_next),
+            Action::UpNext.label(up_next),
             "Refine",
             "Grill me",
             "Start working",
@@ -550,7 +550,7 @@ fn task_menu(tag: &str, selected: String, description: &str, up_next: bool, widt
         // again stops it.
         Some("Speak") => return task_command(TaskCommand::Speak { uuid: selected, here: false }),
         // Either word: the entry reads as the step it takes.
-        Some(picked) if picked == task::up_next_label(up_next) => {
+        Some(picked) if picked == Action::UpNext.label(up_next) => {
             return task_command(TaskCommand::UpNext { uuid: selected })
         }
         // Both open Claude in the workspace's herdr session; they differ only
@@ -843,18 +843,17 @@ fn terminal() -> Result<()> {
 mod tests {
     use super::*;
     use clap::CommandFactory;
-    use niri_tasks::panel::actions::Action;
 
-    /// Every button on a task card spawns `niritasks` with these arguments, so
-    /// each has to be a command the real CLI accepts. Otherwise a typo shows
-    /// up as a click that does nothing.
+    /// The menu and the action row both run a task action as its own
+    /// `niritasks` words, so each has to be a command the real CLI accepts.
+    /// Otherwise a typo shows up as a pick or a click that does nothing.
     #[test]
-    fn every_card_button_is_a_command_the_cli_accepts() {
+    fn every_task_action_is_a_command_the_cli_accepts() {
         for action in Action::ALL {
             let mut argv = vec!["niritasks".to_string()];
             argv.extend(action.args("c53b6e3d"));
             if let Err(e) = Cli::try_parse_from(&argv) {
-                panic!("{} runs {argv:?}, which the CLI rejects: {e}", action.label());
+                panic!("{} runs {argv:?}, which the CLI rejects: {e}", action.label(false));
             }
         }
     }

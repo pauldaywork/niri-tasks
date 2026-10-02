@@ -59,6 +59,15 @@ one-line description — or, while the task panel has the keyboard, the whole
 description wrapped, above its action row while it has focus.
 _Avoid_: row (that is the picker's word), item, block
 
+**Task action**:
+One thing that can be done to a task — Go to session, Back to list, Start
+working, Refine, Grill me, Edit, Note, Speak, Up next, Stop, Waiting or
+Remove — with its words, its icon and the `niritasks` command it runs. Which
+ones a task gets goes by its state: a waiting task gets only Back to list,
+Edit, Note, Speak and Remove. The action row and the action menu each show
+their own share of them, in their own order.
+_Avoid_: command (the CLI's word), button, menu entry, verb
+
 **Action row**:
 The buttons along the focused task card's bottom edge while the task panel
 has the keyboard; the other cards hide theirs — Go to session, Start working,
