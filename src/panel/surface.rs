@@ -1524,7 +1524,7 @@ mod tests {
     /// keeps above the first card; less than none would not build.
     #[test]
     fn the_gap_under_the_tabs_leaves_room_for_the_ring() {
-        assert!(GAP_PX >= RING_PX);
+        const _: () = assert!(GAP_PX >= RING_PX);
     }
 
     #[test]

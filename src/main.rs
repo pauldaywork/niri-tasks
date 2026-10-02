@@ -926,7 +926,7 @@ mod tests {
             line[i + needle.len()..]
                 .chars()
                 .next()
-                .map_or(true, |c| !(c.is_alphanumeric() || c == '-'))
+                .is_none_or(|c| !(c.is_alphanumeric() || c == '-'))
         })
     }
 
