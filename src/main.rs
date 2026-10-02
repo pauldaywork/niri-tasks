@@ -379,7 +379,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             }
             // The uuid as found, not as typed, so the background process
             // looks up the same task the press was on.
-            let t = task::get(&uuid)?.context("task not found")?;
+            let t = task::get(&uuid)?.with_context(|| format!("No task {uuid}."))?;
             speak::toggle(&t.uuid, &t.description)?;
         }
 

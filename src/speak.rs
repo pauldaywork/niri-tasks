@@ -15,7 +15,7 @@ use anyhow::{bail, Context, Result};
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, ExitStatus, Output, Stdio};
 use std::time::{Duration, Instant};
 
 /// The rewrite's system prompt. It lives here rather than with herdr-speak's
@@ -271,6 +271,38 @@ fn tail(stderr: &[u8]) -> String {
     text[start..].to_string()
 }
 
+/// What a failed `claude` says: stderr, or stdout when stderr is empty,
+/// because `claude -p` can print its auth and billing errors to stdout.
+fn failure_reason(stdout: &[u8], stderr: &[u8]) -> String {
+    if stderr.trim_ascii().is_empty() {
+        tail(stdout)
+    } else {
+        tail(stderr)
+    }
+}
+
+/// Which of the two programs to blame for a failed speech, if either. curl
+/// comes first, since a refused request is its failure, unless a signal killed
+/// it while the player had failed: a player that dies early closes the pipe
+/// and curl gets SIGPIPE, so the player is the cause.
+fn blame(curl: ExitStatus, player: ExitStatus) -> Option<Culprit> {
+    use std::os::unix::process::ExitStatusExt;
+    if !curl.success() && !(curl.signal().is_some() && !player.success()) {
+        Some(Culprit::Curl)
+    } else if !player.success() {
+        Some(Culprit::Player)
+    } else {
+        None
+    }
+}
+
+/// The program a failed speech is reported against.
+#[derive(Debug, PartialEq)]
+enum Culprit {
+    Curl,
+    Player,
+}
+
 /// Whether Kokoro answers its health check as ready. A curl that fails or is
 /// missing counts as not ready; starting the server then reports the real
 /// problem.
@@ -346,7 +378,7 @@ fn rewrite(input: &str) -> Result<String> {
     command.env("MAX_THINKING_TOKENS", "0");
     let out = run_with_timeout(command, input, REWRITE_TIMEOUT)?;
     if !out.status.success() {
-        bail!("claude failed to rewrite the task for speaking ({}): {}", out.status, tail(&out.stderr));
+        bail!("claude failed to rewrite the task for speaking ({}): {}", out.status, failure_reason(&out.stdout, &out.stderr));
     }
     let script = String::from_utf8_lossy(&out.stdout).trim().to_string();
     anyhow::ensure!(!script.is_empty(), "claude gave back nothing to say.");
@@ -354,8 +386,8 @@ fn rewrite(input: &str) -> Result<String> {
 }
 
 /// Speak `script`: Kokoro's streamed PCM from curl, straight into ffplay.
-/// curl is checked first: a refused request is its failure, whatever the
-/// player made of the empty stream.
+/// curl is blamed first (see `blame`): a refused request is its failure,
+/// whatever the player made of the empty stream.
 fn play(script: &str) -> Result<()> {
     let argv = speech_command();
     let mut curl = Command::new(&argv[0])
@@ -384,13 +416,13 @@ fn play(script: &str) -> Result<()> {
     let curl = curl
         .wait_with_output()
         .map_err(|e| anyhow::anyhow!("Could not wait for curl to finish: {e}"))?;
-    if !curl.status.success() {
-        bail!("curl failed to fetch the speech from Kokoro ({}): {}", curl.status, tail(&curl.stderr));
+    match blame(curl.status, player) {
+        Some(Culprit::Curl) => {
+            bail!("curl failed to fetch the speech from Kokoro ({}): {}", curl.status, tail(&curl.stderr))
+        }
+        Some(Culprit::Player) => bail!("ffplay failed to play the speech ({player})."),
+        None => Ok(()),
     }
-    if !player.success() {
-        bail!("ffplay failed to play the speech ({player}).");
-    }
-    Ok(())
 }
 
 /// The pid of the speech playing now, if one is.
@@ -435,7 +467,12 @@ pub fn toggle(uuid: &str, description: &str) -> Result<()> {
             .args(&argv[1..])
             .status()
             .map_err(|e| anyhow::anyhow!("Could not stop the speech: {e}"))?;
-        anyhow::ensure!(status.success(), "Could not stop the speech (kill {status}).");
+        // The speech may have ended between the check and the kill, which
+        // is as good as stopped.
+        anyhow::ensure!(
+            status.success() || !Path::new(&format!("/proc/{pid}")).exists(),
+            "Could not stop the speech (kill {status})."
+        );
         let _ = std::fs::remove_file(&path);
         notify::tasks("Stopped speaking.");
         return Ok(());
@@ -475,7 +512,7 @@ pub fn toggle(uuid: &str, description: &str) -> Result<()> {
 /// a claude call is spent.
 pub fn run(uuid: &str) -> Result<()> {
     let _pid = PidFile { path: pid_file(std::env::var_os("XDG_RUNTIME_DIR")) };
-    let t = task::get(uuid)?.context("task not found")?;
+    let t = task::get(uuid)?.with_context(|| format!("No task {uuid}."))?;
     ensure_kokoro()?;
     let notes: Vec<&str> = t.annotations.iter().map(|a| a.description.as_str()).collect();
     let script = rewrite(&rewrite_input(&t.description, &notes))?;
@@ -693,5 +730,46 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("niritasks-no-such-program is not installed"), "{e}");
+    }
+
+    fn exited(code: i32) -> ExitStatus {
+        use std::os::unix::process::ExitStatusExt;
+        ExitStatus::from_raw(code << 8)
+    }
+
+    fn killed(signal: i32) -> ExitStatus {
+        use std::os::unix::process::ExitStatusExt;
+        ExitStatus::from_raw(signal)
+    }
+
+    /// A player that dies early closes the pipe and curl dies of SIGPIPE;
+    /// that is the player's failure, not curl's.
+    #[test]
+    fn a_curl_killed_by_a_signal_after_the_player_failed_blames_the_player() {
+        assert_eq!(blame(killed(13), exited(1)), Some(Culprit::Player));
+    }
+
+    /// A refused request is curl's failure, whatever the player made of it.
+    #[test]
+    fn a_curl_that_exited_with_an_error_is_blamed_even_when_the_player_failed() {
+        assert_eq!(blame(exited(22), exited(1)), Some(Culprit::Curl));
+        assert_eq!(blame(exited(22), exited(0)), Some(Culprit::Curl));
+    }
+
+    #[test]
+    fn a_failed_player_with_a_clean_curl_is_the_players() {
+        assert_eq!(blame(exited(0), exited(1)), Some(Culprit::Player));
+    }
+
+    #[test]
+    fn nothing_is_blamed_when_both_succeed() {
+        assert_eq!(blame(exited(0), exited(0)), None);
+    }
+
+    /// claude -p can print its errors to stdout, leaving stderr empty.
+    #[test]
+    fn a_claude_failure_falls_back_to_stdout_when_stderr_is_blank() {
+        assert_eq!(failure_reason(b"Invalid API key\n", b"  \n"), "Invalid API key");
+        assert_eq!(failure_reason(b"ignored", b"boom\n"), "boom");
     }
 }
