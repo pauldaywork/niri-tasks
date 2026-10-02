@@ -31,6 +31,7 @@
 | `niritasks task status <uuid> deleted --yes` | Delete it | scriptable |
 | `niritasks task add <text>` | Add a task to the focused workspace; the text is word-split, so `due:friday` is an attribute | scriptable, follows focus |
 | `niritasks task add` | With no text, the task box, to type a task and its notes | GUI |
+| `niritasks task add --refine` | The task box with Add & refine as its default (Mod+Alt+Shift+T); with text, adds the task and refines it straight away | GUI, or scriptable with text, follows focus |
 | `niritasks task get-text <uuid>` | Print its description | scriptable |
 | `niritasks task edit <uuid> <text>` | Replace its description, as typed | scriptable |
 | `niritasks task edit <uuid>` | With no text, the task box on its description and notes | GUI |
