@@ -15,7 +15,8 @@ pub enum KeyAction {
     Release,
     /// Up: the card above, landing on its body.
     PrevCard,
-    /// Down: the card below, landing on its body.
+    /// Down: the card below, landing on its body. Reaching "+N more", it
+    /// shows every card instead, landing on the first that was hidden.
     NextCard,
     /// Along the focused card: its body, then its buttons.
     PrevSlot,

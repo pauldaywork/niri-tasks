@@ -32,9 +32,10 @@
 # What it cannot check is the hover: nothing can move the pointer, so the slide
 # out, the slide back and clicks passing beside the peek are checked by hand
 # (README, "Testing"). The keyboard it can: `task panel` moves the panel to the
-# middle of the screen, and with wtype, Down (which moves the action row), the
-# filter tabs' keys, Ctrl+Delete and Enter for the Waiting tab's Clear all, and Escape
-# are pressed in the nested niri, never on your desktop.
+# middle of the screen, and with wtype, Down (which moves the action row, and
+# shows the rest on reaching "+N more"), the filter tabs' keys, Ctrl+Delete and
+# Enter for the Waiting tab's Clear all, and Escape are pressed in the nested
+# niri, never on your desktop.
 set -uo pipefail
 
 python3 -c "import PIL" 2>/dev/null || {
@@ -551,6 +552,47 @@ if command -v wtype >/dev/null; then
         ok "and the Waiting tab is gone: 5 does nothing"
     else
         bad "5 changed the panel after Clear all; the Waiting tab should be hidden"
+    fi
+    "${NENV[@]}" wtype -k Escape
+    settle
+
+    # Past the cap: nine more beside the one Clear all left make ten tasks on
+    # All, eight cards and "+2 more". Down from the eighth card onto "+2 more"
+    # shows every card at once, focused on the ninth: the panel grows by the
+    # two cards it hid, where focusing "+2 more" itself would lose the eighth
+    # card's buttons and grow nothing.
+    for n in 1 2 3 4 5 6 7 8 9; do add "past the cap $n"; done
+    settle
+    "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
+    settle
+    for _ in 1 2 3 4 5 6 7; do "${NENV[@]}" wtype -k Down; sleep 0.2; done
+    sleep 1
+    shot long_eighth || { summary; exit 1; }
+    read -r x0 x1 y0 y1 < <(measure long_eighth)
+    eighth_h=$((y1 - y0))
+    "${NENV[@]}" wtype -k Down
+    sleep 1
+    shot long_more || { summary; exit 1; }
+    read -r x0 x1 y0 y1 < <(measure long_more)
+    more_h=$((y1 - y0))
+    if [ "$eighth_h" -gt 0 ] && [ "$more_h" -gt "$eighth_h" ]; then
+        ok "Down onto \"+2 more\" shows every card (${eighth_h}px to ${more_h}px)"
+    else
+        bad "Down from the eighth card took the panel from ${eighth_h}px to ${more_h}px —
+      it should grow by the two cards \"+2 more\" hid; shorter means it focused
+      \"+2 more\" instead of showing them"
+    fi
+    # The focus is on the ninth card, not the last, so one more Down moves the
+    # buttons to the tenth: the screen changes, the panel as tall as before.
+    "${NENV[@]}" wtype -k Down
+    sleep 1
+    shot long_tenth || { summary; exit 1; }
+    read -r x0 x1 y0 y1 < <(measure long_tenth)
+    if ! same long_more long_tenth && [ "$((y1 - y0))" -eq "$more_h" ]; then
+        ok "and focuses the first card it hid, so Down goes on to the next"
+    else
+        bad "after showing every card, Down changed nothing or the panel's height
+      (${more_h}px to $((y1 - y0))px) — the focus was not on the ninth card"
     fi
     "${NENV[@]}" wtype -k Escape
     settle

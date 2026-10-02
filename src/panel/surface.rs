@@ -31,13 +31,14 @@
 //! actions under it, so the list stays short enough to scan. A card is a box
 //! holding a body button and that row; every card has its row, shown and
 //! hidden as the focus moves rather than built again, since a render would
-//! lose the focused button. Up and Down move between cards, Left, Right and
-//! Tab along the focused one, and s, r, e, t and Delete press its Start,
-//! Refine, Edit, Stop and Remove by emitting the button's `clicked`, so a key,
-//! Enter on the focused button, and a click all take one path. The controller
-//! runs in the capture phase, ahead of GTK's own focus chain, which would
-//! otherwise walk every button on the panel. The focused card is darkened. The
-//! body opens the whole menu. Escape, or anything that runs, hands the
+//! lose the focused button. Up and Down move between cards, Down onto "+N
+//! more" showing the cards it stands for and landing on the first of them;
+//! Left, Right and Tab move along the focused one, and s, r, e, t and Delete
+//! press its Start, Refine, Edit, Stop and Remove by emitting the button's
+//! `clicked`, so a key, Enter on the focused button, and a click all take one
+//! path. The controller runs in the capture phase, ahead of GTK's own focus
+//! chain, which would otherwise walk every button on the panel. The focused
+//! card is darkened. The body opens the whole menu. Escape, or anything that runs, hands the
 //! keyboard back, folds the cards to one line again, and puts the panel back
 //! on the right edge as a peek.
 //!
@@ -163,8 +164,8 @@ pub struct Panel {
     /// Every card, uncapped; what is on screen is `model::cap` of these unless
     /// `expanded`.
     all: RefCell<Vec<Card>>,
-    /// The "+N more" card was clicked: show every card until the panel tucks
-    /// away again.
+    /// The "+N more" card was clicked, or Down reached it: show every card
+    /// until the panel tucks away or gives the keyboard back.
     expanded: Cell<bool>,
     /// The panel has the keyboard, from Mod+Alt+Ctrl+T.
     keyboard: Cell<bool>,
@@ -862,8 +863,9 @@ impl Panel {
     }
 
     /// Act on a key while the panel has the keyboard. Up and Down land on the
-    /// next card's body, Left, Right and Tab move along the focused card, and
-    /// a letter presses that card's button. If the card has no such button
+    /// next card's body, or, Down reaching "+N more", show every card in its
+    /// place, focused on the first it hid. Left, Right and Tab move along the
+    /// focused card, and a letter presses that card's button. If the card has no such button
     /// (Stop on a task that is not active, Go to session on one with no Claude,
     /// anything on "+N more"), nothing happens. 1 to 5, [ and ] pick a filter
     /// tab instead, and Ctrl+Delete presses Clear all, whatever has focus.
@@ -912,7 +914,15 @@ impl Panel {
         match action {
             KeyAction::PrevCard | KeyAction::NextCard => {
                 let to = keys::step(at, cards.len(), action == KeyAction::NextCard);
-                focus_card(&cards[to], None);
+                // "+N more" is always last, so only Down reaches it, and it
+                // shows what it stands for there and then rather than waiting
+                // on an Enter. expand() focuses the first card it hid, so the
+                // next Down carries on down the list.
+                if cards[to].widget_name() == "more" {
+                    self.expand();
+                } else {
+                    focus_card(&cards[to], None);
+                }
             }
             KeyAction::PrevSlot | KeyAction::NextSlot => {
                 let to = keys::step(slot, slots.len(), action == KeyAction::NextSlot);
