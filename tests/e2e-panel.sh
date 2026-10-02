@@ -33,8 +33,8 @@
 # out, the slide back and clicks passing beside the peek are checked by hand
 # (README, "Testing"). The keyboard it can: `task panel` moves the panel to the
 # middle of the screen, and with wtype, Down (which moves the action row), the
-# filter tabs' keys and Escape are pressed in the nested niri, never on your
-# desktop.
+# filter tabs' keys, Shift+Delete for the Waiting tab's Clear all, and Escape
+# are pressed in the nested niri, never on your desktop.
 set -uo pipefail
 
 python3 -c "import PIL" 2>/dev/null || {
@@ -433,8 +433,97 @@ if command -v wtype >/dev/null; then
         bad "with one task waiting the tucked panel covers columns ${x0}-${x1}, rows
       ${y0}-${y1}, against ${three_h}px for three — the waiting task is still on it"
     fi
+
+    # ─── Clear all on the Waiting tab ────────────────────────────────────────
+    # Park a second task, so the Waiting tab has two and one task stays on
+    # All. Clear all shows on the Waiting tab alone, and Shift+Delete presses
+    # it, the tabs being outside the focus chain.
+    count() {  # filter…
+        task rc.verbose=nothing "$@" count 2>/dev/null
+    }
+    task rc.verbose=nothing rc.confirmation=no "+$TAG" "description.is:write the glossary" \
+        modify wait:someday </dev/null >/dev/null 2>&1
+    settle
+    "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
+    settle
+    "${NENV[@]}" wtype 5
+    sleep 1
+    shot clear_before || { summary; exit 1; }
+
+    # The first press only arms it, as Remove's does: Confirm clear all, in
+    # the tab bar alone, and nothing deleted.
+    "${NENV[@]}" wtype -M shift -k Delete -m shift
+    sleep 1
+    shot clear_armed || { summary; exit 1; }
+    read -r x0 x1 y0 y1 < <(measure clear_armed clear_before)
+    if [ "$y1" -gt 0 ] && [ "$((y1 - y0))" -lt 60 ] && [ "$(count "+$TAG" status:waiting)" = 2 ]; then
+        ok "the first Shift+Delete arms Clear all in the tab bar and deletes nothing (rows ${y0}-${y1})"
+    else
+        bad "the first Shift+Delete changed rows ${y0}-${y1} with $(count "+$TAG" status:waiting) task(s)
+      still waiting, expected the tab bar alone and 2 — 0-0 means Clear all is not there"
+    fi
+
+    # Moving away disarms it: off the tab and back is the frame from before.
+    "${NENV[@]}" wtype 1
+    "${NENV[@]}" wtype 5
+    sleep 1
+    shot clear_disarmed || { summary; exit 1; }
+    if same clear_before clear_disarmed; then
+        ok "switching tab puts Clear all back"
+    else
+        bad "Clear all is still armed after switching tab and back"
+    fi
+
+    # Twice: both waiting tasks deleted, one after the other, each through
+    # task status; the task still on All and the other tag's are left alone.
+    "${NENV[@]}" wtype -M shift -k Delete -m shift
+    sleep 0.5
+    "${NENV[@]}" wtype -M shift -k Delete -m shift
+    for _ in $(seq 1 20); do
+        [ "$(count "+$TAG" status:waiting)" = 0 ] && break
+        sleep 0.5
+    done
+    settle
+    deleted=$(count "+$TAG" status:deleted)
+    left=$(count "+$TAG" status:pending)
+    elsewhere=$(count +niritasks_e2e_elsewhere status:pending)
+    if [ "$deleted" = 2 ] && [ "$left" = 1 ] && [ "$elsewhere" = 1 ]; then
+        ok "the second press deletes both waiting tasks and no other"
+    else
+        bad "after Clear all: ${deleted} deleted, ${left} pending here, ${elsewhere} on the
+      other tag — expected 2, 1 and 1"
+    fi
+    notified=$(grep -c '^Tasks Deleted: ' "$SB/notifications" 2>/dev/null)
+    if [ "$notified" = 2 ]; then
+        ok "each went through task status deleted, notification and all"
+    else
+        bad "${notified:-0} 'Deleted' notifications for two tasks cleared — Clear all did not
+      run task status on each"
+    fi
+
+    # The panel keeps the keyboard, back on All with the one task left, and
+    # the Waiting tab is gone, so 5 does nothing.
+    shot clear_after || { summary; exit 1; }
+    read -r x0 x1 y0 y1 < <(measure clear_after)
+    if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ] &&
+        [ "$((y1 - y0))" -lt "$keyboard_h" ]; then
+        ok "the panel keeps the keyboard in the middle, on All with one card (rows ${y0}-${y1})"
+    else
+        bad "after Clear all the panel covers columns ${x0}-${x1}, rows ${y0}-${y1} —
+      reaching ${OUT_W} means it gave up the keyboard; 0-0 means it is gone"
+    fi
+    "${NENV[@]}" wtype 5
+    sleep 1
+    shot clear_no_tab || { summary; exit 1; }
+    if same clear_after clear_no_tab; then
+        ok "and the Waiting tab is gone: 5 does nothing"
+    else
+        bad "5 changed the panel after Clear all; the Waiting tab should be hidden"
+    fi
+    "${NENV[@]}" wtype -k Escape
+    settle
 else
-    skip "the panel's cards in the middle of the screen, their buttons, the filter tabs, and Escape back (needs wtype)"
+    skip "the panel's cards in the middle of the screen, their buttons, the filter tabs, Clear all, and Escape back (needs wtype)"
 fi
 
 # ─── nothing pending shows nothing ───────────────────────────────────────────

@@ -66,6 +66,8 @@ All, Active, Planned, To refine and Waiting — narrowing the cards to the tasks
 it names, and shown only while it has any, All apart. A filter, not a status:
 a started planned task is under Active and not Planned, To refine is every
 task that is not a planned task, and a waiting task is under Waiting alone.
+The Waiting tab alone ends in Clear all, which deletes every task under it on
+a second press, as Remove does one.
 _Avoid_: tab alone (Tab is also a key), category, view, status
 
 **Peek**:
