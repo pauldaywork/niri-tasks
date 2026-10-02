@@ -317,7 +317,8 @@ fn failure_reason(stdout: &[u8], stderr: &[u8]) -> String {
 /// and curl gets SIGPIPE, so the player is the cause.
 fn blame(curl: ExitStatus, player: ExitStatus) -> Option<Culprit> {
     use std::os::unix::process::ExitStatusExt;
-    if !curl.success() && !(curl.signal().is_some() && !player.success()) {
+    let curl_died_of_the_player = curl.signal().is_some() && !player.success();
+    if !curl.success() && !curl_died_of_the_player {
         Some(Culprit::Curl)
     } else if !player.success() {
         Some(Culprit::Player)
