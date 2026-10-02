@@ -54,10 +54,10 @@ _Avoid_: row (that is the picker's word), item, block
 **Action row**:
 The buttons along the focused task card's bottom edge while the task panel
 has the keyboard; the other cards hide theirs — Go to session, Start working,
-Refine, Edit, Stop, Waiting and Remove, an active task getting Stop in place
-of Start working, only a task with a live Claude getting Go to session, and a
-waiting task getting just Back to list, Edit and Remove — each running what
-the same entry in the task's action menu runs.
+Refine, Edit, Speak, Stop, Waiting and Remove, an active task getting Stop in
+place of Start working, only a task with a live Claude getting Go to session,
+and a waiting task getting just Back to list, Edit, Speak and Remove — each
+running what the same entry in the task's action menu runs.
 _Avoid_: toolbar, button bar, quick actions
 
 **Filter tab**:
@@ -78,6 +78,14 @@ _Avoid_: sliver, handle, tab
 The fuzzel list of a workspace's tasks, opened from a keybind, for acting on
 one. Picking a task, or clicking its task card, opens its action menu.
 _Avoid_: menu, launcher
+
+**Action menu**:
+The fuzzel menu of what can be done to one task, opened by picking it in the
+picker, clicking its task card, or Enter on the card: Go to session while a
+Claude is working on it, then Edit, Note, Speak, Refine, Grill me, Start
+working, Update status and Move to workspace. Speak reads the task aloud in
+the background; picked again, on any task, it stops.
+_Avoid_: context menu, actions list
 
 **Task box**:
 The GTK window for adding a task or editing one — its description and its

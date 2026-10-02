@@ -488,7 +488,7 @@ fn menu_entries(has_session: bool) -> Vec<String> {
         entries.push(GO_TO_SESSION.to_string());
     }
     entries.extend(
-        ["Edit", "Note", "Refine", "Grill me", "Start working", "Update status", "Move to workspace"]
+        ["Edit", "Note", "Speak", "Refine", "Grill me", "Start working", "Update status", "Move to workspace"]
             .map(String::from),
     );
     entries
@@ -515,6 +515,9 @@ fn task_menu(tag: &str, selected: String, description: &str, width: usize) -> Re
         // nowhere to show existing notes in a single row.
         Some("Edit") => return task_command(TaskCommand::Edit { uuid: selected, text: vec![] }),
         Some("Note") => return task_command(TaskCommand::Note { uuid: selected, text: vec![] }),
+        // In the background: the menu closes at once, and picking Speak
+        // again stops it.
+        Some("Speak") => return task_command(TaskCommand::Speak { uuid: selected, here: false }),
         // Both open Claude in the workspace's herdr session; they differ only
         // in whether it interviews you before drafting.
         Some("Refine") => return task_command(TaskCommand::Refine { uuid: selected, grill: false }),
@@ -852,7 +855,7 @@ mod tests {
         let without = menu_entries(false);
         assert_eq!(
             without,
-            vec!["Edit", "Note", "Refine", "Grill me", "Start working", "Update status", "Move to workspace"]
+            vec!["Edit", "Note", "Speak", "Refine", "Grill me", "Start working", "Update status", "Move to workspace"]
         );
         let with = menu_entries(true);
         assert_eq!(with[0], GO_TO_SESSION);
