@@ -1,8 +1,9 @@
-//! `niritasks task start` and `task start --here` name what they make after
-//! the task's own uuid, not the form it was typed in. A task number finds the
-//! same task, but a branch or agent named from it ends in `-1`, not the uuid's
-//! first eight characters, so the task panel, which passes full uuids, never
-//! finds it again and makes a second worktree and a second Claude.
+//! `niritasks task start`, `task start --here` and `task refine` name what
+//! they make after the task's own uuid, not the form it was typed in. A task
+//! number finds the same task, but a branch or agent named from it ends in
+//! `-1`, not the uuid's first eight characters, so the task panel, which
+//! passes full uuids, never finds it again and makes a second worktree, a
+//! second Claude or a second refine session.
 //!
 //! Checked by running the real binary against a scratch task database, fake
 //! `herdr`, `wt` and `notify-send` on `PATH` that log what they are asked, and
@@ -222,4 +223,25 @@ fn a_task_number_names_everything_after_the_tasks_uuid() {
         calls.contains(&format!("agent prompt {work} /superpowers:writing-plans Plan Taskwarrior task {}.", s.uuid)),
         "{calls}"
     );
+
+    // Refine with the real HOME: it refuses to start while a socket sits
+    // outside its sandbox's hidden folders, and the real herdr sessions'
+    // sockets are hidden only as $HOME/.config/herdr. The fakes on PATH
+    // still keep it away from the real herdr.
+    let real_home = PathBuf::from(std::env::var("HOME").unwrap());
+    let refiner = format!("task-{uuid8}");
+
+    // ---- Refine goes back to the session the task already has -----------
+    let out = s.niritasks(&["task", "refine", "1"], &real_home, &refiner, NO_WORKTREES);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let calls = s.take(&s.herdr_log());
+    assert!(calls.contains(&format!("--session alpha agent focus {refiner}")), "{calls}");
+    assert!(!calls.contains("agent start"), "no second session: {calls}");
+
+    // ---- a new refine session is named and prompted with the uuid -------
+    let out = s.niritasks(&["task", "refine", "1"], &real_home, "", NO_WORKTREES);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let calls = s.take(&s.herdr_log());
+    assert!(calls.contains(&format!("--session alpha agent start {refiner} ")), "{calls}");
+    assert!(calls.contains(&format!("agent prompt {refiner} /refine-task {}", s.uuid)), "{calls}");
 }

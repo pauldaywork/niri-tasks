@@ -5,7 +5,7 @@
 //! nothing needs quoting through two CLIs and it always sees the current
 //! version rather than the one the menu was opened on.
 
-use crate::{herdr, niri, notify, project, session, text};
+use crate::{herdr, niri, notify, project, session, task, text};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -299,12 +299,15 @@ pub(crate) fn open_session(dir: &Path, s: &str) -> Result<Value> {
 ///
 /// Opens the project terminal first if the session is not running, and goes
 /// back to the task's existing tab if it is already being refined.
-pub fn launch(workspace: &str, uuid: &str, description: &str, mode: Mode) -> Result<()> {
+///
+/// The task as found, not a uuid as typed: the session is found again by the
+/// uuid's first eight characters, and a typed task number has none of them.
+pub fn launch(workspace: &str, t: &task::Task, mode: Mode) -> Result<()> {
     let home = std::env::var("HOME").context("HOME is unset")?;
     let home = Path::new(&home);
     let dir = session::start_dir(home, workspace);
     let s = session::herdr_session_name(workspace);
-    let name = agent_name(uuid);
+    let name = agent_name(&t.uuid);
 
     // Before anything opens: a refused refine should leave nothing behind.
     let hidden = hidden_paths(home);
@@ -319,7 +322,7 @@ pub fn launch(workspace: &str, uuid: &str, description: &str, mode: Mode) -> Res
         return Ok(());
     }
 
-    let label = tab_label(mode, description);
+    let label = tab_label(mode, &t.description);
     let created = match herdr::first_workspace_id(&list) {
         Some(id) => herdr::run(&herdr::tab_create(&s, &id, &dir, &label))?,
         // The workspace itself is named after the project, not this tab.
@@ -335,7 +338,7 @@ pub fn launch(workspace: &str, uuid: &str, description: &str, mode: Mode) -> Res
         }
         return Err(e);
     }
-    herdr::run(&herdr::agent_prompt(&s, &name, &prompt(uuid, mode)))
+    herdr::run(&herdr::agent_prompt(&s, &name, &prompt(&t.uuid, mode)))
         .context("Claude started, but the prompt was not delivered.")?;
     Ok(())
 }

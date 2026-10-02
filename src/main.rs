@@ -425,7 +425,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             // has nothing left to work up into a plan.
             anyhow::ensure!(t.status == "pending", "Only a pending task can be refined.");
             let mode = if grill { refine::Mode::Grill } else { refine::Mode::Quick };
-            refine::launch(&workspace, &uuid, &t.description, mode)?;
+            refine::launch(&workspace, &t, mode)?;
         }
 
         TaskCommand::Session { uuid } => {
