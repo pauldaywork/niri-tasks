@@ -253,15 +253,90 @@ impl PanelState {
     }
 
     /// A key while the panel has the keyboard. None when it is not the
-    /// panel's key, and GTK should have it.
+    /// panel's key, and GTK should have it: Enter and Space press the focused
+    /// button. Armed, Clear all takes every key: Enter confirms rather than
+    /// opening a card, Escape and the keys that move cancel, the tab keys
+    /// switch tab as ever, and a card's keys do nothing, there being no card
+    /// focused to act on.
     pub fn on_key(&mut self, key: KeyAction) -> Option<Vec<Effect>> {
+        if matches!(self.armed, Armed::ClearAll { .. }) {
+            return Some(match key {
+                KeyAction::Enter | KeyAction::ClearAll => self.on_clear_all(),
+                KeyAction::Release
+                | KeyAction::PrevCard
+                | KeyAction::NextCard
+                | KeyAction::PrevSlot
+                | KeyAction::NextSlot => self.cancel_clear(),
+                KeyAction::Filter(_) | KeyAction::PrevFilter | KeyAction::NextFilter => self.filter_key(key),
+                KeyAction::Run(_) | KeyAction::Advance | KeyAction::Ignore => Vec::new(),
+            });
+        }
         Some(match key {
+            KeyAction::Enter | KeyAction::Ignore => return None,
             KeyAction::Release => self.release(),
+            KeyAction::ClearAll => self.on_clear_all(),
             KeyAction::Filter(_) | KeyAction::PrevFilter | KeyAction::NextFilter => self.filter_key(key),
             KeyAction::PrevCard | KeyAction::NextCard => self.move_card(key == KeyAction::NextCard),
             KeyAction::PrevSlot | KeyAction::NextSlot => self.move_slot(key == KeyAction::NextSlot),
-            KeyAction::Run(_) | KeyAction::Advance | KeyAction::ClearAll | KeyAction::Ignore => return None,
+            KeyAction::Run(action) => self.run(action),
+            KeyAction::Advance => self.advance(),
         })
+    }
+
+    /// A press on a task's card: its body, which opens the whole menu, or a
+    /// button. Remove only arms itself the first time, as the menu's delete
+    /// asks first; the second press runs it. Everything that opens something
+    /// gives the keyboard back first, so the box or terminal it opens can
+    /// take it. Back, Waiting and Remove take the card off the list, so the
+    /// focus moves to the next card (the one above, from the last) to still be
+    /// there when the next tick drops this one. Speak and Up next keep the
+    /// card and the focus, so a second press undoes them.
+    pub fn on_press(&mut self, uuid: &str, slot: Slot) -> Vec<Effect> {
+        let Slot::Button(action) = slot else {
+            let mut effects = self.release();
+            effects.push(Effect::Spawn(vec!["task".into(), "menu".into(), uuid.into()]));
+            return effects;
+        };
+        if action == Action::Remove && self.armed != Armed::Remove(uuid.into()) {
+            // Focus first: the move disarms whatever was armed before, and
+            // this one is armed only after it.
+            let effects = self.focus_on(Focus { uuid: uuid.into(), slot });
+            self.armed = Armed::Remove(uuid.into());
+            return effects;
+        }
+        let mut effects = Vec::new();
+        if action.leaves_the_list() {
+            if let Some(next) = self.neighbour(uuid) {
+                effects = self.focus_on(next);
+            }
+        } else if !action.keeps_keyboard() {
+            effects = self.release();
+        }
+        effects.push(Effect::Spawn(action.args(uuid)));
+        effects
+    }
+
+    /// Clear all, by its button or Ctrl+Delete. The first press arms it and
+    /// takes the focus off the cards, so Enter confirms rather than opening a
+    /// card's menu. The second deletes every task the Waiting tab lists,
+    /// those past "+N more" too, and puts the panel on All at once rather
+    /// than as each delete lands, keeping the keyboard. Nothing off the
+    /// Waiting tab, where Clear all is hidden.
+    pub fn on_clear_all(&mut self) -> Vec<Effect> {
+        if !self.shows_clear_all() {
+            return Vec::new();
+        }
+        if !matches!(self.armed, Armed::ClearAll { .. }) {
+            let before = self.focus.take();
+            self.armed = Armed::ClearAll { before };
+            return vec![Effect::Focus(None)];
+        }
+        let uuids = Filter::Waiting.uuids(&self.all);
+        let mut effects = self.pick(Filter::All);
+        if !uuids.is_empty() {
+            effects.push(Effect::DeleteAll(uuids));
+        }
+        effects
     }
 
     /// Give the keyboard back: every card to one line again, All for the next
@@ -373,6 +448,53 @@ impl PanelState {
         let slot = self.focus.as_ref().filter(|f| f.uuid == uuid).map_or(Slot::Body, |f| f.slot);
         let at = slots.iter().position(|s| *s == slot).unwrap_or(0);
         self.focus_on(Focus { uuid, slot: slots[keys::step(at, slots.len(), forward)] })
+    }
+
+    /// A letter, or Delete: press that button on the focused card, as a
+    /// click does. Nothing when the card has no such button: Stop on a task
+    /// that is not active, a letter on "+N more".
+    fn run(&mut self, action: Action) -> Vec<Effect> {
+        let shown = self.visible();
+        let Some(card) = self.current(&shown).map(|at| &shown[at]) else { return Vec::new() };
+        match &card.card.uuid {
+            Some(uuid) if card.actions.contains(&action) => self.on_press(uuid, Slot::Button(action)),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Ctrl+Enter: the focused card's Refine, or its Start once it is
+    /// planned, keeping the keyboard and the focus so the user can go on down
+    /// the list. Not through `on_press`, which gives the keyboard back. Like
+    /// the letters, only a button the card has.
+    fn advance(&self) -> Vec<Effect> {
+        let shown = self.visible();
+        let Some(card) = self.current(&shown).map(|at| &shown[at]) else { return Vec::new() };
+        let Some(uuid) = &card.card.uuid else { return Vec::new() };
+        let Some(action) = Action::advance(card.card.status, card.card.planned) else { return Vec::new() };
+        if !card.actions.contains(&action) {
+            return Vec::new();
+        }
+        let verb = if action == Action::Refine { "Refining" } else { "Starting" };
+        vec![Effect::Notify(format!("{verb}: {}", card.card.text)), Effect::Spawn(action.args(uuid))]
+    }
+
+    /// Put Clear all back and the focus where it was before it armed, or on
+    /// the first card when that card has gone.
+    fn cancel_clear(&mut self) -> Vec<Effect> {
+        let Armed::ClearAll { before } = std::mem::take(&mut self.armed) else { return Vec::new() };
+        let shown = self.visible();
+        let before = before.filter(|f| shown.iter().any(|s| s.card.uuid.as_deref() == Some(f.uuid.as_str())));
+        self.focus = before.or_else(|| first_task(&shown));
+        vec![Effect::Focus(self.focus.clone())]
+    }
+
+    /// The card the focus moves to when this one leaves the list: the next
+    /// task's, or, from the last, the one above.
+    fn neighbour(&self, uuid: &str) -> Option<Focus> {
+        let tasks: Vec<String> = self.visible().into_iter().filter_map(|s| s.card.uuid).collect();
+        let at = tasks.iter().position(|u| u == uuid)?;
+        let next = tasks.get(at + 1).or_else(|| at.checked_sub(1).and_then(|i| tasks.get(i)));
+        next.map(|u| Focus::body(u))
     }
 
 }
@@ -635,5 +757,213 @@ mod tests {
         state.on_focus(focused("b", Slot::Button(Action::Edit)));
         state.set_cards(&pending(&["a"]));
         assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+    }
+
+    #[test]
+    fn a_letter_presses_only_a_button_the_card_has() {
+        let mut state = keyboard(pending(&["a"]));
+        assert_eq!(key(&mut state, KeyAction::Run(Action::Stop)), Vec::new(), "not active, no Stop");
+        assert_eq!(
+            key(&mut state, KeyAction::Run(Action::Edit)),
+            vec![Effect::Render, Effect::Release, Effect::Spawn(Action::Edit.args("a"))],
+        );
+    }
+
+    #[test]
+    fn enter_and_space_are_gtks_while_nothing_is_armed() {
+        let mut state = keyboard(pending(&["a"]));
+        assert_eq!(state.on_key(KeyAction::Enter), None);
+        assert_eq!(state.on_key(KeyAction::Ignore), None);
+    }
+
+    // ─── presses ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn the_body_gives_the_keyboard_back_and_opens_the_menu() {
+        let mut state = keyboard(pending(&["a"]));
+        assert_eq!(
+            state.on_press("a", Slot::Body),
+            vec![Effect::Render, Effect::Release, Effect::Spawn(vec!["task".into(), "menu".into(), "a".into()])],
+        );
+        assert!(!state.keyboard());
+    }
+
+    #[test]
+    fn speak_and_up_next_keep_the_keyboard_and_the_focus() {
+        let mut state = keyboard(pending(&["a"]));
+        state.on_focus(focused("a", Slot::Button(Action::Speak)));
+        for action in [Action::Speak, Action::UpNext] {
+            assert_eq!(state.on_press("a", Slot::Button(action)), vec![Effect::Spawn(action.args("a"))]);
+        }
+        assert!(state.keyboard());
+        assert_eq!(state.focus(), focused("a", Slot::Button(Action::Speak)).as_ref());
+    }
+
+    #[test]
+    fn ctrl_enter_refines_or_starts_keeping_the_keyboard_and_the_focus() {
+        let mut state = keyboard(vec![card("p", Status::Pending), card("q", Status::Planned)]);
+        assert_eq!(
+            key(&mut state, KeyAction::Advance),
+            vec![Effect::Notify("Refining: p".into()), Effect::Spawn(Action::Refine.args("p"))],
+        );
+        key(&mut state, KeyAction::NextCard);
+        assert_eq!(
+            key(&mut state, KeyAction::Advance),
+            vec![Effect::Notify("Starting: q".into()), Effect::Spawn(Action::Start.args("q"))],
+        );
+        assert!(state.keyboard());
+        assert_eq!(state.focus(), focused("q", Slot::Body).as_ref());
+    }
+
+    #[test]
+    fn ctrl_enter_does_nothing_on_a_planned_task_being_worked() {
+        let mut planned_active = card("a", Status::Active);
+        planned_active.planned = true;
+        let mut state = keyboard(vec![planned_active]);
+        assert_eq!(key(&mut state, KeyAction::Advance), Vec::new());
+    }
+
+    // ─── arming ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn the_first_remove_arms_and_the_second_deletes() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        assert_eq!(
+            key(&mut state, KeyAction::Run(Action::Remove)),
+            vec![Effect::Focus(focused("a", Slot::Button(Action::Remove)))],
+        );
+        assert_eq!(state.armed(), &Armed::Remove("a".into()));
+        let effects = key(&mut state, KeyAction::Run(Action::Remove));
+        assert_eq!(effects, vec![Effect::Focus(focused("b", Slot::Body)), Effect::Spawn(Action::Remove.args("a"))]);
+        assert_eq!(state.armed(), &Armed::None);
+    }
+
+    #[test]
+    fn leaving_the_list_from_the_last_card_focuses_the_one_above() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        key(&mut state, KeyAction::NextCard);
+        assert_eq!(
+            state.on_press("b", Slot::Button(Action::Wait)),
+            vec![Effect::Focus(focused("a", Slot::Body)), Effect::Spawn(Action::Wait.args("b"))],
+        );
+        assert!(state.keyboard());
+    }
+
+    #[test]
+    fn moving_off_an_armed_remove_disarms_it() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        key(&mut state, KeyAction::Run(Action::Remove));
+        state.on_focus(focused("a", Slot::Button(Action::Remove)));
+        assert_eq!(state.armed(), &Armed::Remove("a".into()), "its own focus coming back");
+        key(&mut state, KeyAction::NextCard);
+        assert_eq!(state.armed(), &Armed::None);
+    }
+
+    #[test]
+    fn a_refresh_disarms_remove() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        key(&mut state, KeyAction::Run(Action::Remove));
+        state.set_cards(&pending(&["a", "b", "c"]));
+        assert_eq!(state.armed(), &Armed::None);
+        assert_eq!(state.focus(), focused("a", Slot::Button(Action::Remove)).as_ref());
+    }
+
+    fn waiting_tab() -> PanelState {
+        let mut state = keyboard(vec![card("p", Status::Pending), card("w1", Status::Waiting), card("w2", Status::Waiting)]);
+        key(&mut state, KeyAction::Filter(Filter::Waiting));
+        state
+    }
+
+    #[test]
+    fn clear_all_is_only_on_the_waiting_tab() {
+        let mut state = keyboard(vec![card("p", Status::Pending), card("w", Status::Waiting)]);
+        assert!(!state.shows_clear_all());
+        assert_eq!(key(&mut state, KeyAction::ClearAll), Vec::new());
+        assert_eq!(state.armed(), &Armed::None);
+        key(&mut state, KeyAction::Filter(Filter::Waiting));
+        assert!(state.shows_clear_all());
+    }
+
+    #[test]
+    fn the_first_clear_all_arms_it_and_takes_the_focus_off_the_cards() {
+        let mut state = waiting_tab();
+        key(&mut state, KeyAction::Run(Action::Remove));
+        assert_eq!(key(&mut state, KeyAction::ClearAll), vec![Effect::Focus(None)]);
+        assert_eq!(
+            state.armed(),
+            &Armed::ClearAll { before: focused("w1", Slot::Button(Action::Remove)) },
+            "and Remove is not armed beside it",
+        );
+        assert_eq!(state.focus(), None);
+        state.on_focus(None);
+        assert!(matches!(state.armed(), Armed::ClearAll { .. }), "its own focus move coming back");
+    }
+
+    #[test]
+    fn enter_confirms_clear_all_deleting_every_waiting_task_onto_all() {
+        let mut state = keyboard({
+            let mut cards = pending(&["p"]);
+            cards.extend((0..10).map(|i| card(&format!("w{i}"), Status::Waiting)));
+            cards
+        });
+        key(&mut state, KeyAction::Filter(Filter::Waiting));
+        key(&mut state, KeyAction::ClearAll);
+        let every: Vec<String> = (0..10).map(|i| format!("w{i}")).collect();
+        assert_eq!(key(&mut state, KeyAction::Enter), vec![Effect::Render, Effect::DeleteAll(every)]);
+        assert!(state.keyboard());
+        assert_eq!(state.filter(), Filter::All);
+        assert_eq!(state.armed(), &Armed::None);
+        assert_eq!(state.focus(), focused("p", Slot::Body).as_ref());
+    }
+
+    #[test]
+    fn escape_and_moving_cancel_clear_all_putting_the_focus_back() {
+        for cancel in [KeyAction::Release, KeyAction::PrevCard, KeyAction::NextCard, KeyAction::PrevSlot, KeyAction::NextSlot] {
+            let mut state = waiting_tab();
+            key(&mut state, KeyAction::NextCard);
+            key(&mut state, KeyAction::ClearAll);
+            assert_eq!(key(&mut state, cancel), vec![Effect::Focus(focused("w2", Slot::Body))], "{cancel:?}");
+            assert_eq!(state.armed(), &Armed::None);
+            assert!(state.keyboard(), "Escape cancels without giving the keyboard back");
+        }
+    }
+
+    #[test]
+    fn a_tab_key_switches_tab_and_disarms_clear_all() {
+        let mut state = waiting_tab();
+        key(&mut state, KeyAction::ClearAll);
+        assert_eq!(key(&mut state, KeyAction::Filter(Filter::All)), vec![Effect::Render]);
+        assert_eq!(state.armed(), &Armed::None);
+        assert_eq!(state.focus(), focused("p", Slot::Body).as_ref());
+    }
+
+    #[test]
+    fn a_cards_keys_do_nothing_while_clear_all_is_armed() {
+        let mut state = waiting_tab();
+        key(&mut state, KeyAction::ClearAll);
+        for k in [KeyAction::Run(Action::Edit), KeyAction::Run(Action::Remove), KeyAction::Advance, KeyAction::Ignore] {
+            assert_eq!(state.on_key(k), Some(Vec::new()), "{k:?}");
+        }
+        assert!(matches!(state.armed(), Armed::ClearAll { .. }));
+    }
+
+    /// A click on Remove moves the focus onto it, which puts an armed Clear
+    /// all back: one arming at a time.
+    #[test]
+    fn clicking_remove_disarms_clear_all() {
+        let mut state = waiting_tab();
+        key(&mut state, KeyAction::ClearAll);
+        state.on_focus(focused("w2", Slot::Button(Action::Remove)));
+        state.on_press("w2", Slot::Button(Action::Remove));
+        assert_eq!(state.armed(), &Armed::Remove("w2".into()));
+    }
+
+    #[test]
+    fn a_refresh_disarms_clear_all() {
+        let mut state = waiting_tab();
+        key(&mut state, KeyAction::ClearAll);
+        state.set_cards(&[card("p", Status::Pending), card("w1", Status::Waiting)]);
+        assert_eq!(state.armed(), &Armed::None);
+        assert_eq!(state.focus(), focused("w1", Slot::Body).as_ref());
     }
 }

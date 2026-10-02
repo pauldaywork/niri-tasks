@@ -36,7 +36,11 @@ pub enum KeyAction {
     /// tabs outside the focus chain, so no focused button can stand for it.
     /// The stronger Delete, as Ctrl+Enter is the stronger Enter.
     ClearAll,
-    /// Pass it through: Enter and Space press the focused button.
+    /// Enter, which presses the focused button, as GTK does by itself; but
+    /// with Clear all armed and no button focused, it confirms.
+    Enter,
+    /// Not the panel's key: Space presses the focused button, and the rest
+    /// do nothing.
     Ignore,
 }
 
@@ -56,6 +60,7 @@ pub fn key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
     }
     match key.to_lower() {
         gdk::Key::Escape => KeyAction::Release,
+        gdk::Key::Return | gdk::Key::KP_Enter => KeyAction::Enter,
         gdk::Key::Up => KeyAction::PrevCard,
         gdk::Key::Down => KeyAction::NextCard,
         gdk::Key::Left | gdk::Key::ISO_Left_Tab => KeyAction::PrevSlot,
@@ -97,11 +102,8 @@ pub enum Armed {
 /// Escape without giving the keyboard back. A card's keys are swallowed rather
 /// than left to fall back on the first card, which no one picked.
 pub fn while_clear_armed(key: gdk::Key, ctrl: bool) -> Armed {
-    if !ctrl && matches!(key, gdk::Key::Return | gdk::Key::KP_Enter) {
-        return Armed::Confirm;
-    }
     match key_action(key, ctrl) {
-        KeyAction::ClearAll => Armed::Confirm,
+        KeyAction::ClearAll | KeyAction::Enter => Armed::Confirm,
         KeyAction::Release
         | KeyAction::PrevCard
         | KeyAction::NextCard
@@ -170,10 +172,13 @@ mod tests {
         assert_eq!(key_action(gdk::Key::T, false), KeyAction::Run(Action::Stop));
     }
 
-    /// Enter and Space press the focused button, which GTK does itself.
+    /// Enter is its own, for an armed Clear all to confirm on; Space and the
+    /// rest are not the panel's.
     #[test]
-    fn enter_and_space_pass_through() {
-        for key in [gdk::Key::Return, gdk::Key::KP_Enter, gdk::Key::space, gdk::Key::x] {
+    fn enter_is_enter_and_space_passes_through() {
+        assert_eq!(key_action(gdk::Key::Return, false), KeyAction::Enter);
+        assert_eq!(key_action(gdk::Key::KP_Enter, false), KeyAction::Enter);
+        for key in [gdk::Key::space, gdk::Key::x] {
             assert_eq!(key_action(key, false), KeyAction::Ignore, "{key:?}");
         }
     }
@@ -184,7 +189,7 @@ mod tests {
     fn ctrl_enter_advances_the_focused_task() {
         assert_eq!(key_action(gdk::Key::Return, true), KeyAction::Advance);
         assert_eq!(key_action(gdk::Key::KP_Enter, true), KeyAction::Advance);
-        assert_eq!(key_action(gdk::Key::Return, false), KeyAction::Ignore);
+        assert_eq!(key_action(gdk::Key::Return, false), KeyAction::Enter);
     }
 
     /// Every other Ctrl chord belongs to the compositor and the focused

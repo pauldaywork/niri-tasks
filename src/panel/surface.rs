@@ -442,7 +442,7 @@ impl Panel {
                     return glib::Propagation::Stop;
                 }
                 match keys::key_action(key, ctrl) {
-                    KeyAction::Ignore => glib::Propagation::Proceed,
+                    KeyAction::Ignore | KeyAction::Enter => glib::Propagation::Proceed,
                     action => {
                         p.key(action);
                         glib::Propagation::Stop
@@ -1008,6 +1008,7 @@ impl Panel {
             KeyAction::Advance => self.advance(&card, &slots),
             KeyAction::Release
             | KeyAction::Ignore
+            | KeyAction::Enter
             | KeyAction::Filter(_)
             | KeyAction::PrevFilter
             | KeyAction::NextFilter
