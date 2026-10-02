@@ -31,8 +31,8 @@
 4. **Disarming:** any change of the window's focus widget (Up/Down/Left/Right/Tab, a re-render's refocus) and any `render()` (a tab switch, a refresh that changed the cards) put it back. Arming itself doesn't move focus: a click doesn't take focus, and Shift+Delete moves nothing.
 5. **The second press switches to All at once** (`pick(Filter::All)`) and doesn't wait for the deletes to land. Focus goes to All's first card through the existing render path, and the keyboard stays. Once the deletes land, the refresh hides the Waiting tab (`Filter::shown`). If every task on the workspace was waiting, All says "No tasks" until that refresh, and then `render()`'s existing no-tasks path hides the panel and gives the keyboard back. With no tasks left there is nothing to keep it for.
 6. **Shift+Delete off the Waiting tab does nothing.** It doesn't fall through to Remove, because Remove takes plain Delete. `clear_all()` checks for the Waiting tab and the keyboard itself, so the key, `emit_clicked` and a click all take the one guarded path.
-7. **`keys::key_action` gains a `shift: bool` argument.** Shift only changes Delete/KP_Delete. Shift+Tab already arrives as `ISO_Left_Tab` and Shift+letter as a capital, both of which keep their meaning.
-8. **The nested niri now runs with the notify-send stub on its PATH.** A panel button's `niritasks` is spawned by niri, so it runs under the nested niri's environment, not the daemon's. Without this, the e2e's deletes would pop "Deleted: …" on the real desktop. The stub is written before the nested niri starts, and the nested niri gets `NOTIFY_LOG` and `PATH` as `NENV` does. The e2e then counts the "Tasks Deleted: " lines to show each delete went through `task status`.
+7. **`keys::key_action` gains a third argument, `shift: bool`, after main's `ctrl: bool`.** Shift only changes Delete/KP_Delete (in the non-Ctrl branch; a Ctrl chord ignores it). Shift+Tab already arrives as `ISO_Left_Tab` and Shift+letter as a capital, both of which keep their meaning.
+8. **The e2e's deletes notify into the stub already.** A panel button's `niritasks` is spawned by niri, under the nested niri's environment. `tests/e2e-panel.sh` already sets `NESTED_SPAWN_PATH="$SB/bin:/usr/bin:/bin"`, which `tests/lib/nested-niri.sh` turns into a niri `environment {}` block with the stub first on PATH and `NOTIFY_LOG` set. So no test-library change is needed; the e2e counts the "Tasks Deleted: " lines to show each delete went through `task status`.
 
 ## File map
 
@@ -43,7 +43,6 @@
 | `src/panel/keys.rs` | `KeyAction::ClearAll`; `key_action(key, shift)`. |
 | `src/panel/surface.rs` | Key call site passes Shift; `clear` button and `clear_armed`; `clear_all`, `disarm_clear`, `clear_label`, `delete_all`, `spawn_on`; module doc. |
 | `src/panel/style.rs` | `.clear-all` and `.clear-all.confirm` CSS; module doc line. |
-| `tests/lib/nested-niri.sh` | Stub before the nested niri starts; nested niri gets `NOTIFY_LOG` and `PATH`. |
 | `tests/e2e-panel.sh` | Clear all section. |
 | `README.md` | Keybind row, button table, tabs paragraph, hand checks, e2e description. |
 | `CONTEXT.md` | Filter tab entry mentions Clear all. |
@@ -56,7 +55,7 @@
 - Modify: `src/panel/model.rs` (impl `Filter`, after `shown`; tests module)
 - Modify: `src/panel/actions.rs` (after `impl Action`; tests module)
 - Modify: `src/panel/keys.rs` (`KeyAction`, `key_action`, tests module)
-- Modify: `src/panel/surface.rs:378` (the key controller's call) and `src/panel/surface.rs:865-869` (the no-op arm in `key()`)
+- Modify: `src/panel/surface.rs` (the key controller's `keys::key_action(...)` call, and the no-op arm at the end of the second `match action` in `key()`)
 
 **Interfaces:**
 - Consumes: `Filter::pick`, `Card.uuid`, `Action::Remove.args`, `Action::Remove.icon` (all exist).
@@ -66,7 +65,7 @@
   - `pub const actions::CONFIRM_CLEAR_ALL: &str = "Confirm clear all"`
   - `pub fn actions::clear_all_command(exe: &str, uuids: &[String]) -> Vec<String>`
   - `KeyAction::ClearAll`
-  - `pub fn keys::key_action(key: gdk::Key, shift: bool) -> KeyAction`
+  - `pub fn keys::key_action(key: gdk::Key, ctrl: bool, shift: bool) -> KeyAction`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -125,7 +124,7 @@ In `src/panel/actions.rs`, append inside `mod tests`:
     }
 ```
 
-In `src/panel/keys.rs`, first give every existing test call the new argument. Run this, which touches only the tests module (it starts at `mod tests {`, line 74):
+In `src/panel/keys.rs`, first give every existing test call the new `shift` argument, `false`, after the `ctrl` one they already pass. Run this, which touches only the tests module (from the `mod tests {` line on):
 
 ```bash
 sed -i '/^mod tests {/,$ s/key_action(\([^()]*\))/key_action(\1, false)/g' src/panel/keys.rs
@@ -137,17 +136,17 @@ Then append inside `mod tests`:
     /// Shift+Delete is Clear all; Delete alone still removes the focused card.
     #[test]
     fn shift_delete_clears_all_and_delete_alone_removes() {
-        assert_eq!(key_action(gdk::Key::Delete, true), KeyAction::ClearAll);
-        assert_eq!(key_action(gdk::Key::KP_Delete, true), KeyAction::ClearAll);
-        assert_eq!(key_action(gdk::Key::Delete, false), KeyAction::Run(Action::Remove));
-        assert_eq!(key_action(gdk::Key::KP_Delete, false), KeyAction::Run(Action::Remove));
+        assert_eq!(key_action(gdk::Key::Delete, false, true), KeyAction::ClearAll);
+        assert_eq!(key_action(gdk::Key::KP_Delete, false, true), KeyAction::ClearAll);
+        assert_eq!(key_action(gdk::Key::Delete, false, false), KeyAction::Run(Action::Remove));
+        assert_eq!(key_action(gdk::Key::KP_Delete, false, false), KeyAction::Run(Action::Remove));
     }
 
     /// Shift changes nothing else: a capital and Shift+Tab already carry it.
     #[test]
     fn shift_leaves_every_other_key_alone() {
         for key in [gdk::Key::S, gdk::Key::Escape, gdk::Key::ISO_Left_Tab, gdk::Key::Down, gdk::Key::bracketright] {
-            assert_eq!(key_action(key, true), key_action(key, false), "{key:?}");
+            assert_eq!(key_action(key, false, true), key_action(key, false, false), "{key:?}");
         }
     }
 ```
@@ -155,7 +154,7 @@ Then append inside `mod tests`:
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --lib panel 2>&1 | tail -20`
-Expected: compile errors: no method `uuids`, cannot find `CLEAR_ALL` / `CONFIRM_CLEAR_ALL` / `clear_all_command`, no variant `ClearAll`, and `key_action` takes 1 argument but 2 were supplied.
+Expected: compile errors: no method `uuids`, cannot find `CLEAR_ALL` / `CONFIRM_CLEAR_ALL` / `clear_all_command`, no variant `ClearAll`, and `key_action` takes 2 arguments but 3 were supplied.
 
 - [ ] **Step 3: Implement**
 
@@ -207,16 +206,12 @@ In `src/panel/keys.rs`, add this variant to `KeyAction` after `NextFilter`:
     ClearAll,
 ```
 
-Replace `key_action`'s doc and signature, and its Delete arm:
+Change `key_action`'s signature to take `shift` after `ctrl`, keep its body's Ctrl branch as it is, add this sentence at the end of its doc comment, and replace its Delete arm:
 
 ```rust
-/// Map a keypress to what it should do. The letters work without a modifier,
-/// because nothing on the panel takes typing. With Caps Lock on the keyval
-/// arrives as a capital (`S`, not `s`), so the key is lowercased first and
-/// capitals press the same buttons. `shift` matters to Delete alone, making it
-/// Clear all: Shift+Tab already arrives as ISO_Left_Tab, and a Shift+letter as
-/// its capital.
-pub fn key_action(key: gdk::Key, shift: bool) -> KeyAction {
+/// `shift` matters to Delete alone, making it Clear all: Shift+Tab already
+/// arrives as ISO_Left_Tab, and a Shift+letter as its capital.
+pub fn key_action(key: gdk::Key, ctrl: bool, shift: bool) -> KeyAction {
 ```
 
 ```rust
@@ -224,13 +219,17 @@ pub fn key_action(key: gdk::Key, shift: bool) -> KeyAction {
         gdk::Key::Delete | gdk::Key::KP_Delete => KeyAction::Run(Action::Remove),
 ```
 
-In `src/panel/surface.rs`, the key controller (line 378) passes Shift:
+In `src/panel/surface.rs`, the key controller passes Shift too:
 
 ```rust
-                match keys::key_action(key, state.contains(gdk::ModifierType::SHIFT_MASK)) {
+                match keys::key_action(
+                    key,
+                    state.contains(gdk::ModifierType::CONTROL_MASK),
+                    state.contains(gdk::ModifierType::SHIFT_MASK),
+                ) {
 ```
 
-and the last arm of the second `match action` in `key()` (lines 865-869) gains `ClearAll`, so it still compiles. Task 2 handles it before that match:
+and the last (no-op) arm of the second `match action` in `key()`, after the `KeyAction::Advance` arm, gains `ClearAll`, so it still compiles. Task 2 handles it before that match:
 
 ```rust
             KeyAction::Release
@@ -567,69 +566,17 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Task 3: The e2e check, and the docs
 
 **Files:**
-- Modify: `tests/lib/nested-niri.sh` (the notify-send stub block and the nested niri's launch, around lines 196-229)
 - Modify: `tests/e2e-panel.sh` (header comment; new section after the `parked` check, before `else` / `skip`)
 - Modify: `README.md` (lines 19, 56, 67-77, 317-319, 380-384)
 - Modify: `CONTEXT.md` (the **Filter tab** entry)
 
 **Interfaces:**
-- Consumes: the built binary from Task 2. The e2e drives Clear all only with `niritasks task panel`, `wtype 1`/`5` and `wtype -M shift -k Delete -m shift`. The stub logs each notification as `$*`, so a delete reads `Tasks Deleted: <description>` (`notify::tasks` → `notify-send Tasks "Deleted: …"`).
+- Consumes: the built binary from Task 2. The e2e drives Clear all only with `niritasks task panel`, `wtype 1`/`5` and `wtype -M shift -k Delete -m shift`. `tests/e2e-panel.sh` already sets `NESTED_SPAWN_PATH`, so what niri spawns notifies into `$SB/notifications`, not the real desktop. The stub logs each notification as `$*`, so a delete reads `Tasks Deleted: <description>` (`notify::tasks` → `notify-send Tasks "Deleted: …"`).
 - Produces: nothing code depends on.
 
-- [ ] **Step 1: Give the nested niri the notify-send stub**
+- [ ] **Step 1: Write the e2e section**
 
-In `tests/lib/nested-niri.sh`, cut this whole block (it currently sits after the `die "the nested niri gave its programs no NIRI_SOCKET or WAYLAND_DISPLAY"` line):
-
-```bash
-    # Notifications: every task added through the box or the CLI runs
-    # notify-send (src/notify.rs) over the session bus, which is shared with
-    # the real desktop and would pop up there. A stub first on PATH records
-    # them in $SB/notifications instead.
-    mkdir -p "$SB/bin"
-    cat > "$SB/bin/notify-send" <<'STUB'
-#!/bin/sh
-echo "$*" >> "${NOTIFY_LOG:?}"
-exit 0
-STUB
-    chmod +x "$SB/bin/notify-send"
-```
-
-and paste it, with its comment extended as below, immediately before the line `    # Vblank waits are off for the nested niri alone: parked out of sight, it`:
-
-```bash
-    # Notifications: every task added through the box or the CLI runs
-    # notify-send (src/notify.rs) over the session bus, which is shared with
-    # the real desktop and would pop up there. A stub first on PATH records
-    # them in $SB/notifications instead. The nested niri gets it too: what a
-    # panel button runs, niri spawns, under niri's environment and not the
-    # daemon's.
-    mkdir -p "$SB/bin"
-    cat > "$SB/bin/notify-send" <<'STUB'
-#!/bin/sh
-echo "$*" >> "${NOTIFY_LOG:?}"
-exit 0
-STUB
-    chmod +x "$SB/bin/notify-send"
-```
-
-Then change the nested niri's launch from
-
-```bash
-    env -u NIRI_SOCKET XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$PARENT_WAYLAND" \
-        vblank_mode=0 __GL_SYNC_TO_VBLANK=0 niri -c "$SB/niri.kdl" >"$SB/niri.log" 2>&1 &
-```
-
-to
-
-```bash
-    env -u NIRI_SOCKET XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$PARENT_WAYLAND" \
-        NOTIFY_LOG="$SB/notifications" PATH="$SB/bin:$PATH" \
-        vblank_mode=0 __GL_SYNC_TO_VBLANK=0 niri -c "$SB/niri.kdl" >"$SB/niri.log" 2>&1 &
-```
-
-- [ ] **Step 2: Write the e2e section**
-
-In `tests/e2e-panel.sh`, insert this right after the `parked` check's closing `fi` and before the `else` whose body is `skip "the panel's cards in the middle of the screen, …"`:
+In `tests/e2e-panel.sh`, insert this right after the `parked` check's closing `fi` (the last check in the wtype block, after main's Ctrl+Enter section) and before the `else` whose body is `skip "the panel's cards in the middle of the screen, …"`:
 
 ```bash
 
@@ -741,12 +688,12 @@ to
 
 and the `skip` message to `"the panel's cards in the middle of the screen, their buttons, the filter tabs, Clear all, and Escape back (needs wtype)"`.
 
-- [ ] **Step 3: Run the e2e**
+- [ ] **Step 2: Run the e2e**
 
 Run: `bash tests/e2e-panel.sh 2>&1 | tail -40`
-Expected: every new line `ok`, no `bad`, summary with 0 failures. Keep off the workspace the nested niri is parked on while it runs. If a frame check fails, rerun with `NIRITASKS_E2E_KEEP=1` and look at the PNGs it names. Also run `bash tests/e2e-box.sh 2>&1 | tail -5` to show the moved stub broke nothing there.
+Expected: every new line `ok`, no `bad`, summary with 0 failures. Keep off the workspace the nested niri is parked on while it runs. If a frame check fails, rerun with `NIRITASKS_E2E_KEEP=1` and look at the PNGs it names.
 
-- [ ] **Step 4: README**
+- [ ] **Step 3: README**
 
 Line 19 (the `Mod+Alt+Ctrl+T` keybind row): replace
 `narrow them to All, Active, Planned, To refine or Waiting. With no tasks`
@@ -784,7 +731,7 @@ e2e description (around line 383): replace
 with
 `All, a waiting task on the Waiting tab and off the tucked panel, Clear all arming on its first Shift+Delete, disarming on a tab switch, and deleting both waiting tasks and nothing else on its second), and Escape`
 
-- [ ] **Step 5: CONTEXT.md**
+- [ ] **Step 4: CONTEXT.md**
 
 In the **Filter tab** entry, replace
 `task that is not a planned task, and a waiting task is under Waiting alone.`
@@ -796,15 +743,15 @@ The Waiting tab alone ends in Clear all, which deletes every task under it on
 a second press, as Remove does one.
 ```
 
-- [ ] **Step 6: Run the whole suite**
+- [ ] **Step 5: Run the whole suite**
 
 Run: `cargo test 2>&1 | grep -E "test result|FAILED"`
 Expected: every `test result: ok`. (The README and llms.txt tests check the CLI's commands, which this doesn't change.)
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add tests/lib/nested-niri.sh tests/e2e-panel.sh README.md CONTEXT.md
+git add tests/e2e-panel.sh README.md CONTEXT.md
 git commit -m "Check Clear all end to end and document it in README and CONTEXT.md
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
