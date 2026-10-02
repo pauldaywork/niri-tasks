@@ -212,15 +212,19 @@ fn start_claude(s: &str, name: &str, pane: &str, uuid: &str) -> Result<()> {
 /// user to approve a repo's hooks before running them the first time, and
 /// refuses outright without a terminal to ask on; the tab is also where the
 /// hooks' output — a database clone, say — can be read.
-pub fn launch(workspace: &str, uuid: &str, description: &str) -> Result<()> {
+///
+/// The task as found, not a uuid as typed: the worktree and the agent are
+/// found again by the uuid's first eight characters, and a typed task number
+/// has none of them.
+pub fn launch(workspace: &str, t: &task::Task) -> Result<()> {
     let repo = repo_for(workspace)?;
     anyhow::ensure!(project::on_path("wt"), "worktrunk (wt) is not installed.");
     let s = session::herdr_session_name(workspace);
-    let name = work_agent_name(uuid);
+    let name = work_agent_name(&t.uuid);
 
     let list = refine::open_session(&repo, &s)?;
 
-    if let Some(wt) = find_task_worktree(&wt_list(&repo)?, uuid) {
+    if let Some(wt) = find_task_worktree(&wt_list(&repo)?, &t.uuid) {
         let opened = herdr::run(&herdr::worktree_open(&s, &repo, &wt.path, &wt.branch))?;
         if herdr::run(&herdr::agent_get(&s, &name)).is_ok() {
             herdr::run(&herdr::agent_focus(&s, &name))?;
@@ -232,10 +236,10 @@ pub fn launch(workspace: &str, uuid: &str, description: &str) -> Result<()> {
         let ws = herdr::opened_workspace_id(&opened).context("herdr did not say which workspace it opened")?;
         let created = herdr::run(&herdr::tab_create(&s, &ws, &wt.path, "Claude"))?;
         let pane = herdr::root_pane_id(&created).context("herdr did not say which pane it made")?;
-        return start_claude(&s, &name, &pane, uuid);
+        return start_claude(&s, &name, &pane, &t.uuid);
     }
 
-    let label = format!("Start: {}", short(description));
+    let label = format!("Start: {}", short(&t.description));
     let created = match herdr::first_workspace_id(&list) {
         Some(id) => herdr::run(&herdr::tab_create(&s, &id, &repo, &label))?,
         None => herdr::run(&herdr::workspace_create(&s, &repo, workspace))?,
@@ -246,7 +250,7 @@ pub fn launch(workspace: &str, uuid: &str, description: &str) -> Result<()> {
         "{} task start --here --workspace {} {}",
         sh_quote(&exe.display().to_string()),
         sh_quote(workspace),
-        sh_quote(uuid)
+        sh_quote(&t.uuid)
     );
     herdr::run(&herdr::pane_run(&s, &pane, &command))?;
     Ok(())
@@ -277,6 +281,10 @@ pub fn set_up_here(workspace: &str, uuid: &str) -> Result<()> {
 
 fn set_up(workspace: &str, uuid: &str) -> Result<()> {
     let t = task::get(uuid)?.context("task not found")?;
+    // The uuid as found, not as typed, from here on: the branch and the agent
+    // are named after its first eight characters, and a typed task number
+    // has none of them.
+    let uuid = t.uuid.as_str();
     let repo = repo_for(workspace)?;
     let s = session::herdr_session_name(workspace);
 

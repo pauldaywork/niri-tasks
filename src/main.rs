@@ -412,7 +412,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             let workspace = niri::focused_workspace_name()?.unwrap_or_default();
             let t = task::get(&uuid)?.context("task not found")?;
             anyhow::ensure!(t.status == "pending", "Only a pending task can be started.");
-            work::launch(&workspace, &uuid, &t.description)?;
+            work::launch(&workspace, &t)?;
         }
 
         TaskCommand::Refine { uuid, grill } => {
