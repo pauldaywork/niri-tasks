@@ -8,7 +8,7 @@
 //!
 //! No card has a border. The one the keyboard is on is filled a darker black
 //! than the rest. The active task is marked by colour alone: its ▶ and its
-//! text are green.
+//! text are green. An up next task's icon and text are yellow, unless it is active or waiting.
 //!
 //! A card is a box holding a body button and, while the panel has the
 //! keyboard, a row of action buttons along its bottom edge. The theme's button
@@ -47,6 +47,9 @@ pub const TEXT: &str = "#f0f0f0";
 /// mocha's `#a6e3a1` (which read too pale) than latte's `#40a02b` (too dark);
 /// the palette the desktop's error and warning colours come from.
 pub const ACTIVE: &str = "#8cd283";
+/// An up next task's icon and text: mocha's `yellow`, the Edit button's
+/// colour, and the Up next button's.
+pub const UP_NEXT: &str = "#f9e2af";
 /// The keyboard's action buttons, each its own colour from the same Catppuccin
 /// palette as [`ACTIVE`] (mocha's): Go to session blue, Back to list lavender, Refine mauve, Edit
 /// yellow, Speak pink, Stop peach, Waiting teal, Remove red. Start shares [`ACTIVE`]'s green, because
@@ -194,6 +197,10 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .task-card.blocked,
 .task-panel .task-card.waiting,
 .task-panel .task-card.more {{ color: alpha({TEXT}, 0.55); }}
+/* After the dimmed rule, which it outranks by coming later: an up next
+   blocked card is yellow, lock and all. Active and waiting cards never get
+   the class (Card::shows_up_next). */
+.task-panel .task-card.up-next {{ color: {UP_NEXT}; }}
 "
     );
     for (name, colour) in ACTION_COLOURS {
@@ -400,5 +407,19 @@ mod tests {
         assert!(css.contains(&format!(
             ".task-panel .filter-tabs .clear-all.confirm {{ background-color: {REMOVE}; color: {ON_FILL}; }}"
         )));
+    }
+
+    /// An up next card's icon and text are Edit's yellow, and the rule comes
+    /// after the dimmed one, so an up next blocked card is yellow, lock and
+    /// all, rather than dimmed.
+    #[test]
+    fn an_up_next_card_is_yellow_even_when_blocked() {
+        let css = css();
+        let rule = format!(".task-panel .task-card.up-next {{ color: {UP_NEXT}; }}");
+        let at = css.find(&rule).unwrap_or_else(|| panic!("missing `{rule}`"));
+        let dimmed = css.find(".task-panel .task-card.blocked,").expect("missing the dimmed rule");
+        assert!(at > dimmed, "the dimmed rule would win over the yellow on a blocked card");
+        assert_eq!(UP_NEXT, "#f9e2af");
+        assert_eq!(UP_NEXT, EDIT, "Edit's yellow");
     }
 }

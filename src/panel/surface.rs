@@ -805,6 +805,11 @@ impl Panel {
             Status::Waiting => widget.add_css_class("waiting"),
             Status::Pending => {}
         }
+        // Its own class, beside the status's: an up next card is yellow
+        // whatever its icon, unless it is active or waiting.
+        if card.shows_up_next() {
+            widget.add_css_class("up-next");
+        }
         widget.set_size_request(CARD_WIDTH_PX, -1);
         // Clips the action row to the card's rounded bottom corners.
         widget.set_overflow(gtk4::Overflow::Hidden);

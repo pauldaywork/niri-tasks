@@ -35,6 +35,10 @@ pub struct Card {
     /// started or blocked planned task as Active or Blocked: the Planned and
     /// To refine tabs go by the tag, whatever the card's icon says.
     pub planned: bool,
+    /// The task carries `+next`, whatever its status: an active task up next
+    /// is still up next, and its Up next button offers to clear it. Whether
+    /// the card is drawn yellow is [`Card::shows_up_next`].
+    pub up_next: bool,
 }
 
 impl Card {
@@ -53,6 +57,14 @@ impl Card {
             // The count is the text, so the peek reads "+3".
             Status::More => "",
         }
+    }
+
+    /// Whether the card is drawn yellow, as up next. Not an active card,
+    /// which stays green, nor a waiting one, which keeps its Waiting look:
+    /// starting or parking a task keeps its `+next`, and the card shows the
+    /// stronger fact. Every other card is yellow, the lock and the dot too.
+    pub fn shows_up_next(&self) -> bool {
+        self.up_next && !matches!(self.status, Status::Active | Status::Waiting)
     }
 }
 
@@ -145,20 +157,25 @@ impl Filter {
 }
 
 /// The task cards for one workspace tag, every one of them: the active task
-/// first, then the rest most urgent first.
+/// first, then the up next ones, then the rest most urgent first.
 ///
 /// Active first even when something else is more urgent: it is the work in
-/// progress, and the one card worth reading without hovering. Being started
-/// outranks being blocked, since you started it anyway. Blocked outranks planned:
-/// a plan does not make a task you cannot start yet startable.
+/// progress, and the one card worth reading without hovering. Up next comes
+/// right under it, being the one to do next; its `+next` already adds
+/// urgency, and this keeps it there whatever else outranks it. Being started
+/// outranks being blocked, since you started it anyway. Blocked outranks
+/// planned: a plan does not make a task you cannot start yet startable.
 pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
     let mut sorted: Vec<&Task> = tasks.iter().collect();
     sorted.sort_by(|a, b| {
-        b.is_active().cmp(&a.is_active()).then(
-            b.urgency
-                .partial_cmp(&a.urgency)
-                .unwrap_or(std::cmp::Ordering::Equal),
-        )
+        b.is_active()
+            .cmp(&a.is_active())
+            .then(b.is_up_next().cmp(&a.is_up_next()))
+            .then(
+                b.urgency
+                    .partial_cmp(&a.urgency)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
     });
 
     sorted
@@ -180,6 +197,7 @@ pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
             text: crate::text::collapse_whitespace(&t.description),
             uuid: Some(t.uuid.clone()),
             planned: t.is_planned(),
+            up_next: t.is_up_next(),
         })
         .collect()
 }
@@ -196,6 +214,7 @@ pub fn cap(cards: &[Card], n: usize) -> Vec<Card> {
             text: format!("+{} more", cards.len() - n),
             uuid: None,
             planned: false,
+            up_next: false,
         });
     }
     shown
@@ -224,6 +243,12 @@ mod tests {
     fn planned(uuid: &str, active: bool) -> Task {
         let mut t = task(uuid, 1.0, active);
         t.tags = vec![crate::task::PLANNED_TAG.into()];
+        t
+    }
+
+    fn up_next(uuid: &str, urgency: f64, active: bool) -> Task {
+        let mut t = task(uuid, urgency, active);
+        t.tags = vec![crate::task::UP_NEXT_TAG.into()];
         t
     }
 
@@ -417,5 +442,65 @@ mod tests {
     fn a_tabs_uuids_are_uncapped() {
         let many: Vec<Task> = (0..CAP + 2).map(|i| waiting(&format!("w{i}"))).collect();
         assert_eq!(Filter::Waiting.uuids(&cards(&many, &[])).len(), CAP + 2);
+    }
+
+    /// Up next is the one to do next, so it sits right under the work in
+    /// progress, even when something else is more urgent.
+    #[test]
+    fn up_next_sorts_right_under_the_active_tasks() {
+        let got = cards(
+            &[task("low", 1.0, false), task("started", 2.0, true), task("high", 9.0, false), up_next("next", 0.5, false)],
+            &[],
+        );
+        assert_eq!(texts(&got), vec!["started", "next", "high", "low"]);
+    }
+
+    /// Started outranks up next, as it outranks blocked: an active task
+    /// stays first, and green.
+    #[test]
+    fn started_outranks_up_next() {
+        let got = cards(&[up_next("next", 9.0, false), task("started", 1.0, true)], &[]);
+        assert_eq!(texts(&got), vec!["started", "next"]);
+    }
+
+    /// The card knows its task is up next whatever its status, so the button
+    /// can offer to clear it on an active card too.
+    #[test]
+    fn a_card_knows_its_task_is_up_next_whatever_its_status() {
+        let got = cards(&[up_next("started", 1.0, true), up_next("plain", 1.0, false), task("other", 1.0, false)], &[]);
+        assert!(got[0].up_next, "a started up next task is still up next");
+        assert!(got[1].up_next);
+        assert!(!got[2].up_next);
+    }
+
+    /// Yellow on every card but an active one, which stays green, and a
+    /// waiting one, which keeps its Waiting look. The lock and the dot are
+    /// yellow too.
+    #[test]
+    fn an_up_next_card_shows_yellow_unless_active_or_waiting() {
+        let mut planned_next = up_next("planned", 1.0, false);
+        planned_next.tags.push(crate::task::PLANNED_TAG.into());
+        let mut waiting_next = up_next("parked", 1.0, false);
+        waiting_next.status = "waiting".into();
+        let got = cards(
+            &[up_next("plain", 1.0, false), up_next("blocked", 1.0, false), planned_next, up_next("started", 1.0, true), waiting_next],
+            &["blocked".into()],
+        );
+        let shows = |text: &str| got.iter().find(|c| c.text == text).unwrap().shows_up_next();
+        assert!(shows("plain"));
+        assert!(shows("blocked"), "the lock is yellow too");
+        assert!(shows("planned"), "the dot is yellow too");
+        assert!(!shows("started"), "an active card stays green");
+        assert!(!shows("parked"), "a waiting card keeps its look");
+        assert!(!cards(&[task("other", 1.0, false)], &[])[0].shows_up_next());
+    }
+
+    /// The "+N more" card stands for no task, so it is never up next.
+    #[test]
+    fn the_more_card_is_not_up_next() {
+        let many: Vec<Task> = (0..CAP + 1).map(|i| up_next(&format!("t{i}"), 1.0, false)).collect();
+        let more = cap(&cards(&many, &[]), CAP).pop().unwrap();
+        assert!(!more.up_next);
+        assert!(!more.shows_up_next());
     }
 }
