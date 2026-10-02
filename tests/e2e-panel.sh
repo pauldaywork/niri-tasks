@@ -399,9 +399,9 @@ if command -v wtype >/dev/null; then
       card's row gone, and 2"
     fi
 
-    # Still armed, Enter confirms: both waiting tasks deleted, one after the other,
-    # each through task status; the task still on All and the other tag's are
-    # left alone.
+    # Still armed, Enter confirms: both waiting tasks deleted, one after the
+    # other, each through task status; the task still on All and the other
+    # tag's are left alone.
     notified_before=$(grep -c '^Tasks Deleted: ' "$SB/notifications" 2>/dev/null || true)
     notified_before=${notified_before:-0}
     "${NENV[@]}" wtype -k Return
