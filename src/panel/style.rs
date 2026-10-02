@@ -18,7 +18,8 @@
 //!
 //! While the panel has the keyboard, the filter tabs above the cards are one
 //! bar in a card's look, and a tab with nothing in it shows one line in a
-//! card's look too.
+//! card's look too. On the Waiting tab, Clear all ends the bar in Remove's
+//! red.
 //!
 //! Every rule is scoped to `.task-panel`, because the provider is installed for
 //! the whole display and the daemon also opens task boxes, which must not pick
@@ -173,6 +174,11 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .filter-tabs button {{ padding: {ACTION_PADDING}; color: alpha({TEXT}, 0.55); }}
 .task-panel .filter-tabs button:not(:first-child) {{ border-left: 1px solid {SEPARATOR}; }}
 .task-panel .filter-tabs button.current {{ color: {TEXT}; background-color: {CURRENT_TAB}; }}
+/* Clear all, at the Waiting tab bar's far end: Remove's red, and filled red
+   once armed, as the armed Remove is. Its classes outrank the tabs' dimmed
+   colour and the press reset's clear fill. */
+.task-panel .filter-tabs .clear-all {{ color: {REMOVE}; }}
+.task-panel .filter-tabs .clear-all.confirm {{ background-color: {REMOVE}; color: {ON_FILL}; }}
 /* An empty tab's one line, padded like a card's text and dimmed like
    \"+N more\". */
 .task-panel .filter-empty {{ padding: {PADDING_PX}px; color: alpha({TEXT}, 0.55); }}
@@ -380,5 +386,16 @@ mod tests {
         let at = css.find(line).expect("missing the line between tabs");
         let reset = css.find(".filter-tabs button:active").unwrap();
         assert!(at > reset, "the press reset's `border: none` would win over the line");
+    }
+
+    /// Clear all wears Remove's red, and is filled with it once armed, as the
+    /// armed Remove is.
+    #[test]
+    fn clear_all_is_removes_red() {
+        let css = css();
+        assert!(css.contains(&format!(".task-panel .filter-tabs .clear-all {{ color: {REMOVE}; }}")));
+        assert!(css.contains(&format!(
+            ".task-panel .filter-tabs .clear-all.confirm {{ background-color: {REMOVE}; color: {ON_FILL}; }}"
+        )));
     }
 }

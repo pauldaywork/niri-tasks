@@ -51,6 +51,14 @@
 //! once it has nothing left, and focus falls back to the first card when the
 //! one it was on has left it.
 //!
+//! On the Waiting tab alone, Clear all ends the tab bar. Like Remove, its
+//! first press arms it as Confirm clear all, and its second deletes: every
+//! task the tab lists, each through Remove's own `task status <uuid> deleted
+//! --yes`, one after another. The panel goes to All at once and keeps the
+//! keyboard. Moving the focus, or any re-render, a tab switch included,
+//! disarms it. It is out of the focus chain with the tabs, so Shift+Delete
+//! presses it; Delete alone is still the focused card's Remove.
+//!
 //! Waiting tasks are on the Waiting tab and nowhere else: not on All, not on
 //! the hover or the peek, so a workspace whose tasks are all waiting shows
 //! nothing on its edge. With the keyboard it opens on All, which then says it
@@ -77,7 +85,7 @@
 //! gives an on-demand layer surface focus only after a click on it, so
 //! switching to on-demand once focused would drop the focus at once.
 
-use super::actions::Action;
+use super::actions::{self, Action};
 use super::blur::{self, Blur};
 use super::keys::{self, KeyAction};
 use super::model::{self, Card, Filter, Status};
@@ -142,6 +150,9 @@ pub struct Panel {
     /// One button per filter tab, in `Filter::TABS` order, for which ones show
     /// and which one is picked.
     tab_buttons: Vec<gtk4::Button>,
+    /// Clear all, at the tab bar's far end, shown only on the Waiting tab:
+    /// deletes every task the tab lists, on its second press.
+    clear: gtk4::Button,
     /// For its height, which caps the column's: read at each render, since a
     /// scale change alters it.
     monitor: gdk::Monitor,
@@ -166,6 +177,9 @@ pub struct Panel {
     /// The Remove button pressed once and waiting for its second press, which
     /// deletes. Moving the focus off it, or any re-render, puts it back.
     armed: RefCell<Option<gtk4::Button>>,
+    /// Clear all pressed once and showing Confirm clear all. Moving the
+    /// focus, or any re-render, puts it back, as for an armed Remove.
+    clear_armed: Cell<bool>,
     /// Each card's height, top to bottom, for the blur region.
     heights: RefCell<Vec<i32>>,
     blur: RefCell<Option<Blur>>,
@@ -257,6 +271,19 @@ impl Panel {
                 button
             })
             .collect();
+        // Clear all, at the bar's far end: hexpand takes the room the tabs
+        // leave, and End keeps the button its own width at the end of it.
+        // Out of the focus chain like the tabs, which is why Shift+Delete
+        // presses it.
+        let clear = gtk4::Button::with_label(&clear_label(false));
+        clear.add_css_class("clear-all");
+        clear.set_tooltip_text(Some("Shift+Delete"));
+        clear.set_hexpand(true);
+        clear.set_halign(gtk4::Align::End);
+        clear.set_focusable(false);
+        clear.set_focus_on_click(false);
+        clear.set_visible(false);
+        tabs.append(&clear);
         scroller.set_vexpand(true);
         let front = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         front.append(&tabs);
@@ -273,6 +300,7 @@ impl Panel {
             scroller,
             tabs,
             tab_buttons,
+            clear,
             slide: Rc::new(Slide {
                 x: Cell::new(TUCKED_X),
                 from: Cell::new(TUCKED_X),
@@ -292,6 +320,7 @@ impl Panel {
             filter: Cell::new(Filter::All),
             agents: RefCell::new(Vec::new()),
             armed: RefCell::new(None),
+            clear_armed: Cell::new(false),
             heights: RefCell::new(Vec::new()),
             blur: RefCell::new(None),
         });
@@ -313,6 +342,14 @@ impl Panel {
             button.connect_clicked(move |_| {
                 if let Some(p) = weak.upgrade() {
                     p.pick(filter);
+                }
+            });
+        }
+        {
+            let weak = Rc::downgrade(&panel);
+            panel.clear.connect_clicked(move |_| {
+                if let Some(p) = weak.upgrade() {
+                    p.clear_all();
                 }
             });
         }
@@ -398,14 +435,15 @@ impl Panel {
             });
         }
 
-        // Moving off an armed Remove disarms it, and the action row moves to
-        // the card the focus is on, before follow_focus scrolls that card,
-        // row and all, into view.
+        // Moving off an armed Remove disarms it, as moving at all disarms
+        // Clear all, and the action row moves to the card the focus is on,
+        // before follow_focus scrolls that card, row and all, into view.
         {
             let weak = Rc::downgrade(&panel);
             panel.window.connect_notify_local(Some("focus-widget"), move |_, _| {
                 if let Some(p) = weak.upgrade() {
                     p.disarm_unless_focused();
+                    p.disarm_clear();
                     p.show_focused_row();
                     p.follow_focus();
                 }
@@ -525,7 +563,7 @@ impl Panel {
         }
     }
 
-    /// Which tabs show, and which one is picked.
+    /// Which tabs show, which one is picked, and whether Clear all shows.
     fn update_tabs(&self) {
         let shown = Filter::shown(&self.all.borrow());
         for (button, filter) in self.tab_buttons.iter().zip(Filter::TABS) {
@@ -536,6 +574,7 @@ impl Panel {
                 button.remove_css_class("current");
             }
         }
+        self.clear.set_visible(self.filter.get() == Filter::Waiting);
     }
 
     /// Measure the cards and the tabs, and size the surface to them: the
@@ -628,8 +667,10 @@ impl Panel {
         // task's uuid, and each button after its action.
         let focused = GtkWindowExt::focus(&self.window)
             .and_then(|w| Some((self.card_of(&w)?.widget_name(), w.widget_name())));
-        // The buttons go with the widgets they were armed on.
+        // The buttons go with the widgets they were armed on. Clear all
+        // stays, but a re-render puts it back too, a tab switch included.
         self.armed.replace(None);
+        self.disarm_clear();
         while let Some(child) = self.column.first_child() {
             self.column.remove(&child);
         }
@@ -806,13 +847,15 @@ impl Panel {
     /// a letter presses that card's button. If the card has no such button
     /// (Stop on a task that is not active, Go to session on one with no Claude,
     /// anything on "+N more"), nothing happens. 1 to 5, [ and ] pick a filter
-    /// tab instead, whatever has focus. Ctrl+Enter refines the focused task,
-    /// or starts it once it is planned, and keeps the keyboard so the list
-    /// stays up.
+    /// tab instead, and Shift+Delete presses Clear all, whatever has focus.
+    /// Ctrl+Enter refines the focused task, or starts it once it is planned,
+    /// and keeps the keyboard so the list stays up.
     fn key(self: &Rc<Self>, action: KeyAction) {
         match action {
             KeyAction::Release => return self.release_keyboard(),
             KeyAction::Filter(filter) => return self.pick(filter),
+            // Through the button, so the key does exactly what a click does.
+            KeyAction::ClearAll => return self.clear.emit_clicked(),
             KeyAction::PrevFilter | KeyAction::NextFilter => {
                 // Along the tabs on show, skipping the hidden ones.
                 let shown = Filter::shown(&self.all.borrow());
@@ -905,6 +948,37 @@ impl Panel {
         }
         button.set_label(Action::Remove.icon());
         button.remove_css_class("confirm");
+    }
+
+    /// Press Clear all. The first press arms it, as Remove's does; the second
+    /// deletes every task the Waiting tab lists, those past "+N more" too, and
+    /// puts the panel on All at once rather than as each delete lands. The
+    /// keyboard stays: the deletes open nothing. Nothing off the Waiting tab,
+    /// where Clear all is hidden, so a stray Shift+Delete does nothing there.
+    fn clear_all(self: &Rc<Self>) {
+        if !self.keyboard.get() || self.filter.get() != Filter::Waiting {
+            return;
+        }
+        if !self.clear_armed.replace(true) {
+            self.clear.set_label(&clear_label(true));
+            self.clear.add_css_class("confirm");
+            return;
+        }
+        let uuids = Filter::Waiting.uuids(&self.all.borrow());
+        // Its render disarms the button on the way.
+        self.pick(Filter::All);
+        if !uuids.is_empty() {
+            delete_all(&self.output, &uuids);
+        }
+    }
+
+    /// Put Clear all back from Confirm clear all, so a later press starts
+    /// over at the first.
+    fn disarm_clear(&self) {
+        if self.clear_armed.replace(false) {
+            self.clear.set_label(&clear_label(false));
+            self.clear.remove_css_class("confirm");
+        }
     }
 
     /// Scroll the focused card wholly into view, body and buttons, once the
@@ -1136,6 +1210,12 @@ fn empty_line(filter: Filter) -> gtk4::Label {
     line
 }
 
+/// Clear all's face: Remove's trash can and its words, or, armed, what it asks.
+fn clear_label(armed: bool) -> String {
+    let words = if armed { actions::CONFIRM_CLEAR_ALL } else { actions::CLEAR_ALL };
+    format!("{}  {words}", Action::Remove.icon())
+}
+
 /// A card's separator and action row: what shows only while it has focus.
 /// Nothing for a card without them ("+N more", or any card off the keyboard).
 fn row_parts(card: &gtk4::Widget) -> Vec<gtk4::Widget> {
@@ -1185,20 +1265,33 @@ fn focus_card(card: &gtk4::Widget, slot: Option<&str>) {
 }
 
 /// Run a `niritasks` command on this monitor: a task's action menu, the
-/// fuzzel list, or one of a card's buttons.
+/// fuzzel list, or one of a card's buttons. See `spawn_on`.
+pub fn open_menu(output: &str, args: &[String]) {
+    spawn_on(output, |exe| {
+        let mut command = vec![exe.to_string()];
+        command.extend_from_slice(args);
+        command
+    });
+}
+
+/// Clear all's deletes, one after another in one process: see
+/// `actions::clear_all_command`.
+fn delete_all(output: &str, uuids: &[String]) {
+    spawn_on(output, |exe| actions::clear_all_command(exe, uuids));
+}
+
+/// Have niri spawn the command `build` makes from this program's own path.
 ///
 /// This monitor is focused first. The menu then files under the workspace the
 /// panel shows, rather than whichever monitor had focus, and fuzzel opens on
-/// the screen that was clicked. It runs as its own `niritasks` process,
-/// spawned by niri: fuzzel blocks until it closes, and the daemon must not.
-pub fn open_menu(output: &str, args: &[String]) {
+/// the screen that was clicked. It runs as its own process, spawned by niri:
+/// fuzzel blocks until it closes, and the daemon must not.
+fn spawn_on(output: &str, build: impl FnOnce(&str) -> Vec<String>) {
     let result = std::env::current_exe()
         .map_err(anyhow::Error::from)
         .and_then(|exe| {
             crate::niri::focus_monitor(output)?;
-            let mut command = vec![exe.to_string_lossy().into_owned()];
-            command.extend_from_slice(args);
-            crate::niri::spawn(command)
+            crate::niri::spawn(build(&exe.to_string_lossy()))
         });
     if let Err(e) = result {
         crate::notify::tasks(&e.to_string());
@@ -1325,5 +1418,12 @@ mod tests {
     #[test]
     fn a_card_taller_than_the_page_shows_its_top() {
         assert_eq!(scroll_to_show(0.0, 500.0, 200.0, 900.0), 200.0);
+    }
+
+    /// Remove's trash can and its words, then, armed, what it asks.
+    #[test]
+    fn clear_all_wears_removes_trash_can_and_asks_once_armed() {
+        assert_eq!(clear_label(false), format!("{}  Clear all", Action::Remove.icon()));
+        assert_eq!(clear_label(true), format!("{}  Confirm clear all", Action::Remove.icon()));
     }
 }
