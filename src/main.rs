@@ -10,7 +10,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
-    actions::Action, github, ipc, link, niri, notify, picker::Picker, project, refine, require_workspace_tag, session,
+    actions::{Action, TaskState},
+    github, ipc, link, menu, niri, notify, picker::Picker, project, refine, require_workspace_tag, session,
     speak, task, taskbox, text, work,
 };
 
@@ -233,7 +234,13 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    match Cli::parse().command {
+    dispatch(Cli::parse())
+}
+
+/// Run one parsed command line: the shell's, or a picked task action's own
+/// words, so the menu runs what the same words run anywhere.
+fn dispatch(cli: Cli) -> Result<()> {
+    match cli.command {
         Command::Tag { session } => {
             let tag = if session {
                 niri_tasks::session_workspace_tag()?
@@ -294,10 +301,11 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         TaskCommand::Menu { uuid } => {
             let tag = require_workspace_tag()?;
             let t = task::get(&uuid)?.context("task not found")?;
-            // The uuid the task was found under, not the one typed: `task menu 4a3f`
-            // is a prefix, and task_menu's link derivation needs the exact full uuid.
+            // A waiting task's card opens this too, and its export says
+            // pending, so ask taskwarrior.
+            let waiting = task::is_waiting(&t.uuid)?;
             let width = niri_tasks::picker::clamp_task_width(t.description.chars().count());
-            return task_menu(&tag, t.uuid.clone(), &t.description, t.is_up_next(), width);
+            return task_menu(&tag, &t, waiting, width);
         }
 
         TaskCommand::Status { uuid, state, yes } => {
@@ -488,84 +496,40 @@ fn task_list(dry_run: bool) -> Result<()> {
         return task_command(TaskCommand::Add { text: vec![], refine: false });
     }
 
-    let picked = tasks.iter().find(|t| t.uuid == selected);
-    let description = picked.map(|t| t.description.clone()).unwrap_or_default();
-    let up_next = picked.is_some_and(|t| t.is_up_next());
-
-    task_menu(&tag, selected, &description, up_next, niri_tasks::picker::clamp_task_width(longest))
+    let Some(picked) = tasks.iter().find(|t| t.uuid == selected) else { return Ok(()) };
+    // pending_for_tag leaves waiting tasks out, so none picked here is one.
+    task_menu(&tag, picked, false, niri_tasks::picker::clamp_task_width(longest))
 }
 
-/// The menu entry that goes back to the Claude working on a task.
-const GO_TO_SESSION: &str = "Go to session";
-
-/// The task menu's entries. Go to session leads, and only when a Claude is
-/// working on the task — a task with none shows the menu as it always has.
-/// The up next toggle reads as the step it takes: Not up next on a task
-/// already up next.
-fn menu_entries(has_session: bool, up_next: bool) -> Vec<String> {
-    let mut entries = Vec::new();
-    if has_session {
-        entries.push(GO_TO_SESSION.to_string());
-    }
-    entries.extend(
-        [
-            "Edit",
-            "Note",
-            "Speak",
-            Action::UpNext.label(up_next),
-            "Refine",
-            "Grill me",
-            "Start working",
-            "Update status",
-            "Move to workspace",
-        ]
-        .map(String::from),
-    );
-    entries
-}
-
-/// The actions for one task, and doing the one picked. `width` is the delete
-/// confirmation's, matched to the list it was reached from. `up_next` says
-/// which way the up next entry reads.
-fn task_menu(tag: &str, selected: String, description: &str, up_next: bool, width: usize) -> Result<()> {
+/// The menu for one task, and doing the entry picked. `t` is the task as
+/// found, so its uuid is the full one even when a prefix was typed: the link
+/// to its Claude is derived from it. `waiting` is whether it is parked, which
+/// its export cannot say. `width` is the delete confirmation's, matched to
+/// the list it was reached from.
+fn task_menu(tag: &str, t: &task::Task, waiting: bool, width: usize) -> Result<()> {
     // Asked of herdr on every open; a session that is not running answers
     // at once, and no answer just means no Go to session.
     let workspace = niri::focused_workspace_name()?.unwrap_or_default();
-    let entries = menu_entries(link::live_agent(&workspace, &selected).is_some(), up_next);
-    let action = Picker::new()
-        .lines(entries.len())
+    let has_session = link::live_agent(&workspace, &t.uuid).is_some();
+    let state = TaskState::of(t, waiting, has_session);
+    let labels: Vec<String> = menu::entries(state).iter().map(|e| e.label(state.up_next).to_string()).collect();
+    let picked = Picker::new()
+        .lines(labels.len())
         .width(20)
         .prompt("")
-        .run(&entries)?;
+        .run(&labels)?;
 
-    match action.as_deref() {
-        // Back to the Claude working on it — never starts one.
-        Some(GO_TO_SESSION) => return task_command(TaskCommand::Session { uuid: selected }),
-        // Edit and Note open the box, not a one-line picker: the descriptions
-        // you reach for the edit box to fix are the long ones, and a note has
-        // nowhere to show existing notes in a single row.
-        Some("Edit") => return task_command(TaskCommand::Edit { uuid: selected, text: vec![] }),
-        Some("Note") => return task_command(TaskCommand::Note { uuid: selected, text: vec![] }),
-        // In the background: the menu closes at once, and picking Speak
-        // again stops it.
-        Some("Speak") => return task_command(TaskCommand::Speak { uuid: selected, here: false }),
-        // Either word: the entry reads as the step it takes.
-        Some(picked) if picked == Action::UpNext.label(up_next) => {
-            return task_command(TaskCommand::UpNext { uuid: selected })
+    match picked.as_deref().and_then(|label| menu::picked(label, state)) {
+        // The action's own words, through the same parser as a shell's, so
+        // the menu runs exactly what the action row's button runs.
+        Some(menu::Entry::Run(action)) => {
+            let argv = std::iter::once("niritasks".to_string()).chain(action.args(&t.uuid));
+            dispatch(Cli::try_parse_from(argv)?)
         }
-        // Both open Claude in the workspace's herdr session; they differ only
-        // in whether it interviews you before drafting.
-        Some("Refine") => return task_command(TaskCommand::Refine { uuid: selected, grill: false }),
-        Some("Grill me") => return task_command(TaskCommand::Refine { uuid: selected, grill: true }),
-        // Its own worktree and a Claude to plan it; picked again, back to both.
-        Some("Start working") => {
-            return task_command(TaskCommand::Start { uuid: selected, here: false, workspace: None })
-        }
-        Some("Update status") => return task_status(&selected, description, width),
-        Some("Move to workspace") => return task_move(tag, &selected, description),
-        _ => {}
+        Some(menu::Entry::Status) => task_status(&t.uuid, &t.description, width),
+        Some(menu::Entry::Move) => task_move(tag, &t.uuid, &t.description),
+        None => Ok(()),
     }
-    Ok(())
 }
 
 /// Move one task to a picked state.
@@ -880,29 +844,6 @@ mod tests {
         if let Err(e) = Cli::try_parse_from(&argv) {
             panic!("speak starts {argv:?}, which the CLI rejects: {e}");
         }
-    }
-
-    /// Go to session leads the menu when there is a session to go to, and a
-    /// task with none gets exactly the menu it always had.
-    #[test]
-    fn go_to_session_leads_the_menu_only_when_there_is_one() {
-        let without = menu_entries(false, false);
-        assert_eq!(
-            without,
-            vec!["Edit", "Note", "Speak", "Up next", "Refine", "Grill me", "Start working", "Update status", "Move to workspace"]
-        );
-        let with = menu_entries(true, false);
-        assert_eq!(with[0], GO_TO_SESSION);
-        assert_eq!(with[1..], without[..]);
-    }
-
-    /// The menu offers the step up next would take: Not up next, in the same
-    /// place, on a task already up next.
-    #[test]
-    fn the_menu_offers_to_clear_up_next_on_a_task_up_next() {
-        let marked = menu_entries(false, true);
-        assert_eq!(marked[3], "Not up next");
-        assert!(!marked.contains(&"Up next".to_string()));
     }
 
     /// Every subcommand a person can run, as the words that run it ("task

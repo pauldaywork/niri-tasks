@@ -428,6 +428,11 @@ fn write_path_lifecycle() {
         "a waiting task must drop out of the pending list"
     );
 
+    // The export says pending, so whether the task is waiting is
+    // taskwarrior's +WAITING: what the menu asks before it offers Start
+    // working.
+    assert!(task::is_waiting(&parked).expect("is_waiting"), "a parked task is waiting");
+
     // ---- stop brings a waiting task back ------------------------------------
     // Stopped means "on the list, not being worked on", so it is also how a
     // parked task comes back: the panel cannot show it to pick otherwise.
@@ -440,6 +445,19 @@ fn write_path_lifecycle() {
             .any(|t| t.uuid == parked),
         "a stopped task must be back on the pending list"
     );
+    assert!(!task::is_waiting(&parked).expect("is_waiting"), "a stopped task is not waiting");
+
+    // A wait date that has passed stays on the task, but the task is back
+    // on the list: not waiting.
+    task::add(TAG, &text::add_args("waited past wait:now-1h")).expect("add");
+    let waited = task::pending_for_tag(TAG)
+        .expect("list")
+        .into_iter()
+        .find(|t| t.description == "waited past")
+        .expect("a passed wait date leaves the task pending")
+        .uuid;
+    assert!(!raw(&waited, "wait").is_empty(), "the passed wait date is still on the task");
+    assert!(!task::is_waiting(&waited).expect("is_waiting"), "a passed wait date is not waiting");
 
     // ---- complete and delete --------------------------------------------
     let before = task::pending_for_tag(TAG).expect("list").len();

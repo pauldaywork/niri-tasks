@@ -101,7 +101,8 @@ The fuzzel menu of what can be done to one task, opened by picking it in the
 picker, clicking its task card, or Enter on the card: Go to session while a
 Claude is working on it, then Edit, Note, Speak, Up next (Not up next on a
 task already up next), Refine, Grill me, Start working, Update status and
-Move to workspace. Speak reads the task aloud in the background; picked
+Move to workspace. A waiting task's is just Edit, Note, Speak, Update status
+and Move to workspace. Speak reads the task aloud in the background; picked
 again, on any task, it stops.
 _Avoid_: context menu, actions list
 

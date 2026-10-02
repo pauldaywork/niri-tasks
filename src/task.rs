@@ -164,6 +164,13 @@ pub fn waiting_for_tag(tag: &str) -> Result<Vec<Task>> {
     Ok(tasks)
 }
 
+/// Whether the task is parked as waiting: taskwarrior's own `+WAITING`, a
+/// wait date still to come. `get` cannot say, since 2.6 exports a waiting
+/// task as `pending`, and a wait date that has passed stays on the task.
+pub fn is_waiting(uuid: &str) -> Result<bool> {
+    Ok(!export(&[uuid, "+WAITING"])?.is_empty())
+}
+
 /// The active (started) pending tasks for `tag`. Several at once is normal:
 /// each agent working a task in its own worktree has one.
 pub fn active_for_tag(tag: &str) -> Result<Vec<Task>> {

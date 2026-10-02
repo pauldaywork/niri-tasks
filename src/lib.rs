@@ -10,6 +10,7 @@ pub mod github;
 pub mod herdr;
 pub mod ipc;
 pub mod link;
+pub mod menu;
 pub mod niri;
 pub mod notify;
 pub mod panel;
