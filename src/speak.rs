@@ -184,6 +184,36 @@ fn pid_file(runtime: Option<OsString>) -> PathBuf {
         .join("speak.pid")
 }
 
+/// What the pid file says about the speech in the background: whose group
+/// to signal, which task it is reading, and whether its audio has started.
+#[derive(Debug, PartialEq, Eq)]
+struct Speech {
+    pid: u32,
+    uuid: String,
+    playing: bool,
+}
+
+/// The pid file's one line: `<pid> <uuid>`, with ` playing` once the first
+/// audio has arrived. The task is there so the panel can show the wait on
+/// its card alone; `playing` is when the wait ends.
+fn pid_line(pid: u32, uuid: &str, playing: bool) -> String {
+    if playing {
+        format!("{pid} {uuid} playing\n")
+    } else {
+        format!("{pid} {uuid}\n")
+    }
+}
+
+/// The pid file's line read back; anything without a pid and a task is no
+/// speech.
+fn parse_pid_line(line: &str) -> Option<Speech> {
+    let mut words = line.split_whitespace();
+    let pid = words.next()?.parse().ok()?;
+    let uuid = words.next()?.to_string();
+    let playing = words.next() == Some("playing");
+    Some(Speech { pid, uuid, playing })
+}
+
 /// Whether `/proc/<pid>/cmdline` contents (NUL-separated arguments) are a
 /// background speech: `… speak … --here`. A pid file outlives a crash, and
 /// its pid may since belong to anything; only this may be killed.
@@ -385,10 +415,26 @@ fn rewrite(input: &str) -> Result<String> {
     Ok(script)
 }
 
-/// Speak `script`: Kokoro's streamed PCM from curl, straight into ffplay.
+/// Copy `from` into `to`, running `started` once the first bytes arrive.
+fn relay(from: &mut impl Read, to: &mut impl Write, started: impl FnOnce()) -> std::io::Result<()> {
+    let mut first = [0u8; 16384];
+    let n = from.read(&mut first)?;
+    if n == 0 {
+        return Ok(());
+    }
+    started();
+    to.write_all(&first[..n])?;
+    std::io::copy(from, to)?;
+    Ok(())
+}
+
+/// Speak `script`: Kokoro's streamed PCM from curl, passed on to ffplay.
+/// `started` runs when the first audio arrives, which is when the wait the
+/// panel shows is over; that is why the audio goes through here rather than
+/// from curl straight into the player.
 /// curl is blamed first (see `blame`): a refused request is its failure,
 /// whatever the player made of the empty stream.
-fn play(script: &str) -> Result<()> {
+fn play(script: &str, started: impl FnOnce()) -> Result<()> {
     let argv = speech_command();
     let mut curl = Command::new(&argv[0])
         .args(&argv[1..])
@@ -405,14 +451,25 @@ fn play(script: &str) -> Result<()> {
             .write_all(speech_body(script).as_bytes())
             .map_err(|e| anyhow::anyhow!("Could not hand curl the speech request: {e}"))?;
     }
-    let audio = curl.stdout.take().expect("stdout is piped");
-    let player = Command::new(PLAYER[0])
+    let mut audio = curl.stdout.take().expect("stdout is piped");
+    let mut player = Command::new(PLAYER[0])
         .args(&PLAYER[1..])
-        .stdin(audio)
+        .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
+        .spawn()
         .map_err(|e| anyhow::anyhow!("Could not run ffplay: {e}"))?;
+    {
+        let mut into_player = player.stdin.take().expect("stdin is piped");
+        // A read or write that fails here is curl or ffplay going away; their
+        // exit statuses below say which and why.
+        let _ = relay(&mut audio, &mut into_player, started);
+        // Closing both ends lets the player finish and curl see the pipe go.
+    }
+    drop(audio);
+    let player = player
+        .wait()
+        .map_err(|e| anyhow::anyhow!("Could not wait for ffplay to finish: {e}"))?;
     let curl = curl
         .wait_with_output()
         .map_err(|e| anyhow::anyhow!("Could not wait for curl to finish: {e}"))?;
@@ -425,11 +482,20 @@ fn play(script: &str) -> Result<()> {
     }
 }
 
-/// The pid of the speech playing now, if one is.
-fn speaking(path: &Path) -> Option<u32> {
-    let pid: u32 = std::fs::read_to_string(path).ok()?.trim().parse().ok()?;
-    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
-    is_speaker(&cmdline).then_some(pid)
+/// The speech in the background now, if there is one.
+fn speaking(path: &Path) -> Option<Speech> {
+    let speech = parse_pid_line(&std::fs::read_to_string(path).ok()?)?;
+    let cmdline = std::fs::read(format!("/proc/{}/cmdline", speech.pid)).ok()?;
+    is_speaker(&cmdline).then_some(speech)
+}
+
+/// The task whose speech is still being got ready — Kokoro starting, Claude
+/// rewriting, the first audio on its way — if there is one. The panel shows
+/// a spinner on that task's Speak button until this goes back to `None`.
+pub fn preparing() -> Option<String> {
+    speaking(&pid_file(std::env::var_os("XDG_RUNTIME_DIR")))
+        .filter(|s| !s.playing)
+        .map(|s| s.uuid)
 }
 
 /// Removes the pid file when the background speech ends, however it ends —
@@ -442,7 +508,9 @@ struct PidFile {
 impl Drop for PidFile {
     fn drop(&mut self) {
         let ours = std::fs::read_to_string(&self.path)
-            .is_ok_and(|s| s.trim() == std::process::id().to_string());
+            .ok()
+            .and_then(|line| parse_pid_line(&line))
+            .is_some_and(|s| s.pid == std::process::id());
         if ours {
             let _ = std::fs::remove_file(&self.path);
         }
@@ -461,7 +529,7 @@ pub fn toggle(uuid: &str, description: &str) -> Result<()> {
     use std::os::unix::process::CommandExt;
 
     let path = pid_file(std::env::var_os("XDG_RUNTIME_DIR"));
-    if let Some(pid) = speaking(&path) {
+    if let Some(Speech { pid, .. }) = speaking(&path) {
         let argv = kill_command(pid);
         let status = Command::new(&argv[0])
             .args(&argv[1..])
@@ -496,7 +564,7 @@ pub fn toggle(uuid: &str, description: &str) -> Result<()> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| anyhow::anyhow!("Could not start speaking: {e}"))?;
-    if let Err(e) = std::fs::write(&path, child.id().to_string()) {
+    if let Err(e) = std::fs::write(&path, pid_line(child.id(), uuid, false)) {
         // Without its pid on file a second press could not find this speech
         // to stop it, and would start another on top, so it is stopped now.
         let argv = kill_command(child.id());
@@ -511,12 +579,17 @@ pub fn toggle(uuid: &str, description: &str) -> Result<()> {
 /// Kokoro is made ready before the rewrite, so a broken docker fails before
 /// a claude call is spent.
 pub fn run(uuid: &str) -> Result<()> {
-    let _pid = PidFile { path: pid_file(std::env::var_os("XDG_RUNTIME_DIR")) };
+    let path = pid_file(std::env::var_os("XDG_RUNTIME_DIR"));
+    let _pid = PidFile { path: path.clone() };
     let t = task::get(uuid)?.with_context(|| format!("No task {uuid}."))?;
     ensure_kokoro()?;
     let notes: Vec<&str> = t.annotations.iter().map(|a| a.description.as_str()).collect();
     let script = rewrite(&rewrite_input(&t.description, &notes))?;
-    play(&script)
+    play(&script, || {
+        // Best effort: a failed write only leaves the spinner turning while
+        // the speech plays.
+        let _ = std::fs::write(&path, pid_line(std::process::id(), uuid, true));
+    })
 }
 
 #[cfg(test)]
@@ -696,6 +769,46 @@ mod tests {
     #[test]
     fn stopping_signals_the_whole_group() {
         assert_eq!(kill_command(4242), strings(&["kill", "-TERM", "--", "-4242"]));
+    }
+
+    /// The pid file says which task is being spoken and whether its audio
+    /// has started, so the panel can show the wait on that card alone.
+    #[test]
+    fn the_pid_file_carries_the_task_and_whether_it_is_playing() {
+        assert_eq!(pid_line(4242, "c53b6e3d-ca05", false), "4242 c53b6e3d-ca05\n");
+        assert_eq!(pid_line(4242, "c53b6e3d-ca05", true), "4242 c53b6e3d-ca05 playing\n");
+        assert_eq!(
+            parse_pid_line("4242 c53b6e3d-ca05\n"),
+            Some(Speech { pid: 4242, uuid: "c53b6e3d-ca05".into(), playing: false })
+        );
+        assert_eq!(
+            parse_pid_line("4242 c53b6e3d-ca05 playing\n"),
+            Some(Speech { pid: 4242, uuid: "c53b6e3d-ca05".into(), playing: true })
+        );
+    }
+
+    /// Anything else in the file is no speech: not a number, or no task.
+    #[test]
+    fn a_pid_file_without_a_pid_and_task_is_no_speech() {
+        assert_eq!(parse_pid_line(""), None);
+        assert_eq!(parse_pid_line("4242"), None);
+        assert_eq!(parse_pid_line("x c53b6e3d"), None);
+    }
+
+    /// The audio reaches the player whole, and the wait ends with its first
+    /// bytes — not before, and not at all when Kokoro sends nothing.
+    #[test]
+    fn the_relay_passes_the_audio_on_and_says_when_it_started() {
+        let audio: Vec<u8> = (0..40_000u32).map(|i| i as u8).collect();
+        let mut out = Vec::new();
+        let mut started = 0;
+        relay(&mut audio.as_slice(), &mut out, || started += 1).unwrap();
+        assert_eq!(out, audio);
+        assert_eq!(started, 1);
+
+        let mut started = false;
+        relay(&mut [].as_slice(), &mut Vec::new(), || started = true).unwrap();
+        assert!(!started, "no audio, no start");
     }
 
     #[test]

@@ -51,7 +51,7 @@ under it:
 | **Start working** (green) | `s` | The menu's Start working: the task's own worktree, herdr tab and Claude — not on an active task, which is already being worked |
 | **Refine** (mauve) | `r` | Work it up into a plan with Claude |
 | **Edit** (yellow) | `e` | Open it in the task box |
-| **Speak** (pink) | | Read its description and notes aloud, rewritten by Claude for listening; a second press stops it — on every task, waiting ones too |
+| **Speak** (pink) | | Read its description and notes aloud, rewritten by Claude for listening; its speaker turns into a spinner until the audio starts, and a second press stops it — on every task, waiting ones too |
 | **Stop** (peach) | `t` | Stop it — only on an active task |
 | **Waiting** (teal) | | Park it as waiting: off the panel, and on the Waiting tab instead |
 | **Back to list** (lavender) | `b` | Off waiting and back on the list — only on a waiting task, which gets just this, Edit, Speak and Remove |

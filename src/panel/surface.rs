@@ -135,6 +135,9 @@ const TUCKED_X: f64 = (SURFACE_WIDTH - PEEK_PX) as f64;
 const CENTRED_X: f64 = ((SURFACE_WIDTH - CARD_WIDTH_PX) / 2) as f64;
 
 const SLIDE_MS: f64 = 180.0;
+/// How often Speak's spinner turns a frame while a speech is being got
+/// ready: the usual pace of a braille spinner in a terminal.
+const SPIN: Duration = Duration::from_millis(80);
 
 /// How long after the pointer leaves before the cards slide back. Long enough
 /// that overshooting the edge of a card does not make the panel flicker.
@@ -188,6 +191,11 @@ pub struct Panel {
     /// Where the focus was when Clear all armed, which took it off the cards:
     /// where cancelling puts it back.
     before_clear: RefCell<Option<gtk4::Widget>>,
+    /// Speak's spinner is turning: a timer runs while the panel has the
+    /// keyboard, the only time the buttons show.
+    spinning: Cell<bool>,
+    /// The spinner frame it is on.
+    frame: Cell<usize>,
     /// Each card's height, top to bottom, for the blur region.
     heights: RefCell<Vec<i32>>,
     blur: RefCell<Option<Blur>>,
@@ -330,6 +338,8 @@ impl Panel {
             armed: RefCell::new(None),
             clear_armed: Cell::new(false),
             before_clear: RefCell::new(None),
+            spinning: Cell::new(false),
+            frame: Cell::new(0),
             heights: RefCell::new(Vec::new()),
             blur: RefCell::new(None),
         });
@@ -526,7 +536,55 @@ impl Panel {
         if let Some(first) = self.column.first_child() {
             focus_card(&first, None);
         }
+        self.start_spinner();
         true
+    }
+
+    /// Turn the spinner on the Speak button of the task whose speech is being
+    /// got ready, for as long as the panel has the keyboard. The background
+    /// speech says in its pid file when its audio starts, and the speaker
+    /// comes back then. A timer rather than a watch on that file: it has to
+    /// tick for the animation anyway, and it stops with the keyboard.
+    fn start_spinner(self: &Rc<Self>) {
+        if self.spinning.replace(true) {
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local(SPIN, move || {
+            let Some(p) = weak.upgrade() else { return glib::ControlFlow::Break };
+            if !p.keyboard.get() {
+                p.spinning.set(false);
+                return glib::ControlFlow::Break;
+            }
+            p.spin();
+            glib::ControlFlow::Continue
+        });
+    }
+
+    /// One turn: the next frame on the preparing task's Speak button, the
+    /// speaker on every other. A re-render's new buttons start on the speaker
+    /// and are caught up here.
+    fn spin(&self) {
+        let preparing = crate::speak::preparing();
+        let frame = self.frame.get().wrapping_add(1);
+        self.frame.set(frame);
+        let mut card = self.column.first_child();
+        while let Some(c) = card {
+            card = c.next_sibling();
+            let speak = slots(&c)
+                .into_iter()
+                .find(|s| s.widget_name() == Action::Speak.name())
+                .and_then(|s| s.downcast::<gtk4::Button>().ok());
+            let Some(button) = speak else { continue };
+            let label = if preparing.as_deref() == Some(c.widget_name().as_str()) {
+                Action::SPINNER[frame % Action::SPINNER.len()]
+            } else {
+                Action::Speak.icon()
+            };
+            if button.label().as_deref() != Some(label) {
+                button.set_label(label);
+            }
+        }
     }
 
     /// Give the keyboard back, folding every card to its one line again and

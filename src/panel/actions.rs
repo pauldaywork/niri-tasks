@@ -40,6 +40,11 @@ impl Action {
     /// menu's delete asks "delete?" before it deletes.
     pub const CONFIRM_REMOVE: &'static str = "Confirm remove";
 
+    /// What Speak shows in place of its speaker while the speech is being got
+    /// ready, one frame after another: braille dots going round. Iosevka has
+    /// them, so they sit centred in the cell like the text around them.
+    pub const SPINNER: [&'static str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
     /// The buttons a card gets, left to right. Go to session leads while a
     /// Claude is working on the task (`has_session`), as it leads the menu. An
     /// active task is already being worked, so it gets Stop and no Start
@@ -91,7 +96,8 @@ impl Action {
 
     /// What the button shows: a glyph, so the row stays narrow. Font Awesome's,
     /// from the same Nerd Font as the cards' lock: terminal, play, magic wand,
-    /// pencil, speaker, stop, pause and trash can, and Back to list's undo arrow.
+    /// pencil, stop, pause and trash can, and Back to list's undo arrow; Speak's
+    /// speaker is Material Design's, from the same font.
     pub fn icon(self) -> &'static str {
         match self {
             Session => "\u{f120}",
@@ -99,7 +105,10 @@ impl Action {
             Start => "\u{f04b}",
             Refine => "\u{f0d0}",
             Edit => "\u{f040}",
-            Speak => "\u{f028}",
+            // Material Design's volume-medium, not Font Awesome's volume-up,
+            // which is drawn nearly twice as wide as its cell and sat off
+            // centre; this one fits its cell exactly.
+            Speak => "\u{f0580}",
             Stop => "\u{f04d}",
             Wait => "\u{f04c}",
             Remove => "\u{f1f8}",
@@ -316,6 +325,16 @@ mod tests {
         icons.sort();
         icons.dedup();
         assert_eq!(icons.len(), Action::ALL.len());
+    }
+
+    /// The spinner's frames turn in Speak's place, so none may look like a
+    /// button's icon, and each differs from the one before.
+    #[test]
+    fn the_spinner_turns_and_is_no_buttons_icon() {
+        for (i, frame) in Action::SPINNER.iter().enumerate() {
+            assert!(!Action::ALL.iter().any(|a| a.icon() == *frame), "{frame}");
+            assert_ne!(*frame, Action::SPINNER[(i + 1) % Action::SPINNER.len()]);
+        }
     }
 
     #[test]
