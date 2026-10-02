@@ -140,6 +140,31 @@ impl Action {
     }
 }
 
+/// What the Waiting tab's Clear all reads, and what it reads between its first
+/// press and its second, as Remove asks before it deletes.
+pub const CLEAR_ALL: &str = "Clear all";
+pub const CONFIRM_CLEAR_ALL: &str = "Confirm clear all";
+
+/// The command Clear all spawns: Remove's own `task status <uuid> deleted
+/// --yes` for each of `uuids`, one after another in one shell. So every task
+/// goes the way Remove takes it, notification and all, and no two
+/// taskwarrior writes race over `pending.data`. `exe` is niritasks itself,
+/// passed as the shell's `$0`, and the uuids as its arguments, so neither is
+/// ever quoted into the script; `$uuid` goes in bare, a uuid being hex and
+/// dashes. `;`, not `&&`: one task that fails to delete does not keep the
+/// rest.
+pub fn clear_all_command(exe: &str, uuids: &[String]) -> Vec<String> {
+    let remove = Action::Remove.args("$uuid").join(" ");
+    let mut command = vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        format!("for uuid; do \"$0\" {remove}; done"),
+        exe.to_string(),
+    ];
+    command.extend(uuids.iter().cloned());
+    command
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,5 +295,34 @@ mod tests {
     #[test]
     fn start_never_only_marks_the_task_active() {
         assert!(!Action::Start.args("x").contains(&"active".to_string()));
+    }
+
+    #[test]
+    fn clear_all_reads_as_remove_does() {
+        assert_eq!(CLEAR_ALL, "Clear all");
+        assert_eq!(CONFIRM_CLEAR_ALL, "Confirm clear all");
+    }
+
+    /// Run for real, with `echo` standing in for niritasks: each uuid gets
+    /// Remove's own command, in order.
+    #[test]
+    fn clear_all_runs_remove_on_each_task_in_turn() {
+        let uuids = vec!["aaaa-1".to_string(), "bbbb-2".to_string()];
+        let command = clear_all_command("echo", &uuids);
+        assert_eq!(&command[..2], ["sh", "-c"]);
+        let out = std::process::Command::new(&command[0]).args(&command[1..]).output().unwrap();
+        assert!(out.status.success());
+        let expected: String = uuids.iter().map(|u| Action::Remove.args(u).join(" ") + "\n").collect();
+        assert_eq!(String::from_utf8(out.stdout).unwrap(), expected);
+    }
+
+    /// niritasks's path and the uuids are the shell's arguments, never spliced
+    /// into its script, so a path with a space still works.
+    #[test]
+    fn clear_all_passes_niritasks_and_the_uuids_as_arguments() {
+        let command = clear_all_command("/opt/my tools/niritasks", &["u1".into()]);
+        assert_eq!(command[3], "/opt/my tools/niritasks");
+        assert_eq!(command[4], "u1");
+        assert!(!command[2].contains("my tools"));
     }
 }

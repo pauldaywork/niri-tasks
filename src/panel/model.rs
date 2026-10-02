@@ -135,6 +135,13 @@ impl Filter {
             .filter(|f| *f == Filter::All || cards.iter().any(|c| f.matches(c)))
             .collect()
     }
+
+    /// The tasks under this tab, by uuid and uncapped: what Clear all on the
+    /// Waiting tab deletes, which is every task the tab lists, those folded
+    /// into "+N more" too.
+    pub fn uuids(self, cards: &[Card]) -> Vec<String> {
+        self.pick(cards).into_iter().filter_map(|c| c.uuid).collect()
+    }
 }
 
 /// The task cards for one workspace tag, every one of them: the active task
@@ -392,5 +399,23 @@ mod tests {
         assert_eq!(texts(&Filter::Active.pick(&all)), vec!["started", "started-planned"]);
         assert_eq!(texts(&Filter::Planned.pick(&all)), vec!["planned"]);
         assert_eq!(texts(&Filter::ToRefine.pick(&all)), vec!["started", "plain"]);
+    }
+
+    /// Clear all deletes what the Waiting tab lists, and nothing it does not.
+    #[test]
+    fn a_tabs_uuids_are_its_tasks_and_no_others() {
+        let all = cards(
+            &[task("plain", 9.0, false), waiting("parked"), task("started", 5.0, true), waiting("also-parked")],
+            &[],
+        );
+        assert_eq!(Filter::Waiting.uuids(&all), vec!["parked", "also-parked"]);
+        assert!(Filter::Waiting.uuids(&cards(&[task("plain", 9.0, false)], &[])).is_empty());
+    }
+
+    /// Every one the tab lists, not just those on screen before "+N more".
+    #[test]
+    fn a_tabs_uuids_are_uncapped() {
+        let many: Vec<Task> = (0..CAP + 2).map(|i| waiting(&format!("w{i}"))).collect();
+        assert_eq!(Filter::Waiting.uuids(&cards(&many, &[])).len(), CAP + 2);
     }
 }

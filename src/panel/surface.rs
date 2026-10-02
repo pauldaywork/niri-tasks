@@ -373,7 +373,11 @@ impl Panel {
                 let Some(p) = weak.upgrade() else {
                     return glib::Propagation::Proceed;
                 };
-                match keys::key_action(key, state.contains(gdk::ModifierType::CONTROL_MASK)) {
+                match keys::key_action(
+                    key,
+                    state.contains(gdk::ModifierType::CONTROL_MASK),
+                    state.contains(gdk::ModifierType::SHIFT_MASK),
+                ) {
                     KeyAction::Ignore => glib::Propagation::Proceed,
                     action => {
                         p.key(action);
@@ -867,7 +871,8 @@ impl Panel {
             | KeyAction::Ignore
             | KeyAction::Filter(_)
             | KeyAction::PrevFilter
-            | KeyAction::NextFilter => {}
+            | KeyAction::NextFilter
+            | KeyAction::ClearAll => {}
         }
     }
 
