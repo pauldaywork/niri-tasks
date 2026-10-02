@@ -56,7 +56,7 @@
 //! task the tab lists, each through Remove's own `task status <uuid> deleted
 //! --yes`, one after another. The panel goes to All at once and keeps the
 //! keyboard. Moving the focus, or any re-render, a tab switch included,
-//! disarms it. It is out of the focus chain with the tabs, so Shift+Delete
+//! disarms it. It is out of the focus chain with the tabs, so Ctrl+Delete
 //! presses it; Delete alone is still the focused card's Remove. Armed, it
 //! takes the focus off the cards and every key with it: Enter confirms rather
 //! than opening the card it was on, Escape and the keys that move put it back
@@ -280,11 +280,11 @@ impl Panel {
             .collect();
         // Clear all, at the bar's far end: hexpand takes the room the tabs
         // leave, and End keeps the button its own width at the end of it.
-        // Out of the focus chain like the tabs, which is why Shift+Delete
+        // Out of the focus chain like the tabs, which is why Ctrl+Delete
         // presses it.
         let clear = gtk4::Button::with_label(&clear_label(false));
         clear.add_css_class("clear-all");
-        clear.set_tooltip_text(Some("Shift+Delete"));
+        clear.set_tooltip_text(Some("Ctrl+Delete"));
         clear.set_hexpand(true);
         clear.set_halign(gtk4::Align::End);
         clear.set_focusable(false);
@@ -410,8 +410,8 @@ impl Panel {
             key_controller.connect_key_pressed(move |_, key, _, state| {
                 // Alt and Super chords belong to the compositor and the
                 // focused widget, not to the letters. Ctrl chords do too,
-                // bar Ctrl+Enter, which key_action picks out: Ctrl+T must not
-                // Stop.
+                // bar Ctrl+Enter and Ctrl+Delete, which key_action picks out:
+                // Ctrl+T must not Stop.
                 if state.intersects(gdk::ModifierType::ALT_MASK | gdk::ModifierType::SUPER_MASK) {
                     return glib::Propagation::Proceed;
                 }
@@ -419,11 +419,10 @@ impl Panel {
                     return glib::Propagation::Proceed;
                 };
                 let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
-                let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
                 // Armed, Clear all takes every key: no card has the focus for
                 // Enter or a letter to act on.
                 if p.clear_armed.get() {
-                    match keys::while_clear_armed(key, ctrl, shift) {
+                    match keys::while_clear_armed(key, ctrl) {
                         Armed::Confirm => p.clear.emit_clicked(),
                         Armed::Cancel => p.cancel_clear(),
                         Armed::Pass(action) => p.key(action),
@@ -431,7 +430,7 @@ impl Panel {
                     }
                     return glib::Propagation::Stop;
                 }
-                match keys::key_action(key, ctrl, shift) {
+                match keys::key_action(key, ctrl) {
                     KeyAction::Ignore => glib::Propagation::Proceed,
                     action => {
                         p.key(action);
@@ -867,7 +866,7 @@ impl Panel {
     /// a letter presses that card's button. If the card has no such button
     /// (Stop on a task that is not active, Go to session on one with no Claude,
     /// anything on "+N more"), nothing happens. 1 to 5, [ and ] pick a filter
-    /// tab instead, and Shift+Delete presses Clear all, whatever has focus.
+    /// tab instead, and Ctrl+Delete presses Clear all, whatever has focus.
     /// Ctrl+Enter refines the focused task, or starts it once it is planned,
     /// and keeps the keyboard so the list stays up.
     fn key(self: &Rc<Self>, action: KeyAction) {
@@ -970,7 +969,7 @@ impl Panel {
     }
 
     /// Put an armed Remove back to Remove, so a later press starts over at
-    /// the first. Arming Clear all calls this, as Shift+Delete moves no focus
+    /// the first. Arming Clear all calls this, as Ctrl+Delete moves no focus
     /// to do it: one arming at a time.
     fn disarm_remove(&self) {
         if let Some(button) = self.armed.take() {
@@ -988,7 +987,7 @@ impl Panel {
     /// menu. The second deletes every task the Waiting tab lists, those past
     /// "+N more" too, and puts the panel on All at once rather than as each
     /// delete lands. The keyboard stays: the deletes open nothing. Nothing off
-    /// the Waiting tab, where Clear all is hidden, so a stray Shift+Delete does
+    /// the Waiting tab, where Clear all is hidden, so a stray Ctrl+Delete does
     /// nothing there.
     fn clear_all(self: &Rc<Self>) {
         if !self.keyboard.get() || self.filter.get() != Filter::Waiting {
