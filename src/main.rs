@@ -432,7 +432,8 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             require_workspace_tag()?;
             let workspace = niri::focused_workspace_name()?.unwrap_or_default();
             // The uuid as found, not as typed: the agent's name is made from
-            // its first eight characters, and a typed prefix may be shorter.
+            // its first eight characters, and a typed task number has none of
+            // them.
             let t = task::get(&uuid)?.context("task not found")?;
             link::go_to(&workspace, &t.uuid)?;
         }

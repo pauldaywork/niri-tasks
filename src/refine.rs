@@ -312,7 +312,7 @@ pub fn launch(workspace: &str, t: &task::Task, mode: Mode) -> Result<()> {
     // Before anything opens: a refused refine should leave nothing behind.
     let hidden = hidden_paths(home);
     ensure_no_exposed_sockets(&hidden)?;
-    let settings = session_settings(&dir, &crate::task::data_location()?, &hidden);
+    let settings = session_settings(&dir, &task::data_location()?, &hidden);
 
     let list = open_session(&dir, &s)?;
 

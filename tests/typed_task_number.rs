@@ -227,7 +227,9 @@ fn a_task_number_names_everything_after_the_tasks_uuid() {
     // Refine with the real HOME: it refuses to start while a socket sits
     // outside its sandbox's hidden folders, and the real herdr sessions'
     // sockets are hidden only as $HOME/.config/herdr. The fakes on PATH
-    // still keep it away from the real herdr.
+    // still keep it away from the real herdr. If Refine refuses here with
+    // "Refine would leave these sockets in reach of its sandbox", the
+    // machine has a real exposed socket, not a regression in this code.
     let real_home = PathBuf::from(std::env::var("HOME").unwrap());
     let refiner = format!("task-{uuid8}");
 
