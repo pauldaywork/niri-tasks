@@ -62,10 +62,10 @@ _Avoid_: row (that is the picker's word), item, block
 **Action row**:
 The buttons along the focused task card's bottom edge while the task panel
 has the keyboard; the other cards hide theirs — Go to session, Start working,
-Refine, Edit, Speak, Stop, Waiting and Remove, an active task getting Stop in
-place of Start working, only a task with a live Claude getting Go to session,
-and a waiting task getting just Back to list, Edit, Speak and Remove — each
-running what the same entry in the task's action menu runs.
+Refine, Edit, Speak, Up next, Stop, Waiting and Remove, an active task getting
+Stop in place of Start working, only a task with a live Claude getting Go to
+session, and a waiting task getting just Back to list, Edit, Speak and Remove —
+each running what the same entry in the task's action menu runs.
 _Avoid_: toolbar, button bar, quick actions
 
 **Filter tab**:

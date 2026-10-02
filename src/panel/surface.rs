@@ -849,9 +849,11 @@ impl Panel {
         hint.add_css_class("card-hint");
         let has_session = crate::link::session_agent(&self.agents.borrow(), uuid).is_some();
         for action in Action::for_status(card.status, has_session) {
+            // Up next reads Not up next on a task already up next.
+            let label = action.label_on(card.up_next);
             let button = gtk4::Button::with_label(action.icon());
             // The icon's name in words, under the pointer and for a screen reader.
-            button.set_tooltip_text(Some(action.label()));
+            button.set_tooltip_text(Some(label));
             button.add_css_class(action.name());
             button.set_widget_name(action.name());
             let weak = Rc::downgrade(self);
@@ -866,7 +868,7 @@ impl Panel {
                 let hint = hint.downgrade();
                 focus.connect_enter(move |_| {
                     if let Some(hint) = hint.upgrade() {
-                        hint.set_label(action.label());
+                        hint.set_label(label);
                     }
                 });
             }
@@ -899,7 +901,7 @@ impl Panel {
     /// box or terminal it opens can take it. Waiting and Remove open nothing:
     /// the list stays up, focus moving to the next card (the one above, from
     /// the last) so it is still there when the next tick drops this one.
-    /// Speak opens nothing either, but its card stays: the list stays up with
+    /// Speak and Up next open nothing either, but their card stays: the list stays up with
     /// the focus where it was, so a second press stops the speech.
     fn press(self: &Rc<Self>, action: Action, uuid: &str, button: &gtk4::Button) {
         if action == Action::Remove && self.armed.borrow().as_ref() != Some(button) {

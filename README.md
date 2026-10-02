@@ -52,6 +52,7 @@ under it:
 | **Refine** (mauve) | `r` | Work it up into a plan with Claude |
 | **Edit** (yellow) | `e` | Open it in the task box |
 | **Speak** (pink) | | Read its description and notes aloud, rewritten by Claude for listening; its speaker turns into a spinner until the audio starts, and a second press stops it — on every task, waiting ones too |
+| **Up next** (yellow) | | Mark it as the one to do next: its card turns yellow and moves up under the active tasks. On a task already up next it reads **Not up next**, and clears it — not on a waiting task |
 | **Stop** (peach) | `t` | Stop it — only on an active task |
 | **Waiting** (teal) | | Park it as waiting: off the panel, and on the Waiting tab instead |
 | **Back to list** (lavender) | `b` | Off waiting and back on the list — only on a waiting task, which gets just this, Edit, Speak and Remove |
@@ -65,7 +66,7 @@ them while one is focused, and Enter presses the focused one. Enter on the
 card itself opens its full menu, which also has Note, Grill me, Update status
 and Move to
 workspace — led by Go to session while a Claude is working on the task. Every
-button that opens something gives the keyboard back as it runs; Speak, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
+button that opens something gives the keyboard back as it runs; Speak, Up next, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
 right edge, tucked away with the cards folded back to one line. A list taller
 than the screen scrolls, keeping the focused card in view. Hovering never shows
 the buttons — only the keyboard does.

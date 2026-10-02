@@ -53,7 +53,8 @@ pub const UP_NEXT: &str = "#f9e2af";
 /// The keyboard's action buttons, each its own colour from the same Catppuccin
 /// palette as [`ACTIVE`] (mocha's): Go to session blue, Back to list lavender, Refine mauve, Edit
 /// yellow, Speak pink, Stop peach, Waiting teal, Remove red. Start shares [`ACTIVE`]'s green, because
-/// starting a task is what turns its card green.
+/// starting a task is what turns its card green, and Up next shares Edit's yellow, [`UP_NEXT`],
+/// because it is what turns its card yellow.
 pub const REFINE: &str = "#cba6f7";
 /// Edit yellow.
 pub const EDIT: &str = "#f9e2af";
@@ -74,13 +75,14 @@ pub const SESSION: &str = "#89b4fa";
 /// as dark on red.
 pub const ON_FILL: &str = "#1e1e2e";
 /// Each button's class, as `Action::name()` gives it, and its colour.
-pub const ACTION_COLOURS: [(&str, &str); 9] = [
+pub const ACTION_COLOURS: [(&str, &str); 10] = [
     ("session", SESSION),
     ("back", BACK),
     ("start", ACTIVE),
     ("refine", REFINE),
     ("edit", EDIT),
     ("speak", SPEAK),
+    ("up-next", UP_NEXT),
     ("stop", STOP),
     ("wait", WAIT),
     ("remove", REMOVE),

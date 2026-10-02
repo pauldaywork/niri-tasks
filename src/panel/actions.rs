@@ -24,6 +24,8 @@ pub enum Action {
     Edit,
     /// Read the task aloud; pressed again, stop.
     Speak,
+    /// Mark the task up next; pressed on one up next, clear it.
+    UpNext,
     Stop,
     /// Park the task: it leaves the panel until it is stopped again.
     Wait,
@@ -34,7 +36,7 @@ use Action::*;
 
 impl Action {
     /// In the order the buttons sit, left to right.
-    pub const ALL: [Action; 9] = [Session, Back, Start, Refine, Edit, Speak, Stop, Wait, Remove];
+    pub const ALL: [Action; 10] = [Session, Back, Start, Refine, Edit, Speak, UpNext, Stop, Wait, Remove];
 
     /// What Remove reads between its first press and its second, the way the
     /// menu's delete asks "delete?" before it deletes.
@@ -65,16 +67,18 @@ impl Action {
     }
 
     /// Whether the panel keeps the keyboard after the button runs. Back to
-    /// list, Waiting and Remove only change the task, and Speak plays in the
-    /// background, so none opens anything that needs the keyboard and the list
-    /// stays up; the rest open a box, a terminal or a menu, which takes it.
+    /// list, Up next, Waiting and Remove only change the task, and Speak
+    /// plays in the background, so none opens anything that needs the
+    /// keyboard and the list stays up; the rest open a box, a terminal or a
+    /// menu, which takes it.
     pub fn keeps_keyboard(self) -> bool {
-        matches!(self, Back | Speak | Wait | Remove)
+        matches!(self, Back | Speak | UpNext | Wait | Remove)
     }
 
     /// Whether the button takes its card off the list, so the focus has to
-    /// move to a neighbour first. Speak's card stays where it is, and the
-    /// focus stays on the button that stops it.
+    /// move to a neighbour first. Speak's card stays where it is, and so does
+    /// Up next's, which only moves up or down the list; the focus stays on the
+    /// button, so a second press undoes it.
     pub fn leaves_the_list(self) -> bool {
         matches!(self, Back | Wait | Remove)
     }
@@ -88,15 +92,26 @@ impl Action {
             Refine => "Refine",
             Edit => "Edit",
             Speak => "Speak",
+            UpNext => crate::task::up_next_label(false),
             Stop => "Stop",
             Wait => "Waiting",
             Remove => "Remove",
         }
     }
 
+    /// The button's words on a card whose task is, or is not, up next: Up
+    /// next reads Not up next on a task already up next, as its menu entry
+    /// does. Every other button reads its [`Action::label`].
+    pub fn label_on(self, up_next: bool) -> &'static str {
+        match self {
+            UpNext => crate::task::up_next_label(up_next),
+            _ => self.label(),
+        }
+    }
+
     /// What the button shows: a glyph, so the row stays narrow. Font Awesome's,
     /// from the same Nerd Font as the cards' lock: terminal, play, magic wand,
-    /// pencil, stop, pause and trash can, and Back to list's undo arrow; Speak's
+    /// pencil, bookmark, stop, pause and trash can, and Back to list's undo arrow; Speak's
     /// speaker is Material Design's, from the same font.
     pub fn icon(self) -> &'static str {
         match self {
@@ -109,6 +124,8 @@ impl Action {
             // which is drawn nearly twice as wide as its cell and sat off
             // centre; this one fits its cell exactly.
             Speak => "\u{f0580}",
+            // Font Awesome's bookmark: marked as the one to do next.
+            UpNext => "\u{f02e}",
             Stop => "\u{f04d}",
             Wait => "\u{f04c}",
             Remove => "\u{f1f8}",
@@ -137,6 +154,7 @@ impl Action {
             Refine => "refine",
             Edit => "edit",
             Speak => "speak",
+            UpNext => "up-next",
             Stop => "stop",
             Wait => "wait",
             Remove => "remove",
@@ -154,6 +172,7 @@ impl Action {
             Refine => &["task", "refine", uuid],
             Edit => &["task", "edit", uuid],
             Speak => &["task", "speak", uuid],
+            UpNext => &["task", "up-next", uuid],
             Stop => &["task", "status", uuid, "stopped"],
             Wait => &["task", "status", uuid, "waiting"],
             Remove => &["task", "status", uuid, "deleted", "--yes"],
@@ -226,7 +245,7 @@ mod tests {
     #[test]
     fn an_active_task_gets_stop_in_place_of_start() {
         let names: Vec<&str> = Action::for_status(Status::Active, false).iter().map(|a| a.name()).collect();
-        assert_eq!(names, vec!["refine", "edit", "speak", "stop", "wait", "remove"]);
+        assert_eq!(names, vec!["refine", "edit", "speak", "up-next", "stop", "wait", "remove"]);
     }
 
     #[test]
@@ -235,7 +254,7 @@ mod tests {
             let got = Action::for_status(status, false);
             assert_eq!(
                 got,
-                vec![Action::Start, Action::Refine, Action::Edit, Action::Speak, Action::Wait, Action::Remove],
+                vec![Action::Start, Action::Refine, Action::Edit, Action::Speak, Action::UpNext, Action::Wait, Action::Remove],
                 "{status:?}"
             );
         }
@@ -247,12 +266,12 @@ mod tests {
     fn a_task_with_a_live_claude_gets_go_to_session_first() {
         assert_eq!(
             Action::for_status(Status::Active, true),
-            vec![Action::Session, Action::Refine, Action::Edit, Action::Speak, Action::Stop, Action::Wait, Action::Remove]
+            vec![Action::Session, Action::Refine, Action::Edit, Action::Speak, Action::UpNext, Action::Stop, Action::Wait, Action::Remove]
         );
         // A refine open on a task not yet started.
         assert_eq!(
             Action::for_status(Status::Planned, true),
-            vec![Action::Session, Action::Start, Action::Refine, Action::Edit, Action::Speak, Action::Wait, Action::Remove]
+            vec![Action::Session, Action::Start, Action::Refine, Action::Edit, Action::Speak, Action::UpNext, Action::Wait, Action::Remove]
         );
     }
 
@@ -290,12 +309,43 @@ mod tests {
         assert!(Action::for_status(Status::More, true).is_empty());
     }
 
-    /// Speak opens nothing, so the list stays up for a second press to stop
-    /// it, as it does for the buttons that only change the task.
+    /// Speak and Up next open nothing, so the list stays up, as it does for
+    /// the buttons that only change the task.
     #[test]
-    fn back_speak_wait_and_remove_keep_the_list_open() {
+    fn back_speak_up_next_wait_and_remove_keep_the_list_open() {
         let kept: Vec<Action> = Action::ALL.into_iter().filter(|a| a.keeps_keyboard()).collect();
-        assert_eq!(kept, vec![Action::Back, Action::Speak, Action::Wait, Action::Remove]);
+        assert_eq!(kept, vec![Action::Back, Action::Speak, Action::UpNext, Action::Wait, Action::Remove]);
+    }
+
+    /// Every card that stands for a task on the list gets Up next, active
+    /// ones too; a waiting task is off the list, and "+N more" is no one task.
+    #[test]
+    fn every_card_but_a_waiting_one_gets_up_next() {
+        for status in [Status::Active, Status::Pending, Status::Blocked, Status::Planned] {
+            for has_session in [false, true] {
+                assert!(Action::for_status(status, has_session).contains(&Action::UpNext), "{status:?}");
+            }
+        }
+        assert!(!Action::for_status(Status::Waiting, false).contains(&Action::UpNext));
+        assert!(Action::for_status(Status::More, false).is_empty());
+    }
+
+    /// The button reads as its menu entry does: Not up next on a task
+    /// already up next. No other button changes its words.
+    #[test]
+    fn up_next_reads_not_up_next_on_a_task_up_next() {
+        assert_eq!(Action::UpNext.label_on(false), "Up next");
+        assert_eq!(Action::UpNext.label_on(true), "Not up next");
+        for action in Action::ALL.into_iter().filter(|a| *a != Action::UpNext) {
+            assert_eq!(action.label_on(true), action.label(), "{action:?}");
+        }
+    }
+
+    /// Up next's card stays on the list, only moving up it, so the focus
+    /// stays on the button and a second press clears it.
+    #[test]
+    fn up_next_keeps_its_card_on_the_list() {
+        assert!(!Action::UpNext.leaves_the_list());
     }
 
     /// Their card drops off the list, so the focus moves to a neighbour;
@@ -312,7 +362,7 @@ mod tests {
         let labels: Vec<&str> = Action::ALL.iter().map(|a| a.label()).collect();
         assert_eq!(
             labels,
-            vec!["Go to session", "Back to list", "Start working", "Refine", "Edit", "Speak", "Stop", "Waiting", "Remove"]
+            vec!["Go to session", "Back to list", "Start working", "Refine", "Edit", "Speak", "Up next", "Stop", "Waiting", "Remove"]
         );
         assert_eq!(Action::CONFIRM_REMOVE, "Confirm remove");
     }
@@ -345,6 +395,7 @@ mod tests {
         assert_eq!(Action::Refine.args(u), vec!["task", "refine", u]);
         assert_eq!(Action::Edit.args(u), vec!["task", "edit", u]);
         assert_eq!(Action::Speak.args(u), vec!["task", "speak", u]);
+        assert_eq!(Action::UpNext.args(u), vec!["task", "up-next", u]);
         assert_eq!(Action::Stop.args(u), vec!["task", "status", u, "stopped"]);
         assert_eq!(Action::Wait.args(u), vec!["task", "status", u, "waiting"]);
         // Stopped is the status that clears a wait date.
