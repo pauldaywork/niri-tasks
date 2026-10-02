@@ -55,7 +55,7 @@ under it:
 | **Waiting** (teal) | | Park it as waiting: off the panel, and on the Waiting tab instead |
 | **Back to list** (lavender) | `b` | Off waiting and back on the list — only on a waiting task, which gets just this, Edit and Remove |
 | **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back |
-| **Clear all** (red) | `Shift+Delete` | On the Waiting tab's bar, not a card: turns into **Confirm clear all**; a second press deletes every waiting task on the workspace and goes back to All, moving away puts it back |
+| **Clear all** (red) | `Shift+Delete` | On the Waiting tab's bar, not a card: turns into **Confirm clear all** and takes the focus off the cards; a second press, or `Enter`, deletes every waiting task on the workspace and goes back to All, while `Escape` or moving away puts it back |
 
 Up and Down move a darker fill and the buttons between cards; Left, Right and
 Tab move along the focused card's buttons, whose name shows beside them while
@@ -89,7 +89,10 @@ which `Shift+Delete` presses (`Delete` alone is still the focused card's
 Remove). Like Remove it asks first, as **Confirm clear all**, and its second
 press deletes every waiting task on this workspace, one `task status <uuid>
 deleted --yes` after another, putting the panel back on All with the keyboard
-kept. Switching tab or moving the focus puts it back.
+kept. Armed, it takes the focus off the cards, so no card's buttons show and
+`Enter` confirms as a second `Shift+Delete` does; a card's own keys do nothing
+until it is put back. `Escape`, an arrow or Tab puts it back with the focus on
+the card it was on, and the panel stays up; switching tab puts it back too.
 
 The cards are shaped like mako notifications and take a terminal window's font
 and colours: a dark tint over blurred wallpaper, with niri's faint focus-ring outline
@@ -338,7 +341,7 @@ Tab along the buttons; `s` starts working exactly as the menu does, `r`
 refines, `e` opens the box, `t` stops; Delete arms Remove and only a second
 Delete deletes, while moving away disarms it; Enter on a card opens the menu,
 Enter on "+N more" shows the rest, and a list taller than the screen scrolls
-with the focus; a click on a filter tab switches the cards and does not take the focus (the focus still falls back to the first card when the focused one is not under the new tab), a started planned task shows under Active but not Planned, and Back to list on a waiting task brings it back to All; a click on Clear all arms it, a second click deletes the waiting tasks, and, with two waiting tasks, Up or Down in between puts it back; arming Clear all puts an armed Remove back, and arming Remove puts Clear all back; Escape tucks it away to the one-line peek.
+with the focus; a click on a filter tab switches the cards and does not take the focus (the focus still falls back to the first card when the focused one is not under the new tab), a started planned task shows under Active but not Planned, and Back to list on a waiting task brings it back to All; a click on Clear all arms it, darkening no card, a second click deletes the waiting tasks, and Up or Down in between puts it back with the focus on the card it was on; arming Clear all puts an armed Remove back, and arming Remove puts Clear all back; Escape tucks it away to the one-line peek.
 
 `e2e-box.sh` runs in the same kind of nested niri (`tests/lib/nested-niri.sh`
 starts it for both). Its keys are pressed with `wtype` pointed at that nested
@@ -401,7 +404,7 @@ screenshots a nested niri of its own and measures the panel against a frame take
 with no tasks: the peek's width, the stack's height as tasks are added, the
 keyboard's cards in the middle of the screen, its filter tabs (a tab hidden while
 empty, the keys skipping hidden tabs and stopping at the ends, reopening on
-All, a waiting task on the Waiting tab and off the tucked panel, Clear all arming on its first Shift+Delete, disarming on a tab switch, and deleting both waiting tasks and nothing else on its second), and Escape
+All, a waiting task on the Waiting tab and off the tucked panel, Clear all arming on its first Shift+Delete and taking the focus off the cards, ignoring a card's key while armed, cancelling on Escape and on a tab switch, and Enter then deleting both waiting tasks and nothing else), and Escape
 putting them back,
 nothing for another tag's task, nothing once they are done, and a daemon
 cold-started with nothing to show.

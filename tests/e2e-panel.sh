@@ -33,7 +33,7 @@
 # out, the slide back and clicks passing beside the peek are checked by hand
 # (README, "Testing"). The keyboard it can: `task panel` moves the panel to the
 # middle of the screen, and with wtype, Down (which moves the action row), the
-# filter tabs' keys, Shift+Delete for the Waiting tab's Clear all, and Escape
+# filter tabs' keys, Shift+Delete and Enter for the Waiting tab's Clear all, and Escape
 # are pressed in the nested niri, never on your desktop.
 set -uo pipefail
 
@@ -450,20 +450,48 @@ if command -v wtype >/dev/null; then
     sleep 1
     shot clear_before || { summary; exit 1; }
 
-    # The first press only arms it, as Remove's does: Confirm clear all, in
-    # the tab bar alone, and nothing deleted.
+    # The first press only arms it, as Remove's does: Confirm clear all, and
+    # nothing deleted. It takes the focus off the cards, so the first card
+    # loses its darker fill and its action row, and the panel is shorter.
     "${NENV[@]}" wtype -M shift -k Delete -m shift
     sleep 1
     shot clear_armed || { summary; exit 1; }
-    read -r x0 x1 y0 y1 < <(measure clear_armed clear_before)
-    if [ "$y1" -gt 0 ] && [ "$((y1 - y0))" -lt 60 ] && [ "$(count "+$TAG" status:waiting)" = 2 ]; then
-        ok "the first Shift+Delete arms Clear all in the tab bar and deletes nothing (rows ${y0}-${y1})"
+    read -r _ _ y0 y1 < <(measure clear_before)
+    before_h=$((y1 - y0))
+    read -r _ _ y0 y1 < <(measure clear_armed)
+    armed_h=$((y1 - y0))
+    if [ "$armed_h" -gt 0 ] && [ "$armed_h" -lt "$before_h" ] && [ "$(count "+$TAG" status:waiting)" = 2 ]; then
+        ok "the first Shift+Delete arms Clear all, takes the focus off the cards and deletes nothing (${before_h}px to ${armed_h}px)"
     else
-        bad "the first Shift+Delete changed rows ${y0}-${y1} with $(count "+$TAG" status:waiting) task(s)
-      still waiting, expected the tab bar alone and 2 — 0-0 means Clear all is not there"
+        bad "after the first Shift+Delete the panel is ${armed_h}px against ${before_h}px, with
+      $(count "+$TAG" status:waiting) task(s) still waiting — expected shorter, the focused
+      card's row gone, and 2"
+    fi
+
+    # Armed, a card's key has no card to act on: e opens no box.
+    "${NENV[@]}" wtype e
+    sleep 1
+    shot clear_armed_e || { summary; exit 1; }
+    if same clear_armed clear_armed_e; then
+        ok "a card's key does nothing while Clear all is armed"
+    else
+        bad "e changed the screen while Clear all was armed; it should do nothing"
+    fi
+
+    # Escape cancels: Clear all back, the focus back on the card it was on,
+    # and the panel still up.
+    "${NENV[@]}" wtype -k Escape
+    sleep 1
+    shot clear_cancelled || { summary; exit 1; }
+    if same clear_before clear_cancelled; then
+        ok "Escape puts Clear all back and the focus on its card, keeping the panel"
+    else
+        bad "after Escape on an armed Clear all the screen is not as it was before arming"
     fi
 
     # Moving away disarms it: off the tab and back is the frame from before.
+    "${NENV[@]}" wtype -M shift -k Delete -m shift
+    sleep 0.5
     "${NENV[@]}" wtype 1
     "${NENV[@]}" wtype 5
     sleep 1
@@ -474,13 +502,14 @@ if command -v wtype >/dev/null; then
         bad "Clear all is still armed after switching tab and back"
     fi
 
-    # Twice: both waiting tasks deleted, one after the other, each through
-    # task status; the task still on All and the other tag's are left alone.
+    # Armed, Enter confirms: both waiting tasks deleted, one after the other,
+    # each through task status; the task still on All and the other tag's are
+    # left alone.
     notified_before=$(grep -c '^Tasks Deleted: ' "$SB/notifications" 2>/dev/null || true)
     notified_before=${notified_before:-0}
     "${NENV[@]}" wtype -M shift -k Delete -m shift
     sleep 0.5
-    "${NENV[@]}" wtype -M shift -k Delete -m shift
+    "${NENV[@]}" wtype -k Return
     for _ in $(seq 1 20); do
         [ "$(count "+$TAG" status:waiting)" = 0 ] && break
         sleep 0.5
@@ -490,7 +519,7 @@ if command -v wtype >/dev/null; then
     left=$(count "+$TAG" status:pending)
     elsewhere=$(count +niritasks_e2e_elsewhere status:pending)
     if [ "$deleted" = 2 ] && [ "$left" = 1 ] && [ "$elsewhere" = 1 ]; then
-        ok "the second press deletes both waiting tasks and no other"
+        ok "Enter on Confirm clear all deletes both waiting tasks and no other"
     else
         bad "after Clear all: ${deleted} deleted, ${left} pending here, ${elsewhere} on the
       other tag — expected 2, 1 and 1"

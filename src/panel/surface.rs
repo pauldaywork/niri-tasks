@@ -57,7 +57,10 @@
 //! --yes`, one after another. The panel goes to All at once and keeps the
 //! keyboard. Moving the focus, or any re-render, a tab switch included,
 //! disarms it. It is out of the focus chain with the tabs, so Shift+Delete
-//! presses it; Delete alone is still the focused card's Remove.
+//! presses it; Delete alone is still the focused card's Remove. Armed, it
+//! takes the focus off the cards and every key with it: Enter confirms rather
+//! than opening the card it was on, Escape and the keys that move put it back
+//! with the focus where it was, and a card's keys do nothing.
 //!
 //! Waiting tasks are on the Waiting tab and nowhere else: not on All, not on
 //! the hover or the peek, so a workspace whose tasks are all waiting shows
@@ -87,7 +90,7 @@
 
 use super::actions::{self, Action};
 use super::blur::{self, Blur};
-use super::keys::{self, KeyAction};
+use super::keys::{self, Armed, KeyAction};
 use super::model::{self, Card, Filter, Status};
 use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX};
 use gtk4::prelude::*;
@@ -177,9 +180,13 @@ pub struct Panel {
     /// The Remove button pressed once and waiting for its second press, which
     /// deletes. Moving the focus off it, or any re-render, puts it back.
     armed: RefCell<Option<gtk4::Button>>,
-    /// Clear all pressed once and showing Confirm clear all. Moving the
-    /// focus, or any re-render, puts it back, as for an armed Remove.
+    /// Clear all pressed once and showing Confirm clear all, with the focus
+    /// off the cards. Moving the focus, or any re-render, puts it back, as
+    /// for an armed Remove.
     clear_armed: Cell<bool>,
+    /// Where the focus was when Clear all armed, which took it off the cards:
+    /// where cancelling puts it back.
+    before_clear: RefCell<Option<gtk4::Widget>>,
     /// Each card's height, top to bottom, for the blur region.
     heights: RefCell<Vec<i32>>,
     blur: RefCell<Option<Blur>>,
@@ -321,6 +328,7 @@ impl Panel {
             agents: RefCell::new(Vec::new()),
             armed: RefCell::new(None),
             clear_armed: Cell::new(false),
+            before_clear: RefCell::new(None),
             heights: RefCell::new(Vec::new()),
             blur: RefCell::new(None),
         });
@@ -410,11 +418,20 @@ impl Panel {
                 let Some(p) = weak.upgrade() else {
                     return glib::Propagation::Proceed;
                 };
-                match keys::key_action(
-                    key,
-                    state.contains(gdk::ModifierType::CONTROL_MASK),
-                    state.contains(gdk::ModifierType::SHIFT_MASK),
-                ) {
+                let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
+                let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
+                // Armed, Clear all takes every key: no card has the focus for
+                // Enter or a letter to act on.
+                if p.clear_armed.get() {
+                    match keys::while_clear_armed(key, ctrl, shift) {
+                        Armed::Confirm => p.clear.emit_clicked(),
+                        Armed::Cancel => p.cancel_clear(),
+                        Armed::Pass(action) => p.key(action),
+                        Armed::Swallow => {}
+                    }
+                    return glib::Propagation::Stop;
+                }
+                match keys::key_action(key, ctrl, shift) {
                     KeyAction::Ignore => glib::Propagation::Proceed,
                     action => {
                         p.key(action);
@@ -966,17 +983,25 @@ impl Panel {
         button.remove_css_class("confirm");
     }
 
-    /// Press Clear all. The first press arms it, as Remove's does; the second
-    /// deletes every task the Waiting tab lists, those past "+N more" too, and
-    /// puts the panel on All at once rather than as each delete lands. The
-    /// keyboard stays: the deletes open nothing. Nothing off the Waiting tab,
-    /// where Clear all is hidden, so a stray Shift+Delete does nothing there.
+    /// Press Clear all. The first press arms it, as Remove's does, and takes
+    /// the focus off the cards, so Enter confirms rather than opening a card's
+    /// menu. The second deletes every task the Waiting tab lists, those past
+    /// "+N more" too, and puts the panel on All at once rather than as each
+    /// delete lands. The keyboard stays: the deletes open nothing. Nothing off
+    /// the Waiting tab, where Clear all is hidden, so a stray Shift+Delete does
+    /// nothing there.
     fn clear_all(self: &Rc<Self>) {
         if !self.keyboard.get() || self.filter.get() != Filter::Waiting {
             return;
         }
-        if !self.clear_armed.replace(true) {
+        if !self.clear_armed.get() {
             self.disarm_remove();
+            // The focus goes first: the move disarms Clear all, which is
+            // armed only after it.
+            let focus = GtkWindowExt::focus(&self.window);
+            GtkWindowExt::set_focus(&self.window, None::<&gtk4::Widget>);
+            *self.before_clear.borrow_mut() = focus;
+            self.clear_armed.set(true);
             self.clear.set_label(&clear_label(true));
             self.clear.add_css_class("confirm");
             return;
@@ -989,9 +1014,27 @@ impl Panel {
         }
     }
 
+    /// Put Clear all back and the focus where it was before it armed, or on
+    /// the first card when that card has gone: Escape, or a key that moves.
+    fn cancel_clear(&self) {
+        let before = self.before_clear.take();
+        self.disarm_clear();
+        match before.filter(|w| self.card_of(w).is_some()) {
+            Some(widget) => {
+                widget.grab_focus();
+            }
+            None => {
+                if let Some(first) = self.column.first_child() {
+                    focus_card(&first, None);
+                }
+            }
+        }
+    }
+
     /// Put Clear all back from Confirm clear all, so a later press starts
     /// over at the first.
     fn disarm_clear(&self) {
+        self.before_clear.replace(None);
         if self.clear_armed.replace(false) {
             self.clear.set_label(&clear_label(false));
             self.clear.remove_css_class("confirm");
