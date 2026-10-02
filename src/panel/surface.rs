@@ -2,6 +2,11 @@
 //! a peek until the pointer comes over it, or in the middle of the screen
 //! while it has the keyboard.
 //!
+//! What it shows, and what a key or a press does to that, is `state.rs`'s
+//! [`PanelState`]: this file draws what the state says and runs the
+//! [`Effect`]s it hands back. A key, a click and Enter on a focused button all
+//! go through the state, so they take one path.
+//!
 //! ## Why an Overlay, and why the input region
 //!
 //! The surface is a fixed width, wide enough for an expanded card, and the
@@ -33,14 +38,19 @@
 //! hidden as the focus moves rather than built again, since a render would
 //! lose the focused button. Up and Down move between cards, Down onto "+N
 //! more" showing the cards it stands for and landing on the first of them;
-//! Left, Right and Tab move along the focused one, and s, r, e, t and Delete
-//! press its Start, Refine, Edit, Stop and Remove by emitting the button's
-//! `clicked`, so a key, Enter on the focused button, and a click all take one
-//! path. The controller runs in the capture phase, ahead of GTK's own focus
+//! Left, Right and Tab move along the focused one, and g, b, s, r, e, t and
+//! Delete press its Go to session, Back to list, Start, Refine, Edit, Stop and
+//! Remove. The controller runs in the capture phase, ahead of GTK's own focus
 //! chain, which would otherwise walk every button on the panel. The focused
-//! card is darkened. The body opens the whole menu. Escape, or anything
-//! that runs, hands the keyboard back, folds the cards to one line again,
-//! and puts the panel back on the right edge as a peek.
+//! card is darkened. The body opens the whole menu. Escape, or anything that
+//! runs, hands the keyboard back, folds the cards to one line again, and puts
+//! the panel back on the right edge as a peek.
+//!
+//! GTK's focus and the state's are kept the same both ways: an
+//! [`Effect::Focus`] moves GTK's, and GTK's moving (a click on a button)
+//! tells the state, which is how moving off an armed Remove disarms it. A
+//! render tears the column down, and the focus moves GTK makes meanwhile are
+//! not the user's, so they are not passed on.
 //!
 //! Above the cards, a bar of filter tabs, All, Active, Planned, To refine and
 //! Waiting, narrows them to the tasks it names. A tab shows only while it has
@@ -91,8 +101,9 @@
 
 use super::actions::{self, Action};
 use super::blur::{self, Blur};
-use super::keys::{self, Armed, KeyAction};
-use super::model::{self, Card, Filter, Status};
+use super::keys;
+use super::model::{Card, Filter, Status};
+use super::state::{Armed, Effect, Focus, PanelState, Shown, Slot};
 use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX};
 use gtk4::prelude::*;
 use gtk4::{cairo, gdk, glib, Application, ApplicationWindow};
@@ -164,33 +175,14 @@ pub struct Panel {
     /// scale change alters it.
     monitor: gdk::Monitor,
     slide: Rc<Slide>,
-    /// Every card, uncapped; what is on screen is `model::cap` of these unless
-    /// `expanded`.
-    all: RefCell<Vec<Card>>,
-    /// The "+N more" card was clicked, or Down reached it: show every card
-    /// until the panel tucks away or gives the keyboard back.
-    expanded: Cell<bool>,
-    /// The panel has the keyboard, from Mod+Alt+Ctrl+T.
-    keyboard: Cell<bool>,
-    /// The filter tab the keyboard's panel shows. All whenever the panel
-    /// takes the keyboard; kept across a refresh while it has it.
-    filter: Cell<Filter>,
-    /// The live herdr agents in the workspace's session, asked once as the
-    /// panel takes the keyboard: which cards get Go to session. Asked then
-    /// and no other time — not on each focus move, which would move the row
-    /// under the user and spawn herdr on every key, and not on the tucked
-    /// refresh, whose cards show no buttons.
-    agents: RefCell<Vec<String>>,
-    /// The Remove button pressed once and waiting for its second press, which
-    /// deletes. Moving the focus off it, or any re-render, puts it back.
-    armed: RefCell<Option<gtk4::Button>>,
-    /// Clear all pressed once and showing Confirm clear all, with the focus
-    /// off the cards. Moving the focus, or any re-render, puts it back, as
-    /// for an armed Remove.
-    clear_armed: Cell<bool>,
-    /// Where the focus was when Clear all armed, which took it off the cards:
-    /// where cancelling puts it back.
-    before_clear: RefCell<Option<gtk4::Widget>>,
+    /// What the panel shows, and what keys and presses do to it.
+    state: RefCell<PanelState>,
+    /// The cards on screen, as the last render drew them.
+    cards: RefCell<Vec<CardWidgets>>,
+    /// The panel is drawing the state: tearing the column down, or hiding
+    /// the rows the focus is leaving. GTK's focus moves meanwhile are its own
+    /// doing, not the user's, and the state is not told of them.
+    drawing: Cell<bool>,
     /// Speak's spinner is turning: a timer runs while the panel has the
     /// keyboard, the only time the buttons show.
     spinning: Cell<bool>,
@@ -199,6 +191,35 @@ pub struct Panel {
     /// Each card's height, top to bottom, for the blur region.
     heights: RefCell<Vec<i32>>,
     blur: RefCell<Option<Blur>>,
+}
+
+/// One card on screen: the widgets a focus, a spinner frame or an arming is
+/// drawn on, found by task rather than by widget name.
+struct CardWidgets {
+    /// None on "+N more".
+    uuid: Option<String>,
+    root: gtk4::Box,
+    body: gtk4::Button,
+    /// None on "+N more", and on every card off the keyboard.
+    row: Option<ActionRow>,
+}
+
+/// A card's action row, and the separator over it: shown while the card
+/// has the focus.
+struct ActionRow {
+    separator: gtk4::Separator,
+    row: gtk4::Box,
+    /// The focused button's name in words, after the icons.
+    hint: gtk4::Label,
+    buttons: Vec<(Action, gtk4::Button)>,
+    /// The task is up next, so its Up next reads Not up next.
+    up_next: bool,
+}
+
+impl CardWidgets {
+    fn button(&self, action: Action) -> Option<&gtk4::Button> {
+        self.row.as_ref()?.buttons.iter().find(|(a, _)| *a == action).map(|(_, b)| b)
+    }
 }
 
 /// Where the cards are and where they are going.
@@ -220,6 +241,24 @@ struct Slide {
     margin: Cell<i32>,
     margin_from: Cell<i32>,
     margin_to: Cell<i32>,
+}
+
+impl Slide {
+    fn tucked() -> Slide {
+        Slide {
+            x: Cell::new(TUCKED_X),
+            from: Cell::new(TUCKED_X),
+            to: Cell::new(TUCKED_X),
+            start_us: Cell::new(0),
+            ticking: Cell::new(false),
+            grace: Cell::new(None),
+            cards_h: Cell::new(0),
+            tabs_h: Cell::new(0),
+            margin: Cell::new(0),
+            margin_from: Cell::new(0),
+            margin_to: Cell::new(0),
+        }
+    }
 }
 
 impl Panel {
@@ -248,59 +287,8 @@ impl Panel {
         let base = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         let overlay = gtk4::Overlay::new();
         overlay.set_child(Some(&base));
-        // A viewport made by hand, to turn off its own scroll-to-focus. That
-        // would show only the focused button, leaving the rest of its card
-        // off screen; follow_focus scrolls the whole card into view instead.
-        let viewport = gtk4::Viewport::new(None::<&gtk4::Adjustment>, None::<&gtk4::Adjustment>);
-        viewport.set_scroll_to_focus(false);
-        viewport.set_child(Some(&column));
-        let scroller = gtk4::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk4::PolicyType::Never)
-            // External still scrolls (follow_focus, the wheel) but draws no
-            // bar over the Remove button or out of the 760px column's width.
-            .vscrollbar_policy(gtk4::PolicyType::External)
-            .child(&viewport)
-            .build();
-        // The filter tabs, over the scroller rather than in it, so they stay
-        // put while the cards scroll. Ring room on three sides, as the column
-        // keeps, and under them the card gap less the ring the column keeps
-        // above the first card: the first card then sits a card gap below.
-        let tabs = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        tabs.add_css_class("filter-tabs");
-        tabs.set_margin_top(RING_PX);
-        tabs.set_margin_start(RING_PX);
-        tabs.set_margin_end(RING_PX);
-        tabs.set_margin_bottom(GAP_PX - RING_PX);
-        // Clips the picked tab's fill to the bar's rounded corners.
-        tabs.set_overflow(gtk4::Overflow::Hidden);
-        tabs.set_visible(false);
-        let tab_buttons: Vec<gtk4::Button> = Filter::TABS
-            .iter()
-            .map(|filter| {
-                let button = gtk4::Button::with_label(filter.label());
-                // Out of the focus chain: the arrows and Tab stay between the
-                // cards and their buttons, and a click does not take the
-                // focus.
-                button.set_focusable(false);
-                button.set_focus_on_click(false);
-                tabs.append(&button);
-                button
-            })
-            .collect();
-        // Clear all, at the bar's far end: hexpand takes the room the tabs
-        // leave, and End keeps the button its own width at the end of it.
-        // Out of the focus chain like the tabs, which is why Ctrl+Delete
-        // presses it.
-        let clear = gtk4::Button::with_label(&clear_label(false));
-        clear.add_css_class("clear-all");
-        clear.set_tooltip_text(Some("Ctrl+Delete"));
-        clear.set_hexpand(true);
-        clear.set_halign(gtk4::Align::End);
-        clear.set_focusable(false);
-        clear.set_focus_on_click(false);
-        clear.set_visible(false);
-        tabs.append(&clear);
-        scroller.set_vexpand(true);
+        let scroller = scroller(&column);
+        let (tabs, tab_buttons, clear) = tab_bar();
         let front = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         front.append(&tabs);
         front.append(&scroller);
@@ -317,27 +305,10 @@ impl Panel {
             tabs,
             tab_buttons,
             clear,
-            slide: Rc::new(Slide {
-                x: Cell::new(TUCKED_X),
-                from: Cell::new(TUCKED_X),
-                to: Cell::new(TUCKED_X),
-                start_us: Cell::new(0),
-                ticking: Cell::new(false),
-                grace: Cell::new(None),
-                cards_h: Cell::new(0),
-                tabs_h: Cell::new(0),
-                margin: Cell::new(0),
-                margin_from: Cell::new(0),
-                margin_to: Cell::new(0),
-            }),
-            all: RefCell::new(Vec::new()),
-            expanded: Cell::new(false),
-            keyboard: Cell::new(false),
-            filter: Cell::new(Filter::All),
-            agents: RefCell::new(Vec::new()),
-            armed: RefCell::new(None),
-            clear_armed: Cell::new(false),
-            before_clear: RefCell::new(None),
+            slide: Rc::new(Slide::tucked()),
+            state: RefCell::new(PanelState::default()),
+            cards: RefCell::new(Vec::new()),
+            drawing: Cell::new(false),
             spinning: Cell::new(false),
             frame: Cell::new(0),
             heights: RefCell::new(Vec::new()),
@@ -355,31 +326,53 @@ impl Panel {
                 ))
             });
         }
+        panel.connect_tab_bar();
+        panel.connect_hover();
+        panel.connect_keys();
+        panel.connect_focus();
+        panel.connect_surface();
 
-        for (button, filter) in panel.tab_buttons.iter().zip(Filter::TABS) {
-            let weak = Rc::downgrade(&panel);
+        // Map once, then hide in the same main-loop iteration. A layer surface
+        // that has never been mapped ignores a later present(), so a daemon
+        // started on an empty workspace would otherwise never show a panel.
+        panel.window.present();
+        panel.window.set_visible(false);
+
+        panel
+    }
+
+    /// A click on a filter tab picks it; a click on Clear all presses it.
+    fn connect_tab_bar(self: &Rc<Self>) {
+        for (button, filter) in self.tab_buttons.iter().zip(Filter::TABS) {
+            let weak = Rc::downgrade(self);
             button.connect_clicked(move |_| {
                 if let Some(p) = weak.upgrade() {
-                    p.pick(filter);
+                    let effects = p.state.borrow_mut().on_tab(filter);
+                    p.apply(effects);
                 }
             });
         }
-        {
-            let weak = Rc::downgrade(&panel);
-            panel.clear.connect_clicked(move |_| {
-                if let Some(p) = weak.upgrade() {
-                    p.clear_all();
-                }
-            });
-        }
+        let weak = Rc::downgrade(self);
+        self.clear.connect_clicked(move |_| {
+            if let Some(p) = weak.upgrade() {
+                let effects = p.state.borrow_mut().on_clear_all();
+                p.apply(effects);
+            }
+        });
+    }
 
+    /// The pointer coming over the peek slides the cards out, and leaving
+    /// slides them back after the grace. A click on a card lands on this
+    /// surface, because it is inside the input region, and goes no further
+    /// than the card's own handler — see card_widget.
+    fn connect_hover(self: &Rc<Self>) {
         let motion = gtk4::EventControllerMotion::new();
         {
-            let weak = Rc::downgrade(&panel);
+            let weak = Rc::downgrade(self);
             motion.connect_enter(move |_, _, _| {
                 let Some(p) = weak.upgrade() else { return };
                 // The keyboard's panel is in the middle and stays put.
-                if p.keyboard.get() {
+                if p.state.borrow().keyboard() {
                     return;
                 }
                 p.cancel_grace();
@@ -387,11 +380,11 @@ impl Panel {
             });
         }
         {
-            let weak = Rc::downgrade(&panel);
+            let weak = Rc::downgrade(self);
             motion.connect_leave(move |_| {
                 let Some(p) = weak.upgrade() else { return };
                 // The keyboard's panel stays out until the keyboard is done.
-                if p.keyboard.get() {
+                if p.state.borrow().keyboard() {
                     return;
                 }
                 let weak = weak.clone();
@@ -406,108 +399,88 @@ impl Panel {
                 }
             });
         }
-        panel.window.add_controller(motion);
-        // A click on a card lands on this surface, because it is inside the
-        // input region, and goes no further than the card's own handler — see
-        // card_widget.
+        self.window.add_controller(motion);
+    }
 
-        let key_controller = gtk4::EventControllerKey::new();
-        // Capture, so the arrows and Tab reach this before the window's own
-        // focus chain, which would walk every button on the panel in turn
-        // rather than between cards, or along one.
-        key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
-        {
-            let weak = Rc::downgrade(&panel);
-            key_controller.connect_key_pressed(move |_, key, _, state| {
-                // Alt and Super chords belong to the compositor and the
-                // focused widget, not to the letters. Ctrl chords do too,
-                // bar Ctrl+Enter and Ctrl+Delete, which key_action picks out:
-                // Ctrl+T must not Stop.
-                if state.intersects(gdk::ModifierType::ALT_MASK | gdk::ModifierType::SUPER_MASK) {
-                    return glib::Propagation::Proceed;
+    /// Every key goes to the state, which says whether it was the panel's.
+    /// Capture, so the arrows and Tab reach this before the window's own
+    /// focus chain, which would walk every button on the panel in turn rather
+    /// than between cards, or along one.
+    fn connect_keys(self: &Rc<Self>) {
+        let controller = gtk4::EventControllerKey::new();
+        controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        let weak = Rc::downgrade(self);
+        controller.connect_key_pressed(move |_, key, _, modifiers| {
+            // Alt and Super chords belong to the compositor and the focused
+            // widget, not to the letters. Ctrl chords do too, bar Ctrl+Enter
+            // and Ctrl+Delete, which key_action picks out: Ctrl+T must not
+            // Stop.
+            if modifiers.intersects(gdk::ModifierType::ALT_MASK | gdk::ModifierType::SUPER_MASK) {
+                return glib::Propagation::Proceed;
+            }
+            let Some(p) = weak.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
+            let action = keys::key_action(key, modifiers.contains(gdk::ModifierType::CONTROL_MASK));
+            let effects = p.state.borrow_mut().on_key(action);
+            match effects {
+                Some(effects) => {
+                    p.apply(effects);
+                    glib::Propagation::Stop
                 }
-                let Some(p) = weak.upgrade() else {
-                    return glib::Propagation::Proceed;
-                };
-                let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
-                // Armed, Clear all takes every key: no card has the focus for
-                // Enter or a letter to act on.
-                if p.clear_armed.get() {
-                    match keys::while_clear_armed(key, ctrl) {
-                        Armed::Confirm => p.clear.emit_clicked(),
-                        Armed::Cancel => p.cancel_clear(),
-                        Armed::Pass(action) => p.key(action),
-                        Armed::Swallow => {}
-                    }
-                    return glib::Propagation::Stop;
-                }
-                match keys::key_action(key, ctrl) {
-                    KeyAction::Ignore | KeyAction::Enter => glib::Propagation::Proceed,
-                    action => {
-                        p.key(action);
-                        glib::Propagation::Stop
-                    }
-                }
-            });
-        }
-        panel.window.add_controller(key_controller);
+                None => glib::Propagation::Proceed,
+            }
+        });
+        self.window.add_controller(controller);
+    }
 
-        // The blur region is in surface coordinates, so it moves with the scroll.
+    /// GTK's focus moving, by a click or by an `Effect::Focus` coming back,
+    /// goes to the state, which disarms what the move should disarm. Then
+    /// the action row moves to the card the focus is on, before follow_focus
+    /// scrolls that card, row and all, into view.
+    fn connect_focus(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.window.connect_notify_local(Some("focus-widget"), move |_, _| {
+            let Some(p) = weak.upgrade() else { return };
+            if p.drawing.get() {
+                return;
+            }
+            let focus = GtkWindowExt::focus(&p.window).and_then(|w| p.focus_of(&w));
+            p.state.borrow_mut().on_focus(focus);
+            p.sync();
+            p.follow_focus();
+        });
+    }
+
+    /// The blur region is in surface coordinates, so it moves with the
+    /// scroll. GTK may reset the input region when the surface maps or
+    /// resizes, and a surface shown again may be a new wl_surface, which
+    /// needs its own blur object — the old one goes first, since niri allows
+    /// one each.
+    fn connect_surface(self: &Rc<Self>) {
         {
-            let weak = Rc::downgrade(&panel);
-            panel.scroller.vadjustment().connect_value_changed(move |_| {
+            let weak = Rc::downgrade(self);
+            self.scroller.vadjustment().connect_value_changed(move |_| {
                 if let Some(p) = weak.upgrade() {
                     p.update_blur(p.slide.x.get());
                 }
             });
         }
-
-        // Moving off an armed Remove disarms it, as moving at all disarms
-        // Clear all, and the action row moves to the card the focus is on,
-        // before follow_focus scrolls that card, row and all, into view.
-        {
-            let weak = Rc::downgrade(&panel);
-            panel.window.connect_notify_local(Some("focus-widget"), move |_, _| {
-                if let Some(p) = weak.upgrade() {
-                    p.disarm_unless_focused();
-                    p.disarm_clear();
-                    p.show_focused_row();
-                    p.follow_focus();
-                }
-            });
-        }
-
-        // GTK may reset the input region when the surface maps or resizes, and
-        // a surface shown again may be a new wl_surface, which needs its own
-        // blur object — the old one goes first, since niri allows one each.
-        {
-            let weak = Rc::downgrade(&panel);
-            panel.window.connect_map(move |_| {
-                if let Some(p) = weak.upgrade() {
-                    p.set_region(p.slide.x.get());
-                    drop(p.blur.borrow_mut().take());
-                    *p.blur.borrow_mut() = Blur::new(&p.window);
-                    p.update_blur(p.slide.x.get());
-                }
-            });
-        }
-
-        // Map once, then hide in the same main-loop iteration. A layer surface
-        // that has never been mapped ignores a later present(), so a daemon
-        // started on an empty workspace would otherwise never show a panel.
-        panel.window.present();
-        panel.window.set_visible(false);
-
-        panel
+        let weak = Rc::downgrade(self);
+        self.window.connect_map(move |_| {
+            if let Some(p) = weak.upgrade() {
+                p.set_region(p.slide.x.get());
+                drop(p.blur.borrow_mut().take());
+                *p.blur.borrow_mut() = Blur::new(&p.window);
+                p.update_blur(p.slide.x.get());
+            }
+        });
     }
 
     /// Show these cards, capped, or hide the panel when there are none.
     pub fn show(self: &Rc<Self>, cards: &[Card]) {
-        if *self.all.borrow() == cards {
-            return;
-        }
-        *self.all.borrow_mut() = cards.to_vec();
-        self.render();
+        let effects = self.state.borrow_mut().set_cards(cards);
+        self.apply(effects);
     }
 
     /// Take the keyboard in the middle of the monitor, every card wrapped with
@@ -521,23 +494,38 @@ impl Panel {
     /// slide out from the peek all the way to the middle. The peek goes with
     /// it: there is one surface, and it is in the middle now.
     pub fn take_keyboard(self: &Rc<Self>, agents: Vec<String>) -> bool {
-        if self.all.borrow().is_empty() {
+        if !self.state.borrow_mut().take_keyboard(agents) {
             return false;
         }
-        *self.agents.borrow_mut() = agents;
-        self.keyboard.set(true);
         self.cancel_grace();
         self.window.set_keyboard_mode(KeyboardMode::Exclusive);
-        // Opens on All every time, also when pressed again while open.
-        self.filter.set(Filter::All);
-        self.render();
-        // After render(), which measures the cards the region needs.
+        self.apply(vec![Effect::Render]);
+        // After the render, which measures the cards the region needs.
         self.slide_to(CENTRED_X, centre_margin(self.monitor.geometry().width()));
-        if let Some(first) = self.column.first_child() {
-            focus_card(&first, None);
-        }
         self.start_spinner();
         true
+    }
+
+    /// Run what the state asked for, in order, then draw what it says that a
+    /// render does not.
+    fn apply(self: &Rc<Self>, effects: Vec<Effect>) {
+        for effect in effects {
+            match effect {
+                Effect::Render => self.render(),
+                Effect::Focus(focus) => self.focus_on(focus.as_ref()),
+                Effect::Release => {
+                    // Snapped back rather than slid, so whatever the keyboard
+                    // opened does not wait on the cards crossing half the
+                    // screen.
+                    self.window.set_keyboard_mode(KeyboardMode::None);
+                    self.jump_to(TUCKED_X, 0);
+                }
+                Effect::Spawn(args) => open_menu(&self.output, &args),
+                Effect::DeleteAll(uuids) => delete_all(&self.output, &uuids),
+                Effect::Notify(text) => crate::notify::tasks(&text),
+            }
+        }
+        self.sync();
     }
 
     /// Turn the spinner on the Speak button of the task whose speech is being
@@ -552,7 +540,7 @@ impl Panel {
         let weak = Rc::downgrade(self);
         glib::timeout_add_local(SPIN, move || {
             let Some(p) = weak.upgrade() else { return glib::ControlFlow::Break };
-            if !p.keyboard.get() {
+            if !p.state.borrow().keyboard() {
                 p.spinning.set(false);
                 return glib::ControlFlow::Break;
             }
@@ -568,88 +556,33 @@ impl Panel {
         let preparing = crate::speak::preparing();
         let frame = self.frame.get().wrapping_add(1);
         self.frame.set(frame);
-        let mut card = self.column.first_child();
-        while let Some(c) = card {
-            card = c.next_sibling();
-            let speak = slots(&c)
-                .into_iter()
-                .find(|s| s.widget_name() == Action::Speak.name())
-                .and_then(|s| s.downcast::<gtk4::Button>().ok());
-            let Some(button) = speak else { continue };
-            let label = if preparing.as_deref() == Some(c.widget_name().as_str()) {
+        for card in self.cards.borrow().iter() {
+            let Some(button) = card.button(Action::Speak) else { continue };
+            let label = if preparing.is_some() && preparing == card.uuid {
                 Action::SPINNER[frame % Action::SPINNER.len()]
             } else {
                 Action::Speak.icon()
             };
-            if button.label().as_deref() != Some(label) {
-                button.set_label(label);
-            }
+            set_label(button, label);
         }
-    }
-
-    /// Give the keyboard back, folding every card to its one line again and
-    /// putting the panel back on the right edge, tucked away to its peek. The
-    /// cards snap there rather than slide, so whatever the keyboard opened
-    /// does not wait on them crossing half the screen.
-    fn release_keyboard(self: &Rc<Self>) {
-        if !self.keyboard.replace(false) {
-            return;
-        }
-        self.window.set_keyboard_mode(KeyboardMode::None);
-        self.agents.borrow_mut().clear();
-        self.expanded.set(false);
-        // The next Mod+Alt+Ctrl+T opens on All.
-        self.filter.set(Filter::All);
-        self.render();
-        self.jump_to(TUCKED_X, 0);
     }
 
     /// Slide back, folding an expanded list up again.
     fn tuck(self: &Rc<Self>) {
         self.slide_to(TUCKED_X, 0);
-        if self.expanded.replace(false) {
-            self.render();
-        }
-    }
-
-    /// Show every card in place of "+N more", focusing the first one it hid.
-    fn expand(self: &Rc<Self>) {
-        self.expanded.set(true);
-        self.render();
-        let mut child = self.column.first_child();
-        for _ in 0..model::CAP {
-            child = child.and_then(|c| c.next_sibling());
-        }
-        if let Some(c) = child {
-            focus_card(&c, None);
-        }
-    }
-
-    /// Show the cards under this filter tab. Focus stays on the card it was
-    /// on when the tab has it, and goes to the first card otherwise, as on a
-    /// refresh. Nothing without the keyboard, whose panel has no tabs, or for
-    /// a tab hidden for having no tasks.
-    fn pick(self: &Rc<Self>, filter: Filter) {
-        if !self.keyboard.get() || !Filter::shown(&self.all.borrow()).contains(&filter) {
-            return;
-        }
-        if self.filter.replace(filter) != filter {
-            self.render();
-        }
+        let effects = self.state.borrow_mut().on_tuck();
+        self.apply(effects);
     }
 
     /// Which tabs show, which one is picked, and whether Clear all shows.
     fn update_tabs(&self) {
-        let shown = Filter::shown(&self.all.borrow());
+        let state = self.state.borrow();
+        let shown = state.tabs();
         for (button, filter) in self.tab_buttons.iter().zip(Filter::TABS) {
             button.set_visible(shown.contains(&filter));
-            if filter == self.filter.get() {
-                button.add_css_class("current");
-            } else {
-                button.remove_css_class("current");
-            }
+            set_class(button, "current", filter == state.filter());
         }
-        self.clear.set_visible(self.filter.get() == Filter::Waiting);
+        self.clear.set_visible(state.shows_clear_all());
     }
 
     /// Measure the cards and the tabs, and size the surface to them: the
@@ -657,7 +590,7 @@ impl Panel {
     /// render, and again whenever a card's action row shows or hides, which
     /// changes its height without a render.
     fn fit(&self) {
-        let keyboard = self.keyboard.get();
+        let keyboard = self.state.borrow().keyboard();
         // Measured only once they are in the window: a label outside it has no
         // stylesheet, so it measures without its padding, and GTK keeps that
         // wrong size for the column's own measurement too.
@@ -693,24 +626,10 @@ impl Panel {
         self.window.set_default_size(SURFACE_WIDTH, height);
     }
 
+    /// Draw the state's cards afresh, or hide the panel when it has nothing
+    /// to show, and put the focus where the state has it.
     fn render(self: &Rc<Self>) {
-        let keyboard = self.keyboard.get();
-        // The hover and the peek show no waiting task, so they hide with
-        // nothing else to show; the keyboard's panel still has the Waiting
-        // tab, and hides only with no task at all.
-        let nothing = if keyboard {
-            self.all.borrow().is_empty()
-        } else {
-            Filter::All.pick(&self.all.borrow()).is_empty()
-        };
-        if nothing {
-            // The last task went while the panel had the keyboard: back to
-            // the right edge, so the next card shows as a peek there, and the
-            // next Mod+Alt+Ctrl+T opens on All, as after Escape.
-            if self.keyboard.replace(false) {
-                self.window.set_keyboard_mode(KeyboardMode::None);
-                self.filter.set(Filter::All);
-            }
+        if self.state.borrow().hidden() {
             // Only hide something that is up; hiding a never-mapped layer
             // surface leaves it deaf to a later present().
             if self.window.is_visible() {
@@ -720,43 +639,26 @@ impl Panel {
             self.jump_to(TUCKED_X, 0);
             return;
         }
-
-        // A tab shows only while it has tasks, so once the last one under the
-        // picked tab goes (started, off Planned, say), the panel is on All.
-        if keyboard && !Filter::shown(&self.all.borrow()).contains(&self.filter.get()) {
-            self.filter.set(Filter::All);
-        }
-        // Only the keyboard's panel has tabs; the peek and the hover show
-        // All's cards. Filtered before the cap, so "+N more" is the rest of
-        // this tab.
-        let filter = if keyboard { self.filter.get() } else { Filter::All };
-        let picked = filter.pick(&self.all.borrow());
-        let cards = if self.expanded.get() {
-            picked
-        } else {
-            model::cap(&picked, model::CAP)
+        let (shown, keyboard, empty, focus) = {
+            let state = self.state.borrow();
+            (state.visible(), state.keyboard(), state.empty_text(), state.focus().cloned())
         };
 
-        // A refresh while the keyboard is on the panel keeps focus on the same
-        // task, and on the same button of it: each card is named after its
-        // task's uuid, and each button after its action.
-        let focused = GtkWindowExt::focus(&self.window)
-            .and_then(|w| Some((self.card_of(&w)?.widget_name(), w.widget_name())));
-        // The buttons go with the widgets they were armed on. Clear all
-        // stays, but a re-render puts it back too, a tab switch included.
-        self.armed.replace(None);
-        self.disarm_clear();
-        while let Some(child) = self.column.first_child() {
-            self.column.remove(&child);
-        }
-        for card in &cards {
-            self.column.append(&self.card_widget(card));
-        }
-        if cards.is_empty() {
-            // Only All, with every task waiting: it says so, and the
-            // Waiting tab beside it has them.
-            self.column.append(&empty_line(filter));
-        }
+        self.while_drawing(|| {
+            while let Some(child) = self.column.first_child() {
+                self.column.remove(&child);
+            }
+            let cards: Vec<CardWidgets> = shown.iter().map(|s| self.card_widget(s, keyboard)).collect();
+            for card in &cards {
+                self.column.append(&card.root);
+            }
+            *self.cards.borrow_mut() = cards;
+            if let Some(text) = empty {
+                // Only All, with every task waiting: it says so, and the
+                // Waiting tab beside it has them.
+                self.column.append(&empty_line(text));
+            }
+        });
         self.tabs.set_visible(keyboard);
         self.update_tabs();
         self.fit();
@@ -766,58 +668,38 @@ impl Panel {
         self.set_region(self.slide.x.get().min(self.slide.to.get()));
         self.update_blur(self.slide.x.get());
 
-        if self.keyboard.get() {
-            let mut child = self.column.first_child();
-            while let Some(c) = &child {
-                if Some(c.widget_name()) == focused.as_ref().map(|(card, _)| card.clone()) {
-                    break;
-                }
-                child = c.next_sibling();
-            }
-            // The slot only goes with the same card: on the first card, which
-            // stands in when the focused one left, it would land on a button
-            // of that name rather than on the body.
-            // Its row shows before the focus goes in, which may be onto one of
-            // its buttons: a hidden button is no place for the focus.
-            let target = child.map(|c| (c, focused.as_ref().map(|(_, slot)| slot.as_str())));
-            let target = target.or_else(|| self.column.first_child().map(|c| (c, None)));
-            if let Some((card, slot)) = target {
-                self.show_row(Some(&card));
-                focus_card(&card, slot);
-            }
+        if keyboard {
+            self.focus_on(focus.as_ref());
         }
     }
 
-    /// One card: a box named after its task's uuid, so render() can put focus
-    /// back on it, holding the body, a button so the keyboard can focus and
-    /// press it, and, while the panel has the keyboard, its action row along
-    /// the bottom, hidden until the card has focus. The body opens the task's
-    /// whole menu, or shows the rest in place of "+N more".
-    fn card_widget(self: &Rc<Self>, card: &Card) -> gtk4::Box {
-        let keyboard = self.keyboard.get();
-        let widget = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-        widget.add_css_class("task-card");
+    /// One card: a box holding the body, a button so the keyboard can focus
+    /// and press it, and, while the panel has the keyboard, its action row
+    /// along the bottom, hidden until the card has focus. The body opens the
+    /// task's whole menu, or shows the rest in place of "+N more".
+    fn card_widget(self: &Rc<Self>, shown: &Shown, keyboard: bool) -> CardWidgets {
+        let card = &shown.card;
+        let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        root.add_css_class("task-card");
         match card.status {
-            Status::Active => widget.add_css_class("active"),
-            Status::Blocked => widget.add_css_class("blocked"),
-            Status::Planned => widget.add_css_class("planned"),
-            Status::More => widget.add_css_class("more"),
-            Status::Waiting => widget.add_css_class("waiting"),
+            Status::Active => root.add_css_class("active"),
+            Status::Blocked => root.add_css_class("blocked"),
+            Status::Planned => root.add_css_class("planned"),
+            Status::More => root.add_css_class("more"),
+            Status::Waiting => root.add_css_class("waiting"),
             Status::Pending => {}
         }
         // Its own class, beside the status's: an up next card is yellow
         // whatever its icon, unless it is active or waiting.
         if card.shows_up_next() {
-            widget.add_css_class("up-next");
+            root.add_css_class("up-next");
         }
-        widget.set_size_request(CARD_WIDTH_PX, -1);
+        root.set_size_request(CARD_WIDTH_PX, -1);
         // Clips the action row to the card's rounded bottom corners.
-        widget.set_overflow(gtk4::Overflow::Hidden);
-        widget.set_widget_name(card.uuid.as_deref().unwrap_or("more"));
+        root.set_overflow(gtk4::Overflow::Hidden);
 
         let body = gtk4::Button::builder().child(&card_label(card, keyboard)).build();
         body.add_css_class("card-body");
-        body.set_widget_name("body");
         // A mouse click opens the menu without leaving the card darkened.
         body.set_focus_on_click(false);
         {
@@ -825,297 +707,129 @@ impl Panel {
             let uuid = card.uuid.clone();
             body.connect_clicked(move |_| {
                 let Some(p) = weak.upgrade() else { return };
-                match &uuid {
-                    Some(uuid) => {
-                        p.release_keyboard();
-                        open_menu(&p.output, &["task".into(), "menu".into(), uuid.clone()]);
-                    }
-                    None => p.expand(),
-                }
+                let effects = match &uuid {
+                    Some(uuid) => p.state.borrow_mut().on_press(uuid, Slot::Body),
+                    None => p.state.borrow_mut().on_more(),
+                };
+                p.apply(effects);
             });
         }
-        widget.append(&body);
+        root.append(&body);
 
-        let Some(uuid) = card.uuid.as_ref().filter(|_| keyboard) else {
-            return widget;
-        };
+        let row = card.uuid.as_ref().filter(|_| !shown.actions.is_empty()).map(|uuid| {
+            let row = self.action_row(uuid, card.up_next, &shown.actions);
+            root.append(&row.separator);
+            root.append(&row.row);
+            row
+        });
+        CardWidgets { uuid: card.uuid.clone(), root, body, row }
+    }
+
+    /// A card's buttons, left-aligned and only as wide as their icons, then
+    /// the focused one's name in words: the icons alone do not say what they
+    /// do. Hidden, with the line over them, until the card has focus.
+    fn action_row(self: &Rc<Self>, uuid: &str, up_next: bool, actions: &[Action]) -> ActionRow {
         let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         row.add_css_class("card-actions");
-        // Left-aligned and only as wide as its icons, not spread across the card.
         row.set_halign(gtk4::Align::Start);
-        // After the icons, the focused one's name in words: the icons alone do
-        // not say what they do. Empty while the focus is on the description.
         let hint = gtk4::Label::new(None);
         hint.add_css_class("card-hint");
-        let has_session = crate::link::session_agent(&self.agents.borrow(), uuid).is_some();
-        for action in Action::for_status(card.status, has_session) {
-            // Up next reads Not up next on a task already up next.
-            let label = action.label_on(card.up_next);
+        let mut buttons = Vec::new();
+        for &action in actions {
             let button = gtk4::Button::with_label(action.icon());
-            // The icon's name in words, under the pointer and for a screen reader.
-            button.set_tooltip_text(Some(label));
+            // The icon's name in words, under the pointer and for a screen
+            // reader. Up next reads Not up next on a task already up next.
+            button.set_tooltip_text(Some(action.label_on(up_next)));
             button.add_css_class(action.name());
-            button.set_widget_name(action.name());
             let weak = Rc::downgrade(self);
-            let uuid = uuid.clone();
-            button.connect_clicked(move |b| {
+            let uuid = uuid.to_string();
+            button.connect_clicked(move |_| {
                 if let Some(p) = weak.upgrade() {
-                    p.press(action, &uuid, b);
+                    let effects = p.state.borrow_mut().on_press(&uuid, Slot::Button(action));
+                    p.apply(effects);
                 }
             });
-            let focus = gtk4::EventControllerFocus::new();
-            {
-                let hint = hint.downgrade();
-                focus.connect_enter(move |_| {
-                    if let Some(hint) = hint.upgrade() {
-                        hint.set_label(label);
-                    }
-                });
-            }
-            {
-                let hint = hint.downgrade();
-                focus.connect_leave(move |_| {
-                    if let Some(hint) = hint.upgrade() {
-                        hint.set_label("");
-                    }
-                });
-            }
-            button.add_controller(focus);
             row.append(&button);
+            buttons.push((action, button));
         }
         row.append(&hint);
-        // A line between the description and the buttons.
         let separator = gtk4::Separator::new(gtk4::Orientation::Horizontal);
         separator.add_css_class("card-separator");
-        // Hidden until the card has focus: show_row() shows them.
         separator.set_visible(false);
         row.set_visible(false);
-        widget.append(&separator);
-        widget.append(&row);
-        widget
+        ActionRow { separator, row, hint, buttons, up_next }
     }
 
-    /// Press one of a card's buttons. Remove only arms itself the first time,
-    /// as the menu's delete asks "delete?" first; the second press runs it.
-    /// Everything that opens something gives the keyboard back first, so the
-    /// box or terminal it opens can take it. Waiting and Remove open nothing:
-    /// the list stays up, focus moving to the next card (the one above, from
-    /// the last) so it is still there when the next tick drops this one.
-    /// Speak and Up next open nothing either, but their card stays: the list stays up with
-    /// the focus where it was, so a second press stops the speech.
-    fn press(self: &Rc<Self>, action: Action, uuid: &str, button: &gtk4::Button) {
-        if action == Action::Remove && self.armed.borrow().as_ref() != Some(button) {
-            // Focus first: the move disarms whatever was armed before, and
-            // this one is armed only after it.
-            button.grab_focus();
-            // Pressing an already focused Remove moves nothing, so an armed
-            // Clear all would stay armed beside it: one arming at a time.
-            self.disarm_clear();
-            button.set_label(&format!("{}  {}", Action::Remove.icon(), Action::CONFIRM_REMOVE));
-            button.add_css_class("confirm");
-            *self.armed.borrow_mut() = Some(button.clone());
-            return;
-        }
-        if action.leaves_the_list() {
-            let neighbour = self
-                .card_of(button.upcast_ref())
-                .and_then(|c| c.next_sibling().or_else(|| c.prev_sibling()));
-            if let Some(c) = neighbour {
-                focus_card(&c, None);
-            }
-        } else if !action.keeps_keyboard() {
-            self.release_keyboard();
-        }
-        open_menu(&self.output, &action.args(uuid));
-    }
-
-    /// Act on a key while the panel has the keyboard. Up and Down land on the
-    /// next card's body, or, Down reaching "+N more", show every card in its
-    /// place, focused on the first it hid. Left, Right and Tab move along the
-    /// focused card, and a letter presses that card's button. If the card has
-    /// no such button (Stop on a task that is not active, Go to session on
-    /// one with no Claude, a letter on "+N more"), nothing happens. 1 to 5,
-    /// [ and ] pick a filter tab instead, and Ctrl+Delete presses Clear all,
-    /// whatever has focus. Ctrl+Enter refines the focused task, or starts it
-    /// once it is planned, and keeps the keyboard so the list stays up.
-    fn key(self: &Rc<Self>, action: KeyAction) {
-        match action {
-            KeyAction::Release => return self.release_keyboard(),
-            KeyAction::Filter(filter) => return self.pick(filter),
-            // Through the button, so the key does exactly what a click does.
-            KeyAction::ClearAll => return self.clear.emit_clicked(),
-            KeyAction::PrevFilter | KeyAction::NextFilter => {
-                // Along the tabs on show, skipping the hidden ones.
-                let shown = Filter::shown(&self.all.borrow());
-                let at = shown.iter().position(|f| *f == self.filter.get()).unwrap_or(0);
-                let to = keys::step(at, shown.len(), action == KeyAction::NextFilter);
-                return self.pick(shown[to]);
-            }
-            _ => {}
-        }
-        let mut cards = Vec::new();
-        let mut child = self.column.first_child();
-        while let Some(c) = child {
-            child = c.next_sibling();
-            // Not the line All shows when every task is waiting, which has
-            // nothing to focus.
-            if c.has_css_class("task-card") {
-                cards.push(c);
-            }
-        }
-        let focus = GtkWindowExt::focus(&self.window);
-        let Some(card) = focus
-            .as_ref()
-            .and_then(|f| self.card_of(f))
-            .or_else(|| cards.first().cloned())
-        else {
-            return;
-        };
-        let at = cards.iter().position(|c| *c == card).unwrap_or(0);
-        let slots = slots(&card);
-        let slot = focus
-            .as_ref()
-            .and_then(|f| slots.iter().position(|s| s == f))
-            .unwrap_or(0);
-
-        match action {
-            KeyAction::PrevCard | KeyAction::NextCard => {
-                let to = keys::step(at, cards.len(), action == KeyAction::NextCard);
-                // "+N more" is always last, so only Down reaches it, and it
-                // shows what it stands for there and then rather than waiting
-                // on an Enter. expand() focuses the first card it hid, so the
-                // next Down carries on down the list.
-                if cards[to].widget_name() == "more" {
-                    self.expand();
-                } else {
-                    focus_card(&cards[to], None);
-                }
-            }
-            KeyAction::PrevSlot | KeyAction::NextSlot => {
-                let to = keys::step(slot, slots.len(), action == KeyAction::NextSlot);
-                slots[to].grab_focus();
-            }
-            KeyAction::Run(run) => {
-                // Through the button, so a key does exactly what a click does.
-                if let Some(button) = slots
-                    .iter()
-                    .find(|s| s.widget_name() == run.name())
-                    .and_then(|s| s.downcast_ref::<gtk4::Button>())
-                {
-                    button.emit_clicked();
-                }
-            }
-            KeyAction::Advance => self.advance(&card, &slots),
-            KeyAction::Release
-            | KeyAction::Ignore
-            | KeyAction::Enter
-            | KeyAction::Filter(_)
-            | KeyAction::PrevFilter
-            | KeyAction::NextFilter
-            | KeyAction::ClearAll => {}
-        }
-    }
-
-    /// Ctrl+Enter on `card`: run its Refine, or its Start once it is planned,
-    /// without releasing the keyboard or moving focus, so the user can go on
-    /// down the list. Not through `press`, which gives the keyboard back. Like
-    /// the letters, only a button the card has; the spawned command reports
-    /// its own errors.
-    fn advance(&self, card: &gtk4::Widget, slots: &[gtk4::Widget]) {
-        let uuid = card.widget_name();
-        let found = self.all.borrow().iter().find(|c| c.uuid.as_deref() == Some(uuid.as_str())).cloned();
-        let Some(task) = found else { return };
-        let Some(action) = Action::advance(task.status, task.planned) else { return };
-        if !slots.iter().any(|s| s.widget_name() == action.name()) {
-            return;
-        }
-        let verb = if action == Action::Refine { "Refining" } else { "Starting" };
-        crate::notify::tasks(&format!("{verb}: {}", task.text));
-        open_menu(&self.output, &action.args(&uuid));
-    }
-
-    /// Moving the focus away from an armed Remove puts it back to Remove, so a
-    /// later press starts over at the first press.
-    fn disarm_unless_focused(&self) {
-        let focus = GtkWindowExt::focus(&self.window);
-        let Some(button) = self.armed.take() else { return };
-        if focus.as_ref() == Some(button.upcast_ref()) {
-            *self.armed.borrow_mut() = Some(button);
-            return;
-        }
-        Self::put_remove_back(&button);
-    }
-
-    /// Put an armed Remove back to Remove, so a later press starts over at
-    /// the first. Arming Clear all calls this, as Ctrl+Delete moves no focus
-    /// to do it: one arming at a time.
-    fn disarm_remove(&self) {
-        if let Some(button) = self.armed.take() {
-            Self::put_remove_back(&button);
-        }
-    }
-
-    fn put_remove_back(button: &gtk4::Button) {
-        button.set_label(Action::Remove.icon());
-        button.remove_css_class("confirm");
-    }
-
-    /// Press Clear all. The first press arms it, as Remove's does, and takes
-    /// the focus off the cards, so Enter confirms rather than opening a card's
-    /// menu. The second deletes every task the Waiting tab lists, those past
-    /// "+N more" too, and puts the panel on All at once rather than as each
-    /// delete lands. The keyboard stays: the deletes open nothing. Nothing off
-    /// the Waiting tab, where Clear all is hidden, so a stray Ctrl+Delete does
-    /// nothing there.
-    fn clear_all(self: &Rc<Self>) {
-        if !self.keyboard.get() || self.filter.get() != Filter::Waiting {
-            return;
-        }
-        if !self.clear_armed.get() {
-            self.disarm_remove();
-            // The focus goes first: the move disarms Clear all, which is
-            // armed only after it.
-            let focus = GtkWindowExt::focus(&self.window);
-            GtkWindowExt::set_focus(&self.window, None::<&gtk4::Widget>);
-            *self.before_clear.borrow_mut() = focus;
-            self.clear_armed.set(true);
-            self.clear.set_label(&clear_label(true));
-            self.clear.add_css_class("confirm");
-            return;
-        }
-        let uuids = Filter::Waiting.uuids(&self.all.borrow());
-        // Its render disarms the button on the way.
-        self.pick(Filter::All);
-        if !uuids.is_empty() {
-            delete_all(&self.output, &uuids);
-        }
-    }
-
-    /// Put Clear all back and the focus where it was before it armed, or on
-    /// the first card when that card has gone: Escape, or a key that moves.
-    fn cancel_clear(&self) {
-        let before = self.before_clear.take();
-        self.disarm_clear();
-        match before.filter(|w| self.card_of(w).is_some()) {
+    /// The state's focus as GTK's, its card's row shown first: a hidden
+    /// button is no place for the focus. Hiding the row it leaves moves
+    /// GTK's focus off it on the way, which the state has no need to hear.
+    /// None takes the focus off the cards.
+    fn focus_on(&self, focus: Option<&Focus>) {
+        self.while_drawing(|| self.show_row(focus.map(|f| f.uuid.as_str())));
+        match focus.and_then(|f| self.widget_of(f)) {
             Some(widget) => {
                 widget.grab_focus();
             }
-            None => {
-                if let Some(first) = self.column.first_child() {
-                    focus_card(&first, None);
-                }
-            }
+            None => GtkWindowExt::set_focus(&self.window, None::<&gtk4::Widget>),
         }
     }
 
-    /// Put Clear all back from Confirm clear all, so a later press starts
-    /// over at the first.
-    fn disarm_clear(&self) {
-        self.before_clear.replace(None);
-        if self.clear_armed.replace(false) {
-            self.clear.set_label(&clear_label(false));
-            self.clear.remove_css_class("confirm");
+    /// Run `draw` with GTK's focus moves kept from the state.
+    fn while_drawing(&self, draw: impl FnOnce()) {
+        let was = self.drawing.replace(true);
+        draw();
+        self.drawing.set(was);
+    }
+
+    /// The widget a focus is on.
+    fn widget_of(&self, focus: &Focus) -> Option<gtk4::Widget> {
+        let cards = self.cards.borrow();
+        let card = cards.iter().find(|c| c.uuid.as_deref() == Some(focus.uuid.as_str()))?;
+        match focus.slot {
+            Slot::Body => Some(card.body.clone().upcast()),
+            Slot::Button(action) => card.button(action).map(|b| b.clone().upcast()),
         }
+    }
+
+    /// The focus a widget is: a task card's body or one of its buttons.
+    fn focus_of(&self, widget: &gtk4::Widget) -> Option<Focus> {
+        self.cards.borrow().iter().find_map(|card| {
+            let uuid = card.uuid.clone()?;
+            if card.body.upcast_ref::<gtk4::Widget>() == widget {
+                return Some(Focus { uuid, slot: Slot::Body });
+            }
+            let (action, _) = card.row.as_ref()?.buttons.iter().find(|(_, b)| b.upcast_ref::<gtk4::Widget>() == widget)?;
+            Some(Focus { uuid, slot: Slot::Button(*action) })
+        })
+    }
+
+    /// Draw what the state says that a render does not: which Remove, and
+    /// whether Clear all, reads as armed, and which card shows its action row
+    /// and the focused button's name.
+    fn sync(&self) {
+        let (focus, armed) = {
+            let state = self.state.borrow();
+            (state.focus().cloned(), state.armed().clone())
+        };
+        let clear_armed = matches!(armed, Armed::ClearAll { .. });
+        set_label(&self.clear, &clear_label(clear_armed));
+        set_class(&self.clear, "confirm", clear_armed);
+        for card in self.cards.borrow().iter() {
+            let Some(row) = &card.row else { continue };
+            let removing = matches!(&armed, Armed::Remove(uuid) if Some(uuid) == card.uuid.as_ref());
+            if let Some(remove) = card.button(Action::Remove) {
+                set_label(remove, &remove_label(removing));
+                set_class(remove, "confirm", removing);
+            }
+            let hint = match &focus {
+                Some(Focus { uuid, slot: Slot::Button(action) }) if Some(uuid) == card.uuid.as_ref() => {
+                    action.label_on(row.up_next)
+                }
+                _ => "",
+            };
+            row.hint.set_label(hint);
+        }
+        self.show_row(focus.as_ref().map(|f| f.uuid.as_str()));
     }
 
     /// Scroll the focused card wholly into view, body and buttons, once the
@@ -1125,9 +839,9 @@ impl Panel {
         let weak = Rc::downgrade(self);
         crate::taskbox::after_next_paint(&self.window, move || {
             let Some(p) = weak.upgrade() else { return };
-            let Some(focus) = GtkWindowExt::focus(&p.window) else { return };
-            let Some(card) = p.card_of(&focus) else { return };
-            let Some(bounds) = card.compute_bounds(&p.column) else { return };
+            let Some(uuid) = p.state.borrow().focus().map(|f| f.uuid.clone()) else { return };
+            let root = p.cards.borrow().iter().find(|c| c.uuid.as_ref() == Some(&uuid)).map(|c| c.root.clone());
+            let Some(bounds) = root.and_then(|r| r.compute_bounds(&p.column)) else { return };
             let adjustment = p.scroller.vadjustment();
             // Bounds are in the column; the viewport's content starts RING_PX
             // above it, and the card's ring takes RING_PX on each side. So
@@ -1139,49 +853,26 @@ impl Panel {
         });
     }
 
-    /// Show this card's action row and hide every other card's, so only
-    /// the card being worked on stands taller by its buttons, and the list stays
-    /// short enough to scan. The cards change
-    /// height without a render, so the surface, the input region and the blur
-    /// are fitted to them again, but only when a row actually showed or hid:
-    /// a render tearing the column down moves the focus too.
-    fn show_row(&self, card: Option<&gtk4::Widget>) {
+    /// Show this task's card's action row and hide every other card's, so
+    /// only the card being worked on stands taller by its buttons, and the
+    /// list stays short enough to scan. The cards change height without a
+    /// render, so the surface, the input region and the blur are fitted to
+    /// them again, but only when a row actually showed or hid.
+    fn show_row(&self, uuid: Option<&str>) {
         let mut changed = false;
-        let mut child = self.column.first_child();
-        while let Some(c) = child {
-            child = c.next_sibling();
-            let show = Some(&c) == card;
-            for part in row_parts(&c) {
-                if part.is_visible() != show {
-                    part.set_visible(show);
-                    changed = true;
-                }
+        for card in self.cards.borrow().iter() {
+            let Some(row) = &card.row else { continue };
+            let show = uuid.is_some() && card.uuid.as_deref() == uuid;
+            if row.row.is_visible() != show {
+                row.separator.set_visible(show);
+                row.row.set_visible(show);
+                changed = true;
             }
         }
         if changed {
             self.fit();
             self.set_region(self.slide.x.get().min(self.slide.to.get()));
             self.update_blur(self.slide.x.get());
-        }
-    }
-
-    /// Show the action row of the card that has focus, and no other.
-    fn show_focused_row(&self) {
-        let card = GtkWindowExt::focus(&self.window).and_then(|w| self.card_of(&w));
-        self.show_row(card.as_ref());
-    }
-
-    /// The card a widget is in: the one of the column's children it sits
-    /// inside.
-    fn card_of(&self, widget: &gtk4::Widget) -> Option<gtk4::Widget> {
-        let column: &gtk4::Widget = self.column.upcast_ref();
-        let mut w = widget.clone();
-        loop {
-            let parent = w.parent()?;
-            if &parent == column {
-                return Some(w);
-            }
-            w = parent;
         }
     }
 
@@ -1203,7 +894,7 @@ impl Panel {
     fn set_region(&self, x: f64) {
         let Some(surface) = self.window.surface() else { return };
         let x = x.round() as i32;
-        let width = region_width(x, self.keyboard.get());
+        let width = region_width(x, self.state.borrow().keyboard());
         // From the top of the tabs, when there are any, to the bottom of the
         // cards on screen.
         let height = self.slide.tabs_h.get() + self.slide.cards_h.get();
@@ -1335,12 +1026,72 @@ fn card_label(card: &Card, wrap: bool) -> gtk4::Box {
     row.append(&text);
     row
 }
+/// The column's scroller, for cards that run taller than the screen. A
+/// viewport made by hand, to turn off its own scroll-to-focus. That would
+/// show only the focused button, leaving the rest of its card off screen;
+/// follow_focus scrolls the whole card into view instead.
+fn scroller(column: &gtk4::Box) -> gtk4::ScrolledWindow {
+    let viewport = gtk4::Viewport::new(None::<&gtk4::Adjustment>, None::<&gtk4::Adjustment>);
+    viewport.set_scroll_to_focus(false);
+    viewport.set_child(Some(column));
+    let scroller = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        // External still scrolls (follow_focus, the wheel) but draws no
+        // bar over the Remove button or out of the 760px column's width.
+        .vscrollbar_policy(gtk4::PolicyType::External)
+        .child(&viewport)
+        .build();
+    scroller.set_vexpand(true);
+    scroller
+}
+
+/// The filter tabs and Clear all, over the scroller rather than in it, so
+/// they stay put while the cards scroll. Ring room on three sides, as the
+/// column keeps, and under them the card gap less the ring the column keeps
+/// above the first card: the first card then sits a card gap below.
+fn tab_bar() -> (gtk4::Box, Vec<gtk4::Button>, gtk4::Button) {
+    let tabs = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    tabs.add_css_class("filter-tabs");
+    tabs.set_margin_top(RING_PX);
+    tabs.set_margin_start(RING_PX);
+    tabs.set_margin_end(RING_PX);
+    tabs.set_margin_bottom(GAP_PX - RING_PX);
+    // Clips the picked tab's fill to the bar's rounded corners.
+    tabs.set_overflow(gtk4::Overflow::Hidden);
+    tabs.set_visible(false);
+    let tab_buttons: Vec<gtk4::Button> = Filter::TABS
+        .iter()
+        .map(|filter| {
+            let button = gtk4::Button::with_label(filter.label());
+            // Out of the focus chain: the arrows and Tab stay between the
+            // cards and their buttons, and a click does not take the focus.
+            button.set_focusable(false);
+            button.set_focus_on_click(false);
+            tabs.append(&button);
+            button
+        })
+        .collect();
+    // Clear all, at the bar's far end: hexpand takes the room the tabs
+    // leave, and End keeps the button its own width at the end of it. Out
+    // of the focus chain like the tabs, which is why Ctrl+Delete presses it.
+    let clear = gtk4::Button::with_label(&clear_label(false));
+    clear.add_css_class("clear-all");
+    clear.set_tooltip_text(Some("Ctrl+Delete"));
+    clear.set_hexpand(true);
+    clear.set_halign(gtk4::Align::End);
+    clear.set_focusable(false);
+    clear.set_focus_on_click(false);
+    clear.set_visible(false);
+    tabs.append(&clear);
+    (tabs, tab_buttons, clear)
+}
 
 /// The one line a filter tab with nothing under it shows where its cards
-/// would be (only All, when every task is waiting), in a card's look so it reads as part of the panel. Not a card:
-/// it has no task and nothing to focus, and the keys pass over it.
-fn empty_line(filter: Filter) -> gtk4::Label {
-    let line = gtk4::Label::new(Some(filter.empty_text()));
+/// would be (only All, when every task is waiting), in a card's look so it
+/// reads as part of the panel. Not a card: it has no task and nothing to
+/// focus.
+fn empty_line(text: &str) -> gtk4::Label {
+    let line = gtk4::Label::new(Some(text));
     line.add_css_class("filter-empty");
     line.set_xalign(0.0);
     line.set_size_request(CARD_WIDTH_PX, -1);
@@ -1353,53 +1104,31 @@ fn clear_label(armed: bool) -> String {
     format!("{}  {words}", Action::Remove.icon())
 }
 
-/// A card's separator and action row: what shows only while it has focus.
-/// Nothing for a card without them ("+N more", or any card off the keyboard).
-fn row_parts(card: &gtk4::Widget) -> Vec<gtk4::Widget> {
-    let mut parts = Vec::new();
-    let mut child = card.first_child();
-    while let Some(c) = child {
-        child = c.next_sibling();
-        if c.has_css_class("card-separator") || c.has_css_class("card-actions") {
-            parts.push(c);
-        }
+/// Remove's face: its trash can alone, or, armed, the can and what it asks.
+fn remove_label(armed: bool) -> String {
+    if armed {
+        format!("{}  {}", Action::Remove.icon(), Action::CONFIRM_REMOVE)
+    } else {
+        Action::Remove.icon().to_string()
     }
-    parts
 }
 
-/// What the keyboard can stop on in a card, left to right: its body, then its
-/// action buttons.
-fn slots(card: &gtk4::Widget) -> Vec<gtk4::Widget> {
-    let mut slots = Vec::new();
-    let Some(body) = card.first_child() else { return slots };
-    // The row is the card's last child, after the separator; a card without
-    // one ends with its body.
-    if let Some(row) = card.last_child().filter(|row| row.has_css_class("card-actions")) {
-        // Its buttons, and not the hint label that follows them.
-        let mut child = row.first_child();
-        while let Some(button) = child {
-            child = button.next_sibling();
-            if button.is::<gtk4::Button>() {
-                slots.push(button);
-            }
-        }
+/// Set a button's label only when it differs: every sync sets them all, and
+/// an unchanged label should not cost a relayout.
+fn set_label(button: &gtk4::Button, label: &str) {
+    if button.label().as_deref() != Some(label) {
+        button.set_label(label);
     }
-    slots.insert(0, body);
-    slots
 }
 
-/// Focus the slot in `card` with this widget name, or its body when it has
-/// none: a re-render that dropped the button, such as Stop on a task that
-/// just stopped.
-fn focus_card(card: &gtk4::Widget, slot: Option<&str>) {
-    let slots = slots(card);
-    let target = slot
-        .and_then(|name| slots.iter().find(|s| s.widget_name() == name))
-        .or_else(|| slots.first());
-    if let Some(target) = target {
-        target.grab_focus();
+fn set_class(widget: &impl IsA<gtk4::Widget>, class: &str, on: bool) {
+    if on {
+        widget.add_css_class(class);
+    } else {
+        widget.remove_css_class(class);
     }
 }
+
 
 /// Run a `niritasks` command on this monitor: a task's action menu, the
 /// fuzzel list, or one of a card's buttons. See `spawn_on`.
@@ -1562,5 +1291,12 @@ mod tests {
     fn clear_all_wears_removes_trash_can_and_asks_once_armed() {
         assert_eq!(clear_label(false), format!("{}  Clear all", Action::Remove.icon()));
         assert_eq!(clear_label(true), format!("{}  Confirm clear all", Action::Remove.icon()));
+    }
+
+    /// Remove's trash can alone, then, armed, the can and what it asks.
+    #[test]
+    fn remove_asks_once_armed() {
+        assert_eq!(remove_label(false), Action::Remove.icon());
+        assert_eq!(remove_label(true), format!("{}  Confirm remove", Action::Remove.icon()));
     }
 }

@@ -1,8 +1,8 @@
 //! What a keypress on the task panel means while it has the keyboard.
 //!
 //! Pure, as the task box's keys are, so the mapping is testable without a
-//! window. Acting on it, and the controller's propagation phase that lets it
-//! see the arrows first, are `surface.rs`'s.
+//! window. What the key then does is `state.rs`'s; the controller's
+//! propagation phase that lets it see the arrows first is `surface.rs`'s.
 
 use super::actions::Action;
 use super::model::Filter;
@@ -80,39 +80,6 @@ pub fn key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
         gdk::Key::bracketleft => KeyAction::PrevFilter,
         gdk::Key::bracketright => KeyAction::NextFilter,
         _ => KeyAction::Ignore,
-    }
-}
-
-/// What a keypress does while Clear all is armed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Armed {
-    /// Press it the second time: delete.
-    Confirm,
-    /// Put it back, and the focus on the card it was taken from.
-    Cancel,
-    /// Act on it as ever: a tab key, whose re-render puts Clear all back.
-    Pass(KeyAction),
-    /// Nothing. A card's key, with no card focused to act on.
-    Swallow,
-}
-
-/// Map a keypress while Clear all is armed. Arming takes the focus off the
-/// cards, so Enter cannot open a card's menu and confirms instead, as the
-/// second Ctrl+Delete does. Escape and the keys that move the focus cancel,
-/// Escape without giving the keyboard back. A card's keys are swallowed rather
-/// than left to fall back on the first card, which no one picked.
-pub fn while_clear_armed(key: gdk::Key, ctrl: bool) -> Armed {
-    match key_action(key, ctrl) {
-        KeyAction::ClearAll | KeyAction::Enter => Armed::Confirm,
-        KeyAction::Release
-        | KeyAction::PrevCard
-        | KeyAction::NextCard
-        | KeyAction::PrevSlot
-        | KeyAction::NextSlot => Armed::Cancel,
-        action @ (KeyAction::Filter(_) | KeyAction::PrevFilter | KeyAction::NextFilter) => {
-            Armed::Pass(action)
-        }
-        KeyAction::Run(_) | KeyAction::Advance | KeyAction::Ignore => Armed::Swallow,
     }
 }
 
@@ -241,42 +208,5 @@ mod tests {
         assert_eq!(key_action(gdk::Key::KP_Delete, true), KeyAction::ClearAll);
         assert_eq!(key_action(gdk::Key::Delete, false), KeyAction::Run(Action::Remove));
         assert_eq!(key_action(gdk::Key::KP_Delete, false), KeyAction::Run(Action::Remove));
-    }
-
-    /// Armed, Clear all has the keyboard to itself: Enter confirms as Ctrl+Delete
-    /// does, since no card has focus for Enter to open.
-    #[test]
-    fn enter_and_ctrl_delete_confirm_an_armed_clear_all() {
-        for key in [gdk::Key::Return, gdk::Key::KP_Enter] {
-            assert_eq!(while_clear_armed(key, false), Armed::Confirm, "{key:?}");
-        }
-        assert_eq!(while_clear_armed(gdk::Key::Delete, true), Armed::Confirm);
-    }
-
-    /// Escape and the keys that move the focus take it back, without closing
-    /// the panel or moving on past the card it was on.
-    #[test]
-    fn escape_and_moving_cancel_an_armed_clear_all() {
-        for key in [gdk::Key::Escape, gdk::Key::Up, gdk::Key::Down, gdk::Key::Left, gdk::Key::Right, gdk::Key::Tab, gdk::Key::ISO_Left_Tab] {
-            assert_eq!(while_clear_armed(key, false), Armed::Cancel, "{key:?}");
-        }
-    }
-
-    /// A tab key switches tab as ever, which puts Clear all back on its way.
-    #[test]
-    fn the_tab_keys_still_switch_tab_while_armed() {
-        assert_eq!(while_clear_armed(gdk::Key::_1, false), Armed::Pass(KeyAction::Filter(Filter::All)));
-        assert_eq!(while_clear_armed(gdk::Key::bracketleft, false), Armed::Pass(KeyAction::PrevFilter));
-        assert_eq!(while_clear_armed(gdk::Key::bracketright, false), Armed::Pass(KeyAction::NextFilter));
-    }
-
-    /// No card has focus, so a card's keys have nothing to act on; they must
-    /// not fall through to the first card, nor plain Delete arm its Remove.
-    #[test]
-    fn a_cards_keys_do_nothing_while_armed() {
-        for key in [gdk::Key::b, gdk::Key::e, gdk::Key::Delete, gdk::Key::space, gdk::Key::x] {
-            assert_eq!(while_clear_armed(key, false), Armed::Swallow, "{key:?}");
-        }
-        assert_eq!(while_clear_armed(gdk::Key::Return, true), Armed::Swallow, "Ctrl+Enter");
     }
 }
