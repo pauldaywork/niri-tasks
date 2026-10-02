@@ -23,6 +23,16 @@
 
 Already verified while planning: in a sandboxed taskwarrior 2.6.2, `task add <type>: do the thing` keeps `<type>: do the thing` as the description for all 11 types. So the test in Task 1 passes on first run — it is a guard against a future taskwarrior or a UDA starting to eat the prefix, not a red-green cycle.
 
+### Checked before planning: nothing that reads a description breaks
+
+Every use of `.description` in `src/` was traced, and the risky ones run for real:
+
+- **Identity is by uuid, never description:** herdr agent names (`task-<uuid8>`, `work-<uuid8>`), the daemon's socket protocol (`edit <uuid>`), finding a task's worktree (`find_task_worktree` matches `-<uuid8>`), `finish-worktree`'s task lookup.
+- **Branch and worktree names:** `work::slug` folds `:` into `-`, so `feat: Give every task…` becomes `task/feat-give-every-task-a-conventional-82830753`. This very task was started that way, and its worktree and herdr workspace came up correctly.
+- **Real binary against a scratch database:** `niritasks task add feat: … due:…` kept `feat:` and still set the due date; `task list --dry-run`, `get-text`, `edit` (`fix: … due:friday` stayed literal), `note`, `status active`, `active` and `status completed` all behaved.
+- **Speak:** Haiku's rewrite (`src/speak_prompt.md`) of three typed descriptions dropped or paraphrased the type; none read "feat colon" aloud.
+- **Cosmetic only:** herdr tab labels read `Refine: feat: …` / `Start: feat: …`, and the prefix takes ~6 of their 30 characters; the add notification reads `Added to +tag: feat: …`.
+
 ## File Structure
 
 | File | Change |
