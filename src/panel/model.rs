@@ -4,6 +4,7 @@
 //! picker: the ordering, icons and cap are the parts worth testing, and none of
 //! them needs a compositor.
 
+use crate::actions::TaskState;
 use crate::task::Task;
 
 /// The most task cards a panel shows. Past this, the rest fold into one
@@ -65,6 +66,18 @@ impl Card {
     /// stronger fact. Every other card is yellow, the lock and the dot too.
     pub fn shows_up_next(&self) -> bool {
         self.up_next && !matches!(self.status, Status::Active | Status::Waiting)
+    }
+
+    /// The task's state, as the task actions read it, with whether a Claude
+    /// is on it. None on "+N more", which stands for no one task.
+    pub fn state(&self, has_session: bool) -> Option<TaskState> {
+        (self.status != Status::More).then(|| TaskState {
+            active: self.status == Status::Active,
+            waiting: self.status == Status::Waiting,
+            planned: self.planned,
+            up_next: self.up_next,
+            has_session,
+        })
     }
 }
 
@@ -503,5 +516,23 @@ mod tests {
         let more = cap(&cards(&many, &[]), CAP).pop().unwrap();
         assert!(!more.up_next);
         assert!(!more.shows_up_next());
+    }
+
+    /// A card's status and tags are its task's state; "+N more" has none.
+    #[test]
+    fn a_cards_state_is_its_tasks() {
+        let card = |status, planned, up_next| Card { status, text: "t".into(), uuid: Some("u".into()), planned, up_next };
+        assert_eq!(
+            card(Status::Active, true, true).state(true),
+            Some(TaskState { active: true, waiting: false, planned: true, up_next: true, has_session: true })
+        );
+        assert_eq!(
+            card(Status::Waiting, false, false).state(false),
+            Some(TaskState { waiting: true, ..TaskState::default() })
+        );
+        assert_eq!(card(Status::Blocked, false, false).state(false), Some(TaskState::default()));
+        let more = cap(&[card(Status::Pending, false, false), card(Status::Pending, false, false)], 1).pop().unwrap();
+        assert_eq!(more.status, Status::More);
+        assert_eq!(more.state(true), None);
     }
 }

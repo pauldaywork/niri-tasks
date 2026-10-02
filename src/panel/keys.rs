@@ -4,7 +4,7 @@
 //! window. What the key then does is `state.rs`'s; the controller's
 //! propagation phase that lets it see the arrows first is `surface.rs`'s.
 
-use super::actions::Action;
+use crate::actions::Action;
 use super::model::Filter;
 use gtk4::gdk;
 
@@ -65,12 +65,6 @@ pub fn key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
         gdk::Key::Down => KeyAction::NextCard,
         gdk::Key::Left | gdk::Key::ISO_Left_Tab => KeyAction::PrevSlot,
         gdk::Key::Right | gdk::Key::Tab => KeyAction::NextSlot,
-        gdk::Key::g => KeyAction::Run(Action::Session),
-        gdk::Key::b => KeyAction::Run(Action::Back),
-        gdk::Key::s => KeyAction::Run(Action::Start),
-        gdk::Key::r => KeyAction::Run(Action::Refine),
-        gdk::Key::e => KeyAction::Run(Action::Edit),
-        gdk::Key::t => KeyAction::Run(Action::Stop),
         gdk::Key::Delete | gdk::Key::KP_Delete => KeyAction::Run(Action::Remove),
         gdk::Key::_1 => KeyAction::Filter(Filter::TABS[0]),
         gdk::Key::_2 => KeyAction::Filter(Filter::TABS[1]),
@@ -79,7 +73,11 @@ pub fn key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
         gdk::Key::_5 => KeyAction::Filter(Filter::TABS[4]),
         gdk::Key::bracketleft => KeyAction::PrevFilter,
         gdk::Key::bracketright => KeyAction::NextFilter,
-        _ => KeyAction::Ignore,
+        // A letter presses the row's button that has it.
+        key => match key.to_unicode().and_then(Action::for_letter) {
+            Some(action) => KeyAction::Run(action),
+            None => KeyAction::Ignore,
+        },
     }
 }
 

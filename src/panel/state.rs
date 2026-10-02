@@ -9,7 +9,7 @@
 //! any re-render disarming, where the focus lands) are tested without a
 //! window, and `surface.rs` only draws what this says and runs what it asks.
 
-use super::actions::Action;
+use crate::actions::Action;
 use super::keys::{self, KeyAction};
 use super::model::{self, Card, Filter};
 
@@ -160,7 +160,7 @@ impl PanelState {
                 let actions = match card.uuid.as_deref().filter(|_| self.keyboard) {
                     Some(uuid) => {
                         let has_session = crate::link::session_agent(&self.agents, uuid).is_some();
-                        Action::for_status(card.status, has_session)
+                        card.state(has_session).map(Action::row).unwrap_or_default()
                     }
                     None => Vec::new(),
                 };
@@ -476,7 +476,7 @@ impl PanelState {
         let shown = self.visible();
         let Some(card) = self.current(&shown).map(|at| &shown[at]) else { return Vec::new() };
         let Some(uuid) = &card.card.uuid else { return Vec::new() };
-        let Some(action) = Action::advance(card.card.status, card.card.planned) else { return Vec::new() };
+        let Some(action) = card.card.state(false).and_then(Action::advance) else { return Vec::new() };
         if !card.actions.contains(&action) {
             return Vec::new();
         }

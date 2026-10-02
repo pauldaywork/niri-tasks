@@ -25,6 +25,8 @@
 //! the whole display and the daemon also opens task boxes, which must not pick
 //! up a transparent window or a card's fill.
 
+use crate::actions::Action;
+
 /// A terminal window's fill: ghostty's black `background` at
 /// `background-opacity = 0.5`, under niri's window `opacity 0.75`. The terminal
 /// also gets niri's blur, which the cards cannot: niri blurs a layer surface's
@@ -74,19 +76,24 @@ pub const SESSION: &str = "#89b4fa";
 /// Text on a solid colour fill, the armed Remove: mocha's `base`, so it reads
 /// as dark on red.
 pub const ON_FILL: &str = "#1e1e2e";
-/// Each button's class, as `Action::name()` gives it, and its colour.
-pub const ACTION_COLOURS: [(&str, &str); 10] = [
-    ("session", SESSION),
-    ("back", BACK),
-    ("start", ACTIVE),
-    ("refine", REFINE),
-    ("edit", EDIT),
-    ("speak", SPEAK),
-    ("up-next", UP_NEXT),
-    ("stop", STOP),
-    ("wait", WAIT),
-    ("remove", REMOVE),
-];
+/// Each task action's colour. Exhaustive, so a new action cannot be a grey
+/// button. Note and Grill me are the menu's alone. They wear the colour of
+/// the button nearest them, Edit's and Refine's, so one moved onto the row
+/// needs no new colour.
+pub fn colour(action: Action) -> &'static str {
+    match action {
+        Action::Session => SESSION,
+        Action::Back => BACK,
+        Action::Start => ACTIVE,
+        Action::Refine | Action::Grill => REFINE,
+        Action::Edit | Action::Note => EDIT,
+        Action::Speak => SPEAK,
+        Action::UpNext => UP_NEXT,
+        Action::Stop => STOP,
+        Action::Wait => WAIT,
+        Action::Remove => REMOVE,
+    }
+}
 /// mako `border-radius`.
 pub const RADIUS_PX: i32 = 8;
 /// mako `padding`.
@@ -205,7 +212,8 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .task-card.up-next {{ color: {UP_NEXT}; }}
 "
     );
-    for (name, colour) in ACTION_COLOURS {
+    for action in Action::ROW {
+        let (name, colour) = (action.class(), colour(action));
         css.push_str(&format!(
             ".task-panel .card-actions .{name} {{ color: {colour}; }}\n\
              .task-panel .card-actions .{name}:focus {{ background-color: alpha({colour}, 0.2); }}\n"
@@ -254,16 +262,11 @@ mod tests {
     }
 
     /// Each button in its own colour, Start sharing the active task's green.
-    /// A new Action without a colour fails here, not as a grey button.
     #[test]
     fn every_action_button_has_its_colour() {
         let css = css();
-        for action in crate::panel::actions::Action::ALL {
-            let (_, colour) = ACTION_COLOURS
-                .iter()
-                .find(|(name, _)| *name == action.name())
-                .unwrap_or_else(|| panic!("no colour for {}", action.name()));
-            let rule = format!(".card-actions .{} {{ color: {colour}; }}", action.name());
+        for action in Action::ROW {
+            let rule = format!(".card-actions .{} {{ color: {}; }}", action.class(), colour(action));
             assert!(css.contains(&rule), "missing `{rule}`");
         }
         assert!(css.contains(".card-actions .start { color: #8cd283; }"), "Start is ACTIVE's green");

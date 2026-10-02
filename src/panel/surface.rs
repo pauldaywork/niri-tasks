@@ -99,7 +99,8 @@
 //! gives an on-demand layer surface focus only after a click on it, so
 //! switching to on-demand once focused would drop the focus at once.
 
-use super::actions::{self, Action};
+use super::actions;
+use crate::actions::Action;
 use super::blur::{self, Blur};
 use super::keys;
 use super::model::{Card, Filter, Status};
@@ -739,8 +740,8 @@ impl Panel {
             let button = gtk4::Button::with_label(action.icon());
             // The icon's name in words, under the pointer and for a screen
             // reader. Up next reads Not up next on a task already up next.
-            button.set_tooltip_text(Some(action.label_on(up_next)));
-            button.add_css_class(action.name());
+            button.set_tooltip_text(Some(action.label(up_next)));
+            button.add_css_class(action.class());
             let weak = Rc::downgrade(self);
             let uuid = uuid.to_string();
             button.connect_clicked(move |_| {
@@ -823,7 +824,7 @@ impl Panel {
             }
             let hint = match &focus {
                 Some(Focus { uuid, slot: Slot::Button(action) }) if Some(uuid) == card.uuid.as_ref() => {
-                    action.label_on(row.up_next)
+                    action.label(row.up_next)
                 }
                 _ => "",
             };
