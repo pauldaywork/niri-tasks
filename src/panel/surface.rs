@@ -824,6 +824,9 @@ impl Panel {
             // Focus first: the move disarms whatever was armed before, and
             // this one is armed only after it.
             button.grab_focus();
+            // Pressing an already focused Remove moves nothing, so an armed
+            // Clear all would stay armed beside it: one arming at a time.
+            self.disarm_clear();
             button.set_label(&format!("{}  {}", Action::Remove.icon(), Action::CONFIRM_REMOVE));
             button.add_css_class("confirm");
             *self.armed.borrow_mut() = Some(button.clone());
@@ -946,6 +949,19 @@ impl Panel {
             *self.armed.borrow_mut() = Some(button);
             return;
         }
+        Self::put_remove_back(&button);
+    }
+
+    /// Put an armed Remove back to Remove, so a later press starts over at
+    /// the first. Arming Clear all calls this, as Shift+Delete moves no focus
+    /// to do it: one arming at a time.
+    fn disarm_remove(&self) {
+        if let Some(button) = self.armed.take() {
+            Self::put_remove_back(&button);
+        }
+    }
+
+    fn put_remove_back(button: &gtk4::Button) {
         button.set_label(Action::Remove.icon());
         button.remove_css_class("confirm");
     }
@@ -960,6 +976,7 @@ impl Panel {
             return;
         }
         if !self.clear_armed.replace(true) {
+            self.disarm_remove();
             self.clear.set_label(&clear_label(true));
             self.clear.add_css_class("confirm");
             return;

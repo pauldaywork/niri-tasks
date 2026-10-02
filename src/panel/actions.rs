@@ -297,6 +297,7 @@ mod tests {
         assert!(!Action::Start.args("x").contains(&"active".to_string()));
     }
 
+    /// Clear all asks in the same words as Remove, with its own name.
     #[test]
     fn clear_all_reads_as_remove_does() {
         assert_eq!(CLEAR_ALL, "Clear all");

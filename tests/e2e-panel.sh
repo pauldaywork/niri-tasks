@@ -476,6 +476,8 @@ if command -v wtype >/dev/null; then
 
     # Twice: both waiting tasks deleted, one after the other, each through
     # task status; the task still on All and the other tag's are left alone.
+    notified_before=$(grep -c '^Tasks Deleted: ' "$SB/notifications" 2>/dev/null || true)
+    notified_before=${notified_before:-0}
     "${NENV[@]}" wtype -M shift -k Delete -m shift
     sleep 0.5
     "${NENV[@]}" wtype -M shift -k Delete -m shift
@@ -493,11 +495,12 @@ if command -v wtype >/dev/null; then
         bad "after Clear all: ${deleted} deleted, ${left} pending here, ${elsewhere} on the
       other tag — expected 2, 1 and 1"
     fi
-    notified=$(grep -c '^Tasks Deleted: ' "$SB/notifications" 2>/dev/null)
+    notified=$(grep -c '^Tasks Deleted: ' "$SB/notifications" 2>/dev/null || true)
+    notified=$(( ${notified:-0} - notified_before ))
     if [ "$notified" = 2 ]; then
         ok "each went through task status deleted, notification and all"
     else
-        bad "${notified:-0} 'Deleted' notifications for two tasks cleared — Clear all did not
+        bad "${notified} 'Deleted' notifications for two tasks cleared — Clear all did not
       run task status on each"
     fi
 
