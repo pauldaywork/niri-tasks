@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
     actions::{Action, TaskState},
-    caller_workspace_tag, github, ipc, link, menu, niri, notify, picker::Picker, project, refine,
+    caller_workspace, caller_workspace_tag, github, ipc, link, menu, niri, notify, picker::Picker, project, refine,
     require_workspace_tag, session,
     speak, task, taskbox, text, work,
 };
@@ -180,6 +180,9 @@ enum TaskCommand {
     },
 
     /// Work a task up into a plan with Claude, in a new tab of the workspace's herdr session
+    ///
+    /// The workspace is this herdr session's in a herdr pane, else the
+    /// focused one, as for task add, task start and task session.
     Refine {
         /// The task's uuid, or its first 8 characters
         uuid: String,
@@ -191,7 +194,8 @@ enum TaskCommand {
     ///
     /// Opens a herdr tab that makes the worktree (branch
     /// `task/<slug>-<uuid8>`) and starts Claude in it. Run again on the same
-    /// task, it goes back to both.
+    /// task, it goes back to both. The workspace is this herdr session's in a
+    /// herdr pane, else the focused one.
     Start {
         /// The task's uuid, or its first 8 characters
         uuid: String,
@@ -205,6 +209,9 @@ enum TaskCommand {
         workspace: Option<String>,
     },
     /// Go to the Claude working on a task, in the workspace's herdr session
+    ///
+    /// The workspace is this herdr session's in a herdr pane, else the
+    /// focused one.
     Session {
         /// The task's uuid, or its first 8 characters
         uuid: String,
@@ -423,8 +430,9 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
                 let workspace = workspace.context("--here needs --workspace")?;
                 return work::set_up_here(&workspace, &uuid);
             }
-            require_workspace_tag()?;
-            let workspace = niri::focused_workspace_name()?.unwrap_or_default();
+            // From a herdr pane, the session's workspace, as for task add: an
+            // agent's Start must not open in whatever workspace has the focus.
+            let workspace = caller_workspace()?;
             let t = task::get(&uuid)?.context("task not found")?;
             anyhow::ensure!(t.status == "pending", "Only a pending task can be started.");
             work::launch(&workspace, &t)?;
@@ -433,8 +441,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         TaskCommand::Refine { uuid, grill } => {
             // The same refusal every entry point makes: a task refined on an
             // unnamed workspace would have no session to open in.
-            require_workspace_tag()?;
-            let workspace = niri::focused_workspace_name()?.unwrap_or_default();
+            let workspace = caller_workspace()?;
             let t = task::get(&uuid)?.context("task not found")?;
             // task::get is unfiltered by status; a completed or deleted task
             // has nothing left to work up into a plan.
@@ -444,8 +451,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         }
 
         TaskCommand::Session { uuid } => {
-            require_workspace_tag()?;
-            let workspace = niri::focused_workspace_name()?.unwrap_or_default();
+            let workspace = caller_workspace()?;
             // The uuid as found, not as typed: the agent's name is made from
             // its first eight characters, and a typed task number has none of
             // them.

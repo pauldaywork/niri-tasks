@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end test of `niritasks tag --session`: herdr session or project
-# folder -> workspace -> tag. And of `niritasks task add`, which takes the
-# herdr session's tag the same way, and the focused one outside herdr.
+# folder -> workspace -> tag. And of `niritasks task add`, `task start`,
+# `task refine` and `task session`, which take the herdr session's workspace
+# the same way, and the focused one outside herdr.
 #
 #   bash tests/e2e-tag.sh
 #
@@ -289,6 +290,57 @@ add_with unmatched HERDR_SESSION="zzz-no-such-workspace"
 [ "$ADD_RC" -ne 0 ] && [ -z "$ADD_TAGS" ] \
     && ok "task add in a session matching no workspace fails and adds nothing" \
     || bad "task add in an unmatched session: rc $ADD_RC, added with tags '$ADD_TAGS'"
+
+# ─── start, refine and session open in the same workspace's herdr session ─────
+# Each asks herdr for `--session <name>` before anything else, so a fake herdr
+# that logs its arguments shows which workspace was picked. It answers
+# `workspace list` with no workspaces, which keeps the real niri out of it (no
+# window to focus or terminal to start), and fails everything else, so the
+# command stops there with nothing opened. A fake wt and a throwaway $HOME with
+# each workspace's ~/Projects folder as a repository get start as far as herdr.
+cat > "$SB/bin/herdr" <<'STUB'
+#!/bin/sh
+echo "$*" >> "${HERDR_LOG:?}"
+case "$*" in *"workspace list"*) echo '{"result":{"workspaces":[]}}'; exit 0 ;; esac
+exit 1
+STUB
+printf '#!/bin/sh\nexit 1\n' > "$SB/bin/wt"
+chmod +x "$SB/bin/herdr" "$SB/bin/wt"
+mkdir -p "$FAKE_HOME/Projects/$OTHER/.git" "$FAKE_HOME/Projects/$FOCUSED/.git"
+env "${SANDBOX[@]}" task rc.verbose=nothing add "test: e2e launch" >/dev/null
+UUID=$(env "${SANDBOX[@]}" task _uuids 2>/dev/null | python3 -c "
+import sys
+print(sys.stdin.read().split()[-1])")
+
+# Run `niritasks task <command> <uuid>` with the given assignments; the herdr
+# session it asked for first in LAUNCH_SESSION.
+launch_with() {
+    local command=$1; shift
+    : > "$SB/herdr.log"
+    (cd / && env -u HERDR_SESSION -u HERDR_SOCKET_PATH "${SANDBOX[@]}" HOME="$FAKE_HOME" \
+        HERDR_LOG="$SB/herdr.log" "$@" "$NIRITASKS" task "$command" "$UUID") >/dev/null 2>&1
+    LAUNCH_SESSION=$(head -n1 "$SB/herdr.log" | python3 -c "
+import sys
+words = sys.stdin.read().split()
+print(words[words.index('--session') + 1] if '--session' in words else '')")
+}
+
+focused_session=$(session_of "$FOCUSED")
+for command in start refine session; do
+    # Refine checks the real $HOME for sockets its sandbox would leave in
+    # reach, and refuses under a throwaway one that hides none of them. Under
+    # the real one it writes nothing either: herdr is the fake.
+    home=()
+    [ "$command" = refine ] && home=(HOME="$HOME")
+    launch_with "$command" "${home[@]}" HERDR_SESSION="$session"
+    [ "$LAUNCH_SESSION" = "$session" ] \
+        && ok "task $command in a herdr session opens in the session's workspace ($LAUNCH_SESSION)" \
+        || bad "task $command in a herdr session: expected herdr session '$session', got '$LAUNCH_SESSION'"
+    launch_with "$command" "${home[@]}"
+    [ "$LAUNCH_SESSION" = "$focused_session" ] \
+        && ok "task $command outside herdr still opens in the focused workspace ($LAUNCH_SESSION)" \
+        || bad "task $command outside herdr: expected herdr session '$focused_session', got '$LAUNCH_SESSION'"
+done
 rm -rf "$SB"
 
 echo

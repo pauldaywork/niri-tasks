@@ -35,18 +35,38 @@ use std::path::Path;
 /// an untagged task would be worse than doing nothing, since every list is
 /// filtered by tag and an untagged task is invisible to all of them.
 pub fn require_workspace_tag() -> Result<String> {
+    usable_tag(&focused_workspace()?)
+}
+
+/// The focused workspace's name, refused on the same terms as
+/// [`require_workspace_tag`]: unnamed, or named with nothing a tag can use.
+fn focused_workspace() -> Result<String> {
     let name = niri::focused_workspace_name()?.unwrap_or_default();
     anyhow::ensure!(
         !name.is_empty(),
         "This workspace has no name — name it with Mod+Alt+Ctrl+W first."
     );
+    usable_tag(&name)?;
+    Ok(name)
+}
 
-    let t = tag::workspace_tag(&name);
+/// `workspace`'s tag, refused when the name has no character a tag keeps.
+fn usable_tag(workspace: &str) -> Result<String> {
+    let t = tag::workspace_tag(workspace);
     anyhow::ensure!(
         !t.is_empty(),
-        "Workspace name '{name}' has no usable tag characters."
+        "Workspace name '{workspace}' has no usable tag characters."
     );
     Ok(t)
+}
+
+/// The named herdr session this process runs in, from what herdr hands its
+/// panes; none outside herdr, or in its unnamed default session.
+fn herdr_session() -> Option<String> {
+    session::session_from_env(
+        std::env::var("HERDR_SESSION").ok().as_deref(),
+        std::env::var("HERDR_SOCKET_PATH").ok().as_deref(),
+    )
 }
 
 /// The task tag for the workspace *this terminal* belongs to, rather than
@@ -78,13 +98,14 @@ pub fn require_workspace_tag() -> Result<String> {
 /// draws, so even unbroken the pid identifies the application rather than the
 /// terminal you are typing in.
 pub fn session_workspace_tag() -> Result<String> {
+    usable_tag(&session_workspace()?)
+}
+
+/// The name of the workspace [`session_workspace_tag`] takes its tag from.
+fn session_workspace() -> Result<String> {
     let names: Vec<String> = niri::workspaces()?.into_iter().filter_map(|w| w.name).collect();
 
-    let herdr = session::session_from_env(
-        std::env::var("HERDR_SESSION").ok().as_deref(),
-        std::env::var("HERDR_SOCKET_PATH").ok().as_deref(),
-    );
-    let workspace = match herdr {
+    let workspace = match herdr_session() {
         Some(s) => session::workspace_for_session(&s, &names).with_context(|| {
             format!("herdr session '{s}' does not match any named workspace — it may have been renamed since this terminal was opened")
         })?,
@@ -99,34 +120,30 @@ pub fn session_workspace_tag() -> Result<String> {
             })?
         }
     };
-
-    let t = tag::workspace_tag(workspace);
-    anyhow::ensure!(
-        !t.is_empty(),
-        "Workspace name '{workspace}' has no usable tag characters."
-    );
-    Ok(t)
+    Ok(workspace.to_string())
 }
 
-/// The task tag for whoever is asking: the herdr session's workspace from a
+/// The workspace whoever is asking belongs to: the herdr session's from a
 /// pane in a named herdr session, where agents and terminals run, and the
-/// focused workspace from anywhere else, which is how keybinds run.
+/// focused one from anywhere else, which is how keybinds and the task panel
+/// run. Its name, for the commands that open its herdr session.
 ///
 /// A session that matches no workspace is an error, as in
 /// [`session_workspace_tag`], rather than a reason to fall back to focus: the
-/// focus is exactly the answer that files an agent's task on the wrong
-/// workspace.
+/// focus is exactly the answer that files an agent's task, or opens its
+/// session, on the wrong workspace.
+pub fn caller_workspace() -> Result<String> {
+    let workspace = match herdr_session() {
+        Some(_) => session_workspace()?,
+        None => focused_workspace()?,
+    };
+    usable_tag(&workspace)?;
+    Ok(workspace)
+}
+
+/// [`caller_workspace`]'s tag.
 pub fn caller_workspace_tag() -> Result<String> {
-    let in_herdr = session::session_from_env(
-        std::env::var("HERDR_SESSION").ok().as_deref(),
-        std::env::var("HERDR_SOCKET_PATH").ok().as_deref(),
-    )
-    .is_some();
-    if in_herdr {
-        session_workspace_tag()
-    } else {
-        require_workspace_tag()
-    }
+    usable_tag(&caller_workspace()?)
 }
 
 /// Name workspace 1 if it has no name.
