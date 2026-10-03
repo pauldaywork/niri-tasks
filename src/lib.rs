@@ -108,6 +108,27 @@ pub fn session_workspace_tag() -> Result<String> {
     Ok(t)
 }
 
+/// The task tag for whoever is asking: the herdr session's workspace from a
+/// pane in a named herdr session, where agents and terminals run, and the
+/// focused workspace from anywhere else, which is how keybinds run.
+///
+/// A session that matches no workspace is an error, as in
+/// [`session_workspace_tag`], rather than a reason to fall back to focus: the
+/// focus is exactly the answer that files an agent's task on the wrong
+/// workspace.
+pub fn caller_workspace_tag() -> Result<String> {
+    let in_herdr = session::session_from_env(
+        std::env::var("HERDR_SESSION").ok().as_deref(),
+        std::env::var("HERDR_SOCKET_PATH").ok().as_deref(),
+    )
+    .is_some();
+    if in_herdr {
+        session_workspace_tag()
+    } else {
+        require_workspace_tag()
+    }
+}
+
 /// Name workspace 1 if it has no name.
 ///
 /// Run once at startup. Naming matters more than it looks: the name is the tag

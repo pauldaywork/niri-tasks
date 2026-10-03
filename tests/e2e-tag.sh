@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end test of `niritasks tag --session`: herdr session or project
-# folder -> workspace -> tag.
+# folder -> workspace -> tag. And of `niritasks task add`, which takes the
+# herdr session's tag the same way, and the focused one outside herdr.
 #
 #   bash tests/e2e-tag.sh
 #
@@ -21,7 +22,8 @@
 # does put HERDR_SESSION in its panes is the one thing only a live pane shows:
 #   tr '\0' '\n' </proc/<pane shell pid>/environ | grep HERDR_
 # The folder cases run with a throwaway $HOME, so they need no real folder
-# either. Nothing here writes to the task database at all.
+# either. Nothing here writes to your task database: the task add cases
+# write to a scratch one and delete it.
 #
 # It needs two named workspaces to show the contrast, and will borrow niri's
 # trailing empty workspace as the second one when there is only ever a single
@@ -246,6 +248,48 @@ if [ "$rc" -ne 0 ]; then
 else
     bad "outside herdr and ~/Projects it answered '$outside' — a focus fallback the skill would trust"
 fi
+
+# ─── task add files under the same workspace ──────────────────────────────────
+# `niritasks task add <text>` run in a herdr pane, as an agent does, must tag
+# the task with the session's workspace, not the focused one; outside herdr, as
+# a keybind runs it, it still follows focus. Into a throwaway task database,
+# with notify-send stubbed so nothing pops up on the desktop.
+SB=$(mktemp -d)
+mkdir -p "$SB/data" "$SB/bin"
+printf 'data.location=%s/data\nhooks.location=%s/hooks\n' "$SB" "$SB" > "$SB/taskrc"
+printf '#!/bin/sh\nexit 0\n' > "$SB/bin/notify-send"
+chmod +x "$SB/bin/notify-send"
+SANDBOX=(TASKRC="$SB/taskrc" TASKDATA="$SB/data" PATH="$SB/bin:$PATH")
+
+# Add a task with the given assignments, from /, so no project folder answers
+# for it. Status in ADD_RC, the new task's tags in ADD_TAGS.
+add_with() {
+    local text="test: e2e add $1"; shift
+    (cd / && env -u HERDR_SESSION -u HERDR_SOCKET_PATH "${SANDBOX[@]}" "$@" \
+        "$NIRITASKS" task add "$text") >/dev/null 2>&1
+    ADD_RC=$?
+    ADD_TAGS=$(env "${SANDBOX[@]}" task rc.json.array=on export 2>/dev/null | python3 -c "
+import json,sys
+ts=[t for t in json.load(sys.stdin) if t['description']==sys.argv[1]]
+print(' '.join(sorted(ts[0].get('tags', []))) if ts else '')
+" "$text")
+}
+
+add_with session HERDR_SESSION="$session"
+[ "$ADD_RC" -eq 0 ] && [ "$ADD_TAGS" = "$expected" ] \
+    && ok "task add in a herdr session tags the session's workspace only ($ADD_TAGS)" \
+    || bad "task add in a herdr session: expected tags '$expected', got '$ADD_TAGS' (rc $ADD_RC)"
+
+add_with focus
+[ "$ADD_RC" -eq 0 ] && [ "$ADD_TAGS" = "$(tag_of "$FOCUSED")" ] \
+    && ok "task add outside herdr still tags the focused workspace ($ADD_TAGS)" \
+    || bad "task add outside herdr: expected tags '$(tag_of "$FOCUSED")', got '$ADD_TAGS' (rc $ADD_RC)"
+
+add_with unmatched HERDR_SESSION="zzz-no-such-workspace"
+[ "$ADD_RC" -ne 0 ] && [ -z "$ADD_TAGS" ] \
+    && ok "task add in a session matching no workspace fails and adds nothing" \
+    || bad "task add in an unmatched session: rc $ADD_RC, added with tags '$ADD_TAGS'"
+rm -rf "$SB"
 
 echo
 echo "passed: $pass   failed: $fail"

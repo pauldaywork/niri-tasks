@@ -11,7 +11,8 @@ use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
     actions::{Action, TaskState},
-    github, ipc, link, menu, niri, notify, picker::Picker, project, refine, require_workspace_tag, session,
+    caller_workspace_tag, github, ipc, link, menu, niri, notify, picker::Picker, project, refine,
+    require_workspace_tag, session,
     speak, task, taskbox, text, work,
 };
 
@@ -103,7 +104,11 @@ enum TaskCommand {
         #[arg(long)]
         yes: bool,
     },
-    /// Add a task to the focused workspace, or open the task box with no text
+    /// Add a task to this workspace, or open the task box with no text
+    ///
+    /// In a pane of a named herdr session the task goes to the session's
+    /// workspace, so a task an agent files stays put when you switch
+    /// workspace; anywhere else, as from a keybind, to the focused one.
     ///
     /// The text is word-split, so taskwarrior reads its own attributes in it:
     /// `niritasks task add ship it due:friday` sets a due date. With no text
@@ -322,7 +327,9 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         // The binding is `and_refine` because `refine` is the module, imported
         // at the top of this file.
         TaskCommand::Add { text: words, refine: and_refine } => {
-            let tag = require_workspace_tag()?;
+            // From a herdr pane, the session's workspace: an agent filing a
+            // task must not follow the user's focus to another workspace.
+            let tag = caller_workspace_tag()?;
             // The box can return notes with the description; the shell form has
             // nowhere to type them, so it never does. Which button was pressed
             // decides whether to refine, not how the box was opened.

@@ -203,6 +203,7 @@ niritasks task status <uuid> <state>  # the menu's Update status: active|stopped
                                    #   (stopped also brings back a waiting task)
 niritasks task status <uuid> deleted --yes  # deleted needs --yes, the menu's confirmation
 niritasks task add <text>          # honours taskwarrior attributes: due:friday, priority:H
+                                   #   to the herdr session's workspace in herdr, else the focused one
 niritasks task add                 #   with no text, the task box (Mod+Alt+T)
 niritasks task add --refine        # the add box, with Add & refine as its default (Mod+Alt+Shift+T)
                                    #   (with text, adds it and refines it straight away)
@@ -319,7 +320,7 @@ the cards alone instead, and niri takes noise and saturation from the rule.
 bash tests/all.sh           # everything this machine can run       ~100s
 
 cargo test                  # unit, differential, write-path        ~2s
-bash tests/e2e-tag.sh       # `niritasks tag --session`, against real niri ~1s
+bash tests/e2e-tag.sh       # the session's tag, against real niri    ~1s
 bash tests/e2e-panel.sh     # the task panel, in a nested niri       ~30s
 bash tests/e2e-box.sh       # the task box, in a nested niri         ~65s
 ```
@@ -338,7 +339,7 @@ nested niri parked on a spare workspace, and it tells you which one to keep off.
 |---|---|---|
 | `tests/all.sh` | Nothing of its own — whatever is missing is skipped and named | Whatever the suites it ends up running touch |
 | `cargo test` | `taskwarrior` on `$PATH`, and `bash` for the differential suite | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
-| `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the name of that spare workspace, taken off again. No herdr session and no task database at all |
+| `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the name of that spare workspace, taken off again. No herdr session, and only a scratch task database of its own |
 | `tests/e2e-panel.sh` | niri, a Wayland session, `python3-pil`, taskwarrior; `wtype` for its keyboard checks, which are skipped without it | A nested niri window for the run, parked on the spare workspace at the end of your monitor; keep off that workspace until it finishes. Not your clipboard, your screenshots or the `niri-tasks` daemon |
 | `tests/e2e-box.sh` | `wtype`, niri, a Wayland session, taskwarrior | A nested niri window for the run, parked like the panel test's; keep off that workspace until it finishes. Its keys go only to that nested niri. Not your keyboard or the `niri-tasks` daemon |
 
@@ -422,7 +423,9 @@ see — that the tag follows the terminal rather than the focus. It hands the
 binary a session the way herdr hands one to a pane (`HERDR_SESSION`, with
 `HERDR_SOCKET_PATH` as the backup) rather than starting herdr, so none of your
 sessions is attached to or created; the folder cases run under a throwaway
-`$HOME`. It never touches the task database.
+`$HOME`. It also checks that `niritasks task add` files under the session's
+workspace from a herdr pane and under the focused one outside herdr, into a
+scratch task database it deletes afterwards; your own is never touched.
 
 `tests/e2e-panel.sh` is the third, and the least obvious. The task panel is a
 layer-shell surface, so its behaviour is what the compositor puts on screen: the
