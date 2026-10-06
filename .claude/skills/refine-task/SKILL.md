@@ -37,7 +37,8 @@ task rc.json.array=on <uuid> export
 ```
 
 Stop and say so if it returns `[]` or its `status` is not `pending`. Keep the
-`description` and `annotations` you read — the write in step 5 checks against them.
+`description` and `annotations` you read — the write in step 5 checks against
+them.
 Show the user the description and every note before going further.
 
 ## 2. Ground it
@@ -78,9 +79,9 @@ Show the proposal in your reply, then ask with AskUserQuestion — one question,
    was dropped.
 
 Then, as the last thing in your reply before the question, print **exactly
-what will be sent** — the `description` and `notes` step 5 passes to the tool, in a `json`
-code block under the heading **Will be written to the task**, one note per
-line:
+what will be written** — the `description` and `notes` step 5 passes to the
+tool, in a `json` code block under the heading **Will be written to the
+task**, one note per line:
 
 ```json
 {
@@ -94,9 +95,9 @@ line:
 
 and under it, in one line: the task's uuid, that these notes **replace** all
 existing ones, and that `+planned` is added with the other tags left as they
-are. This block is what the tool gets, not a summary of it: step 5 sends it
-character for character. The user is approving this block, so it must be
-valid JSON and must match the proposal above it.
+are. This block is the description and notes themselves, not a summary of
+them: step 5 passes them to the tool unchanged. The user is approving this
+block, so it must match the proposal above it.
 
 On **Change something** (or any other answer), take their feedback, revise,
 print the block again, and ask again. Only **Write it to the task** leads to
