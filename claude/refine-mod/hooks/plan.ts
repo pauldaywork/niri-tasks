@@ -28,7 +28,7 @@ export const isSandboxed = (settings: Readonly<Record<string, unknown>>): boolea
   return sandbox?.enabled === true && sandbox?.failIfUnavailable === true
 }
 
-const HIDDEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u
 
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every(item => typeof item === 'string')
@@ -159,5 +159,5 @@ export const notApproved = (answer: string): string =>
 // What the model reads when no one could be asked (a `-p` run, a dismissed
 // dialog): the tool writes only on the person's own "Write it to the task".
 export const notAsked = (reason: string): string =>
-  `Nothing written: the person could not be asked to approve the plan (${reason}). ` +
-  `write_task_plan writes only after they choose "${WRITE}", which needs someone at an interactive session.`
+  `Nothing written: the person could not be asked, or dismissed the question (${reason}). ` +
+  `write_task_plan writes only after they choose "${WRITE}".`

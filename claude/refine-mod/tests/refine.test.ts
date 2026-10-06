@@ -143,15 +143,22 @@ test('typed Other: writes nothing, the model gets the words', { options: { uuid:
   expect(verbs(runs)).toEqual(['export'])
 })
 
+test('an empty answer: writes nothing', { options: { uuid: UUID } }, async ($, on) => {
+  const { runs } = world(on, SANDBOX, '')
+  await $.session.start(START)
+  const answer = await $.tool.call(CALL)
+  expect(answer.deny).toStartWith('Nothing written: the person answered "" instead of approving.')
+  expect(verbs(runs)).toEqual(['export'])
+})
+
 test('no one to ask: writes nothing and says why', { options: { uuid: UUID } }, async ($, on) => {
   const { runs } = world(on, SANDBOX, { deny: 'no one is at the keyboard' })
   await $.session.start(START)
   const answer = await $.tool.call(CALL)
-  expect(answer.deny).toStartWith('Nothing written: the person could not be asked to approve the plan (')
+  expect(answer.deny).toStartWith('Nothing written: the person could not be asked')
   expect(answer.deny).toContain('no one is at the keyboard')
   expect(answer.deny).toEndWith(
-    'write_task_plan writes only after they choose "Write it to the task", ' +
-      'which needs someone at an interactive session.',
+    'write_task_plan writes only after they choose "Write it to the task".',
   )
   expect(verbs(runs)).toEqual(['export'])
 })

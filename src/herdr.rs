@@ -79,7 +79,7 @@ user approves it.";
 ///
 /// Not plan mode: approving a plan there means "go and implement it", and a
 /// refined task's notes read exactly like a plan — so approval started the
-/// task instead of saving it. The skill asks its own question instead, and the
+/// task instead of saving it. The refine mod's write tool asks its own question instead, and the
 /// file-editing tools are taken away so it cannot start the work either way.
 /// `default` is explicit because the user's own default may be auto mode, whose
 /// guard against starting the task is a classifier's judgement, not a rule.

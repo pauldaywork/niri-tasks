@@ -132,9 +132,18 @@ one import, and touches nothing else. Its answer says what happened:
 - **Nothing written: the task changed since it was read** — someone else
   edited it meanwhile: show the user what changed and ask before going on.
 - **Nothing written: the person could not be asked** — stop, and tell the
-  user the plan was not written because the tool could not ask them.
-- Any other **Nothing written** — fix what it names (a line too long, a note
-  on two lines, a control or invisible character) and call again.
+  user the plan was not written because the tool could not ask them. If they
+  dismissed the question, they can tell you what to change, and you call
+  again after revising.
+- **Nothing written: the task no longer exists** or **… not pending** — stop
+  and tell the user.
+- Any other **Nothing written: …** or **write_task_plan: …** answer — fix what
+  it names (a line too long, a note on two lines, a control or invisible
+  character) and call again.
+- Anything else (not armed, `task export failed`, `task import failed`,
+  `failed before writing`) — do not retry and do not write the task any other
+  way. Export the task as in step 6, then tell the user the tool's answer and
+  what the task now holds.
 
 If the tool is missing, say so and stop — do not write the task any other
 way.

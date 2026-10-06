@@ -75,6 +75,7 @@ describe('parseInput', () => {
     expect(parseInput({ expected: EXPECTED, description: 'x', notes: ['a\u202Eb'] })).toBe(plainNotes)
     expect(parseInput({ expected: EXPECTED, description: 'x', notes: ['a\u200Bb'] })).toBe(plainNotes)
     expect(parseInput({ expected: EXPECTED, description: 'x', notes: ['a\tb'] })).toBe(plainNotes)
+    expect(parseInput({ expected: EXPECTED, description: 'x', notes: ['a\uD800b'] })).toBe(plainNotes)
   })
   test('accepts accents and emoji', () => {
     const input = { expected: EXPECTED, description: 'café ✓ 🚀', notes: ['café ✓ 🚀'] }
@@ -169,9 +170,8 @@ describe('notApproved', () => {
 describe('notAsked', () => {
   test('says nothing was written and why', () => {
     expect(notAsked('no one to ask')).toBe(
-      'Nothing written: the person could not be asked to approve the plan (no one to ask). ' +
-        'write_task_plan writes only after they choose "Write it to the task", ' +
-        'which needs someone at an interactive session.',
+      'Nothing written: the person could not be asked, or dismissed the question (no one to ask). ' +
+        'write_task_plan writes only after they choose "Write it to the task".',
     )
   })
 })

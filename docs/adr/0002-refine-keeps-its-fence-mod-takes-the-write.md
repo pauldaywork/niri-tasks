@@ -344,7 +344,7 @@ whether or not a mod is built (task `b268d068`).
 
 ## Adopted
 
-Each is a pending task on `+niri_tasks`:
+Both are built, from these `+niri_tasks` tasks:
 
 - A — `feat: Write a refined task through a mod tool` (task `5ff28e6f`) — built
 - B — `feat: Approve a refine's write inside the tool` (task `dc32d340`) — built
