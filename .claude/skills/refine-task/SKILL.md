@@ -37,7 +37,7 @@ task rc.json.array=on <uuid> export
 ```
 
 Stop and say so if it returns `[]` or its `status` is not `pending`. Keep the
-`description` and `annotations` you read — step 5 compares against them.
+`description` and `annotations` you read — the write in step 5 checks against them.
 Show the user the description and every note before going further.
 
 ## 2. Ground it
@@ -78,7 +78,7 @@ Show the proposal in your reply, then ask with AskUserQuestion — one question,
    was dropped.
 
 Then, as the last thing in your reply before the question, print **exactly
-what will be sent** — the JSON payload step 5 passes to the write, in a `json`
+what will be sent** — the `description` and `notes` step 5 passes to the tool, in a `json`
 code block under the heading **Will be written to the task**, one note per
 line:
 
@@ -94,7 +94,7 @@ line:
 
 and under it, in one line: the task's uuid, that these notes **replace** all
 existing ones, and that `+planned` is added with the other tags left as they
-are. This block is the payload itself, not a summary of it: step 5 sends it
+are. This block is what the tool gets, not a summary of it: step 5 sends it
 character for character. The user is approving this block, so it must be
 valid JSON and must match the proposal above it.
 
@@ -104,34 +104,23 @@ step 5.
 
 ## 5. Write
 
-Re-read the task (`task rc.json.array=on <uuid> export`). If its description or
-notes differ from what you read in step 1, show the difference and ask before
-writing — someone else changed it meanwhile.
+Write with the `mcp__niri-tasks-refine__write_task_plan` tool — the session's
+one way to change the task. It is deferred: select it with ToolSearch
+(`select:mcp__niri-tasks-refine__write_task_plan`) if it is not loaded. Call
+it once, with:
 
-Otherwise write the description, the notes and the tag in **one** import, so the
-task is never half-updated. Put the **Will be written to the task** block the
-user approved into the heredoc exactly as printed — no rewording, no
-reordering, nothing added. If anything needs to change after approval, go back
-to step 4 and print the block again instead. Then run:
+- `expected`: the `description` and the annotations' `description`s, in
+  order, exactly as you read them in step 1;
+- `description` and `notes`: the **Will be written to the task** block the
+  user approved, exactly as printed — no rewording, no reordering, nothing
+  added. If anything needs to change after approval, go back to step 4 and
+  print the block again instead.
 
-```bash
-task rc.json.array=on <uuid> export | python3 -c '
-import datetime, json, sys
-task = json.load(sys.stdin)[0]
-new = json.loads(sys.argv[1])
-now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-task["description"] = new["description"]
-task["annotations"] = [{"entry": now, "description": n} for n in new["notes"]]
-task["tags"] = sorted(set(task.get("tags", [])) | {"planned"})
-print(json.dumps(task))
-' "$(cat <<'EOF'
-{"description": "…", "notes": ["Goal: …", "Done when: …"]}
-EOF
-)" | task rc.verbose=nothing import
-```
-
-Taskwarrior bumps identical note timestamps a second apart itself. Do not touch
-the status, start, other tags or any other field.
+The tool writes the description, replaces the notes and adds `+planned` in
+one import, and touches nothing else. It refuses, writing nothing, if the
+task changed since step 1: show the user what it says changed and ask before
+going on. If the tool is missing, say so and stop — do not write the task
+any other way.
 
 ## 6. Verify and report
 

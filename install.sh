@@ -85,6 +85,15 @@ link "$REPO/.claude/skills/refine-task/SKILL.md" "$CLAUDE_SKILLS/refine-task/SKI
 # branch on main, pushes, and marks the task completed through niritasks.
 link "$REPO/.claude/skills/finish-worktree/SKILL.md" "$CLAUDE_SKILLS/finish-worktree/SKILL.md"
 
+# The refine mod: the one tool a Refine session writes its task with. A
+# folder, loaded by `niritasks task refine` with --plugin-dir from this fixed
+# path, since the installed binary does not know where the repo is. Not under
+# ~/.claude/skills, where a plugin would load in every session. The XDG rule
+# matches refine::refine_mod_dir: a relative XDG_DATA_HOME is ignored.
+DATA="${XDG_DATA_HOME:-}"
+case "$DATA" in /*) ;; *) DATA="$HOME/.local/share" ;; esac
+link "$REPO/claude/refine-mod" "$DATA/niri-tasks/refine-mod"
+
 # Rules for every Claude session, whatever the project: Claude Code loads
 # ~/.claude/rules/*.md like the user CLAUDE.md, and follows symlinks there, so
 # the rule stays in this repo and a `git pull` updates it. Kept out of this
