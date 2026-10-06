@@ -20,10 +20,10 @@ still fits a task card, and notes that carry the goal, the decisions and what
 **You refine the task; you never do it.** However concrete the steps you write
 into its notes, do not carry out any of them — no file edits, no config
 changes, no commands beyond reading. Your one write is the Taskwarrior update in
-step 5, and only after the user says so in step 4. The session was started
-without file-editing tools and without plan mode for exactly this reason:
-approving a plan in plan mode means "implement it", which is not what the user
-is approving here.
+step 5, and the write tool asks the user itself before it writes. The session
+was started without file-editing tools and without plan mode for exactly this
+reason: approving a plan in plan mode means "implement it", which is not what
+the user is approving here.
 
 Your Bash commands run in a sandbox that can read anything but write only to
 the task database. A command that fails with `Read-only file system` or
@@ -65,9 +65,9 @@ here changes a file.
 
 ## 4. Propose
 
-Show the proposal in your reply, then ask with AskUserQuestion — one question,
-"Write this to the task?", with two options: **Write it to the task** and
-**Change something**. The proposal contains:
+Show the proposal in your reply. Do not ask the user to approve it yourself —
+no AskUserQuestion: the write tool in step 5 shows them exactly what it will
+write and asks them. The proposal contains:
 
 1. **New description** — one line, about 50 characters or fewer: the card and
    picker row show one line at that width. It starts with a Conventional
@@ -83,7 +83,7 @@ Show the proposal in your reply, then ask with AskUserQuestion — one question,
 3. **Before** — the current description and notes, so the user can see nothing
    was dropped.
 
-Then, as the last thing in your reply before the question, print **exactly
+Then, as the last thing in your reply, print **exactly
 what will be written** — the `description` and `notes` step 5 passes to the
 tool, in a `json` code block under the heading **Will be written to the
 task**, one note per line:
@@ -104,29 +104,40 @@ are. This block is the description and notes themselves, not a summary of
 them: step 5 passes them to the tool unchanged. The user is approving this
 block, so it must match the proposal above it.
 
-On **Change something** (or any other answer), take their feedback, revise,
-print the block again, and ask again. Only **Write it to the task** leads to
-step 5.
+Then go straight to step 5.
 
 ## 5. Write
 
 Write with the `mcp__niri-tasks-refine__write_task_plan` tool — the session's
 one way to change the task. It is deferred: select it with ToolSearch
 (`select:mcp__niri-tasks-refine__write_task_plan`) if it is not loaded. Call
-it once, with:
+it with:
 
 - `expected`: the `description` and the annotations' `description`s, in
   order, exactly as you read them in step 1;
-- `description` and `notes`: the **Will be written to the task** block the
-  user approved, exactly as printed — no rewording, no reordering, nothing
-  added. If anything needs to change after approval, go back to step 4 and
-  print the block again instead.
+- `description` and `notes`: the **Will be written to the task** block you
+  just printed, exactly as printed — no rewording, no reordering, nothing
+  added. Each note is one line of plain text.
 
-The tool writes the description, replaces the notes and adds `+planned` in
-one import, and touches nothing else. It refuses, writing nothing, if the
-task changed since step 1: show the user what it says changed and ask before
-going on. If the tool is missing, say so and stop — do not write the task
-any other way.
+The tool shows the user the description and notes it was given, asks
+"Write this to the task?", and writes only if they choose **Write it to the
+task**. It writes the description, replaces the notes and adds `+planned` in
+one import, and touches nothing else. Its answer says what happened:
+
+- **Wrote the plan …** — go to step 6.
+- **Nothing written: the person chose "Change something"** — ask them what to
+  change, revise, print the block again (step 4) and call the tool again.
+- **Nothing written: the person answered "…"** — those are their words about
+  the plan: revise with them, print the block again and call again.
+- **Nothing written: the task changed since it was read** — someone else
+  edited it meanwhile: show the user what changed and ask before going on.
+- **Nothing written: the person could not be asked** — stop, and tell the
+  user the plan was not written because the tool could not ask them.
+- Any other **Nothing written** — fix what it names (a line too long, a note
+  on two lines, a control or invisible character) and call again.
+
+If the tool is missing, say so and stop — do not write the task any other
+way.
 
 ## 6. Verify and report
 

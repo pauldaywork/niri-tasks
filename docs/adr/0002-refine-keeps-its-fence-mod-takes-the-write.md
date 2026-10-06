@@ -346,8 +346,8 @@ whether or not a mod is built (task `b268d068`).
 
 Each is a pending task on `+niri_tasks`:
 
-- A — `feat: Write a refined task through a mod tool` (task `5ff28e6f`)
-- B — `feat: Approve a refine's write inside the tool` (task `dc32d340`)
+- A — `feat: Write a refined task through a mod tool` (task `5ff28e6f`) — built
+- B — `feat: Approve a refine's write inside the tool` (task `dc32d340`) — built
 
 ## Sources
 
