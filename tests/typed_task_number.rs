@@ -102,9 +102,12 @@ impl Sandbox {
     fn new() -> Self {
         let dir = std::env::temp_dir().join(format!("niritasks-number-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        for sub in ["data", "bin", "home/Projects/alpha/.git", "worktree"] {
+        for sub in ["data", "bin", "home/Projects/alpha/.git", "worktree", "xdg/niri-tasks/refine-mod/.claude-plugin"] {
             std::fs::create_dir_all(dir.join(sub)).unwrap();
         }
+        // Refine refuses to start without the mod, and the real one is
+        // wherever install.sh put it, not something a test may rely on.
+        std::fs::write(dir.join("xdg/niri-tasks/refine-mod/.claude-plugin/plugin.json"), "{}").unwrap();
         std::fs::write(dir.join("taskrc"), format!("data.location={}/data\n", dir.display())).unwrap();
         write_exe(&dir.join("bin/herdr"), FAKE_HERDR);
         write_exe(&dir.join("bin/wt"), FAKE_WT);
@@ -159,6 +162,7 @@ impl Sandbox {
             .args(args)
             .env("PATH", path)
             .env("HOME", home)
+            .env("XDG_DATA_HOME", self.dir.join("xdg"))
             .env("TASKRC", self.dir.join("taskrc"))
             .env("TASKDATA", self.dir.join("data"))
             .env("NIRI_SOCKET", &self.niri_socket)

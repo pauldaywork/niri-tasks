@@ -89,10 +89,14 @@ user approves it.";
 /// the OS stops them writing anywhere but the task database, plus the few
 /// allow and deny rules that go with it.
 ///
+/// `mod_dir` is the refine mod (`refine::refine_mod_dir`), loaded for this
+/// session only: it serves the one tool the skill writes the task with.
+///
 /// The timeout is doubled from herdr's 30s default: a cold Claude Code start
 /// with hooks and plugins has been seen near 4s, and a slow disk should not
 /// turn that into an error.
-pub fn agent_start_claude_refiner(session: &str, name: &str, pane: &str, settings: &str) -> Vec<String> {
+pub fn agent_start_claude_refiner(session: &str, name: &str, pane: &str, settings: &str, mod_dir: &Path) -> Vec<String> {
+    let mod_dir = mod_dir.to_string_lossy();
     cmd(
         session,
         &[
@@ -101,6 +105,7 @@ pub fn agent_start_claude_refiner(session: &str, name: &str, pane: &str, setting
             "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode",
             "--append-system-prompt", REFINER_SYSTEM_PROMPT,
             "--settings", settings,
+            "--plugin-dir", &mod_dir,
         ],
     )
 }
@@ -306,11 +311,11 @@ mod tests {
 
     /// Claude's own arguments go after `--`, which is how herdr tells them
     /// from its own. No plan mode, and no tools that edit files: see
-    /// [`agent_start_claude_refiner`] for why.
+    /// [`agent_start_claude_refiner`] for why. The mod comes in by folder.
     #[test]
     fn claude_starts_unable_to_edit_files_or_plan() {
         assert_eq!(
-            agent_start_claude_refiner("alpha", "task-0123abcd", "w1:p3", "{\"sandbox\":{}}"),
+            agent_start_claude_refiner("alpha", "task-0123abcd", "w1:p3", "{\"sandbox\":{}}", Path::new("/m/refine-mod")),
             vec![
                 "herdr", "--session", "alpha", "agent", "start", "task-0123abcd",
                 "--kind", "claude", "--pane", "w1:p3", "--timeout", "60000",
@@ -318,6 +323,7 @@ mod tests {
                 "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode",
                 "--append-system-prompt", REFINER_SYSTEM_PROMPT,
                 "--settings", "{\"sandbox\":{}}",
+                "--plugin-dir", "/m/refine-mod",
             ]
         );
     }
