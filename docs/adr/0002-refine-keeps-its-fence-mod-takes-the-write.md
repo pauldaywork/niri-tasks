@@ -32,8 +32,12 @@ are instructions: the skill asks the model to wait for **Write it to the
 task**, then to paste the approved JSON into a heredoc character for
 character. A tool the mod registers can do the write itself, through a fixed
 argv, and can ask the person in the engine's own dialog before it does, with
-the answer going to the mod rather than the model. That turns the one step
-Refine trusts the model with into one it enforces. Everything else stays
+the answer going to the mod rather than the model. That enforces the
+approved write path: a write through the tool happens only after the
+person's answer, and only with the payload they saw. It does not enforce
+that every write goes through the tool. The sandbox still lets any command
+write the task data, so a write around the tool is still stopped only by the
+instruction (see Consequences). Everything else stays
 where it is, because a flag or a setting set from outside the session does
 it as well or better.
 
@@ -47,7 +51,7 @@ it as well or better.
 | Removed tools | `herdr.rs` `--disallowedTools` | Keep | The flag removes the tools from the model's list from outside the session; a guard would leave them listed and fail open. |
 | Standing instruction | `herdr.rs` `REFINER_SYSTEM_PROMPT` | Keep | Not a candidate; `prompt.section` could add a section, but the flag already does it from outside. |
 | Kick-off prompt | `refine.rs` `agent prompt` | Keep | No Refine prompt has been lost, and the herdr agent is still needed to find the tab. |
-| Approval | skill §4 AskUserQuestion | Move (B) | Asked by the write tool itself with `$.ui.ask`, so no write happens without the answer. |
+| Approval | skill §4 AskUserQuestion | Move (B) | Asked by the write tool itself with `$.ui.ask`, so the tool writes nothing without the answer. |
 | The write | skill §5 heredoc | Move (A) | A registered tool writes the approved payload through a fixed argv; the model no longer re-types it. |
 | Reading, grounding, drafting | skill §1-3, §6 | Keep | Instructions to the model; a skill is the right home. |
 | Task on screen | herdr tab label | Keep (E not added) | The label already names the mode and task; the transcript reports the write. |
@@ -78,8 +82,10 @@ at `tool.call` without calling `next`, so core's permission prompt never runs
 auto-mode task's worry (`a67de29b`) that auto mode drops `Bash(python3 *)`
 and hands the write to its classifier, since the call never reaches the
 permission decision; the probe checked this in `default` mode only.
-If the mod is not loaded, the tool does not exist and the write fails
-closed; a call no hook answers fails too (`d.ts:2969`).
+If the mod is not loaded, the tool does not exist and the approved write
+path fails closed; a call no hook answers fails too (`d.ts:2969`). That
+covers the tool alone: a write the model makes around it is the residual
+risk in Consequences.
 
 **Costs:** `$.process.run` is not sandboxed. It runs "as the user the
 session runs as" (`d.ts:3425`), and a probe's `touch` landed in a folder the
@@ -95,7 +101,9 @@ The mod can also read the merged settings at `session.start`
 on and `failIfUnavailable` is set. (And the shared costs in Consequences.)
 
 **Verdict:** Move. The hypothesis held: there is a fixed-argv route, and with
-`rc.hooks=off` it is no wider than today's sandboxed write.
+`rc.hooks=off` it is no wider than today's sandboxed write. The task stays
+as named, with no narrowing of `Bash(task *)`: that would not stop a write
+around the tool, which Consequences records as the residual risk.
 
 ### B — A pane with Write and Change buttons
 
@@ -104,8 +112,9 @@ on and `failIfUnavailable` is set. (And the shared costs in Consequences.)
 **Gains:** both conditions hold. A Button's `onPress` runs "in the plugin's
 own environment" (`d.ts:1103`, `ui.press` at `d.ts:3924`), so a press can
 run the write with no model turn, and a `Code` element can show the exact
-payload (`d.ts:1570`). Approval becomes enforced: nothing is written without
-the press.
+payload (`d.ts:1570`). Approval of the tool's write becomes enforced: the
+tool writes nothing without the press. A write around the tool is not
+covered; see the residual risk in Consequences.
 
 **Costs:** a pane is the wrong shape for it. `$.ui.open` places a pane the
 person did not ask for only from 144 columns, 110 once asked, and below that
@@ -114,7 +123,13 @@ narrower. Holding the write tool's call open until a press means polling
 with `$.process.run(["sleep", "0.25"])`, as the blog's Blast Radius does, to
 stay inside the 10-second hook budget (`d.ts:5019`), plus a band fallback
 for when the pane is not placed. `$.ui.ask` (`d.ts:2366`) does the same job
-with none of that: awaited inside the write tool's hook, it asks in the
+with none of that. It is a `$` call, and a hook's budget "bounds the hook's
+OWN time: the clock stops while a `next(e)` call or any `$` call of the
+hook's is in flight" (`HookBudget`, `d.ts:5003`). So the write tool's hook
+can await the person's answer for as long as they take. A pane's press, by
+contrast, arrives in a separate `ui.press` dispatch, which is why a hook
+waiting for one has to keep making `$` calls. Awaited inside the write
+tool's hook, `$.ui.ask` asks in the
 engine's own AskUserQuestion dialog, at any width, and resolves to the label
 chosen or the text typed under Other, to the mod, not to the model. On
 **Write it to the task** the mod writes; on anything else it answers the
@@ -191,12 +206,21 @@ system prompt, but `--append-system-prompt` already does that from outside
 the session, and the system prompt survives a summary either way. Keep the
 flag.
 
-**`tool.check`** (`d.ts:3889`) touches row 3. A guard could let `task` run
-only as an export, which would close the sandboxed `task … modify` that A
-leaves open. A settings rule does the same from outside: `Bash(task
-rc.json.array=on * export)` in place of `Bash(task *)` lets the reads run
-and puts any other `task` command to the person. Keep it in `--settings`;
-the build task for A can narrow the rule.
+**`skill.prompt`** (`d.ts:4226`) touches row 9. It fires when the engine
+expands a skill's prompt for the model, and a hook can return other text in
+its place, so the mod could rewrite `refine-task` as it loads. One case is
+dropping §5's heredoc in favour of "call the write tool" only when the mod is
+loaded. Keep the skill as the one text: installed and linked by `install.sh`,
+it can name the tool directly once A lands. A second copy of its words inside
+a module is the drift ADR 0001 warns against.
+
+**`tool.check`** (`d.ts:3889`) touches row 3. A guard, or a narrower settings
+rule such as `Bash(task rc.json.array=on * export)` in place of
+`Bash(task *)`, would make `task … modify` ask the person. That closes only
+the obvious route. Taskwarrior needs `allowWrite` on its data even to export,
+and `autoAllowBashIfSandboxed` runs any sandboxed command unasked, so
+`sed -i` on `pending.data` would still go through. Not adopted; the residual
+risk is recorded in Consequences.
 
 **`$.settings.read`** (`d.ts:3497`) strengthens A: the mod refuses to
 register its tool unless the merged settings show the sandbox on. Taken into
@@ -226,6 +250,21 @@ Not relevant to any piece of Refine:
 - `prompt.submit` guards (`d.ts:4023`): the person's prompts are not a risk.
 - `$.ui.notice` (`d.ts:2285`): it annotates permission dialogs, and the write
   tool raises none.
+- `session.compact` (`d.ts:4297`): it rewrites what a summary keeps, but the
+  standing instruction is in the system prompt, which compaction does not
+  summarise, and the skill re-reads the task before writing.
+- `config.set` (`d.ts:4180`): it guards `/config` rows, a plugin's
+  `userConfig` included. A's per-session uuid comes in through `--settings`
+  `pluginConfigs` and is never set from the menu.
+- `session.end` (`d.ts:4341`): nothing to tidy when a refine session ends;
+  herdr closes the tab.
+- `$.process.spawn` (`d.ts:3485`): A's two `task` runs are one-shot, which is
+  what `$.process.run` is for.
+- `$.ui.toast` (`d.ts:2397`): the write tool's result already tells the model
+  and the person what was written.
+- `prompt.fill` and `prompt.suggest` (`d.ts:4045`, `d.ts:4057`): the
+  kick-off prompt stays with herdr (D), and nothing else needs drafting into
+  the box.
 
 ## Consequences
 
@@ -252,7 +291,21 @@ The shared costs, once:
 
 Keeping the fence outside is what makes the version floor tolerable. If the
 mods API changes and the module fails to load, the write tool is missing and
-Refine cannot write; it does not become unfenced. The sandbox, the hidden
+the approved write path is gone; Refine does not become unfenced.
+
+The residual risk A and B leave: the approved write is enforced, but a write
+around the tool is not. Taskwarrior 2.6.2 needs `allowWrite` on its data even
+to export (tested on a `chmod 444` copy), so the sandbox keeps write access to
+`~/.task`. `Bash(task *)` stays for the skill's reads, and
+`autoAllowBashIfSandboxed` runs any sandboxed command unasked. A model that
+ignored the skill and the standing instruction could still run
+`task <uuid> modify …`, or rewrite `pending.data` with any command, without
+the tool or `$.ui.ask`. Narrowing the `task` rule would not close this, since
+the second route needs no `task` at all, so it is not part of A. What bounds
+it is the same as today: the instruction, the sandbox keeping the write to
+the task data, and Taskwarrior's undo. Closing it means a write path the
+sandbox cannot reach at all, such as reads served by the mod too and no
+`allowWrite`. That is a larger change than this review weighs. The sandbox, the hidden
 sockets and credentials, the removed tools and the standing instruction are
 all flags and settings that a mod failure does not touch.
 
