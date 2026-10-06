@@ -1,5 +1,20 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { isSandboxed, isUuid, merge, parseExport, parseInput, refusal, taskDate } from '../hooks/plan'
+import {
+  CHANGE,
+  MAX_LINE,
+  WRITE,
+  isSandboxed,
+  isUuid,
+  merge,
+  notApproved,
+  notAsked,
+  overlong,
+  parseExport,
+  parseInput,
+  planLines,
+  refusal,
+  taskDate,
+} from '../hooks/plan'
 import type { Task } from '../hooks/plan'
 
 const UUID = '0b8f6a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b'
@@ -51,6 +66,9 @@ describe('parseInput', () => {
     expect(parseInput({ expected: EXPECTED, description: 'a\nb', notes: [] })).toBe(
       'description must be one line',
     )
+    expect(parseInput({ expected: EXPECTED, description: 'x', notes: ['a\nb'] })).toBe(
+      'each note must be one line',
+    )
   })
 })
 
@@ -97,5 +115,53 @@ describe('merge', () => {
     const merged = merge(task({ tags: ['planned'] }), { expected: EXPECTED, description: 'x', notes: [] }, 0)
     expect(merged.tags).toEqual(['planned'])
     expect(merged.annotations).toEqual([])
+  })
+})
+
+describe('planLines', () => {
+  test('one line for the description, one per note, in order', () => {
+    expect(planLines({ description: 'feat: New', notes: ['a', 'b'] })).toEqual([
+      'Description: feat: New',
+      'Note 1: a',
+      'Note 2: b',
+    ])
+  })
+  test('says when the task will keep no notes', () => {
+    expect(planLines({ description: 'feat: New', notes: [] })).toEqual([
+      'Description: feat: New',
+      'Notes: none (the task keeps no notes)',
+    ])
+  })
+})
+
+describe('overlong', () => {
+  test('none while every line fits', () => {
+    expect(overlong(planLines({ description: 'd', notes: ['x'.repeat(MAX_LINE - 'Note 1: '.length)] }))).toBeUndefined()
+  })
+  test('names the first line past the most the terminal draws', () => {
+    const lines = planLines({ description: 'd', notes: ['ok', 'x'.repeat(MAX_LINE - 'Note 2: '.length + 1)] })
+    expect(overlong(lines)).toBe(
+      'note 2 would show as a line of 2001 characters, over the 2000 the terminal draws. ' +
+        'Shorten it or split it into notes, then call again.',
+    )
+    expect(overlong([`Description: ${'y'.repeat(MAX_LINE)}`])).toStartWith('the description would show')
+  })
+})
+
+describe('notApproved', () => {
+  test('carries the choice, or the typed words', () => {
+    expect(notApproved(CHANGE)).toContain(`the person chose "${CHANGE}"`)
+    expect(notApproved('fewer notes')).toContain('the person answered "fewer notes" instead of approving')
+    expect(notApproved(`${WRITE}, ${CHANGE}`)).toContain('instead of approving')
+  })
+})
+
+describe('notAsked', () => {
+  test('says nothing was written and why', () => {
+    expect(notAsked('no one to ask')).toBe(
+      'Nothing written: the person could not be asked to approve the plan (no one to ask). ' +
+        'write_task_plan writes only after they choose "Write it to the task", ' +
+        'which needs someone at an interactive session.',
+    )
   })
 })

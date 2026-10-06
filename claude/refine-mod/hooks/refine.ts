@@ -1,5 +1,21 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { isSandboxed, isUuid, merge, parseExport, parseInput, refusal } from './plan'
+import {
+  CHANGE,
+  HEADER,
+  QUESTION,
+  WRITE,
+  isSandboxed,
+  isUuid,
+  merge,
+  notApproved,
+  notAsked,
+  overlong,
+  parseExport,
+  parseInput,
+  planLines,
+  refusal,
+} from './plan'
+import type { Plan, Task } from './plan'
 
 // The tool's listed name: mcp__<plugin>__<name>, hyphens kept.
 export const TOOL = 'mcp__niri-tasks-refine__write_task_plan'
@@ -39,6 +55,23 @@ const armedUuid = async ($: EngineInterface, uuid: unknown): Promise<string | un
 // outside its sandbox.
 const TASK = ['task', 'rc.hooks=off']
 
+// The task as it is now, if it still matches what the skill read; else the
+// refusal the call answers with.
+const current = async (
+  $: EngineInterface,
+  uuid: string,
+  expected: Plan,
+): Promise<{ task: Task } | { deny: string }> => {
+  const exported = await $.process.run([...TASK, 'rc.json.array=on', uuid, 'export'])
+  if (exported.exitCode !== 0) {
+    return { deny: `task export failed (${exported.exitCode}): ${exported.stderr.trim()}` }
+  }
+  const task = parseExport(exported.stdout)
+  const why = refusal(task, expected)
+  if (why !== undefined || task === undefined) return { deny: `Nothing written: ${why}` }
+  return { task }
+}
+
 export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     if ((await armedUuid($, options.uuid)) !== undefined) await $.tool.register(SPEC)
@@ -54,15 +87,31 @@ export const register: Register = (on, options) => {
     const input = parseInput(e)
     if (typeof input === 'string') return { deny: `write_task_plan: ${input}` }
 
-    const exported = await $.process.run([...TASK, 'rc.json.array=on', uuid, 'export'])
-    if (exported.exitCode !== 0) {
-      return { deny: `task export failed (${exported.exitCode}): ${exported.stderr.trim()}` }
-    }
-    const task = parseExport(exported.stdout)
-    const why = refusal(task, input.expected)
-    if (why !== undefined || task === undefined) return { deny: `Nothing written: ${why}` }
+    // Checked before the person is asked, so they are never asked about a
+    // plan that could not be written.
+    const before = await current($, uuid, input.expected)
+    if ('deny' in before) return before
 
-    const planned = merge(task, input, await $.clock.now())
+    // The plan as the tool will write it, from its own arguments, not from
+    // what the model printed; refused whole before a line could be cut.
+    const lines = planLines(input)
+    const tooLong = overlong(lines)
+    if (tooLong !== undefined) return { deny: `Nothing written: ${tooLong}` }
+    for (const line of lines) $.ui.log(line)
+
+    let answer: string
+    try {
+      answer = await $.ui.ask(QUESTION, { options: [WRITE, CHANGE], header: HEADER })
+    } catch (error) {
+      return { deny: notAsked(error instanceof Error ? error.message : String(error)) }
+    }
+    if (answer !== WRITE) return { deny: notApproved(answer) }
+
+    // The person may have taken minutes: read the task again.
+    const now = await current($, uuid, input.expected)
+    if ('deny' in now) return now
+
+    const planned = merge(now.task, input, await $.clock.now())
     const imported = await $.process.run([...TASK, 'rc.verbose=nothing', 'import'], {
       stdin: JSON.stringify([planned]),
     })

@@ -48,6 +48,7 @@ export const parseInput = (e: Record<string, unknown>): PlanInput | string => {
   if (plan.description.trim() === '') return 'description must not be empty'
   if (/[\r\n]/.test(plan.description)) return 'description must be one line'
   if (plan.notes.some(note => note.trim() === '')) return 'notes must not be empty'
+  if (plan.notes.some(note => /[\r\n]/.test(note))) return 'each note must be one line'
   return { expected, ...plan }
 }
 
@@ -103,3 +104,50 @@ export const merge = (task: Task, plan: PlanInput, nowMs: number): Task => {
     tags: [...new Set([...(task.tags ?? []), 'planned'])].sort(),
   }
 }
+
+// The approval the tool asks for before it writes. Only WRITE, compared
+// exactly, approves: `$.ui.ask` answers the label chosen or the words typed
+// under Other.
+export const QUESTION = 'Write this to the task?'
+export const WRITE = 'Write it to the task'
+export const CHANGE = 'Change something'
+export const HEADER = 'Task plan'
+
+// The most of one `$.ui.log` line the terminal draws.
+export const MAX_LINE = 2000
+
+// What the person reads before the question: the plan from the tool's own
+// arguments, one line for the description and one per note.
+export const planLines = (plan: Plan): string[] => [
+  `Description: ${plan.description}`,
+  ...(plan.notes.length === 0
+    ? ['Notes: none (the task keeps no notes)']
+    : plan.notes.map((note, i) => `Note ${i + 1}: ${note}`)),
+]
+
+// Why the lines may not be shown, or undefined when the terminal draws each
+// whole: the person must not approve what was cut from view.
+export const overlong = (lines: readonly string[]): string | undefined => {
+  const i = lines.findIndex(line => line.length > MAX_LINE)
+  if (i === -1) return undefined
+  const what = i === 0 ? 'the description' : `note ${i}`
+  return (
+    `${what} would show as a line of ${lines[i]?.length} characters, ` +
+    `over the ${MAX_LINE} the terminal draws. Shorten it or split it into notes, then call again.`
+  )
+}
+
+// What the model reads when the person did not choose WRITE: their choice,
+// or the words they typed under Other, so it can revise and call again.
+export const notApproved = (answer: string): string =>
+  answer === CHANGE
+    ? `Nothing written: the person chose "${CHANGE}". Ask them what to change, ` +
+      'revise the plan, and call write_task_plan again.'
+    : `Nothing written: the person answered ${JSON.stringify(answer)} instead of approving. ` +
+      'Revise the plan with that, and call write_task_plan again.'
+
+// What the model reads when no one could be asked (a `-p` run, a dismissed
+// dialog): the tool writes only on the person's own "Write it to the task".
+export const notAsked = (reason: string): string =>
+  `Nothing written: the person could not be asked to approve the plan (${reason}). ` +
+  `write_task_plan writes only after they choose "${WRITE}", which needs someone at an interactive session.`
