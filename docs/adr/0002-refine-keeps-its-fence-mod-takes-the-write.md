@@ -305,7 +305,9 @@ the second route needs no `task` at all, so it is not part of A. What bounds
 it is the same as today: the instruction, the sandbox keeping the write to
 the task data, and Taskwarrior's undo. Closing it means a write path the
 sandbox cannot reach at all, such as reads served by the mod too and no
-`allowWrite`. That is a larger change than this review weighs. The sandbox, the hidden
+`allowWrite`. That is a larger change than this review weighs.
+
+The sandbox, the hidden
 sockets and credentials, the removed tools and the standing instruction are
 all flags and settings that a mod failure does not touch.
 
@@ -313,14 +315,14 @@ Found along the way, outside the mod question: `allowWrite` on the task data
 covers `~/.task/hooks`, and Taskwarrior hooks are on, so a refine session can
 already write a hook that the user's own unsandboxed `task` commands would
 then run. A `denyWrite` on that folder in `session_settings` would close it
-whether or not a mod is built.
+whether or not a mod is built (task `b268d068`).
 
 ## Adopted
 
 Each is a pending task on `+niri_tasks`:
 
-- A — `feat: Write a refined task through a mod tool` (task `<uuid8>`)
-- B — `feat: Approve a refine's write inside the tool` (task `<uuid8>`)
+- A — `feat: Write a refined task through a mod tool` (task `5ff28e6f`)
+- B — `feat: Approve a refine's write inside the tool` (task `dc32d340`)
 
 ## Sources
 
