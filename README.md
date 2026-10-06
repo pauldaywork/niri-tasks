@@ -141,7 +141,7 @@ degrades to stderr without it.
 [herdr](https://herdr.dev) is optional. With it on `$PATH`, `niritasks project
 open` runs the workspace's herdr session in the project terminal; without it the
 terminal is a plain shell in the project folder. The menu's **Refine** and
-**Grill me** need both herdr and Claude Code (`claude`) on `$PATH` — they open
+**Grill me** need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod) on `$PATH` — they open
 Claude inside that session — plus `bubblewrap` and `socat` for the Bash
 sandbox that keeps that Claude to reading the project and writing only the
 task (`sudo apt install bubblewrap socat`). Without them Claude refuses to

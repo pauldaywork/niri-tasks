@@ -38,8 +38,13 @@ task rc.json.array=on <uuid> export
 
 Stop and say so if it returns `[]` or its `status` is not `pending`. Keep the
 `description` and `annotations` you read — the write in step 5 checks against
-them.
-Show the user the description and every note before going further.
+them. Show the user the description and every note before going further.
+
+Then select the write tool with ToolSearch
+(`select:mcp__niri-tasks-refine__write_task_plan`). If it is not there, stop
+before step 2 and tell the user the refine mod did not load, so the task
+cannot be written: they should run `install.sh` and check that `claude
+--version` is 2.1.287 or later. Do not interview them first.
 
 ## 2. Ground it
 

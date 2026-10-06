@@ -340,7 +340,7 @@ pub fn launch(workspace: &str, t: &task::Task, mode: Mode) -> Result<()> {
     // the user would find that out only at the end of the interview.
     anyhow::ensure!(
         mod_dir.join(".claude-plugin/plugin.json").is_file(),
-        "The refine mod is not installed at {}. Run install.sh from the niri-tasks repo.",
+        "The refine mod is missing, or its link is broken, at {}. Run install.sh from the niri-tasks repo.",
         mod_dir.display()
     );
     let settings = session_settings(&dir, &task::data_location()?, &hidden, &t.uuid);
