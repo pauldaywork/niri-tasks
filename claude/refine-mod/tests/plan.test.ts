@@ -69,6 +69,16 @@ describe('parseInput', () => {
     expect(parseInput({ expected: EXPECTED, description: 'x', notes: ['a\nb'] })).toBe(
       'each note must be one line',
     )
+    const plain = 'description must be plain text: no control or invisible characters'
+    const plainNotes = 'notes must be plain text: no control or invisible characters'
+    expect(parseInput({ expected: EXPECTED, description: '\x1b[8mhidden', notes: [] })).toBe(plain)
+    expect(parseInput({ expected: EXPECTED, description: 'x', notes: ['a\u202Eb'] })).toBe(plainNotes)
+    expect(parseInput({ expected: EXPECTED, description: 'x', notes: ['a\u200Bb'] })).toBe(plainNotes)
+    expect(parseInput({ expected: EXPECTED, description: 'x', notes: ['a\tb'] })).toBe(plainNotes)
+  })
+  test('accepts accents and emoji', () => {
+    const input = { expected: EXPECTED, description: 'café ✓ 🚀', notes: ['café ✓ 🚀'] }
+    expect(parseInput(input)).toEqual(input)
   })
 })
 

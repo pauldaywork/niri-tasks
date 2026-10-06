@@ -28,6 +28,8 @@ export const isSandboxed = (settings: Readonly<Record<string, unknown>>): boolea
   return sandbox?.enabled === true && sandbox?.failIfUnavailable === true
 }
 
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u
+
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every(item => typeof item === 'string')
 
@@ -49,6 +51,14 @@ export const parseInput = (e: Record<string, unknown>): PlanInput | string => {
   if (/[\r\n]/.test(plan.description)) return 'description must be one line'
   if (plan.notes.some(note => note.trim() === '')) return 'notes must not be empty'
   if (plan.notes.some(note => /[\r\n]/.test(note))) return 'each note must be one line'
+  // Escape sequences, tabs, bidi overrides and zero-width characters could make
+  // the logged line look unlike what `task import` writes.
+  if (HIDDEN.test(plan.description)) {
+    return 'description must be plain text: no control or invisible characters'
+  }
+  if (plan.notes.some(note => HIDDEN.test(note))) {
+    return 'notes must be plain text: no control or invisible characters'
+  }
   return { expected, ...plan }
 }
 
