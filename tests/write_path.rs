@@ -15,7 +15,7 @@
 //! Everything runs in one test function, sequentially, because the sandbox is
 //! process-global state.
 
-use niri_tasks::{task, task::NoteEdit, text};
+use niri_tasks::{project, task, task::NoteEdit, text};
 use std::path::PathBuf;
 
 struct Sandbox {
@@ -580,6 +580,26 @@ fn write_path_lifecycle() {
     task::set_up_next(&nx, true).expect("up next while waiting");
     assert!(!raw(&nx, "wait").is_empty(), "up next must not clear a wait date");
     assert!(task::get(&nx).expect("get").expect("task").is_up_next());
+
+    // ---- move a task to another project's workspace ---------------------
+    // What `task move` and a card's Move to workspace run: the task trades
+    // this workspace's tag for the folder's, and only for a folder listed.
+    task::add(TAG, &text::add_args("move me")).expect("add");
+    let mv = task::pending_for_tag(TAG)
+        .expect("list")
+        .into_iter()
+        .find(|t| t.description == "move me")
+        .expect("find the task to move");
+    let names: Vec<String> = ["sandbox", "other-proj"].iter().map(|s| s.to_string()).collect();
+    assert!(project::move_task(&mv, TAG, "nowhere", &names).is_err(), "a folder off the list is refused");
+    assert_eq!(project::move_task(&mv, TAG, "other-proj", &names).expect("move"), "other_proj");
+    let moved = task::get(&mv.uuid).expect("get").expect("task");
+    assert!(moved.tags.iter().any(|t| t == "other_proj"), "on the folder's workspace");
+    assert!(!moved.tags.iter().any(|t| t == TAG), "and off this one");
+    assert!(
+        project::move_task(&moved, TAG, "other-proj", &names).is_err(),
+        "a task not on this workspace is refused"
+    );
 
     // ---- tags scope the list --------------------------------------------
     task::add("othertag", &text::add_args("not mine")).expect("add to other tag");

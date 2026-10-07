@@ -1,4 +1,4 @@
-//! Project-name normalisation for the `~/Projects` picker.
+//! Project folders: the `~/Projects` picker's name normalisation, the list a task can move to, and moving it.
 //!
 //! fuzzel echoes typed text verbatim when it matches no entry, which is what
 //! turns the picker into a "new project" box. That text becomes a directory
@@ -10,6 +10,8 @@
 //! fail to create it.
 //!
 //! Also here: which programs a freshly-opened project workspace starts with.
+
+use anyhow::{Context, Result};
 
 /// What the picker decided to do with the text the user accepted.
 #[derive(Debug, PartialEq, Eq)]
@@ -79,6 +81,61 @@ pub fn move_destinations(names: &[String], current_tag: &str) -> Vec<String> {
         .filter(|n| crate::tag::workspace_tag(n) != current_tag)
         .cloned()
         .collect()
+}
+
+/// `~/Projects` and the folders in it, sorted, dotfiles left out.
+///
+/// Shared by the project picker and a card's Move to workspace, so the two
+/// always offer the same set: a project you can open is a project you can
+/// move a task to.
+pub fn list() -> Result<(std::path::PathBuf, Vec<String>)> {
+    let home = std::env::var("HOME").context("HOME is unset")?;
+    let dir = std::path::Path::new(&home).join("Projects");
+    let names = folders_in(&dir)?;
+    Ok((dir, names))
+}
+
+/// The folders in `dir`, sorted, dotfiles left out. Split from [`list`] so
+/// it is tested on a scratch directory, not the real `~/Projects`.
+fn folders_in(dir: &std::path::Path) -> Result<Vec<String>> {
+    anyhow::ensure!(dir.is_dir(), "No {} folder found.", dir.display());
+    let mut names: Vec<String> = std::fs::read_dir(dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| !n.starts_with('.'))
+        .collect();
+    names.sort();
+    Ok(names)
+}
+
+/// The tag a task on `current_tag` takes moving to `folder`: the folder's
+/// own, folded as opening that project folds it. Refused for a folder not
+/// among [`move_destinations`] — the one it is already on, or one that is not
+/// there — because a task on a tag no workspace produces is invisible to
+/// every list.
+pub fn destination(names: &[String], current_tag: &str, folder: &str) -> Result<String> {
+    anyhow::ensure!(
+        move_destinations(names, current_tag).iter().any(|n| n == folder),
+        "'{folder}' is not a ~/Projects folder this task can move to."
+    );
+    let tag = crate::tag::workspace_tag(folder);
+    anyhow::ensure!(!tag.is_empty(), "'{folder}' has no usable tag characters.");
+    Ok(tag)
+}
+
+/// Move `task` off `current_tag` onto `folder`'s workspace, and say which tag
+/// it now carries. `names` are the `~/Projects` folders, from [`list`].
+/// Refused for a task not on `current_tag`: dropping a tag it lacks would
+/// leave it on two workspaces.
+pub fn move_task(task: &crate::task::Task, current_tag: &str, folder: &str, names: &[String]) -> Result<String> {
+    anyhow::ensure!(
+        task.tags.iter().any(|t| t == current_tag),
+        "That task is not on +{current_tag}, so it cannot move off it."
+    );
+    let to = destination(names, current_tag, folder)?;
+    crate::task::move_to_tag(&task.uuid, current_tag, &to)?;
+    Ok(to)
 }
 
 /// The editor opened beside the terminal when a project workspace starts.
@@ -162,6 +219,41 @@ pub fn startup_commands(dir: &std::path::Path, workspace: &str) -> Vec<Vec<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn projects() -> Vec<String> {
+        ["niri-tasks", "alp-theme", "keystone"].iter().map(|s| s.to_string()).collect()
+    }
+
+    /// A folder on the list moves the task to its folded tag, the one opening
+    /// that project gives its workspace.
+    #[test]
+    fn a_destination_is_the_folders_tag() {
+        assert_eq!(destination(&projects(), "niri_tasks", "alp-theme").unwrap(), "alp_theme");
+    }
+
+    /// The folder the task is already on is no move, and a folder that is not
+    /// there would put the task on a tag no workspace shows.
+    #[test]
+    fn a_destination_off_the_list_is_refused() {
+        assert!(destination(&projects(), "niri_tasks", "niri-tasks").is_err());
+        assert!(destination(&projects(), "niri_tasks", "nowhere").is_err());
+    }
+
+    #[test]
+    fn folders_are_sorted_dirs_without_dotfiles() {
+        let dir = std::env::temp_dir().join(format!("niritasks-projects-{}", std::process::id()));
+        for d in ["beta", "alpha", ".hidden"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        std::fs::write(dir.join("file"), "").unwrap();
+        assert_eq!(folders_in(&dir).unwrap(), vec!["alpha".to_string(), "beta".to_string()]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_missing_projects_folder_is_an_error() {
+        assert!(folders_in(std::path::Path::new("/nonexistent/Projects")).is_err());
+    }
 
     fn existing() -> Vec<String> {
         ["alpha", "my-project", "with space"]

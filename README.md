@@ -229,6 +229,7 @@ niritasks task menu <uuid>         # one task's actions, as a task card click op
 niritasks task status <uuid> <state>  # the menu's Update status: active|stopped|waiting|completed|deleted
                                    #   (stopped also brings back a waiting task, and reopens a completed one)
 niritasks task status <uuid> deleted --yes  # deleted needs --yes, the menu's confirmation
+niritasks task move <uuid> <folder>  # to another ~/Projects folder's workspace, as a card's Move to workspace does
 niritasks task add <text>          # honours taskwarrior attributes: due:friday, priority:H
                                    #   to the herdr session's workspace in herdr, else the focused one
                                    #   (task refine, start and session pick their workspace the same way)

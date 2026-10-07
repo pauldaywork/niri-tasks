@@ -104,6 +104,18 @@ enum TaskCommand {
         #[arg(long)]
         yes: bool,
     },
+    /// Move a task to another project's workspace, as its card's Move to workspace does
+    ///
+    /// The folder is one of ~/Projects' folders, other than this workspace's;
+    /// the task trades this workspace's tag for the folder's. In a pane of a
+    /// named herdr session this workspace is the session's, else the focused
+    /// one.
+    Move {
+        /// The task's uuid, or its first 8 characters
+        uuid: String,
+        /// The ~/Projects folder to move it to, as named there
+        folder: String,
+    },
     /// Add a task to this workspace, or open the task box with no text
     ///
     /// In a pane of a named herdr session the task goes to the session's
@@ -327,6 +339,16 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             );
             let t = task::get(&uuid)?.context("task not found")?;
             apply_status(&t.uuid, &t.description, state)?;
+        }
+
+        TaskCommand::Move { uuid, folder } => {
+            // From a herdr pane, the session's workspace, as for task add;
+            // the panel's spawn has focused its own monitor first.
+            let tag = caller_workspace_tag()?;
+            let t = task::get(&uuid)?.context("task not found")?;
+            let (_, names) = project::list()?;
+            let to = project::move_task(&t, &tag, &folder, &names)?;
+            notify::tasks(&format!("Moved to +{to}: {}", t.description));
         }
 
         // With no text, open the box. With text, add straight away — which is
@@ -605,7 +627,7 @@ fn apply_status(uuid: &str, description: &str, status: task::Status) -> Result<(
 /// project picker does, and picking `niri-tasks` here puts the task on the same
 /// `+niri_tasks` that opening that project would give it.
 fn task_move(tag: &str, uuid: &str, description: &str) -> Result<()> {
-    let (_, names) = projects()?;
+    let (_, names) = project::list()?;
     let destinations = project::move_destinations(&names, tag);
     if destinations.is_empty() {
         notify::tasks("No other project to move this to.");
@@ -640,31 +662,6 @@ fn task_move(tag: &str, uuid: &str, description: &str) -> Result<()> {
     task::move_to_tag(uuid, tag, &destination)?;
     notify::tasks(&format!("Moved to +{destination}: {description}"));
     Ok(())
-}
-
-/// `~/Projects` and the folders in it, sorted, dotfiles left out.
-///
-/// Shared by the project picker and the move-a-task picker so the two always
-/// offer the same set — a project you can open is a project you can move a task
-/// to.
-fn projects() -> Result<(std::path::PathBuf, Vec<String>)> {
-    let home = std::env::var("HOME").context("HOME is unset")?;
-    let projects_dir = std::path::Path::new(&home).join("Projects");
-    anyhow::ensure!(
-        projects_dir.is_dir(),
-        "No {} folder found.",
-        projects_dir.display()
-    );
-
-    let mut names: Vec<String> = std::fs::read_dir(&projects_dir)?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| !n.starts_with('.'))
-        .collect();
-    names.sort();
-
-    Ok((projects_dir, names))
 }
 
 fn workspace_command(cmd: WorkspaceCommand) -> Result<()> {
@@ -711,7 +708,7 @@ fn prompt_for_name(prompt: &str, prefill: &str) -> Result<Option<String>> {
 }
 
 fn project_open() -> Result<()> {
-    let (projects_dir, names) = projects()?;
+    let (projects_dir, names) = project::list()?;
 
     // Under the local folders, the account's GitHub repos that are not cloned
     // yet. The rows come from the cache; the refresh fired here feeds the
@@ -819,6 +816,14 @@ fn terminal() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A card's Move to workspace runs this, with the folder picked on the
+    /// project list; a folder is required.
+    #[test]
+    fn moving_a_task_is_a_command() {
+        assert!(Cli::try_parse_from(["niritasks", "task", "move", "c53b6e3d", "alpha"]).is_ok());
+        assert!(Cli::try_parse_from(["niritasks", "task", "move", "c53b6e3d"]).is_err());
+    }
     use clap::CommandFactory;
 
     /// The menu and the action row both run a task action as its own

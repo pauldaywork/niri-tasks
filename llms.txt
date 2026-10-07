@@ -30,6 +30,7 @@
 | `niritasks task menu <uuid>` | One task's action menu, as clicking its task card opens it | GUI (fuzzel), follows focus |
 | `niritasks task status <uuid> <state>` | Move it to `active`, `stopped` (also reopens a completed task), `waiting` or `completed` | scriptable |
 | `niritasks task status <uuid> deleted --yes` | Delete it | scriptable |
+| `niritasks task move <uuid> <folder>` | Move it to another `~/Projects` folder's workspace: it trades this workspace's tag for the folder's. Refused for a folder not in `~/Projects`, this workspace's own, or a task not on this workspace | scriptable, follows the herdr session, else focus |
 | `niritasks task add <text>` | Add a task to the herdr session's workspace in a herdr pane, else to the focused workspace; the text is word-split, so `due:friday` is an attribute | scriptable, follows the herdr session, else focus |
 | `niritasks task add` | With no text, the task box, to type a task and its notes | GUI |
 | `niritasks task add --refine` | The task box with Add & refine as its default (Mod+Alt+Shift+T); with text, adds the task and refines it straight away | GUI, or scriptable with text, follows the herdr session, else focus |
