@@ -102,7 +102,8 @@ every task that is not a planned task, and a waiting task is under Waiting
 alone. Finished lists the workspace's last 12 completed tasks, the most
 recently finished first, and a finished task is under it alone. The Waiting tab
 alone has Clear all (Ctrl+Shift+Delete), on a strip under the tab bar, which
-deletes every task under it on a second press, as Remove does one. The Ideas tab after them is not one.
+deletes every task under it on a second press, as Remove does one. The Ideas tab
+after them is not one.
 _Avoid_: tab alone (Tab is also a key), category, view, status
 
 **Ideas tab**:

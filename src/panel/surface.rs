@@ -61,23 +61,23 @@
 //! while it has a task under it, All apart. 1 to 6 pick one, always the same
 //! one, and each wears its key in brackets after its name, as To refine (4);
 //! they do nothing for a hidden tab; [ and ] step along the shown ones,
-//! stopping at the ends; a click picks one too. The tabs never take focus, so the arrows
-//! and Tab still move only between cards and buttons. The panel takes the
-//! keyboard on All every time; a refresh keeps the tab, falling back to All
-//! once it has nothing left, and focus falls back to the first card when the
-//! one it was on has left it.
+//! stopping at the ends; a click picks one too. The tabs never take focus, so
+//! the arrows and Tab still move only between cards and buttons. The panel
+//! takes the keyboard on All every time; a refresh keeps the tab, falling back
+//! to All once it has nothing left, and focus falls back to the first card
+//! when the one it was on has left it.
 //!
-//! On the Waiting tab alone, Clear all sits under the tab bar, at the right
-//! on a strip of its own, the numbered tabs leaving no room on the bar. Like
+//! On the Waiting tab alone, Clear all sits under the tab bar, at the right on
+//! a strip of its own, the numbered tabs leaving no room on the bar. Like
 //! Remove, its first press arms it as Confirm clear all, and its second
 //! deletes: every task the tab lists, each through Remove's own `task status
 //! <uuid> deleted --yes`, one after another. The panel goes to All at once and
-//! keeps the keyboard. Moving the focus, or any re-render, a tab switch included,
-//! disarms it. It is out of the focus chain with the tabs, so Ctrl+Shift+Delete
-//! presses it; Ctrl+Delete and Delete are still the focused card's. Armed, it
-//! takes the focus off the cards and every key with it: Enter confirms rather
-//! than opening the card it was on, Escape and the keys that move put it back
-//! with the focus where it was, and a card's keys do nothing.
+//! keeps the keyboard. Moving the focus, or any re-render, a tab switch
+//! included, disarms it. It is out of the focus chain with the tabs, so
+//! Ctrl+Shift+Delete presses it; Ctrl+Delete and Delete are still the focused
+//! card's. Armed, it takes the focus off the cards and every key with it: Enter
+//! confirms rather than opening the card it was on, Escape and the keys that
+//! move put it back with the focus where it was, and a card's keys do nothing.
 //!
 //! After the filter tabs, Ideas is always shown: not a filter but the
 //! workspace's notepad, `notepad.rs`'s text area in the column in place of the
@@ -1111,7 +1111,10 @@ impl Panel {
             // or the room to its left.
             let clear = self.slide.clear.get();
             if clear.1 > 0 {
-                rects.extend(blur::card_region(clear_strip_rect(x, bar_h, clear), RADIUS_PX, on_screen));
+                let strip = clear_strip_rect(x, bar_h, clear);
+                if strip.2 > 0 {
+                    rects.extend(blur::card_region(strip, RADIUS_PX, on_screen));
+                }
             }
         }
         // The cards as laid out in the column under the tabs, moved up by
@@ -1263,10 +1266,10 @@ fn scroller(column: &gtk4::Box) -> gtk4::ScrolledWindow {
 
 /// Where Clear all's strip is, for the blur behind it: a card gap under the
 /// bar, its right edge on the cards', and cut at the surface's edge as the
-/// cards are.
+/// cards are, to no width at all once it is wholly past it.
 fn clear_strip_rect(x: i32, bar_h: i32, (w, h): (i32, i32)) -> blur::Rect {
     let left = x + CARD_WIDTH_PX - w;
-    (left, SHADOW_PX + bar_h + GAP_PX, w.min(SURFACE_WIDTH - left), h)
+    (left, SHADOW_PX + bar_h + GAP_PX, w.min(SURFACE_WIDTH - left).max(0), h)
 }
 
 /// A tab button's face: its name, then the key that picks it in brackets,
@@ -1578,6 +1581,14 @@ mod tests {
     fn clear_alls_strip_is_cut_at_the_surface_edge() {
         let x = SURFACE_WIDTH - CARD_WIDTH_PX + 50;
         assert_eq!(clear_strip_rect(x, 30, (120, 36)).2, 70);
+    }
+
+    /// At the peek's x, as when 5 is pressed during the slide-in, the cards
+    /// are far past the edge: the strip's width is 0, never negative, which
+    /// the Wayland region would take.
+    #[test]
+    fn clear_alls_strip_has_no_width_at_the_peeks_x() {
+        assert_eq!(clear_strip_rect(TUCKED_X as i32, 30, (120, 36)).2, 0);
     }
 
     /// A tab wears its name, a space, and the key that picks it in brackets.

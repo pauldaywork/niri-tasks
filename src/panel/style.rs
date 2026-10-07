@@ -19,8 +19,8 @@
 //!
 //! While the panel has the keyboard, the filter tabs above the cards are one
 //! bar in a card's look, and a tab with nothing in it shows one line in a
-//! card's look too. On the Waiting tab, Clear all ends the bar in Remove's
-//! red.
+//! card's look too. On the Waiting tab, Clear all sits on a strip of its own
+//! under the bar, in Remove's red.
 //!
 //! Every rule is scoped to `.task-panel`, because the provider is installed for
 //! the whole display and the daemon also opens task boxes, which must not pick
