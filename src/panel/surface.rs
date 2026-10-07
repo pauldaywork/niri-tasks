@@ -40,11 +40,15 @@
 //! more" showing the cards it stands for and landing on the first of them;
 //! Left, Right and Tab move along the focused one, and g, b, s, r, e, t and
 //! Delete press its Go to session, Back to list, Start, Refine, Edit, Stop and
-//! Remove. The controller runs in the capture phase, ahead of GTK's own focus
-//! chain, which would otherwise walk every button on the panel. The focused
-//! card is darkened. The body opens the whole menu. Escape, or anything that
-//! runs, hands the keyboard back, folds the cards to one line again, and puts
-//! the panel back on the right edge as a peek.
+//! Remove. Ctrl+Delete deletes the focused card's task at once and keeps the
+//! keyboard. After the buttons a dimmed hint names the keys that change per
+//! card, the focused button's and what Ctrl+Enter does to the task
+//! (`Action::hint`); a footer under the scroller names Enter and Ctrl+Delete,
+//! which act alike on every card. The controller runs in the capture phase,
+//! ahead of GTK's own focus chain, which would otherwise walk every button on
+//! the panel. The focused card is darkened. The body opens the whole menu.
+//! Escape, or anything that runs, hands the keyboard back, folds the cards to
+//! one line again, and puts the panel back on the right edge as a peek.
 //!
 //! GTK's focus and the state's are kept the same both ways: an
 //! [`Effect::Focus`] moves GTK's, and GTK's moving (a click on a button)
@@ -68,7 +72,7 @@
 //! --yes`, one after another. The panel goes to All at once and keeps the
 //! keyboard. Moving the focus, or any re-render, a tab switch included,
 //! disarms it. It is out of the focus chain with the tabs, so Ctrl+Shift+Delete
-//! presses it; Delete alone is still the focused card's Remove. Armed, it
+//! presses it; Ctrl+Delete and Delete are still the focused card's. Armed, it
 //! takes the focus off the cards and every key with it: Enter confirms rather
 //! than opening the card it was on, Escape and the keys that move put it back
 //! with the focus where it was, and a card's keys do nothing.
@@ -89,10 +93,10 @@
 //! has no tasks, beside the Waiting tab.
 //!
 //! Wrapped, the cards can stand taller than the screen, so the column sits in
-//! a scroller under the tabs, capped at the screen's height less its margins
-//! and the tabs. Moving the focus measures the cards again, its row having
-//! moved, and scrolls the focused card wholly into view, and the blur region
-//! moves with the scroll and stops at the view's edges.
+//! a scroller under the tabs, capped at the screen's height less its margins,
+//! the tabs and the footer. Moving the focus measures the cards again, its row
+//! having moved, and scrolls the focused card wholly into view, and the blur
+//! region moves with the scroll and stops at the view's edges.
 //!
 //! To sit in the middle, the surface keeps its right anchor, which centres it
 //! vertically, and grows its right margin to half the room it leaves on the

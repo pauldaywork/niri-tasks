@@ -82,7 +82,10 @@ has the keyboard; the other cards hide theirs — Go to session, Start working,
 Refine, Edit, Speak, Up next, Stop, Waiting and Remove, an active task getting
 Stop in place of Start working, only a task with a live Claude getting Go to
 session, and a waiting task getting just Back to list, Edit, Speak and Remove —
-each running what the same entry in the task's action menu runs.
+each running what the same entry in the task's action menu runs. After the
+buttons, dimmed, the hint names the keys that change from card to card: the
+focused button's, and what Ctrl+Enter does to the task. The keys every card
+shares, Enter and Ctrl+Delete, are on a line under the list instead.
 _Avoid_: toolbar, button bar, quick actions
 
 **Filter tab**:
@@ -91,8 +94,9 @@ All, Active, Planned, To refine and Waiting — narrowing the cards to the tasks
 it names, and shown only while it has any, All apart. A filter, not a status:
 a started planned task is under Active and not Planned, To refine is every
 task that is not a planned task, and a waiting task is under Waiting alone.
-The Waiting tab alone ends in Clear all, which deletes every task under it on
-a second press, as Remove does one. The Ideas tab after them is not one.
+The Waiting tab alone ends in Clear all (Ctrl+Shift+Delete), which deletes
+every task under it on a second press, as Remove does one. The Ideas tab
+after them is not one.
 _Avoid_: tab alone (Tab is also a key), category, view, status
 
 **Ideas tab**:

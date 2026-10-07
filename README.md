@@ -17,7 +17,7 @@ from — opening one, or moving a task to another workspace.
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
 | `Mod+Alt+Shift+T` | The same, with Add & refine as the default: once added, the task opens in a "Refine: …" tab of the workspace's herdr session, where Claude works it up into a plan |
-| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, read it aloud, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up. Tabs above the cards, picked with 1–5 or [ and ], narrow them to All, Active, Planned, To refine or Waiting, and the Waiting tab's Clear all (Ctrl+Delete) deletes every waiting task. The last tab, Ideas (6), is a notepad for the workspace's ideas that are not tasks yet. With no tasks, or no daemon, the fuzzel list instead |
+| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, read it aloud, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up. Tabs above the cards, picked with 1–5 or [ and ], narrow them to All, Active, Planned, To refine or Waiting, and the Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task. Ctrl+Delete deletes the focused task at once. A hint beside the focused card's buttons, and a line under the list, name the keys. The last tab, Ideas (6), is a notepad for the workspace's ideas that are not tasks yet. With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+W` | Pick a folder from `~/Projects` (or type a new name to make one), put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
 
@@ -56,14 +56,18 @@ under it:
 | **Stop** (peach) | `t` | Stop it — only on an active task |
 | **Waiting** (teal) | | Park it as waiting: off the panel, and on the Waiting tab instead |
 | **Back to list** (lavender) | `b` | Off waiting and back on the list — only on a waiting task, which gets just this, Edit, Speak and Remove |
-| **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back |
-| **Clear all** (red) | `Ctrl+Delete` | On the Waiting tab's bar, not a card: turns into **Confirm clear all** and takes the focus off the cards; a second press, or `Enter`, deletes every waiting task on the workspace and goes back to All, while `Escape` or moving away puts it back |
+| **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back. `Ctrl+Delete` deletes the focused task at once, whichever of its buttons is focused, and moves on to the next card |
+| **Clear all** (red) | `Ctrl+Shift+Delete` | On the Waiting tab's bar, not a card: turns into **Confirm clear all** and takes the focus off the cards; a second press, or `Enter`, deletes every waiting task on the workspace and goes back to All, while `Escape` or moving away puts it back |
 
 Up and Down move a darker fill and the buttons between cards, and Down onto
 "+N more" shows the rest in its place, carrying on to the first of them; Left,
-Right and Tab move along the focused card's buttons, whose name shows beside
-them while one is focused, and Enter presses the focused one. Enter on the
-card itself opens its full menu, which also has Note, Grill me, Update
+Right and Tab move along the focused card's buttons, and Enter presses the
+focused one. Beside the buttons, in smaller dimmed text, the focused card names
+its own keys: the focused button's letter and name (`g: Go to session`,
+`Del: Remove`), and what Ctrl+Enter would do to this task. A line under the list
+names the keys that act the same on every card: Enter, and Ctrl+Delete (not on
+Ideas, where the notepad takes those keys as typing). Enter
+on the card itself opens its full menu, which also has Note, Grill me, Update
 status and Move to workspace — led by Go to session while a Claude is
 working on the task, and on a waiting task just Edit, Note, Speak, Update
 status and Move to workspace. Every
@@ -72,14 +76,17 @@ right edge, tucked away with the cards folded back to one line. A list taller
 than the screen scrolls, keeping the focused card in view. Hovering never shows
 the buttons — only the keyboard does.
 
-Ctrl+Enter is the one key that does not give the keyboard back. On the focused
-card it refines the task, or starts working on it once it is planned, and the
-panel stays up with the same card focused, so you can carry on down the list.
-It does nothing on a task that is already being worked, or on a waiting task.
-Ctrl still held from the `Mod+Alt+Ctrl+T` chord counts, so let go of Ctrl before
-pressing Enter if you only want the card's menu. Apart from Ctrl+Delete, the
-Waiting tab's Clear all (below), every other Ctrl chord passes through
-untouched.
+Ctrl+Enter and Ctrl+Delete act on the focused card, whichever of its buttons is
+focused, without giving the keyboard back. Ctrl+Enter refines the task, or
+starts working on it once it is planned, and the panel stays up with the same
+card focused, so you can carry on down the list. It does nothing on a task that
+is already being worked, or on a waiting task. Ctrl+Delete deletes the task at
+once, with no Confirm remove, and moves the focus to the next card (the one
+above, from the last) with the list kept up; Delete alone still asks first.
+Ctrl still held from the `Mod+Alt+Ctrl+T` chord counts, so let go of Ctrl
+before pressing Enter if you only want the card's menu, or Delete if you want
+Remove to ask. Apart from Ctrl+Shift+Delete, the Waiting tab's Clear all
+(below), every other Ctrl chord passes through untouched.
 
 Above the cards, tabs narrow them while the panel has the keyboard: **All**,
 **Active** (started), **Planned** (refined or grilled into a plan, and not
@@ -91,13 +98,13 @@ move only between cards and buttons. A started planned task is under Active,
 not Planned. Waiting tasks are on the Waiting tab only: not on All, the hover
 or the peek. The panel opens on All every time, and goes back to All when the
 tab it is on runs out of tasks. The Waiting tab alone ends in **Clear all**,
-which `Ctrl+Delete` presses (`Delete` alone is still the focused card's
-Remove). Like Remove it asks first, as **Confirm clear all**, and its second
-press deletes every waiting task on this workspace, one `task status <uuid>
+which `Ctrl+Shift+Delete` presses (`Ctrl+Delete` and `Delete` are still the
+focused card's). Like Remove it asks first, as **Confirm clear all**, and its
+second press deletes every waiting task on this workspace, one `task status <uuid>
 deleted --yes` after another, putting the panel back on All with the keyboard
 kept. Armed, it takes the focus off the cards, so no card's buttons show and
-`Enter` confirms as a second `Ctrl+Delete` does; a card's own keys do nothing
-until it is put back. `Escape`, an arrow or Tab puts it back with the focus on
+`Enter` confirms as a second `Ctrl+Shift+Delete` does; a card's own keys,
+`Ctrl+Delete` among them, do nothing until it is put back. `Escape`, an arrow or Tab puts it back with the focus on
 the card it was on, and the panel stays up; switching tab puts it back too.
 
 The last tab, **Ideas**, is not a filter: in place of the cards it shows one
@@ -453,7 +460,7 @@ screenshots a nested niri of its own and measures the panel against a frame take
 with no tasks: the peek's width, the stack's height as tasks are added, the
 keyboard's cards in the middle of the screen and the focused one's buttons, a
 filter tab's fill, a waiting task on the Waiting tab and off the tucked panel,
-Clear all taking the focus off the cards on its first Ctrl+Delete and Enter then
+Clear all taking the focus off the cards on its first Ctrl+Shift+Delete and Enter then
 deleting both waiting tasks and nothing else, Escape cancelling Clear all,
 Ctrl+Enter's refine reaching `task refine`, "+N more" opening on Down, Escape
 putting them back, nothing for another tag's task, nothing once they are done,
