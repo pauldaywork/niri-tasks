@@ -65,5 +65,6 @@
 ## Optional
 
 - [docs/adr/0001-task-panel-in-gtk-not-quickshell.md](docs/adr/0001-task-panel-in-gtk-not-quickshell.md): why the task panel is drawn in GTK
+- [docs/adr/0003-the-daemon-draws-and-the-cli-asks.md](docs/adr/0003-the-daemon-draws-and-the-cli-asks.md): why only the daemon draws windows, and why fuzzel left
 - [tests/write_path.rs](tests/write_path.rs): the tests that pin `add` word-splitting and `edit`/`note` staying literal
 - [src/main.rs](src/main.rs): the clap definitions every command above comes from
