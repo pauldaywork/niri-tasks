@@ -200,9 +200,9 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .filter-tabs button {{ padding: {ACTION_PADDING}; color: alpha({TEXT}, 0.55); }}
 .task-panel .filter-tabs button:not(:first-child) {{ border-left: 1px solid {SEPARATOR}; }}
 .task-panel .filter-tabs button.current {{ color: {TEXT}; background-color: {CURRENT_TAB}; }}
-/* Clear all, at the Waiting tab bar's far end: Remove's red, and filled red
-   once armed, as the armed Remove is. Its classes outrank the tabs' dimmed
-   colour and the press reset's clear fill. */
+/* Clear all, on its strip under the Waiting tab's bar: Remove's red, and
+   filled red once armed, as the armed Remove is. Its classes outrank the
+   tabs' dimmed colour and the press reset's clear fill. */
 .task-panel .filter-tabs .clear-all {{ color: {REMOVE}; }}
 .task-panel .filter-tabs .clear-all.confirm {{ background-color: {REMOVE}; color: {ON_FILL}; }}
 /* An empty tab's one line, padded like a card's text and dimmed like

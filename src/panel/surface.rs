@@ -66,11 +66,12 @@
 //! once it has nothing left, and focus falls back to the first card when the
 //! one it was on has left it.
 //!
-//! On the Waiting tab alone, Clear all ends the tab bar. Like Remove, its
-//! first press arms it as Confirm clear all, and its second deletes: every
-//! task the tab lists, each through Remove's own `task status <uuid> deleted
-//! --yes`, one after another. The panel goes to All at once and keeps the
-//! keyboard. Moving the focus, or any re-render, a tab switch included,
+//! On the Waiting tab alone, Clear all sits under the tab bar, at the right
+//! on a strip of its own, the numbered tabs leaving no room on the bar. Like
+//! Remove, its first press arms it as Confirm clear all, and its second
+//! deletes: every task the tab lists, each through Remove's own `task status
+//! <uuid> deleted --yes`, one after another. The panel goes to All at once and
+//! keeps the keyboard. Moving the focus, or any re-render, a tab switch included,
 //! disarms it. It is out of the focus chain with the tabs, so Ctrl+Shift+Delete
 //! presses it; Ctrl+Delete and Delete are still the focused card's. Armed, it
 //! takes the focus off the cards and every key with it: Enter confirms rather
@@ -180,16 +181,21 @@ pub struct Panel {
     base: gtk4::Box,
     /// Scrolls the column once it is taller than the screen.
     scroller: gtk4::ScrolledWindow,
-    /// The filter tabs above the scroller, shown only while the panel has the
-    /// keyboard. It does not scroll with the cards.
+    /// The filter tabs above the scroller, and under them on the Waiting tab
+    /// Clear all's strip, shown only while the panel has the keyboard. It
+    /// does not scroll with the cards.
     tabs: gtk4::Box,
+    /// The tabs' own strip inside `tabs`, for the blur behind it.
+    bar: gtk4::Box,
     /// One button per filter tab, in `Filter::TABS` order, for which ones show
     /// and which one is picked.
     tab_buttons: Vec<gtk4::Button>,
     /// The Ideas tab, after the filter tabs and always shown with them.
     ideas_button: gtk4::Button,
-    /// Clear all, at the tab bar's far end, shown only on the Waiting tab:
-    /// deletes every task the tab lists, on its second press.
+    /// Clear all's strip under the bar, shown only on the Waiting tab.
+    clear_strip: gtk4::Box,
+    /// Clear all, on its strip: deletes every task the tab lists, on its
+    /// second press.
     clear: gtk4::Button,
     /// The keys every card shares, under the scroller so it stays put while
     /// the cards scroll, shown only while the panel has the keyboard.
@@ -264,9 +270,15 @@ struct Slide {
     /// The cards' height on screen: all of them, or the scroller's when they
     /// run past the screen. The input region needs it.
     cards_h: Cell<i32>,
-    /// The filter tabs' height, with the gap under them: what the cards sit
-    /// below. 0 without the keyboard, which has no tabs.
+    /// The filter tabs' height, Clear all's strip included when it shows,
+    /// with the gap under them: what the cards sit below. 0 without the
+    /// keyboard, which has no tabs.
     tabs_h: Cell<i32>,
+    /// The tab bar's own height, without the strip or the gaps: the blur's.
+    bar_h: Cell<i32>,
+    /// Clear all's strip's width and height, (0, 0) while it is hidden: the
+    /// blur's.
+    clear: Cell<(i32, i32)>,
     /// The footer's height, with the gap over it: what sits under the cards.
     /// 0 without the keyboard, which has no footer.
     footer_h: Cell<i32>,
@@ -288,6 +300,8 @@ impl Slide {
             grace: Cell::new(None),
             cards_h: Cell::new(0),
             tabs_h: Cell::new(0),
+            bar_h: Cell::new(0),
+            clear: Cell::new((0, 0)),
             footer_h: Cell::new(0),
             margin: Cell::new(0),
             margin_from: Cell::new(0),
@@ -323,7 +337,7 @@ impl Panel {
         let overlay = gtk4::Overlay::new();
         overlay.set_child(Some(&base));
         let scroller = scroller(&column);
-        let (tabs, tab_buttons, ideas_button, clear) = tab_bar();
+        let TabBar { head: tabs, bar, tab_buttons, ideas: ideas_button, clear_strip, clear } = tab_bar();
         let front = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         front.append(&tabs);
         front.append(&scroller);
@@ -340,8 +354,10 @@ impl Panel {
             base,
             scroller,
             tabs,
+            bar,
             tab_buttons,
             ideas_button,
+            clear_strip,
             clear,
             footer,
             slide: Rc::new(Slide::tucked()),
@@ -661,8 +677,8 @@ impl Panel {
         self.apply(effects);
     }
 
-    /// Which filter tabs show, which tab is picked, and whether Clear all
-    /// shows. Ideas is always shown: the bar itself hides without the
+    /// Which filter tabs show, which tab is picked, and whether Clear all's
+    /// strip shows. Ideas is always shown: the bar itself hides without the
     /// keyboard.
     fn update_tabs(&self) {
         let state = self.state.borrow();
@@ -672,7 +688,7 @@ impl Panel {
             set_class(button, "current", state.tab() == Tab::Filter(filter));
         }
         set_class(&self.ideas_button, "current", state.on_ideas());
-        self.clear.set_visible(state.shows_clear_all());
+        self.clear_strip.set_visible(state.shows_clear_all());
     }
 
     /// Measure the cards, the tabs and the footer, and size the surface to them: the
@@ -700,6 +716,18 @@ impl Panel {
             0
         };
 
+        // The bar and Clear all's strip apart, for the blur, which leaves
+        // out the gap between them and the room left of the strip.
+        let bar_h = if keyboard { self.bar.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX).1 } else { 0 };
+        let clear = if keyboard && self.clear_strip.is_visible() {
+            (
+                self.clear_strip.measure(gtk4::Orientation::Horizontal, -1).1,
+                self.clear_strip.measure(gtk4::Orientation::Vertical, -1).1,
+            )
+        } else {
+            (0, 0)
+        };
+
         // The footer, measured the same way: margins included, so the gap
         // over it and the ring room under it. Hidden on Ideas, so 0 there.
         let footer_h = if self.footer.is_visible() {
@@ -715,6 +743,8 @@ impl Panel {
         let cards_h = with_ring - 2 * RING_PX;
         let shown = shown_height(cards_h, tabs_h + footer_h, self.monitor.geometry().height());
         self.slide.tabs_h.set(tabs_h);
+        self.slide.bar_h.set(bar_h);
+        self.slide.clear.set(clear);
         self.slide.footer_h.set(footer_h);
         self.slide.cards_h.set(shown);
         let height = tabs_h + shown + footer_h + 2 * SHADOW_PX;
@@ -957,6 +987,8 @@ impl Panel {
             (state.focus().cloned(), state.armed().clone())
         };
         let clear_armed = matches!(armed, Armed::ClearAll { .. });
+        // Armed, its label is longer and the strip wider: the blur follows it.
+        let relabelled = self.clear.label().as_deref() != Some(clear_label(clear_armed).as_str());
         set_label(&self.clear, &clear_label(clear_armed));
         set_class(&self.clear, "confirm", clear_armed);
         for card in self.cards.borrow().iter() {
@@ -984,6 +1016,10 @@ impl Panel {
             }
         }
         self.show_row(focus.as_ref().map(|f| f.uuid.as_str()));
+        if relabelled && self.clear_strip.is_visible() {
+            self.fit();
+            self.update_blur(self.slide.x.get());
+        }
     }
 
     /// Scroll the focused card wholly into view, body and buttons, once the
@@ -1068,7 +1104,14 @@ impl Panel {
         let mut rects = Vec::new();
         if tabs_h > 0 {
             // The tab bar, which does not scroll; not the card gap under it.
-            rects.extend(blur::card_region((x, SHADOW_PX, width, tabs_h - GAP_PX), RADIUS_PX, on_screen));
+            let bar_h = self.slide.bar_h.get();
+            rects.extend(blur::card_region((x, SHADOW_PX, width, bar_h), RADIUS_PX, on_screen));
+            // Clear all's strip under it, when it shows; not the gap over it
+            // or the room to its left.
+            let clear = self.slide.clear.get();
+            if clear.1 > 0 {
+                rects.extend(blur::card_region(clear_strip_rect(x, bar_h, clear), RADIUS_PX, on_screen));
+            }
         }
         // The cards as laid out in the column under the tabs, moved up by
         // however far it is scrolled, and cut to the part of the column on
@@ -1217,20 +1260,47 @@ fn scroller(column: &gtk4::Box) -> gtk4::ScrolledWindow {
     scroller
 }
 
-/// The filter tabs, Ideas and Clear all, over the scroller rather than in it,
-/// so they stay put while the cards scroll. Ring room on three sides, as the
-/// column keeps, and under them the card gap less the ring the column keeps
-/// above the first card: the first card then sits a card gap below.
-fn tab_bar() -> (gtk4::Box, Vec<gtk4::Button>, gtk4::Button, gtk4::Button) {
-    let tabs = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    tabs.add_css_class("filter-tabs");
-    tabs.set_margin_top(RING_PX);
-    tabs.set_margin_start(RING_PX);
-    tabs.set_margin_end(RING_PX);
-    tabs.set_margin_bottom(GAP_PX - RING_PX);
+/// Where Clear all's strip is, for the blur behind it: a card gap under the
+/// bar, its right edge on the cards', and cut at the surface's edge as the
+/// cards are.
+fn clear_strip_rect(x: i32, bar_h: i32, (w, h): (i32, i32)) -> blur::Rect {
+    let left = x + CARD_WIDTH_PX - w;
+    (left, SHADOW_PX + bar_h + GAP_PX, w.min(SURFACE_WIDTH - left), h)
+}
+
+/// What [`tab_bar`] builds, for the panel to keep.
+struct TabBar {
+    /// The bar and Clear all's strip, one over the other, with the ring
+    /// and gap margins: what the panel shows, hides and measures.
+    head: gtk4::Box,
+    /// The tabs' strip alone, for the blur behind it.
+    bar: gtk4::Box,
+    tab_buttons: Vec<gtk4::Button>,
+    ideas: gtk4::Button,
+    /// Clear all's own strip, at the right under the bar, shown on the
+    /// Waiting tab alone.
+    clear_strip: gtk4::Box,
+    clear: gtk4::Button,
+}
+
+/// The filter tabs and Ideas on a bar, and under it Clear all on a strip of
+/// its own, over the scroller rather than in it, so they stay put while the
+/// cards scroll. Clear all is off the bar because the seven tabs fill the
+/// card's width. Ring room on three sides, as the column keeps, and under
+/// them the card gap less the ring the column keeps above the first card:
+/// the first card then sits a card gap below.
+fn tab_bar() -> TabBar {
+    let head = gtk4::Box::new(gtk4::Orientation::Vertical, GAP_PX);
+    head.set_margin_top(RING_PX);
+    head.set_margin_start(RING_PX);
+    head.set_margin_end(RING_PX);
+    head.set_margin_bottom(GAP_PX - RING_PX);
+    head.set_visible(false);
+    let bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    bar.add_css_class("filter-tabs");
     // Clips the picked tab's fill to the bar's rounded corners.
-    tabs.set_overflow(gtk4::Overflow::Hidden);
-    tabs.set_visible(false);
+    bar.set_overflow(gtk4::Overflow::Hidden);
+    head.append(&bar);
     let tab_buttons: Vec<gtk4::Button> = Filter::TABS
         .iter()
         .map(|filter| {
@@ -1239,7 +1309,7 @@ fn tab_bar() -> (gtk4::Box, Vec<gtk4::Button>, gtk4::Button, gtk4::Button) {
             // cards and their buttons, and a click does not take the focus.
             button.set_focusable(false);
             button.set_focus_on_click(false);
-            tabs.append(&button);
+            bar.append(&button);
             button
         })
         .collect();
@@ -1247,20 +1317,25 @@ fn tab_bar() -> (gtk4::Box, Vec<gtk4::Button>, gtk4::Button, gtk4::Button) {
     let ideas = gtk4::Button::with_label(Tab::Ideas.label());
     ideas.set_focusable(false);
     ideas.set_focus_on_click(false);
-    tabs.append(&ideas);
-    // Clear all, at the bar's far end: hexpand takes the room the tabs
-    // leave, and End keeps the button its own width at the end of it. Out
-    // of the focus chain like the tabs, which is why Ctrl+Shift+Delete presses it.
+    bar.append(&ideas);
+    // Clear all's strip: dressed as the bar is, and End keeps it its own
+    // width at the right, under the bar's end.
+    let clear_strip = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    clear_strip.add_css_class("filter-tabs");
+    clear_strip.set_halign(gtk4::Align::End);
+    // Clips the armed fill to the strip's rounded corners.
+    clear_strip.set_overflow(gtk4::Overflow::Hidden);
+    clear_strip.set_visible(false);
+    // Out of the focus chain like the tabs, which is why Ctrl+Shift+Delete
+    // presses it.
     let clear = gtk4::Button::with_label(&clear_label(false));
     clear.add_css_class("clear-all");
     clear.set_tooltip_text(Some("Ctrl+Shift+Delete"));
-    clear.set_hexpand(true);
-    clear.set_halign(gtk4::Align::End);
     clear.set_focusable(false);
     clear.set_focus_on_click(false);
-    clear.set_visible(false);
-    tabs.append(&clear);
-    (tabs, tab_buttons, ideas, clear)
+    clear_strip.append(&clear);
+    head.append(&clear_strip);
+    TabBar { head, bar, tab_buttons, ideas, clear_strip, clear }
 }
 
 /// The keys that act on whichever card has the focus, in a strip shaped like
@@ -1477,6 +1552,24 @@ mod tests {
     #[test]
     fn a_card_taller_than_the_page_shows_its_top() {
         assert_eq!(scroll_to_show(0.0, 500.0, 200.0, 900.0), 200.0);
+    }
+
+    /// Clear all's strip sits a card gap under the bar, its right edge on
+    /// the cards' right edge, its own size.
+    #[test]
+    fn clear_alls_strip_sits_under_the_bar_at_the_cards_right_edge() {
+        let x = SURFACE_WIDTH - CARD_WIDTH_PX;
+        assert_eq!(
+            clear_strip_rect(x, 30, (120, 36)),
+            (x + CARD_WIDTH_PX - 120, SHADOW_PX + 30 + GAP_PX, 120, 36)
+        );
+    }
+
+    /// Pushed past the surface's edge, the strip is cut there, as the cards are.
+    #[test]
+    fn clear_alls_strip_is_cut_at_the_surface_edge() {
+        let x = SURFACE_WIDTH - CARD_WIDTH_PX + 50;
+        assert_eq!(clear_strip_rect(x, 30, (120, 36)).2, 70);
     }
 
     /// Remove's trash can and its words, then, armed, what it asks.

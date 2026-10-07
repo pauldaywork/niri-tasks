@@ -167,7 +167,7 @@ impl PanelState {
         }
     }
 
-    /// Clear all ends the tab bar on the Waiting tab alone.
+    /// Clear all shows, on its strip under the tab bar, on the Waiting tab alone.
     pub fn shows_clear_all(&self) -> bool {
         self.keyboard && !self.ideas && self.filter == Filter::Waiting
     }

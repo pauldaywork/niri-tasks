@@ -349,9 +349,12 @@ if command -v wtype >/dev/null; then
     fi
     # The Waiting tab's one card has its row, as the focused card on All did;
     # All's two other cards have none. So All is taller by exactly two
-    # one-line cards and their gaps, as three tucked cards are than one.
+    # one-line cards and their gaps, as three tucked cards are than one, less
+    # Clear all's strip under the Waiting tab's bar and the card gap over it:
+    # the button's 31px and the 8px gap.
+    clear_strip_h=39
     waiting_h=$((y1 - y0))
-    extra=$((keyboard_h - waiting_h - (three_h - one_h)))
+    extra=$((keyboard_h - waiting_h - (three_h - one_h) + clear_strip_h))
     if [ "$extra" -ge -2 ] && [ "$extra" -le 2 ]; then
         ok "only the focused card shows its buttons (All ${keyboard_h}px, Waiting ${waiting_h}px)"
     else

@@ -101,8 +101,8 @@ status: a started planned task is under Active and not Planned, To refine is
 every task that is not a planned task, and a waiting task is under Waiting
 alone. Finished lists the workspace's last 12 completed tasks, the most
 recently finished first, and a finished task is under it alone. The Waiting tab
-alone ends in Clear all (Ctrl+Shift+Delete), which deletes every task under it
-on a second press, as Remove does one. The Ideas tab after them is not one.
+alone has Clear all (Ctrl+Shift+Delete), on a strip under the tab bar, which
+deletes every task under it on a second press, as Remove does one. The Ideas tab after them is not one.
 _Avoid_: tab alone (Tab is also a key), category, view, status
 
 **Ideas tab**:

@@ -59,7 +59,7 @@ under it:
 | **Waiting** (teal) | | Park it as waiting: off the panel, and on the Waiting tab instead |
 | **Back to list** (lavender) | `b` | Off waiting, or reopened from finished, and back on the list — only on a waiting or finished task, which gets just this, Edit, Speak and Remove |
 | **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back. `Ctrl+Delete` deletes the focused task at once, whichever of its buttons is focused, and moves on to the next card |
-| **Clear all** (red) | `Ctrl+Shift+Delete` | On the Waiting tab's bar, not a card: turns into **Confirm clear all** and takes the focus off the cards; a second press, or `Enter`, deletes every waiting task on the workspace and goes back to All, while `Escape` or moving away puts it back |
+| **Clear all** (red) | `Ctrl+Shift+Delete` | On the Waiting tab, on a strip under the tabs, not a card: turns into **Confirm clear all** and takes the focus off the cards; a second press, or `Enter`, deletes every waiting task on the workspace and goes back to All, while `Escape` or moving away puts it back |
 
 Up and Down move a darker fill and the buttons between cards, and Down onto
 "+N more" shows the rest in its place, carrying on to the first of them; Left,
@@ -102,8 +102,8 @@ started planned task is under Active, not Planned. Waiting tasks are on the
 Waiting tab only: not on All, the hover or the peek. Finished tasks are on the
 Finished tab only, the same way, and Back to list on one reopens it, back on
 All. The panel opens on All every time, and goes back to All when the tab it is
-on runs out of tasks. The Waiting tab alone ends in **Clear all**,
-which `Ctrl+Shift+Delete` presses (`Ctrl+Delete` and `Delete` are still the
+on runs out of tasks. On the Waiting tab alone, **Clear all** sits
+under the tabs on a strip of its own, which `Ctrl+Shift+Delete` presses (`Ctrl+Delete` and `Delete` are still the
 focused card's). Like Remove it asks first, as **Confirm clear all**, and its
 second press deletes every waiting task on this workspace, one `task status <uuid>
 deleted --yes` after another, putting the panel back on All with the keyboard
