@@ -100,10 +100,11 @@ The last tab above the task cards while the task panel has the keyboard,
 after Waiting and always shown: in place of the cards, one large text area,
 the workspace's notepad for ideas that are not tasks yet, kept per workspace
 tag in `$XDG_DATA_HOME/niri-tasks/ideas/<tag>.md`. Not a filter tab: it shows
-no cards, and while it is picked every key is typing but Escape, which gives
-the keyboard back, and Ctrl+[ and Ctrl+], which switch tab. 6 picks it, as ]
-does from the last filter tab. Saved a second after typing stops, and again
-when the keyboard is given back.
+no cards, and while it is picked every key is typing but Escape, which goes
+back to the task list on the tab picked before it, keeping the keyboard, and
+Ctrl+[ and Ctrl+], which switch tab. 6 picks it, as ] does from the last
+filter tab. Saved a second after typing stops, and again on leaving it or
+giving the keyboard back.
 _Avoid_: notes (a note row is a task's), scratchpad, memo
 
 **Peek**:

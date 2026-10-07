@@ -78,8 +78,10 @@
 //! cards, one per workspace tag. 6 picks it, and ] from the last filter tab.
 //! While it is picked the text area takes every key but Escape, Ctrl+[ and
 //! Ctrl+] (`keys::ideas_key_action`), and a tick's render leaves it in place
-//! so typing keeps its focus. What was typed is saved a second after typing
-//! stops and again as the keyboard is given back, to the tag it was typed for.
+//! so typing keeps its focus. Escape saves and goes back to the task list, on
+//! the tab picked before Ideas, keeping the keyboard. What was typed is saved
+//! a second after typing stops and again on leaving Ideas or giving the
+//! keyboard back, to the tag it was typed for.
 //!
 //! Waiting tasks are on the Waiting tab and nowhere else: not on All, not on
 //! the hover or the peek, so a workspace whose tasks are all waiting shows
@@ -573,6 +575,7 @@ impl Panel {
                 Effect::Spawn(args) => open_menu(&self.output, &args),
                 Effect::DeleteAll(uuids) => delete_all(&self.output, &uuids),
                 Effect::Notify(text) => crate::notify::tasks(&text),
+                Effect::SaveIdeas => self.notepad.flush(),
             }
         }
         self.sync();

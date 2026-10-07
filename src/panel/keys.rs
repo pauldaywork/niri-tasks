@@ -88,9 +88,9 @@ pub fn key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
 
 /// Map a keypress while the Ideas tab is picked, its text area having the
 /// focus. Every key is typing, the letters, digits and brackets that press
-/// buttons and pick tabs elsewhere included, but Escape, which gives the
-/// keyboard back, and Ctrl+[ and Ctrl+], which switch tab as [ and ] do off
-/// it.
+/// buttons and pick tabs elsewhere included, but Escape, which saves and
+/// goes back to the task list, and Ctrl+[ and Ctrl+], which switch tab as [
+/// and ] do off it.
 pub fn ideas_key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
     match (key, ctrl) {
         (gdk::Key::Escape, _) => KeyAction::Release,
@@ -250,8 +250,8 @@ mod tests {
         }
     }
 
-    /// Escape still gives the keyboard back, and Ctrl+[ and Ctrl+] switch
-    /// tab, as [ and ] do off Ideas.
+    /// Escape still leaves the text area, and Ctrl+[ and Ctrl+] switch tab,
+    /// as [ and ] do off Ideas.
     #[test]
     fn on_ideas_escape_gives_back_and_ctrl_brackets_switch_tab() {
         assert_eq!(ideas_key_action(gdk::Key::Escape, false), KeyAction::Release);

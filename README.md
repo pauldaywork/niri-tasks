@@ -104,11 +104,12 @@ The last tab, **Ideas**, is not a filter: in place of the cards it shows one
 large text area, a notepad for this workspace's ideas that are not tasks yet.
 It is always there, after Waiting; `6` picks it, as `]` does from the last tab
 before it. While it is picked every key is typing, the letters, digits and
-brackets included: `Escape` still gives the keyboard back, and `Ctrl+[` and
-`Ctrl+]` switch tab. Each workspace tag has its own notepad, plain text in
-`$XDG_DATA_HOME/niri-tasks/ideas/<tag>.md` (under `~/.local/share` without
-it), saved a second after typing stops and again when the panel gives the
-keyboard back.
+brackets included: `Escape` saves and goes back to the task list, on the tab
+you were on before Ideas, with the panel still up (a second `Escape` gives
+the keyboard back), and `Ctrl+[` and `Ctrl+]` switch tab. Each workspace tag
+has its own notepad, plain text in `$XDG_DATA_HOME/niri-tasks/ideas/<tag>.md`
+(under `~/.local/share` without it), saved a second after typing stops and
+again on leaving Ideas or when the panel gives the keyboard back.
 
 The cards are shaped like mako notifications and take a terminal window's font
 and colours: a dark tint over blurred wallpaper, with niri's faint focus-ring outline

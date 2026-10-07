@@ -493,9 +493,11 @@ if command -v wtype >/dev/null; then
     # 6 opens Ideas: no cards, one text area in the middle, taking every key
     # as typing, the s, 1 and ] that press a button or pick a tab elsewhere
     # included. It saves a second after typing stops, and again at once when
+    # Escape goes back to the task list, the panel staying up; a second
     # Escape gives the keyboard back.
     "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
     settle
+    shot ideas_before || { summary; exit 1; }
     "${NENV[@]}" wtype 6
     # The caret blinks, and no two frames are alike, until GTK's blink
     # timeout (10s without a key) stops it.
@@ -524,16 +526,35 @@ if command -v wtype >/dev/null; then
     settle
     want=$'first idea\nsecond: s, 1 and ] are typing\nthird'
     if [ "$(ideas)" = "$want" ]; then
-        ok "Escape saves what was typed since, as it gives the keyboard back"
+        ok "Escape saves what was typed since, going back to the task list"
     else
         bad "after Escape, $IDEAS holds '$(ideas)', expected '$want'"
     fi
+    shot ideas_out || { summary; exit 1; }
+    read -r x0 x1 _ _ < <(measure ideas_out)
+    if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ]; then
+        ok "and the panel stays up in the middle (columns ${x0}-${x1})"
+    else
+        bad "after one Escape on Ideas the panel drew columns ${x0}-${x1}, expected it still
+      within ${SURFACE_LEFT}-${SURFACE_RIGHT}"
+    fi
+    # Back on the task list: the cards, as the keyboard first showed them,
+    # from the tab picked before Ideas (All, where task panel opened).
+    if same ideas_out ideas_before; then
+        ok "Escape from Ideas is back on the tab it came from"
+    else
+        read -r x0 x1 y0 y1 < <(measure ideas_out ideas_before)
+        bad "after Escape from Ideas the panel differs from the task list before it in
+      columns ${x0}-${x1}, rows ${y0}-${y1}"
+    fi
+    "${NENV[@]}" wtype -k Escape
+    settle
     shot ideas_released || { summary; exit 1; }
     read -r x0 x1 _ _ < <(measure ideas_released)
     if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ]; then
-        ok "Escape from Ideas tucks the panel back to its peek (columns ${x0}-${x1})"
+        ok "a second Escape tucks the panel back to its peek (columns ${x0}-${x1})"
     else
-        bad "after Escape from Ideas the panel drew columns ${x0}-${x1}, expected ${PEEK_X}-${OUT_W}"
+        bad "after two Escapes from Ideas the panel drew columns ${x0}-${x1}, expected ${PEEK_X}-${OUT_W}"
     fi
 else
     skip "the panel's cards in the middle of the screen, their buttons, the filter tabs, Clear all, the Ideas tab, and Escape back (needs wtype)"
@@ -580,6 +601,7 @@ if command -v wtype >/dev/null; then
     sleep 1
     "${NENV[@]}" wtype -k Return
     "${NENV[@]}" wtype 'after the restart'
+    "${NENV[@]}" wtype -k Escape
     "${NENV[@]}" wtype -k Escape
     settle
     want=$'first idea\nsecond: s, 1 and ] are typing\nthird\nafter the restart'

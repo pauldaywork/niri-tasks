@@ -82,6 +82,8 @@ pub enum Effect {
     DeleteAll(Vec<String>),
     /// Say this in a notification.
     Notify(String),
+    /// Save what was typed on Ideas now, the panel having left it.
+    SaveIdeas,
 }
 
 #[derive(Debug, Default)]
@@ -292,8 +294,9 @@ impl PanelState {
     /// opening a card, Escape and the keys that move cancel, the tab keys
     /// switch tab as ever, and a card's keys do nothing, there being no card
     /// focused to act on. Without the keyboard no key is the panel's: one
-    /// landing after it was given back is not for it. On Ideas only Escape and
-    /// the tab keys are the panel's; the rest are typing, for the text area.
+    /// landing after it was given back is not for it. On Ideas only Escape,
+    /// which goes back to the tab picked before it, and the tab keys are the
+    /// panel's; the rest are typing, for the text area.
     pub fn on_key(&mut self, key: KeyAction) -> Option<Vec<Effect>> {
         if !self.keyboard {
             return None;
@@ -301,7 +304,7 @@ impl PanelState {
         if self.ideas {
             // The text area's: every key is typing but these.
             return match key {
-                KeyAction::Release => Some(self.release()),
+                KeyAction::Release => Some(self.leave_ideas()),
                 KeyAction::Filter(_) | KeyAction::Ideas | KeyAction::PrevFilter | KeyAction::NextFilter => {
                     Some(self.filter_key(key))
                 }
@@ -422,6 +425,7 @@ impl PanelState {
     /// already picked. Leaving Ideas for a filter tab once the last task has
     /// gone gives the keyboard back, as the last task going does off Ideas:
     /// with no cards the panel hides, and must not hide holding the keyboard.
+    /// Leaving Ideas saves what was typed there at once.
     fn pick(&mut self, tab: Tab) -> Vec<Effect> {
         if !self.keyboard || self.tab() == tab {
             return Vec::new();
@@ -429,6 +433,7 @@ impl PanelState {
         if matches!(tab, Tab::Filter(_)) && self.all.is_empty() {
             return self.release();
         }
+        let leaving_ideas = self.ideas;
         match tab {
             Tab::Filter(filter) if !Filter::shown(&self.all).contains(&filter) => return Vec::new(),
             Tab::Filter(filter) => {
@@ -437,7 +442,19 @@ impl PanelState {
             }
             Tab::Ideas => self.ideas = true,
         }
-        self.rerender()
+        let mut effects = self.rerender();
+        if leaving_ideas {
+            effects.push(Effect::SaveIdeas);
+        }
+        effects
+    }
+
+    /// Escape on Ideas: back to the task list, on the filter tab picked
+    /// before Ideas, or All once that tab has nothing left under it. The
+    /// panel keeps the keyboard; a second Escape gives it back.
+    fn leave_ideas(&mut self) -> Vec<Effect> {
+        let back = if Filter::shown(&self.all).contains(&self.filter) { self.filter } else { Filter::All };
+        self.pick(Tab::Filter(back))
     }
 
     /// 1 to 5 pick a filter tab and 6 Ideas; [ and ] step along the tabs on
@@ -1093,14 +1110,13 @@ mod tests {
         assert_eq!(key(&mut state, KeyAction::NextFilter), vec![Effect::Render]);
         assert_eq!(state.tab(), Tab::Ideas);
         assert_eq!(key(&mut state, KeyAction::NextFilter), Vec::new(), "Ideas is the last");
-        assert_eq!(key(&mut state, KeyAction::PrevFilter), vec![Effect::Render]);
+        assert_eq!(key(&mut state, KeyAction::PrevFilter), vec![Effect::Render, Effect::SaveIdeas]);
         assert_eq!(state.tab(), Tab::Filter(Filter::Waiting));
         assert_eq!(state.focus(), focused("w", Slot::Body).as_ref());
     }
 
     /// The text area takes every key as typing: on Ideas a card's keys, the
-    /// arrows, Enter and the rest are not the panel's. Escape still gives the
-    /// keyboard back, onto All for next time.
+    /// arrows, Enter and the rest are not the panel's.
     #[test]
     fn on_ideas_only_escape_and_the_tab_keys_are_the_panels() {
         let mut state = keyboard(pending(&["a"]));
@@ -1120,8 +1136,32 @@ mod tests {
             assert_eq!(state.on_key(k), None, "{k:?}");
         }
         assert!(state.on_ideas());
+    }
+
+    /// Escape on Ideas saves and goes back to the task list, on the tab
+    /// picked before Ideas, keeping the keyboard; a second Escape gives it
+    /// back.
+    #[test]
+    fn escape_on_ideas_saves_and_goes_back_to_the_tab_before_it() {
+        let mut state = keyboard(vec![card("p", Status::Pending), card("w", Status::Waiting)]);
+        key(&mut state, KeyAction::Filter(Filter::Waiting));
+        key(&mut state, KeyAction::Ideas);
+        assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render, Effect::SaveIdeas]);
+        assert!(state.keyboard());
+        assert_eq!(state.tab(), Tab::Filter(Filter::Waiting));
+        assert_eq!(state.focus(), focused("w", Slot::Body).as_ref());
         assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render, Effect::Release]);
-        assert!(!state.on_ideas());
+        assert!(!state.keyboard());
+    }
+
+    /// The tab picked before Ideas may have emptied meanwhile: then All.
+    #[test]
+    fn escape_on_ideas_goes_to_all_when_the_tab_before_it_emptied() {
+        let mut state = keyboard(vec![card("p", Status::Pending), card("w", Status::Waiting)]);
+        key(&mut state, KeyAction::Filter(Filter::Waiting));
+        key(&mut state, KeyAction::Ideas);
+        state.set_cards(&pending(&["p"]));
+        assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render, Effect::SaveIdeas]);
         assert_eq!(state.tab(), Tab::Filter(Filter::All));
     }
 
@@ -1130,11 +1170,11 @@ mod tests {
     fn a_tab_key_or_click_leaves_ideas_for_its_tab() {
         let mut state = keyboard(pending(&["a", "b"]));
         key(&mut state, KeyAction::Ideas);
-        assert_eq!(key(&mut state, KeyAction::Filter(Filter::All)), vec![Effect::Render]);
+        assert_eq!(key(&mut state, KeyAction::Filter(Filter::All)), vec![Effect::Render, Effect::SaveIdeas]);
         assert_eq!(state.tab(), Tab::Filter(Filter::All));
         assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
-        assert_eq!(state.on_tab(Tab::Ideas), vec![Effect::Render]);
-        assert_eq!(state.on_tab(Tab::Filter(Filter::ToRefine)), vec![Effect::Render]);
+        assert_eq!(state.on_tab(Tab::Ideas), vec![Effect::Render], "nothing to save on the way in");
+        assert_eq!(state.on_tab(Tab::Filter(Filter::ToRefine)), vec![Effect::Render, Effect::SaveIdeas]);
         assert_eq!(state.tab(), Tab::Filter(Filter::ToRefine));
     }
 
@@ -1172,7 +1212,7 @@ mod tests {
     /// back rather than hide the panel while it holds it.
     #[test]
     fn leaving_ideas_with_no_cards_gives_the_keyboard_back() {
-        for k in [KeyAction::Filter(Filter::All), KeyAction::PrevFilter] {
+        for k in [KeyAction::Filter(Filter::All), KeyAction::PrevFilter, KeyAction::Release] {
             let mut state = keyboard(pending(&["a"]));
             key(&mut state, KeyAction::Ideas);
             state.set_cards(&[]);
