@@ -9,7 +9,8 @@ same keys show a different set.
 
 Which tasks you see goes purely off the workspace name, which `niritasks project open`
 sets to the folder name. `~/Projects` is only ever read to offer folders to pick
-from — opening one, or moving a task to another workspace.
+from — opening one, or moving a task to another workspace. Opening a project is
+the only way a workspace gets a name, bar workspace 1, which starts as `general`.
 
 ## Keybinds
 
@@ -18,8 +19,7 @@ from — opening one, or moving a task to another workspace.
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
 | `Mod+Alt+Shift+T` | The same, with Add & refine as the default: once added, the task opens in a "Refine: …" tab of the workspace's herdr session, where Claude works it up into a plan |
 | `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude (or be grilled about it first), edit it, read it aloud, complete it, move it to another project's workspace, stop it, park it as waiting, or remove it. Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up. Tabs above the cards, each labelled with the key that picks it, as To refine (4), and picked with 1–6 or [ and ], narrow them to All, Active, Planned, To refine, Waiting or Finished, and the Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task. Finished lists the last 12 finished tasks, and Back to list (`b`) reopens one. Ctrl+Delete deletes the focused task at once. A hint beside the focused card's buttons, and a line under the list, name the keys. The last tab, Ideas (7), is a notepad for the workspace's ideas that are not tasks yet. With no tasks at all, finished ones included, or no name, a notification says so instead |
-| `Mod+Alt+W` | Pick a folder from `~/Projects` (or type a new name to make one), put it on its own named workspace, open a terminal and an editor in it |
-| `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
+| `Mod+Alt+W` | The task panel's project list, in the middle of the screen: the `~/Projects` folders, then your GitHub repos not cloned yet. Type to narrow it; Enter or a click puts the project on its own named workspace (cloning a repo first) and opens a terminal and an editor in it. A name that matches nothing makes `~/Projects/<name>`. Escape clears what you typed, then closes it |
 
 ## Task panel
 
@@ -167,8 +167,8 @@ copy to keep in sync.
 
 `niri`, `taskwarrior`, `fuzzel`, `ghostty` 1.2 or later (for `+new-window`),
 and a Rust toolchain to build with. `notify-send` is used for feedback and
-degrades to stderr without it. `fzf` ranks what you type on Move to
-workspace's project list; without it the list matches plain text instead,
+degrades to stderr without it. `fzf` ranks what you type on the
+project list; without it the list matches plain text instead,
 and says so once.
 
 [herdr](https://herdr.dev) is optional. With it on `$PATH`, `niritasks project
@@ -257,10 +257,10 @@ niritasks task start <uuid>        # its own worktree (task/<slug>-<uuid8>), ope
 niritasks task start <uuid> --here --workspace <name>
                                    # internal: the setup step, run inside the tab `task start` opens
 niritasks task session <uuid>      # back to the Claude working on it (work-/task-<uuid8>) in the herdr session
-niritasks workspace new            # create a workspace and name it
-niritasks workspace rename         # rename the focused workspace, and with it its tag (Mod+Alt+Ctrl+W)
 niritasks workspace default        # name workspace 1 "general" if it is unnamed (niri runs it at startup)
-niritasks project open             # pick a ~/Projects folder onto its own named workspace (Mod+Alt+W)
+niritasks project open             # the panel's project list: pick a ~/Projects folder or GitHub repo
+                                   #   onto its own named workspace, or type a new name (Mod+Alt+W)
+niritasks project open <name>      # open that one, cloning or making it first: what a pick runs
 niritasks terminal                 # a terminal in the focused workspace's ~/Projects folder (Mod+Return)
 niritasks daemon                   # internal: the task panels and task-box server, run by the
                                    #   niri-tasks systemd user unit
@@ -317,28 +317,7 @@ old ones moves to the end once saved. Empty rows are dropped.
 `~/.taskrc` is not managed here. The only requirement is that
 `data.location` points somewhere `task` can read and write.
 
-The project picker (Mod+Alt+W) uses a stripped-down fuzzel theme
-(`fuzzel/picker.ini`) passed with `--config=`, so your own `fuzzel.ini` is untouched. Its half-transparent
-background expects a compositor blur behind it; on niri that is a layer rule
-matching the `launcher` namespace. That one is yours to add — `launcher` is
-fuzzel's namespace, not this tool's, so shipping a rule for it would be
-reaching into someone else's surface:
-
-```kdl
-layer-rule {
-    match namespace="^launcher$"
-    background-effect {
-        blur true
-        xray true
-        noise 0.05
-        saturation 1.4
-    }
-}
-```
-
-Without it the project picker still works, it is just flatter.
-
-The task panel's rule, also in `niri-tasks.kdl`, works differently: it matches
+The task panel's blur rule is in `niri-tasks.kdl`: it matches
 the panel's own namespace, `niri-tasks-panel`, and sets how the blur looks but
 never `blur true`. A rule's blur would fill the panel's whole surface, which is
 wider than the cards so they have room to slide. The panel asks for blur behind
@@ -386,6 +365,9 @@ throughout. The nested niri's window opens over yours for a moment, then is
 parked floating and unfocused on the last workspace of that monitor. Keep off
 that workspace while it runs: going there focuses the window, and the run
 fails, saying so, rather than measuring frames your typing could have reached.
+Run it with `NIRITASKS=$PWD/target/debug/niritasks`: without that it runs the
+installed `niritasks`, which may be an older build whose `project open` still
+runs fuzzel.
 `NIRITASKS_E2E_KEEP=1` leaves the frames on disk when you need to see what a
 failure actually looked like.
 
@@ -400,7 +382,7 @@ darkened. The pointer passing over it does not move it. Check also active tasks 
 Start working; Up and Down move the darkening between cards, Left, Right and
 Tab along the buttons; `s` starts working, `r`
 refines, `e` opens the box, `t` stops; Delete arms Remove and only a second
-Delete deletes, while moving away disarms it; Enter on a card's description does nothing, `c` completes the task, `m` shows the project list and Escape comes back from it while Enter on a folder moves the task there,
+Delete deletes, while moving away disarms it; Enter on a card's description does nothing, `c` completes the task, `m` shows the project list and Escape comes back from it while Enter on a folder moves the task there, `project open` on a workspace with no tasks shows the project list and Escape closes it,
 Down reaching "+N more" shows the rest, focused on the first card it hid, and a
 list taller than the screen scrolls with the focus; a click on a filter tab switches the cards and does not take the focus (the focus still falls back to the first card when the focused one is not under the new tab), a started planned task shows under Active but not Planned, and Back to list on a waiting task brings it back to All; a click on Clear all arms it, darkening no card, a second click deletes the waiting tasks, and Up or Down in between puts it back with the focus on the card it was on; arming Clear all puts an armed Remove back, and arming Remove puts Clear all back; Escape tucks it away to the one-line peek.
 

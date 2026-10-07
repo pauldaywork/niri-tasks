@@ -124,14 +124,18 @@ The strip of each task card left showing when the task panel is tucked away.
 _Avoid_: sliver, handle, tab
 
 **Project list**:
-What Move to workspace shows in the task panel in place of the task cards:
-the `~/Projects` folders the task can move to, every one but its own
-workspace's, drawn like task cards under a line naming the task, with a
-text field above them that narrows them to fzf's matches as you type. Up
-and Down move the highlight, Enter or a click moves the task to that
-folder's workspace, and Escape clears the text, then goes back to the task
-cards on the same card.
-_Avoid_: picker (the fuzzel list Mod+Alt+W opens), menu, folder list
+What the task panel shows in place of the task cards for picking a
+`~/Projects` folder, drawn like task cards under a line saying what it is
+for, with a text field above them that narrows them to fzf's matches as you
+type. Up and Down move the highlight and Enter or a click picks. Move to
+workspace lists every folder but the task's own workspace's, and moves the
+task there; Escape clears the text, then goes back to the cards on the same
+card. Mod+Alt+W lists every folder and then the GitHub repos not cloned
+yet, and opens the one picked on its own named workspace, cloning a repo
+first; a typed name matching nothing makes a new folder. It shows with no
+task and on an unnamed workspace, and Escape clears the text, then closes
+the panel.
+_Avoid_: picker, menu, folder list
 
 **Task box**:
 The GTK window for adding a task or editing one — its description and its
