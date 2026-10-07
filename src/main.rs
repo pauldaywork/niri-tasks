@@ -631,6 +631,15 @@ mod tests {
         assert!(Cli::try_parse_from(&argv).is_ok(), "{argv:?}");
     }
 
+    /// The panel offers to make `~/Projects/-foo`, so a name that starts
+    /// with a dash has to reach `project open` as a name, not as a flag.
+    #[test]
+    fn opening_a_dashed_name_is_not_a_flag() {
+        let mut argv = vec!["niritasks".to_string()];
+        argv.extend(project::open_args("-foo"));
+        assert!(Cli::try_parse_from(&argv).is_ok(), "{argv:?}");
+    }
+
     /// The action row runs a task action as its own `niritasks` words, so each
     /// has to be a command the real CLI accepts. Otherwise a typo shows up as
     /// a click that does nothing.

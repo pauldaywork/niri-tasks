@@ -123,33 +123,39 @@ impl ProjectList {
         }
     }
 
-    /// What Enter makes a new `~/Projects` folder of on the open list: the
-    /// text typed, normalised as `project open` will, once nothing matches
-    /// it, as fuzzel echoed text that matched no row. None on Move's list,
-    /// while anything matches, and for text no folder can be named.
-    pub fn new_folder(&self) -> Option<String> {
-        if self.purpose != Purpose::Open || !self.shown.is_empty() {
-            return None;
-        }
-        match crate::project::resolve(&self.query, &self.folders) {
-            crate::project::Resolved::Create(name) => Some(name),
+    /// What Enter opens on the open list when no row is highlighted: the
+    /// text typed, normalised as `project open` will, once nothing shows. A
+    /// new name makes a folder, as fuzzel echoed text that matched no row,
+    /// and a name already a folder opens it, which the plain-text ranking
+    /// without fzf can miss ("my project" for "my-project"). None on Move's
+    /// list, while anything shows, and for text no folder can be named.
+    pub fn typed_pick(&self) -> Option<String> {
+        match self.typed()? {
+            crate::project::Resolved::Create(name) | crate::project::Resolved::Existing(name) => Some(name),
             _ => None,
         }
     }
 
-    /// The line under the title when the open list shows nothing: what
-    /// Enter will make, why the text cannot be a folder, or, with nothing
-    /// typed and no folder at all, to type a name. None on Move's list.
-    pub fn no_match_text(&self) -> Option<String> {
+    /// What the typed text resolves to when the open list shows nothing, so
+    /// [`Self::typed_pick`] and [`Self::no_match_text`] cannot disagree.
+    fn typed(&self) -> Option<crate::project::Resolved> {
         if self.purpose != Purpose::Open || !self.shown.is_empty() {
             return None;
         }
-        match crate::project::resolve(&self.query, &self.folders) {
-            crate::project::Resolved::Create(name) => Some(format!("Enter makes ~/Projects/{name}")),
-            crate::project::Resolved::Rejected(why) => Some(why),
-            crate::project::Resolved::Nothing => Some(actions::TYPE_A_NAME.to_string()),
-            crate::project::Resolved::Existing(_) => None,
-        }
+        Some(crate::project::resolve(&self.query, &self.folders))
+    }
+
+    /// The line under the title when the open list shows nothing: what
+    /// Enter will make or open, why the text cannot be a folder, or, with
+    /// nothing typed and no folder at all, to type a name. None on Move's
+    /// list.
+    pub fn no_match_text(&self) -> Option<String> {
+        Some(match self.typed()? {
+            crate::project::Resolved::Create(name) => format!("Enter makes ~/Projects/{name}"),
+            crate::project::Resolved::Existing(name) => format!("Enter opens ~/Projects/{name}"),
+            crate::project::Resolved::Rejected(why) => why,
+            crate::project::Resolved::Nothing => actions::TYPE_A_NAME.to_string(),
+        })
     }
 }
 
@@ -599,7 +605,7 @@ impl PanelState {
     /// off to that workspace. Nothing with no row and no new name.
     pub fn on_folder(&mut self, at: usize) -> Vec<Effect> {
         let Some(list) = self.projects.take() else { return Vec::new() };
-        let Some(row) = list.shown.get(at).cloned().or_else(|| list.new_folder()) else {
+        let Some(row) = list.shown.get(at).cloned().or_else(|| list.typed_pick()) else {
             self.projects = Some(list);
             return Vec::new();
         };
@@ -2013,6 +2019,45 @@ mod tests {
         assert_eq!(state.armed(), &Armed::None);
     }
 
+    /// Opening the list from Ideas leaves the notepad: the text there was
+    /// saved on the way in, and the list is what shows.
+    #[test]
+    fn the_open_list_leaves_ideas() {
+        let mut state = keyboard(pending(&["a"]));
+        key(&mut state, KeyAction::Ideas);
+        assert!(state.on_ideas());
+        assert_eq!(state.open_projects(folders(&["x"])), vec![Effect::Render]);
+        assert!(!state.on_ideas());
+        assert!(state.projects().is_some());
+    }
+
+    /// Opening it over Move's list replaces Move's purpose and drops the
+    /// text typed there, so a leftover filter cannot hide the rows.
+    #[test]
+    fn the_open_list_replaces_moves_list_and_its_query() {
+        let mut state = moving_a();
+        state.on_query("zz", Vec::new());
+        assert_eq!(state.open_projects(folders(&["x"])), vec![Effect::Render]);
+        let list = state.projects().unwrap();
+        assert_eq!(list.purpose, Purpose::Open);
+        assert_eq!(list.query, "");
+        assert_eq!(list.shown, folders(&["x"]));
+    }
+
+    /// Without fzf the ranking is plain text, so "my project" shows no row
+    /// for the folder "my-project". Enter still opens it, as fuzzel did, and
+    /// the line says so rather than leaving a dead key.
+    #[test]
+    fn typed_text_naming_an_existing_folder_opens_it_with_no_row() {
+        let mut state = PanelState::default();
+        state.open_projects(folders(&["my-project"]));
+        state.on_query("my project", Vec::new());
+        let list = state.projects().unwrap();
+        assert_eq!(list.typed_pick(), Some("my-project".to_string()));
+        assert_eq!(list.no_match_text(), Some("Enter opens ~/Projects/my-project".to_string()));
+        assert_eq!(key(&mut state, KeyAction::Enter), vec![Effect::Render, Effect::Release, open("my-project")]);
+    }
+
     /// Enter opens the highlighted row, GitHub marker and all, giving the
     /// keyboard back first: the user is off to that workspace.
     #[test]
@@ -2035,11 +2080,11 @@ mod tests {
     /// A name matching nothing makes a folder of it, normalised as
     /// `project open` will, and the line under the title says so first.
     #[test]
-    fn a_name_matching_nothing_makes_a_new_folder() {
+    fn a_name_matching_nothing_makes_a_typed_pick() {
         let mut state = opening(&[]);
         state.on_query("my thing", Vec::new());
         let list = state.projects().unwrap();
-        assert_eq!(list.new_folder(), Some("my-thing".to_string()));
+        assert_eq!(list.typed_pick(), Some("my-thing".to_string()));
         assert_eq!(list.no_match_text(), Some("Enter makes ~/Projects/my-thing".to_string()));
         assert_eq!(key(&mut state, KeyAction::Enter), vec![Effect::Render, Effect::Release, open("my-thing")]);
     }
@@ -2049,7 +2094,7 @@ mod tests {
     fn a_match_wins_over_a_new_name() {
         let mut state = opening(&[]);
         state.on_query("xx", folders(&["x"]));
-        assert_eq!(state.projects().unwrap().new_folder(), None);
+        assert_eq!(state.projects().unwrap().typed_pick(), None);
         assert_eq!(state.projects().unwrap().no_match_text(), None);
         assert_eq!(key(&mut state, KeyAction::Enter), vec![Effect::Render, Effect::Release, open("x")]);
     }
@@ -2077,10 +2122,10 @@ mod tests {
     /// Move's list never makes a folder: with nothing matching, Enter does
     /// nothing and no line says otherwise.
     #[test]
-    fn the_move_list_makes_no_new_folder() {
+    fn the_move_list_makes_no_typed_pick() {
         let mut state = moving_a();
         state.on_query("zz", Vec::new());
-        assert_eq!(state.projects().unwrap().new_folder(), None);
+        assert_eq!(state.projects().unwrap().typed_pick(), None);
         assert_eq!(state.projects().unwrap().no_match_text(), None);
     }
 

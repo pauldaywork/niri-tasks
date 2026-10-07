@@ -190,8 +190,10 @@ pub fn move_task(task: &crate::task::Task, current_tag: &str, folder: &str, name
 /// The `niritasks` words that open `row`, a row of the project list or a
 /// new folder's name: what picking one on the panel spawns. The row goes as
 /// the list shows it, so a GitHub row's marker is what makes it a clone.
+/// The row follows `--` because a name may start with a dash, which clap
+/// would otherwise take for a flag.
 pub fn open_args(row: &str) -> Vec<String> {
-    vec!["project".to_string(), "open".to_string(), row.to_string()]
+    vec!["project".to_string(), "open".to_string(), "--".to_string(), row.to_string()]
 }
 
 /// The project list Mod+Alt+W shows: every `~/Projects` folder, then the
@@ -550,7 +552,7 @@ mod tests {
     /// Picking a row runs `project open` with the row as the list shows it.
     #[test]
     fn opening_a_row_is_project_open_with_the_row() {
-        assert_eq!(open_args("alpha  (github)"), vec!["project", "open", "alpha  (github)"]);
+        assert_eq!(open_args("alpha  (github)"), vec!["project", "open", "--", "alpha  (github)"]);
     }
 
     /// The folders first, then each cached repo that is not one already,
