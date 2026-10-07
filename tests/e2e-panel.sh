@@ -73,7 +73,9 @@ mkdir -p "$SB/shots"
 
 # ─── its own daemon ──────────────────────────────────────────────────────────
 add() {  # description
-    task rc.verbose=nothing rc.confirmation=no add "+$TAG" -- "$1" >/dev/null 2>&1
+    # A fixed, old entry: an age counted from now could tick from 0m to 1m
+    # between two frames compared for sameness. This one only moves weekly.
+    task rc.verbose=nothing rc.confirmation=no add "+$TAG" entry:20260101T000000Z -- "$1" >/dev/null 2>&1
 }
 settle() { sleep 2; }  # the daemon ticks every 700ms
 

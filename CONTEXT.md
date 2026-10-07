@@ -47,9 +47,9 @@ _Avoid_: ready (Taskwarrior's `+READY` means something else), refined, groomed
 **Up next task**:
 A pending task marked as the one to do next, with Taskwarrior's own `+next`
 tag, from Up next in its action menu or on its action row. Its task card is
-yellow and sits directly under the active tasks, unless it is active itself
-(green) or waiting; the tag adds urgency, so the picker lifts it too. Up
-next again takes the mark off.
+yellow and sits directly under the active tasks, above any priority, unless
+it is active itself (green) or waiting; the tag adds urgency, so the picker
+lifts it too. Up next again takes the mark off.
 _Avoid_: priority, starred, pinned
 
 ### On screen
@@ -62,9 +62,12 @@ screen until the keyboard is given back.
 _Avoid_: pill, overlay, widget, sidebar, drawer
 
 **Task card**:
-One task in the task panel, drawn like a notification: a status icon and a
-one-line description — or, while the task panel has the keyboard, the whole
-description wrapped, above its action row while it has focus.
+One task in the task panel, drawn like a notification: a status icon, a
+one-line description and, at its right end, how long ago the task was added
+(5m, 3h, 2d, 4w) — or, while the task panel has the keyboard, the whole
+description wrapped, above its action row while it has focus. The cards run
+active, then up next, then by Taskwarrior priority, newest first, with
+blocked tasks under the rest.
 _Avoid_: row (that is the picker's word), item, block
 
 **Task action**:

@@ -25,10 +25,12 @@ from — opening one, or moving a task to another workspace.
 
 Each monitor shows the pending tasks of the workspace it is displaying, as a
 stack of cards on the right edge — the active tasks first (there can be
-several, one per worktree being worked), each ▶ and text in green, then the rest most urgent first: ○, a dimmed lock for one blocked on
+several, one per worktree being worked), each ▶ and text in green, then any
+up next, then the rest by priority (H, M, L, none) and newest first, the
+blocked ones last: ○, a dimmed lock for one blocked on
 another task, or ● for one already worked up into a plan with
 Claude from the menu's **Refine** or **Grill me**. Up to eight, then a "+N
-more" card.
+more" card. Each card ends in how long ago its task was added: 5m, 3h, 2d, 4w.
 
 The panel sits tucked away with only a 30px peek of each card showing. Move the
 pointer onto it and the cards slide out to full width; move away and they slide
