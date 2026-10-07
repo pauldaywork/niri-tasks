@@ -322,7 +322,7 @@ impl PanelState {
                 KeyAction::Filter(_) | KeyAction::Ideas | KeyAction::PrevFilter | KeyAction::NextFilter => {
                     self.filter_key(key)
                 }
-                KeyAction::Run(_) | KeyAction::Advance | KeyAction::Ignore => Vec::new(),
+                KeyAction::Run(_) | KeyAction::Advance | KeyAction::Delete | KeyAction::Ignore => Vec::new(),
             });
         }
         Some(match key {
@@ -336,6 +336,7 @@ impl PanelState {
             KeyAction::PrevSlot | KeyAction::NextSlot => self.move_slot(key == KeyAction::NextSlot),
             KeyAction::Run(action) => self.run(action),
             KeyAction::Advance => self.advance(),
+            KeyAction::Delete => self.delete(),
         })
     }
 
@@ -372,7 +373,7 @@ impl PanelState {
         effects
     }
 
-    /// Clear all, by its button or Ctrl+Delete. The first press arms it and
+    /// Clear all, by its button or Ctrl+Shift+Delete. The first press arms it and
     /// takes the focus off the cards, so Enter confirms rather than opening a
     /// card's menu. The second deletes every task the Waiting tab lists,
     /// those past "+N more" too, and puts the panel on All at once rather
@@ -545,6 +546,25 @@ impl PanelState {
             Some(uuid) if card.actions.contains(&action) => self.on_press(uuid, Slot::Button(action)),
             _ => Vec::new(),
         }
+    }
+
+    /// Ctrl+Delete: the focused card's Remove as its second press, from
+    /// whichever slot has the focus — deleted at once with no Confirm
+    /// remove, the focus on to the neighbour and the keyboard kept. Nothing
+    /// with no card focused, or on one without Remove.
+    fn delete(&mut self) -> Vec<Effect> {
+        let shown = self.visible();
+        let Some(card) = self.current(&shown).map(|at| &shown[at]) else { return Vec::new() };
+        let Some(uuid) = card.card.uuid.clone().filter(|_| card.actions.contains(&Action::Remove)) else {
+            return Vec::new();
+        };
+        // Armed first, so on_press takes this as the second press. Moving to
+        // the neighbour is what disarms a second Delete; the only card has
+        // none, so it is disarmed here.
+        self.armed = Armed::Remove(uuid.clone());
+        let effects = self.on_press(&uuid, Slot::Button(Action::Remove));
+        self.armed = Armed::None;
+        effects
     }
 
     /// Ctrl+Enter: the focused card's Refine, or its Start once it is
@@ -910,6 +930,76 @@ mod tests {
         assert_eq!(key(&mut state, KeyAction::Advance), Vec::new());
     }
 
+    // ─── Ctrl+Delete ─────────────────────────────────────────────────────
+
+    /// One press: Remove's own command, no Confirm remove, the focus on to
+    /// the next card and the list kept up.
+    #[test]
+    fn ctrl_delete_deletes_the_focused_task_in_one_press() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        assert_eq!(
+            key(&mut state, KeyAction::Delete),
+            vec![Effect::Focus(focused("b", Slot::Body)), Effect::Spawn(Action::Remove.args("a"))],
+        );
+        assert!(state.keyboard(), "the list stays up");
+        assert_eq!(state.armed(), &Armed::None, "no Confirm remove left behind");
+        assert_eq!(state.focus(), focused("b", Slot::Body).as_ref());
+    }
+
+    /// It acts on the focused task, not the focused button: the same from
+    /// any of the card's buttons.
+    #[test]
+    fn ctrl_delete_works_from_any_button_on_the_card() {
+        for slot in [Slot::Button(Action::Edit), Slot::Button(Action::Start), Slot::Button(Action::Remove)] {
+            let mut state = keyboard(pending(&["a", "b"]));
+            state.on_focus(focused("a", slot));
+            assert_eq!(
+                key(&mut state, KeyAction::Delete),
+                vec![Effect::Focus(focused("b", Slot::Body)), Effect::Spawn(Action::Remove.args("a"))],
+                "{slot:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn ctrl_delete_on_an_armed_remove_deletes_without_asking_again() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        key(&mut state, KeyAction::Run(Action::Remove));
+        assert_eq!(
+            key(&mut state, KeyAction::Delete),
+            vec![Effect::Focus(focused("b", Slot::Body)), Effect::Spawn(Action::Remove.args("a"))],
+        );
+        assert_eq!(state.armed(), &Armed::None);
+    }
+
+    #[test]
+    fn ctrl_delete_on_the_last_card_focuses_the_one_above() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        key(&mut state, KeyAction::NextCard);
+        assert_eq!(
+            key(&mut state, KeyAction::Delete),
+            vec![Effect::Focus(focused("a", Slot::Body)), Effect::Spawn(Action::Remove.args("b"))],
+        );
+    }
+
+    /// No neighbour to move to, so nothing moves the focus off it to disarm
+    /// it: it is disarmed all the same.
+    #[test]
+    fn ctrl_delete_on_the_only_card_deletes_it_and_disarms() {
+        let mut state = keyboard(pending(&["a"]));
+        assert_eq!(key(&mut state, KeyAction::Delete), vec![Effect::Spawn(Action::Remove.args("a"))]);
+        assert_eq!(state.armed(), &Armed::None);
+        assert!(state.keyboard());
+    }
+
+    /// No card to act on — All, with every task waiting — and nothing to
+    /// delete. ("+N more" is never focused and has no Remove either.)
+    #[test]
+    fn ctrl_delete_with_no_card_does_nothing() {
+        let mut state = keyboard(vec![card("w", Status::Waiting)]);
+        assert_eq!(key(&mut state, KeyAction::Delete), Vec::new());
+    }
+
     // ─── arming ──────────────────────────────────────────────────────────
 
     #[test]
@@ -1024,11 +1114,22 @@ mod tests {
         assert_eq!(state.focus(), focused("p", Slot::Body).as_ref());
     }
 
+    /// Ctrl+Shift+Delete again confirms, as Enter does.
+    #[test]
+    fn a_second_clear_all_key_confirms_it() {
+        let mut state = waiting_tab();
+        key(&mut state, KeyAction::ClearAll);
+        assert_eq!(
+            key(&mut state, KeyAction::ClearAll),
+            vec![Effect::Render, Effect::DeleteAll(vec!["w1".into(), "w2".into()])],
+        );
+    }
+
     #[test]
     fn a_cards_keys_do_nothing_while_clear_all_is_armed() {
         let mut state = waiting_tab();
         key(&mut state, KeyAction::ClearAll);
-        for k in [KeyAction::Run(Action::Edit), KeyAction::Run(Action::Remove), KeyAction::Advance, KeyAction::Ignore] {
+        for k in [KeyAction::Run(Action::Edit), KeyAction::Run(Action::Remove), KeyAction::Advance, KeyAction::Delete, KeyAction::Ignore] {
             assert_eq!(state.on_key(k), Some(Vec::new()), "{k:?}");
         }
         assert!(matches!(state.armed(), Armed::ClearAll { .. }));

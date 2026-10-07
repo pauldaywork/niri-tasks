@@ -35,9 +35,13 @@ pub enum KeyAction {
     /// start working on it once it is planned — keeping the keyboard, so the
     /// list stays up to pick the next one.
     Advance,
-    /// Ctrl+Delete: press the Waiting tab's Clear all, which sits with the
-    /// tabs outside the focus chain, so no focused button can stand for it.
-    /// The stronger Delete, as Ctrl+Enter is the stronger Enter.
+    /// Ctrl+Delete: delete the focused card's task at once, with no Confirm
+    /// remove, from whichever of its slots has the focus, keeping the
+    /// keyboard. The stronger Delete, as Ctrl+Enter is the stronger Enter.
+    Delete,
+    /// Ctrl+Shift+Delete: press the Waiting tab's Clear all, which sits with
+    /// the tabs outside the focus chain, so no focused button can stand for
+    /// it. Stronger again than Ctrl+Delete, as it deletes every waiting task.
     ClearAll,
     /// Enter, which presses the focused button, as GTK does by itself; but
     /// with Clear all armed and no button focused, it confirms.
@@ -52,13 +56,15 @@ pub enum KeyAction {
 /// nothing on the cards takes typing. With Caps Lock on the keyval
 /// arrives as a capital (`S`, not `s`), so the key is lowercased first and
 /// capitals press the same buttons. Ctrl is the exception: Ctrl+Enter advances
-/// the task and Ctrl+Delete clears the Waiting tab, and every other Ctrl chord
-/// is left alone so Ctrl+T cannot Stop.
-pub fn key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
+/// the task, Ctrl+Delete deletes it and Ctrl+Shift+Delete clears the Waiting
+/// tab, and every other Ctrl chord is left alone so Ctrl+T cannot Stop. Shift
+/// matters only there.
+pub fn key_action(key: gdk::Key, ctrl: bool, shift: bool) -> KeyAction {
     if ctrl {
         return match key {
             gdk::Key::Return | gdk::Key::KP_Enter => KeyAction::Advance,
-            gdk::Key::Delete | gdk::Key::KP_Delete => KeyAction::ClearAll,
+            gdk::Key::Delete | gdk::Key::KP_Delete if shift => KeyAction::ClearAll,
+            gdk::Key::Delete | gdk::Key::KP_Delete => KeyAction::Delete,
             _ => KeyAction::Ignore,
         };
     }
@@ -116,54 +122,54 @@ mod tests {
 
     #[test]
     fn escape_gives_the_keyboard_back() {
-        assert_eq!(key_action(gdk::Key::Escape, false), KeyAction::Release);
+        assert_eq!(key_action(gdk::Key::Escape, false, false), KeyAction::Release);
     }
 
     #[test]
     fn up_and_down_move_between_cards() {
-        assert_eq!(key_action(gdk::Key::Up, false), KeyAction::PrevCard);
-        assert_eq!(key_action(gdk::Key::Down, false), KeyAction::NextCard);
+        assert_eq!(key_action(gdk::Key::Up, false, false), KeyAction::PrevCard);
+        assert_eq!(key_action(gdk::Key::Down, false, false), KeyAction::NextCard);
     }
 
     #[test]
     fn left_right_and_tab_move_along_the_card() {
-        assert_eq!(key_action(gdk::Key::Left, false), KeyAction::PrevSlot);
-        assert_eq!(key_action(gdk::Key::Right, false), KeyAction::NextSlot);
-        assert_eq!(key_action(gdk::Key::Tab, false), KeyAction::NextSlot);
+        assert_eq!(key_action(gdk::Key::Left, false, false), KeyAction::PrevSlot);
+        assert_eq!(key_action(gdk::Key::Right, false, false), KeyAction::NextSlot);
+        assert_eq!(key_action(gdk::Key::Tab, false, false), KeyAction::NextSlot);
         // Shift+Tab arrives as ISO_Left_Tab.
-        assert_eq!(key_action(gdk::Key::ISO_Left_Tab, false), KeyAction::PrevSlot);
+        assert_eq!(key_action(gdk::Key::ISO_Left_Tab, false, false), KeyAction::PrevSlot);
     }
 
     #[test]
     fn letters_and_delete_run_their_buttons() {
-        assert_eq!(key_action(gdk::Key::g, false), KeyAction::Run(Action::Session));
-        assert_eq!(key_action(gdk::Key::b, false), KeyAction::Run(Action::Back));
-        assert_eq!(key_action(gdk::Key::s, false), KeyAction::Run(Action::Start));
-        assert_eq!(key_action(gdk::Key::r, false), KeyAction::Run(Action::Refine));
-        assert_eq!(key_action(gdk::Key::e, false), KeyAction::Run(Action::Edit));
-        assert_eq!(key_action(gdk::Key::t, false), KeyAction::Run(Action::Stop));
-        assert_eq!(key_action(gdk::Key::Delete, false), KeyAction::Run(Action::Remove));
-        assert_eq!(key_action(gdk::Key::KP_Delete, false), KeyAction::Run(Action::Remove));
+        assert_eq!(key_action(gdk::Key::g, false, false), KeyAction::Run(Action::Session));
+        assert_eq!(key_action(gdk::Key::b, false, false), KeyAction::Run(Action::Back));
+        assert_eq!(key_action(gdk::Key::s, false, false), KeyAction::Run(Action::Start));
+        assert_eq!(key_action(gdk::Key::r, false, false), KeyAction::Run(Action::Refine));
+        assert_eq!(key_action(gdk::Key::e, false, false), KeyAction::Run(Action::Edit));
+        assert_eq!(key_action(gdk::Key::t, false, false), KeyAction::Run(Action::Stop));
+        assert_eq!(key_action(gdk::Key::Delete, false, false), KeyAction::Run(Action::Remove));
+        assert_eq!(key_action(gdk::Key::KP_Delete, false, false), KeyAction::Run(Action::Remove));
     }
 
     #[test]
     fn capitals_run_their_buttons_too() {
-        assert_eq!(key_action(gdk::Key::G, false), KeyAction::Run(Action::Session));
-        assert_eq!(key_action(gdk::Key::B, false), KeyAction::Run(Action::Back));
-        assert_eq!(key_action(gdk::Key::S, false), KeyAction::Run(Action::Start));
-        assert_eq!(key_action(gdk::Key::R, false), KeyAction::Run(Action::Refine));
-        assert_eq!(key_action(gdk::Key::E, false), KeyAction::Run(Action::Edit));
-        assert_eq!(key_action(gdk::Key::T, false), KeyAction::Run(Action::Stop));
+        assert_eq!(key_action(gdk::Key::G, false, false), KeyAction::Run(Action::Session));
+        assert_eq!(key_action(gdk::Key::B, false, false), KeyAction::Run(Action::Back));
+        assert_eq!(key_action(gdk::Key::S, false, false), KeyAction::Run(Action::Start));
+        assert_eq!(key_action(gdk::Key::R, false, false), KeyAction::Run(Action::Refine));
+        assert_eq!(key_action(gdk::Key::E, false, false), KeyAction::Run(Action::Edit));
+        assert_eq!(key_action(gdk::Key::T, false, false), KeyAction::Run(Action::Stop));
     }
 
     /// Enter is its own, for an armed Clear all to confirm on; Space and the
     /// rest are not the panel's.
     #[test]
     fn enter_is_enter_and_space_passes_through() {
-        assert_eq!(key_action(gdk::Key::Return, false), KeyAction::Enter);
-        assert_eq!(key_action(gdk::Key::KP_Enter, false), KeyAction::Enter);
+        assert_eq!(key_action(gdk::Key::Return, false, false), KeyAction::Enter);
+        assert_eq!(key_action(gdk::Key::KP_Enter, false, false), KeyAction::Enter);
         for key in [gdk::Key::space, gdk::Key::x] {
-            assert_eq!(key_action(key, false), KeyAction::Ignore, "{key:?}");
+            assert_eq!(key_action(key, false, false), KeyAction::Ignore, "{key:?}");
         }
     }
 
@@ -171,9 +177,9 @@ mod tests {
     /// still presses the focused button.
     #[test]
     fn ctrl_enter_advances_the_focused_task() {
-        assert_eq!(key_action(gdk::Key::Return, true), KeyAction::Advance);
-        assert_eq!(key_action(gdk::Key::KP_Enter, true), KeyAction::Advance);
-        assert_eq!(key_action(gdk::Key::Return, false), KeyAction::Enter);
+        assert_eq!(key_action(gdk::Key::Return, true, false), KeyAction::Advance);
+        assert_eq!(key_action(gdk::Key::KP_Enter, true, false), KeyAction::Advance);
+        assert_eq!(key_action(gdk::Key::Return, false, false), KeyAction::Enter);
     }
 
     /// Every other Ctrl chord belongs to the compositor and the focused
@@ -181,7 +187,7 @@ mod tests {
     #[test]
     fn other_ctrl_chords_pass_through() {
         for key in [gdk::Key::t, gdk::Key::r, gdk::Key::s, gdk::Key::_1, gdk::Key::Escape, gdk::Key::Down] {
-            assert_eq!(key_action(key, true), KeyAction::Ignore, "{key:?}");
+            assert_eq!(key_action(key, true, false), KeyAction::Ignore, "{key:?}");
         }
     }
 
@@ -199,27 +205,27 @@ mod tests {
     fn numbers_pick_the_tabs_in_order() {
         let numbers = [gdk::Key::_1, gdk::Key::_2, gdk::Key::_3, gdk::Key::_4, gdk::Key::_5];
         for (key, filter) in numbers.into_iter().zip(Filter::TABS) {
-            assert_eq!(key_action(key, false), KeyAction::Filter(filter), "{key:?}");
+            assert_eq!(key_action(key, false, false), KeyAction::Filter(filter), "{key:?}");
         }
     }
 
     #[test]
     fn brackets_step_between_tabs() {
-        assert_eq!(key_action(gdk::Key::bracketleft, false), KeyAction::PrevFilter);
-        assert_eq!(key_action(gdk::Key::bracketright, false), KeyAction::NextFilter);
+        assert_eq!(key_action(gdk::Key::bracketleft, false, false), KeyAction::PrevFilter);
+        assert_eq!(key_action(gdk::Key::bracketright, false, false), KeyAction::NextFilter);
     }
 
     /// 6 is the Ideas tab, after the five filter tabs.
     #[test]
     fn six_picks_ideas() {
-        assert_eq!(key_action(gdk::Key::_6, false), KeyAction::Ideas);
+        assert_eq!(key_action(gdk::Key::_6, false, false), KeyAction::Ideas);
     }
 
     /// Past the six tabs a number is nothing, not a seventh tab.
     #[test]
     fn other_numbers_pass_through() {
         for key in [gdk::Key::_0, gdk::Key::_7, gdk::Key::_9] {
-            assert_eq!(key_action(key, false), KeyAction::Ignore, "{key:?}");
+            assert_eq!(key_action(key, false, false), KeyAction::Ignore, "{key:?}");
         }
     }
 
@@ -259,13 +265,24 @@ mod tests {
         assert_eq!(ideas_key_action(gdk::Key::bracketright, true), KeyAction::NextFilter);
     }
 
-    /// Ctrl+Delete is Clear all, the stronger Delete as Ctrl+Enter is the
-    /// stronger Enter; Delete alone still removes the focused card.
+    /// Ctrl+Delete deletes the focused task, the stronger Delete as
+    /// Ctrl+Enter is the stronger Enter; Ctrl+Shift+Delete, stronger again,
+    /// is the Waiting tab's Clear all. Delete alone still arms Remove.
     #[test]
-    fn ctrl_delete_clears_all_and_delete_alone_removes() {
-        assert_eq!(key_action(gdk::Key::Delete, true), KeyAction::ClearAll);
-        assert_eq!(key_action(gdk::Key::KP_Delete, true), KeyAction::ClearAll);
-        assert_eq!(key_action(gdk::Key::Delete, false), KeyAction::Run(Action::Remove));
-        assert_eq!(key_action(gdk::Key::KP_Delete, false), KeyAction::Run(Action::Remove));
+    fn ctrl_delete_deletes_and_ctrl_shift_delete_clears_all() {
+        for key in [gdk::Key::Delete, gdk::Key::KP_Delete] {
+            assert_eq!(key_action(key, true, false), KeyAction::Delete, "{key:?}");
+            assert_eq!(key_action(key, true, true), KeyAction::ClearAll, "{key:?}");
+            assert_eq!(key_action(key, false, false), KeyAction::Run(Action::Remove), "{key:?}");
+        }
+    }
+
+    /// Shift only tells Ctrl+Delete from Ctrl+Shift+Delete: Shift+Delete is
+    /// still Remove, and Ctrl+Shift+Enter still advances, as it always has.
+    #[test]
+    fn shift_alone_changes_nothing() {
+        assert_eq!(key_action(gdk::Key::Delete, false, true), KeyAction::Run(Action::Remove));
+        assert_eq!(key_action(gdk::Key::Return, true, true), KeyAction::Advance);
+        assert_eq!(key_action(gdk::Key::Escape, false, true), KeyAction::Release);
     }
 }

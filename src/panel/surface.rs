@@ -67,7 +67,7 @@
 //! task the tab lists, each through Remove's own `task status <uuid> deleted
 //! --yes`, one after another. The panel goes to All at once and keeps the
 //! keyboard. Moving the focus, or any re-render, a tab switch included,
-//! disarms it. It is out of the focus chain with the tabs, so Ctrl+Delete
+//! disarms it. It is out of the focus chain with the tabs, so Ctrl+Shift+Delete
 //! presses it; Delete alone is still the focused card's Remove. Armed, it
 //! takes the focus off the cards and every key with it: Enter confirms rather
 //! than opening the card it was on, Escape and the keys that move put it back
@@ -440,9 +440,9 @@ impl Panel {
         let weak = Rc::downgrade(self);
         controller.connect_key_pressed(move |_, key, _, modifiers| {
             // Alt and Super chords belong to the compositor and the focused
-            // widget, not to the letters. Ctrl chords do too, bar Ctrl+Enter
-            // and Ctrl+Delete, which key_action picks out: Ctrl+T must not
-            // Stop.
+            // widget, not to the letters. Ctrl chords do too, bar Ctrl+Enter,
+            // Ctrl+Delete and Ctrl+Shift+Delete, which key_action picks out:
+            // Ctrl+T must not Stop.
             if modifiers.intersects(gdk::ModifierType::ALT_MASK | gdk::ModifierType::SUPER_MASK) {
                 return glib::Propagation::Proceed;
             }
@@ -450,12 +450,13 @@ impl Panel {
                 return glib::Propagation::Proceed;
             };
             let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+            let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
             // On Ideas the text area takes every key as typing, bar Escape
             // and the Ctrl+[ and Ctrl+] that switch tab.
             let action = if p.state.borrow().on_ideas() {
                 keys::ideas_key_action(key, ctrl)
             } else {
-                keys::key_action(key, ctrl)
+                keys::key_action(key, ctrl, shift)
             };
             let effects = p.state.borrow_mut().on_key(action);
             match effects {
@@ -1146,10 +1147,10 @@ fn tab_bar() -> (gtk4::Box, Vec<gtk4::Button>, gtk4::Button, gtk4::Button) {
     tabs.append(&ideas);
     // Clear all, at the bar's far end: hexpand takes the room the tabs
     // leave, and End keeps the button its own width at the end of it. Out
-    // of the focus chain like the tabs, which is why Ctrl+Delete presses it.
+    // of the focus chain like the tabs, which is why Ctrl+Shift+Delete presses it.
     let clear = gtk4::Button::with_label(&clear_label(false));
     clear.add_css_class("clear-all");
-    clear.set_tooltip_text(Some("Ctrl+Delete"));
+    clear.set_tooltip_text(Some("Ctrl+Shift+Delete"));
     clear.set_hexpand(true);
     clear.set_halign(gtk4::Align::End);
     clear.set_focusable(false);

@@ -34,7 +34,7 @@
 # (README, "Testing"). The keyboard it can: `task panel` moves the panel to the
 # middle of the screen, and with wtype, Down (which moves the action row, and
 # shows the rest on reaching "+N more"), the filter tabs' keys, Ctrl+Enter,
-# Ctrl+Delete and Enter for the Waiting tab's Clear all, and Escape are
+# Ctrl+Shift+Delete and Enter for the Waiting tab's Clear all, and Escape are
 # pressed in the nested niri, never on your desktop.
 #
 # What a key does to the panel's state (which tab, which card has the focus,
@@ -373,7 +373,7 @@ if command -v wtype >/dev/null; then
 
     # ─── Clear all on the Waiting tab ────────────────────────────────────────
     # Park a second task, so the Waiting tab has two and one task stays on
-    # All. Clear all shows on the Waiting tab alone, and Ctrl+Delete presses
+    # All. Clear all shows on the Waiting tab alone, and Ctrl+Shift+Delete presses
     # it, the tabs being outside the focus chain.
     count() {  # filter…
         task rc.verbose=nothing "$@" count 2>/dev/null
@@ -390,7 +390,7 @@ if command -v wtype >/dev/null; then
     # The first press only arms it, as Remove's does: Confirm clear all, and
     # nothing deleted. It takes the focus off the cards, so the first card
     # loses its darker fill and its action row, and the panel is shorter.
-    "${NENV[@]}" wtype -M ctrl -k Delete -m ctrl
+    "${NENV[@]}" wtype -M ctrl -M shift -k Delete -m shift -m ctrl
     sleep 1
     shot clear_armed || { summary; exit 1; }
     read -r _ _ y0 y1 < <(measure clear_before)
@@ -398,9 +398,9 @@ if command -v wtype >/dev/null; then
     read -r _ _ y0 y1 < <(measure clear_armed)
     armed_h=$((y1 - y0))
     if [ "$armed_h" -gt 0 ] && [ "$armed_h" -lt "$before_h" ] && [ "$(count "+$TAG" status:waiting)" = 2 ]; then
-        ok "the first Ctrl+Delete arms Clear all, takes the focus off the cards and deletes nothing (${before_h}px to ${armed_h}px)"
+        ok "the first Ctrl+Shift+Delete arms Clear all, takes the focus off the cards and deletes nothing (${before_h}px to ${armed_h}px)"
     else
-        bad "after the first Ctrl+Delete the panel is ${armed_h}px against ${before_h}px, with
+        bad "after the first Ctrl+Shift+Delete the panel is ${armed_h}px against ${before_h}px, with
       $(count "+$TAG" status:waiting) task(s) still waiting — expected shorter, the focused
       card's row gone, and 2"
     fi
@@ -419,7 +419,7 @@ if command -v wtype >/dev/null; then
     # Armed again, Enter confirms: both waiting tasks deleted, one after the
     # other, each through task status; the task still on All and the other
     # tag's are left alone.
-    "${NENV[@]}" wtype -M ctrl -k Delete -m ctrl
+    "${NENV[@]}" wtype -M ctrl -M shift -k Delete -m shift -m ctrl
     sleep 0.5
     notified_before=$(grep -c '^Tasks Deleted: ' "$SB/notifications" 2>/dev/null || true)
     notified_before=${notified_before:-0}
