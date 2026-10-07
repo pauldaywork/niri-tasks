@@ -11,8 +11,8 @@
 //!
 //!   1. which workspace each monitor is showing, over the niri socket (no
 //!      subprocess), and
-//!   2. the mtimes of taskwarrior's `pending.data` and `completed.data` (two
-//!      stats).
+//!   2. the mtimes of taskwarrior's `pending.data` and `completed.data`, in
+//!      the directory taskwarrior itself names (two stats).
 //!
 //! `task export` is a subprocess and the expensive part, so it runs only when
 //! one of those actually moved, and once per workspace tag rather than once
@@ -46,25 +46,21 @@ struct State {
     /// Connector → the name of the workspace it shows. `None` until the first
     /// tick, and again after a hotplug, to force a redraw.
     outputs: Option<BTreeMap<String, Option<String>>>,
-    /// [`task_db_mtimes`] at the last tick.
+    /// [`db_mtimes`] at the last tick.
     task_mtimes: [Option<SystemTime>; 2],
+    /// Where taskwarrior keeps its data, asked of taskwarrior itself once,
+    /// so a `.taskrc` that moves it is honoured. None when `task` could not
+    /// say, in which case nothing is watched: the cards then follow only
+    /// workspace changes, and `task export` is most likely failing too.
+    data_dir: Option<std::path::PathBuf>,
 }
 
-/// One of taskwarrior's data files. Honour TASKDATA so a sandboxed run
-/// watches the right one.
-fn data_path(file: &str) -> Option<std::path::PathBuf> {
-    if let Some(d) = std::env::var_os("TASKDATA") {
-        return Some(std::path::PathBuf::from(d).join(file));
-    }
-    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".task").join(file))
-}
-
-/// The mtimes of `pending.data` and `completed.data`. Both: editing, noting
-/// or removing a finished task writes `completed.data` alone, and its card
-/// on the Finished tab has to follow.
-fn task_db_mtimes() -> [Option<SystemTime>; 2] {
+/// The mtimes of `pending.data` and `completed.data` in `dir`. Both: editing,
+/// noting or removing a finished task writes `completed.data` alone, and its
+/// card on the Finished tab has to follow.
+fn db_mtimes(dir: &std::path::Path) -> [Option<SystemTime>; 2] {
     ["pending.data", "completed.data"]
-        .map(|file| data_path(file).and_then(|p| std::fs::metadata(p).ok()?.modified().ok()))
+        .map(|file| std::fs::metadata(dir.join(file)).ok()?.modified().ok())
 }
 
 /// Every task card for a workspace, or none when it is unnamed or empty. The
@@ -125,7 +121,13 @@ fn build(app: &Application) {
     // One panel per monitor, keyed by connector name — which is also niri's
     // output name, so it is what ties a panel to the workspace it shows.
     let panels: Panels = PANELS.with(Rc::clone);
-    let state = Rc::new(RefCell::new(State::default()));
+    let data_dir = task::data_location()
+        .map_err(|e| eprintln!("could not find the task database: {e}"))
+        .ok();
+    let state = Rc::new(RefCell::new(State {
+        data_dir,
+        ..State::default()
+    }));
 
     sync_monitors(app, &display, &panels, &state);
 
@@ -310,7 +312,12 @@ fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {
     let outputs = niri::workspaces()
         .map(|ws| niri::active_workspace_by_output(&ws))
         .unwrap_or_default();
-    let mtimes = task_db_mtimes();
+    let mtimes = state
+        .borrow()
+        .data_dir
+        .as_deref()
+        .map(db_mtimes)
+        .unwrap_or_default();
 
     {
         let s = state.borrow();
@@ -398,20 +405,17 @@ mod tests {
         );
     }
 
-    /// Both files the tick watches follow TASKDATA, so a sandboxed run
-    /// watches its own.
+    /// The tick watches pending.data and completed.data inside the directory
+    /// taskwarrior names; a file not there yet reads as no mtime.
     #[test]
-    fn data_paths_follow_taskdata() {
-        std::env::set_var("TASKDATA", "/tmp/somewhere");
-        assert_eq!(
-            data_path("pending.data").unwrap(),
-            std::path::PathBuf::from("/tmp/somewhere/pending.data")
-        );
-        assert_eq!(
-            data_path("completed.data").unwrap(),
-            std::path::PathBuf::from("/tmp/somewhere/completed.data")
-        );
-        std::env::remove_var("TASKDATA");
+    fn db_mtimes_read_both_files_in_the_data_dir() {
+        let dir = std::env::temp_dir().join(format!("niri-tasks-mtimes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("pending.data"), b"").unwrap();
+        let [pending, completed] = db_mtimes(&dir);
+        assert!(pending.is_some(), "pending.data exists, so it has an mtime");
+        assert!(completed.is_none(), "completed.data is not there yet");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
