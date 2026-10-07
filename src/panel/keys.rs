@@ -1,7 +1,9 @@
 //! What a keypress on the task panel means while it has the keyboard.
 //!
 //! Pure, as the task box's keys are, so the mapping is testable without a
-//! window. What the key then does is `state.rs`'s; the controller's
+//! window. Which of the three mappers runs is `state.rs`'s, by its mode: the
+//! cards' keys on Tasks, the notepad's on Ideas, the field's on the project
+//! list. What the key then does is `state.rs`'s; the controller's
 //! propagation phase that lets it see the arrows first is `surface.rs`'s.
 
 use crate::actions::Action;

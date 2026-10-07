@@ -102,7 +102,7 @@
 //! workspace's notepad, `notepad.rs`'s text area in the column in place of the
 //! cards, one per workspace tag. 7 picks it, and ] from the last filter tab.
 //! While it is picked the text area takes every key but Escape, Ctrl+[ and
-//! Ctrl+] (`keys::ideas_key_action`), and a tick's render leaves it in place
+//! Ctrl+] (the state maps keys by its mode), and a tick's render leaves it in place
 //! so typing keeps its focus. Escape saves and goes back to the task list, on
 //! the tab picked before Ideas, keeping the keyboard. What was typed is saved
 //! a second after typing stops and again on leaving Ideas or giving the
@@ -143,7 +143,7 @@ use super::keys;
 use super::notepad::Notepad;
 use super::model::{Card, Filter, Status, Tab};
 use super::projects::ProjectList;
-use super::state::{Armed, Effect, Focus, PanelState, Shown, Slot};
+use super::state::{Armed, Effect, Focus, Mode, PanelState, Shown, Slot};
 use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX};
 use crate::project::{Projects, Row};
 use gtk4::prelude::*;
@@ -549,22 +549,9 @@ impl Panel {
             };
             let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
             let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
-            // On Ideas the text area takes every key as typing, bar Escape
-            // and the Ctrl+[ and Ctrl+] that switch tab.
-            let (ideas, listing) = {
-                let state = p.state.borrow();
-                (state.on_ideas(), state.projects().is_some())
-            };
-            let action = if ideas {
-                keys::ideas_key_action(key, ctrl)
-            } else if listing {
-                // The project list's field takes every key as typing but
-                // the arrows, Enter and Escape.
-                keys::project_key_action(key)
-            } else {
-                keys::key_action(key, ctrl, shift)
-            };
-            let effects = p.state.borrow_mut().on_key(action);
+            // The state maps the key by its mode: on Ideas and the project
+            // list most keys are typing, for the text area or field.
+            let effects = p.state.borrow_mut().on_key(key, ctrl, shift);
             match effects {
                 Some(effects) => {
                     p.apply(effects);
@@ -905,57 +892,27 @@ impl Panel {
             self.jump_to(TUCKED_X, 0);
             return;
         }
-        let (shown, keyboard, empty, focus, ideas, list, hint) = {
+        let (shown, keyboard, empty, focus, mode, hint) = {
             let state = self.state.borrow();
             (
                 state.visible(),
                 state.keyboard(),
                 state.empty_text(),
                 state.focus().cloned(),
-                state.on_ideas(),
-                state.projects().cloned(),
+                state.mode().clone(),
                 state.hint(),
             )
         };
+        let ideas = matches!(mode, Mode::Ideas);
+        let list = match &mode {
+            Mode::Projects(list) => Some(list),
+            _ => None,
+        };
 
-        self.while_drawing(|| {
-            // Mid-typing, a tick's render leaves the notepad where it is:
-            // taking it out of the column would take its focus with it.
-            let column: &gtk4::Widget = self.column.upcast_ref();
-            if ideas && self.notepad.root.parent().as_ref() == Some(column) {
-                return;
-            }
-            while let Some(child) = self.column.first_child() {
-                self.column.remove(&child);
-            }
-            let cards: Vec<CardWidgets> = shown.iter().map(|s| self.card_widget(s, keyboard)).collect();
-            for card in &cards {
-                self.column.append(&card.root);
-            }
-            *self.cards.borrow_mut() = cards;
-            let mut folders = Vec::new();
-            if let Some(l) = &list {
-                // What the list is for, over the folders.
-                self.column.append(&empty_line(&l.title()));
-                for (at, row) in l.shown().iter().enumerate() {
-                    let card = self.folder_card(at, row);
-                    self.column.append(&card.0);
-                    folders.push(card);
-                }
-                // Nothing matches on the open list: what Enter does instead.
-                if let Some(text) = &hint {
-                    self.column.append(&empty_line(text));
-                }
-            }
-            *self.folders.borrow_mut() = folders;
-            if ideas {
-                self.column.append(&self.notepad.root);
-            }
-            if let Some(text) = empty {
-                // Only All, with every task waiting or finished: it says so,
-                // and the tabs beside it have them.
-                self.column.append(&empty_line(text));
-            }
+        self.while_drawing(|| match &mode {
+            Mode::Ideas => self.draw_ideas(),
+            Mode::Projects(list) => self.draw_projects(list, hint.as_deref()),
+            Mode::Tasks => self.draw_tasks(&shown, keyboard, empty),
         });
         // On the project list the bar holds its text field instead of the
         // tabs, which filter task cards.
@@ -964,7 +921,7 @@ impl Panel {
         // text area takes Enter and Delete as typing; on the project list,
         // its own.
         self.footer.set_visible(keyboard && !ideas);
-        self.footer.set_label(list.as_ref().map_or(actions::CARD_KEYS, |l| l.keys()));
+        self.footer.set_label(list.map_or(actions::CARD_KEYS, |l| l.keys()));
         self.update_tabs();
         self.fit();
 
@@ -981,6 +938,62 @@ impl Panel {
             self.query.grab_focus_without_selecting();
         } else if keyboard {
             self.focus_on(focus.as_ref());
+        }
+    }
+
+    /// The Ideas notepad in the column in place of the cards. Mid-typing, a
+    /// tick's render leaves the notepad where it is: taking it out of the
+    /// column would take its focus with it.
+    fn draw_ideas(&self) {
+        let column: &gtk4::Widget = self.column.upcast_ref();
+        if self.notepad.root.parent().as_ref() == Some(column) {
+            return;
+        }
+        self.clear_column();
+        self.cards.borrow_mut().clear();
+        self.folders.borrow_mut().clear();
+        self.column.append(&self.notepad.root);
+    }
+
+    /// The project list in the column: what it is for over its folders,
+    /// then, with nothing matching on the open list, what Enter does
+    /// instead.
+    fn draw_projects(self: &Rc<Self>, list: &ProjectList, hint: Option<&str>) {
+        self.clear_column();
+        self.cards.borrow_mut().clear();
+        self.column.append(&empty_line(&list.title()));
+        let mut folders = Vec::new();
+        for (at, row) in list.shown().iter().enumerate() {
+            let card = self.folder_card(at, row);
+            self.column.append(&card.0);
+            folders.push(card);
+        }
+        *self.folders.borrow_mut() = folders;
+        if let Some(text) = hint {
+            self.column.append(&empty_line(text));
+        }
+    }
+
+    /// The task cards in the column, or the line that says the tab has none.
+    fn draw_tasks(self: &Rc<Self>, shown: &[Shown], keyboard: bool, empty: Option<&str>) {
+        self.clear_column();
+        let cards: Vec<CardWidgets> = shown.iter().map(|s| self.card_widget(s, keyboard)).collect();
+        for card in &cards {
+            self.column.append(&card.root);
+        }
+        *self.cards.borrow_mut() = cards;
+        self.folders.borrow_mut().clear();
+        if let Some(text) = empty {
+            // Only All, with every task waiting or finished: it says so,
+            // and the tabs beside it have them.
+            self.column.append(&empty_line(text));
+        }
+    }
+
+    /// Take every widget out of the column, for a screen drawn afresh.
+    fn clear_column(&self) {
+        while let Some(child) = self.column.first_child() {
+            self.column.remove(&child);
         }
     }
 
