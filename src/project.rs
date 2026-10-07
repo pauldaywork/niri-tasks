@@ -100,7 +100,9 @@ pub struct Projects {
 /// not cloned yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Row {
+    /// A folder in `~/Projects`.
     Folder(String),
+    /// A GitHub repo not cloned yet.
     Repo(String),
 }
 
@@ -172,6 +174,64 @@ impl Projects {
             Resolved::Rejected(why) => Choice::Rejected(why),
         }
     }
+
+    /// Open what `choice` names: make the folder or clone the repo first,
+    /// then back to the project's workspace if it has one, else the last
+    /// workspace on the focused output, named for it, with its programs
+    /// started. Nothing for [`Choice::Nothing`]; [`Choice::Rejected`] is the
+    /// error it carries.
+    pub fn open(&self, choice: Choice) -> Result<()> {
+        let name = match choice {
+            Choice::Nothing => return Ok(()),
+            Choice::Rejected(why) => anyhow::bail!(why),
+            Choice::Open(name) => name,
+            Choice::Create(name) => {
+                std::fs::create_dir(self.dir.join(&name))
+                    .with_context(|| format!("Could not create {}/{name}", self.dir.display()))?;
+                crate::notify::project(&format!("Created {}/{name}", self.dir.display()));
+                name
+            }
+            Choice::Clone(name) => {
+                // The clone blocks this command, not the compositor; the
+                // notifications are what says it started and finished.
+                crate::notify::project(&format!("Cloning {name}…"));
+                crate::github::clone(&name, &self.dir.join(&name))?;
+                crate::notify::project(&format!("Cloned {}/{name}", self.dir.display()));
+                name
+            }
+        };
+        let dir = self.dir.join(&name);
+
+        let all = crate::niri::workspaces()?;
+        if let Some(ws) = crate::niri::find_workspace_by_name(&all, &name) {
+            // Already opened once: go back to its workspace rather than end
+            // up with two sharing a name. Re-picking means "take me back",
+            // not "another terminal", so start things only if it is empty.
+            let id = ws.id;
+            crate::niri::focus_workspace(niri_ipc::WorkspaceReferenceArg::Name(name.clone()))?;
+            if crate::niri::window_count(id)? == 0 {
+                start(&dir, &name)?;
+            }
+        } else {
+            let focused = all.iter().find(|w| w.is_focused).context("no focused workspace")?;
+            let output = focused.output.clone().unwrap_or_default();
+            let last = crate::niri::last_workspace_idx(&all, &output).context("no workspaces on output")?;
+            crate::niri::focus_workspace(niri_ipc::WorkspaceReferenceArg::Index(last))?;
+            crate::niri::set_workspace_name(&name, None)?;
+            start(&dir, &name)?;
+        }
+        Ok(())
+    }
+}
+
+/// Start a project workspace's programs: its herdr session's terminal, and
+/// the editor if installed. The name is set before this runs, which is what
+/// puts the windows on the right workspace: niri spawns onto the focused one.
+fn start(dir: &std::path::Path, workspace: &str) -> Result<()> {
+    for command in startup_commands(dir, workspace) {
+        crate::niri::spawn(command)?;
+    }
+    Ok(())
 }
 
 /// The program the project list ranks what is typed against the folders

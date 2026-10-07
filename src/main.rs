@@ -8,7 +8,6 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
     actions::Action,
     caller_workspace, caller_workspace_tag, github, ipc, link, niri, notify, project, refine,
@@ -418,74 +417,14 @@ fn project_open(name: Option<String>) -> Result<()> {
         }
         return ipc::send(&ipc::Request::Projects);
     };
-    open_project(&name)
-}
-
-/// Open `selected`, a row of the project list or a name typed there: a
-/// folder as it is, a GitHub row cloned first, a new name made a folder
-/// first. Then back to the project's workspace if it has one, else onto the
-/// last workspace on this output, named for it, with its programs started.
-fn open_project(selected: &str) -> Result<()> {
-    let (projects_dir, names) = project::list()?;
-    let remote = github::cache_path()
-        .map(|cache| github::remote_only(&github::read_cache(&cache), &names))
-        .unwrap_or_default();
-
-    let name = match github::choose(selected, &names, &remote) {
-        github::Choice::Nothing => return Ok(()),
-        github::Choice::Rejected(msg) => anyhow::bail!(msg),
-        github::Choice::Local(n) => n,
-        github::Choice::Create(n) => {
-            std::fs::create_dir(projects_dir.join(&n))
-                .with_context(|| format!("Could not create {}/{n}", projects_dir.display()))?;
-            notify::project(&format!("Created {}/{n}", projects_dir.display()));
-            n
-        }
-        github::Choice::Clone(n) => {
-            // The clone blocks this keybind, not the compositor; the
-            // notifications are what says it started and finished.
-            notify::project(&format!("Cloning {n}…"));
-            github::clone(&n, &projects_dir.join(&n))?;
-            notify::project(&format!("Cloned {}/{n}", projects_dir.display()));
-            n
-        }
+    let projects = project::Projects::load()?;
+    // Until the panel sends bare names (the next tasks), a GitHub row still
+    // arrives with its "  (github)" marker on.
+    let choice = match github::unmark(&name) {
+        Some(repo) => project::Choice::Clone(repo.to_string()),
+        None => projects.choice(&name),
     };
-
-    let dir = projects_dir.join(&name);
-
-    let all = niri::workspaces()?;
-    if let Some(ws) = niri::find_workspace_by_name(&all, &name) {
-        // Already opened this project once — go back to its workspace rather
-        // than ending up with two workspaces sharing a name. Re-picking means
-        // "take me back", not "give me another terminal", so only start things
-        // up if the workspace is empty.
-        let id = ws.id;
-        niri::focus_workspace(WorkspaceReferenceArg::Name(name.clone()))?;
-        if niri::window_count(id)? == 0 {
-            spawn_startup(&dir, &name)?;
-        }
-    } else {
-        let focused = all.iter().find(|w| w.is_focused).context("no focused workspace")?;
-        let output = focused.output.clone().unwrap_or_default();
-        let last = niri::last_workspace_idx(&all, &output).context("no workspaces on output")?;
-
-        niri::focus_workspace(WorkspaceReferenceArg::Index(last))?;
-        niri::set_workspace_name(&name, None)?;
-        spawn_startup(&dir, &name)?;
-    }
-    Ok(())
-}
-
-/// Start a project workspace's programs — its herdr session's terminal, and
-/// the editor if installed.
-///
-/// The name is set before this runs, which is what puts the windows on the
-/// right workspace: niri spawns onto whatever is focused.
-fn spawn_startup(dir: &std::path::Path, workspace: &str) -> Result<()> {
-    for command in project::startup_commands(dir, workspace) {
-        niri::spawn(command)?;
-    }
-    Ok(())
+    projects.open(choice)
 }
 
 /// A terminal in the focused workspace's project folder.
