@@ -6,6 +6,7 @@ pub mod blur;
 pub mod keys;
 pub mod model;
 pub mod notepad;
+pub mod projects;
 pub mod state;
 pub mod style;
 pub mod surface;
