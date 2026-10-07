@@ -227,6 +227,9 @@ struct CardWidgets {
     body: gtk4::Button,
     /// None on "+N more", and on every card off the keyboard.
     row: Option<ActionRow>,
+    /// The age at the right end, and the stamp it counts from, for the
+    /// minute timer. None on "+N more".
+    age: Option<(gtk4::Label, String)>,
 }
 
 /// A card's action row, and the separator over it: shown while the card
@@ -367,6 +370,19 @@ impl Panel {
         panel.connect_keys();
         panel.connect_focus();
         panel.connect_surface();
+
+        // The ages count up while the cards stay put. Weak, so a panel
+        // dropped when its monitor goes ends its timer.
+        {
+            let weak = Rc::downgrade(&panel);
+            glib::timeout_add_seconds_local(60, move || match weak.upgrade() {
+                Some(p) => {
+                    p.refresh_ages();
+                    glib::ControlFlow::Continue
+                }
+                None => glib::ControlFlow::Break,
+            });
+        }
 
         // Map once, then hide in the same main-loop iteration. A layer surface
         // that has never been mapped ignores a later present(), so a daemon
@@ -707,6 +723,20 @@ impl Panel {
         self.window.set_default_size(SURFACE_WIDTH, height);
     }
 
+    /// Rewrite each card's age where it stands. Not a render: the cards are
+    /// the same, and a render would tear the column down and disarm a
+    /// half-pressed Remove.
+    fn refresh_ages(&self) {
+        let now = crate::task::now_secs();
+        for card in self.cards.borrow().iter() {
+            if let Some((label, entry)) = &card.age {
+                if let Some(age) = crate::task::age(entry, now) {
+                    label.set_text(&age);
+                }
+            }
+        }
+    }
+
     /// Draw the state's cards afresh, or hide the panel when it has nothing
     /// to show, and put the focus where the state has it.
     fn render(self: &Rc<Self>) {
@@ -793,7 +823,8 @@ impl Panel {
         // Clips the action row to the card's rounded bottom corners.
         root.set_overflow(gtk4::Overflow::Hidden);
 
-        let body = gtk4::Button::builder().child(&card_label(card, keyboard)).build();
+        let (label, age) = card_label(card, keyboard);
+        let body = gtk4::Button::builder().child(&label).build();
         body.add_css_class("card-body");
         // A mouse click opens the menu without leaving the card darkened.
         body.set_focus_on_click(false);
@@ -822,7 +853,8 @@ impl Panel {
                 root.append(&row.row);
                 row
             });
-        CardWidgets { uuid: card.uuid.clone(), root, body, row }
+        let age = age.map(|label| (label, card.entry.clone()));
+        CardWidgets { uuid: card.uuid.clone(), root, body, row, age }
     }
 
     /// A card's buttons, left-aligned and only as wide as their icons, then
@@ -1116,12 +1148,14 @@ impl Panel {
     }
 }
 
-/// The card's icon and description: one line cut off with "…" for the peek
-/// and the hover, or all of it, wrapped, while the panel has the keyboard.
+/// The card's icon, description and age: one line cut off with "…" for the
+/// peek and the hover, or all of it, wrapped, while the panel has the
+/// keyboard. The age label comes back too, for the minute timer to update.
 ///
 /// The icon is a label of its own beside the text, so wrapped lines start
-/// under the first line's text rather than back under the icon.
-fn card_label(card: &Card, wrap: bool) -> gtk4::Box {
+/// under the first line's text rather than back under the icon. The age is
+/// one too, at the right end, so the text's "…" stops short of it.
+fn card_label(card: &Card, wrap: bool) -> (gtk4::Box, Option<gtk4::Label>) {
     let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     if let Some(icon) = Some(card.icon()).filter(|i| !i.is_empty()) {
         // The two spaces are the gap the one-label card had after its icon.
@@ -1141,7 +1175,15 @@ fn card_label(card: &Card, wrap: bool) -> gtk4::Box {
         text.set_single_line_mode(true);
     }
     row.append(&text);
-    row
+    let age = card.age(crate::task::now_secs()).map(|a| {
+        let age = gtk4::Label::new(Some(&a));
+        age.add_css_class("card-age");
+        // Level with the first line when the text wraps.
+        age.set_valign(gtk4::Align::Start);
+        row.append(&age);
+        age
+    });
+    (row, age)
 }
 /// The column's scroller, for cards that run taller than the screen. A
 /// viewport made by hand, to turn off its own scroll-to-focus. That would

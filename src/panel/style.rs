@@ -181,6 +181,9 @@ window.task-panel {{ background-color: transparent; }}
 /* The focused card's keys, dimmed and a point smaller so they read as a
    caption to the icons. */
 .task-panel .card-hint {{ color: alpha({TEXT}, 0.55); padding: {ACTION_PADDING}; font: {HINT_FONT}; }}
+/* How long ago the task was added, at the card's right end: a caption, so
+   dimmed like the hint, on a green or yellow card too. */
+.task-panel .card-age {{ color: alpha({TEXT}, 0.55); padding-left: {PADDING_PX}px; }}
 .task-panel .card-separator {{
     background-color: {SEPARATOR};
     background-image: none;
@@ -468,5 +471,14 @@ mod tests {
         assert!(at > dimmed, "the dimmed rule would win over the yellow on a blocked card");
         assert_eq!(UP_NEXT, "#f9e2af");
         assert_eq!(UP_NEXT, EDIT, "Edit's yellow");
+    }
+
+    /// The age is a caption to the description, dimmed like the action
+    /// row's hint, and parted from the text by a card's padding.
+    #[test]
+    fn the_age_is_dimmed() {
+        assert!(css().contains(&format!(
+            ".task-panel .card-age {{ color: alpha({TEXT}, 0.55); padding-left: {PADDING_PX}px; }}"
+        )));
     }
 }
