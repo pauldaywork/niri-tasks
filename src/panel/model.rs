@@ -291,6 +291,7 @@ mod tests {
             status: "pending".into(),
             entry: format!("202610{day:02}T120000Z"),
             priority: None,
+            end: String::new(),
         }
     }
 

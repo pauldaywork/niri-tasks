@@ -77,6 +77,7 @@ mod tests {
             status: "pending".into(),
             entry: String::new(),
             priority: None,
+            end: String::new(),
         }
     }
 

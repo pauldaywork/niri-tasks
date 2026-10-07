@@ -510,6 +510,30 @@ fn write_path_lifecycle() {
     assert_eq!(raw(&del, "status"), "deleted");
     task::set_status(&del, Status::Deleted).expect("deleting twice is a no-op");
 
+    // ---- a finished task: the Finished tab, and Back to list -------------
+    // `st` was completed above and `del` deleted. Stopped is what Back to
+    // list runs, and on a finished task it has to reopen it: stop alone
+    // leaves a completed task completed.
+    let finished = task::completed_for_tag(TAG).expect("finished");
+    assert!(finished.iter().any(|t| t.uuid == st), "a completed task is on the Finished list");
+    assert!(finished.iter().all(|t| t.status == "completed" && !t.end.is_empty()));
+    assert!(!finished.iter().any(|t| t.uuid == del), "a deleted task is not finished");
+
+    task::set_status(st8, Status::Stopped).expect("back to list");
+    assert_eq!(raw(&st, "status"), "pending", "stopped reopens a finished task");
+    assert!(raw(&st, "end").is_empty(), "a reopened task is not finished");
+    assert!(task::pending_for_tag(TAG).expect("list").iter().any(|t| t.uuid == st));
+    assert!(!task::completed_for_tag(TAG).expect("finished").iter().any(|t| t.uuid == st));
+
+    // Never more than twelve, however many are finished.
+    for n in 0..14 {
+        let uuid = task::add(TAG, &text::add_args(&format!("finish me {n}")))
+            .expect("add")
+            .expect("a uuid");
+        task::complete(&uuid).expect("complete");
+    }
+    assert_eq!(task::completed_for_tag(TAG).expect("finished").len(), task::FINISHED_CAP);
+
     assert!(
         task::set_status("00000000", Status::Completed).is_err(),
         "an unknown uuid is an error, not a silent success"

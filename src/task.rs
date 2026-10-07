@@ -55,6 +55,11 @@ pub struct Task {
     /// panel sorts by it, above age.
     #[serde(default)]
     pub priority: Option<String>,
+    /// When the task was finished, as taskwarrior stamps it, on a completed
+    /// or deleted task alone. The Finished tab lists the newest first and
+    /// ages its cards from it. Empty on a task still to do.
+    #[serde(default)]
+    pub end: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -273,6 +278,27 @@ pub fn blocked_uuids_for_tag(tag: &str) -> Result<Vec<String>> {
         .into_iter()
         .map(|t| t.uuid)
         .collect())
+}
+
+/// How many finished tasks the task panel's Finished tab lists: enough to
+/// find one closed too soon, few enough that it never needs "+N more".
+pub const FINISHED_CAP: usize = 12;
+
+/// The last [`FINISHED_CAP`] tasks finished on `tag`, the most recently
+/// finished first, for the task panel's Finished tab. Completed only: a
+/// deleted task was thrown away, not finished, and its status says
+/// `deleted` even though it keeps its `end`.
+pub fn completed_for_tag(tag: &str) -> Result<Vec<Task>> {
+    Ok(latest_finished(export(&[&format!("+{tag}"), "status:completed"])?))
+}
+
+/// Newest `end` first, cut to [`FINISHED_CAP`]. Apart from
+/// [`completed_for_tag`] so the order and the cut are tested without a
+/// task database. The stamp sorts as text the way it does as a time.
+fn latest_finished(mut tasks: Vec<Task>) -> Vec<Task> {
+    tasks.sort_by(|a, b| b.end.cmp(&a.end));
+    tasks.truncate(FINISHED_CAP);
+    tasks
 }
 
 pub fn get(uuid: &str) -> Result<Option<Task>> {
@@ -557,6 +583,24 @@ pub fn stop(uuid: &str) -> Result<()> {
     Ok(())
 }
 
+/// Put a finished task back on the list, pending again: Back to list on
+/// the Finished tab. Taskwarrior drops its `end` with the status. `stop`
+/// cannot do it, since neither stopping nor clearing a wait touches a
+/// completed task's status. The wait is cleared in the same command: a task
+/// finished while parked keeps its wait date, and with it its `end`, and
+/// would come back pending but still hidden from the list.
+fn reopen(uuid: &str) -> Result<()> {
+    let status = base()
+        .arg(uuid)
+        .arg("modify")
+        .arg("status:pending")
+        .arg("wait:")
+        .status()
+        .context("could not run `task modify`")?;
+    anyhow::ensure!(status.success(), "`task modify status:pending wait:` failed");
+    Ok(())
+}
+
 /// Park a task as waiting.
 ///
 /// Taskwarrior's waiting status is really a wait date; `someday` is far enough
@@ -677,6 +721,9 @@ impl Status {
 
 /// Move a task to `status`.
 ///
+/// Stopped on a completed task reopens it, which is how Back to list on
+/// the Finished tab puts a task back.
+///
 /// A task already completed or deleted is left as it is and this returns Ok:
 /// taskwarrior refuses to complete a task twice, and a script retrying after a
 /// half-finished run should not fail on the half that worked.
@@ -688,6 +735,9 @@ pub fn set_status(uuid: &str, status: Status) -> Result<()> {
     }
     match status {
         Status::Active => set_active(uuid),
+        // Back to list on a finished card runs Stopped, as it does on a
+        // waiting one: one command for both ways back.
+        Status::Stopped if current.status == "completed" => reopen(uuid),
         Status::Stopped => stop(uuid),
         Status::Waiting => wait(uuid),
         Status::Completed => complete(uuid),
@@ -698,6 +748,45 @@ pub fn set_status(uuid: &str, status: Status) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `end` is when a task was finished: present on a completed task,
+    /// absent on one still to do.
+    #[test]
+    fn parses_end() {
+        let json = r#"[{"uuid":"a","description":"d","status":"completed","end":"20261007T040233Z"},
+                       {"uuid":"b","description":"d"}]"#;
+        let tasks: Vec<Task> = serde_json::from_str(json).unwrap();
+        assert_eq!(tasks[0].end, "20261007T040233Z");
+        assert_eq!(tasks[1].end, "");
+    }
+
+    fn finished(uuid: &str, day: u32) -> Task {
+        serde_json::from_value(serde_json::json!({
+            "uuid": uuid,
+            "description": uuid,
+            "status": "completed",
+            "end": format!("202610{day:02}T120000Z"),
+        }))
+        .unwrap()
+    }
+
+    /// The Finished tab's list: the most recently finished first, and never
+    /// more than twelve, however many there are.
+    #[test]
+    fn the_latest_finished_come_first_and_stop_at_twelve() {
+        let got = latest_finished((1..=15).map(|d| finished(&format!("t{d}"), d)).collect());
+        assert_eq!(got.len(), FINISHED_CAP);
+        assert_eq!(FINISHED_CAP, 12);
+        assert_eq!(got[0].uuid, "t15");
+        assert_eq!(got[11].uuid, "t4");
+    }
+
+    #[test]
+    fn fewer_than_twelve_finished_are_all_kept_newest_first() {
+        let got = latest_finished(vec![finished("old", 1), finished("new", 9), finished("mid", 5)]);
+        let uuids: Vec<&str> = got.iter().map(|t| t.uuid.as_str()).collect();
+        assert_eq!(uuids, vec!["new", "mid", "old"]);
+    }
 
     /// The CLI takes the menu's words, lower-cased, and the menu's rows read
     /// back to the same state — so `task status <uuid> completed` and picking
