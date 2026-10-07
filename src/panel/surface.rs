@@ -103,7 +103,7 @@ use super::actions;
 use crate::actions::Action;
 use super::blur::{self, Blur};
 use super::keys;
-use super::model::{Card, Filter, Status};
+use super::model::{Card, Filter, Status, Tab};
 use super::state::{Armed, Effect, Focus, PanelState, Shown, Slot};
 use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX};
 use gtk4::prelude::*;
@@ -348,7 +348,7 @@ impl Panel {
             let weak = Rc::downgrade(self);
             button.connect_clicked(move |_| {
                 if let Some(p) = weak.upgrade() {
-                    let effects = p.state.borrow_mut().on_tab(filter);
+                    let effects = p.state.borrow_mut().on_tab(Tab::Filter(filter));
                     p.apply(effects);
                 }
             });

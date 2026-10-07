@@ -170,6 +170,29 @@ impl Filter {
     }
 }
 
+/// A tab on the keyboard's panel: a filter tab over the cards, or Ideas, the
+/// workspace's notepad, which is not a filter and shows no cards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tab {
+    Filter(Filter),
+    Ideas,
+}
+
+impl Tab {
+    pub fn label(self) -> &'static str {
+        match self {
+            Tab::Filter(filter) => filter.label(),
+            Tab::Ideas => "Ideas",
+        }
+    }
+
+    /// The tabs on show, left to right: the filter tabs [`Filter::shown`]
+    /// keeps, then Ideas, always and last.
+    pub fn shown(cards: &[Card]) -> Vec<Tab> {
+        Filter::shown(cards).into_iter().map(Tab::Filter).chain([Tab::Ideas]).collect()
+    }
+}
+
 /// The task cards for one workspace tag, every one of them: the active task
 /// first, then the up next ones, then the rest most urgent first.
 ///
@@ -534,5 +557,22 @@ mod tests {
         let more = cap(&[card(Status::Pending, false, false), card(Status::Pending, false, false)], 1).pop().unwrap();
         assert_eq!(more.status, Status::More);
         assert_eq!(more.state(true), None);
+    }
+
+    /// Ideas is a tab, not a filter: always on show, after the filter tabs.
+    #[test]
+    fn ideas_is_always_shown_last() {
+        let all = cards(&[task("plain", 9.0, false), waiting("parked")], &[]);
+        assert_eq!(
+            Tab::shown(&all),
+            vec![Tab::Filter(Filter::All), Tab::Filter(Filter::ToRefine), Tab::Filter(Filter::Waiting), Tab::Ideas]
+        );
+        assert_eq!(Tab::shown(&[]), vec![Tab::Filter(Filter::All), Tab::Ideas]);
+    }
+
+    #[test]
+    fn a_tab_reads_as_its_filter_or_ideas() {
+        assert_eq!(Tab::Filter(Filter::ToRefine).label(), "To refine");
+        assert_eq!(Tab::Ideas.label(), "Ideas");
     }
 }

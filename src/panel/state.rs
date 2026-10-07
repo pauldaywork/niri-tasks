@@ -11,7 +11,7 @@
 
 use crate::actions::Action;
 use super::keys::{self, KeyAction};
-use super::model::{self, Card, Filter};
+use super::model::{self, Card, Filter, Tab};
 
 /// Where on a card the keyboard's focus is: its body, or one of the buttons
 /// on its action row.
@@ -90,9 +90,13 @@ pub struct PanelState {
     all: Vec<Card>,
     /// The panel has the keyboard, from Mod+Alt+Ctrl+T.
     keyboard: bool,
-    /// The filter tab picked. All whenever the panel takes the keyboard;
-    /// kept across a refresh while it has it.
+    /// The filter tab picked, or, on Ideas, the one picked before it. All
+    /// whenever the panel takes the keyboard; kept across a refresh while it
+    /// has it.
     filter: Filter,
+    /// The Ideas tab is picked: the notepad in place of the cards. Only ever
+    /// with the keyboard, and off whenever the panel takes it.
+    ideas: bool,
     /// "+N more" was clicked, or Down reached it: every card shows until the
     /// panel tucks away or gives the keyboard back.
     expanded: bool,
@@ -112,6 +116,21 @@ impl PanelState {
 
     pub fn filter(&self) -> Filter {
         self.filter
+    }
+
+    /// The tab picked: a filter tab, or Ideas.
+    pub fn tab(&self) -> Tab {
+        if self.ideas {
+            Tab::Ideas
+        } else {
+            Tab::Filter(self.filter)
+        }
+    }
+
+    /// On the Ideas tab, whose text area takes every key but Escape and the
+    /// tab keys.
+    pub fn on_ideas(&self) -> bool {
+        self.ideas
     }
 
     pub fn focus(&self) -> Option<&Focus> {
@@ -134,7 +153,8 @@ impl PanelState {
     }
 
     /// The filter tabs on show, in `Filter::TABS` order: All, and every
-    /// other tab with a task under it. None without the keyboard.
+    /// other tab with a task under it. None without the keyboard. Ideas,
+    /// always shown, follows them.
     pub fn tabs(&self) -> Vec<Filter> {
         if self.keyboard {
             Filter::shown(&self.all)
@@ -145,13 +165,17 @@ impl PanelState {
 
     /// Clear all ends the tab bar on the Waiting tab alone.
     pub fn shows_clear_all(&self) -> bool {
-        self.keyboard && self.filter == Filter::Waiting
+        self.keyboard && !self.ideas && self.filter == Filter::Waiting
     }
 
     /// The cards to draw, top to bottom: the picked tab's, or All's off the
     /// keyboard, filtered before the cap so "+N more" is the rest of this
-    /// tab, and uncapped once expanded.
+    /// tab, and uncapped once expanded. None on Ideas, which is a notepad, not
+    /// cards.
     pub fn visible(&self) -> Vec<Shown> {
+        if self.ideas {
+            return Vec::new();
+        }
         let picked = self.shown_filter().pick(&self.all);
         let cards = if self.expanded { picked } else { model::cap(&picked, model::CAP) };
         cards
@@ -170,8 +194,12 @@ impl PanelState {
     }
 
     /// The line shown in place of cards when the tab has none: only All, on
-    /// a workspace whose tasks are all waiting.
+    /// a workspace whose tasks are all waiting. Never on Ideas, which has no
+    /// cards to have none of.
     pub fn empty_text(&self) -> Option<&'static str> {
+        if self.ideas {
+            return None;
+        }
         let filter = self.shown_filter();
         filter.pick(&self.all).is_empty().then(|| filter.empty_text())
     }
@@ -201,6 +229,7 @@ impl PanelState {
         self.keyboard = true;
         self.agents = agents;
         self.filter = Filter::All;
+        self.ideas = false;
         self.armed = Armed::None;
         self.focus = first_task(&self.visible());
         true
@@ -227,9 +256,9 @@ impl PanelState {
         vec![Effect::Render]
     }
 
-    /// A click on a filter tab.
-    pub fn on_tab(&mut self, filter: Filter) -> Vec<Effect> {
-        self.pick(filter)
+    /// A click on a tab: a filter tab, or Ideas.
+    pub fn on_tab(&mut self, tab: Tab) -> Vec<Effect> {
+        self.pick(tab)
     }
 
     /// GTK moved the focus: a click on a button, or the focus an
@@ -260,10 +289,21 @@ impl PanelState {
     /// opening a card, Escape and the keys that move cancel, the tab keys
     /// switch tab as ever, and a card's keys do nothing, there being no card
     /// focused to act on. Without the keyboard no key is the panel's: one
-    /// landing after it was given back is not for it.
+    /// landing after it was given back is not for it. On Ideas only Escape and
+    /// the tab keys are the panel's; the rest are typing, for the text area.
     pub fn on_key(&mut self, key: KeyAction) -> Option<Vec<Effect>> {
         if !self.keyboard {
             return None;
+        }
+        if self.ideas {
+            // The text area's: every key is typing but these.
+            return match key {
+                KeyAction::Release => Some(self.release()),
+                KeyAction::Filter(_) | KeyAction::Ideas | KeyAction::PrevFilter | KeyAction::NextFilter => {
+                    Some(self.filter_key(key))
+                }
+                _ => None,
+            };
         }
         if matches!(self.armed, Armed::ClearAll { .. }) {
             return Some(match key {
@@ -273,7 +313,9 @@ impl PanelState {
                 | KeyAction::NextCard
                 | KeyAction::PrevSlot
                 | KeyAction::NextSlot => self.cancel_clear(),
-                KeyAction::Filter(_) | KeyAction::PrevFilter | KeyAction::NextFilter => self.filter_key(key),
+                KeyAction::Filter(_) | KeyAction::Ideas | KeyAction::PrevFilter | KeyAction::NextFilter => {
+                    self.filter_key(key)
+                }
                 KeyAction::Run(_) | KeyAction::Advance | KeyAction::Ignore => Vec::new(),
             });
         }
@@ -281,7 +323,9 @@ impl PanelState {
             KeyAction::Enter | KeyAction::Ignore => return None,
             KeyAction::Release => self.release(),
             KeyAction::ClearAll => self.on_clear_all(),
-            KeyAction::Filter(_) | KeyAction::PrevFilter | KeyAction::NextFilter => self.filter_key(key),
+            KeyAction::Filter(_) | KeyAction::Ideas | KeyAction::PrevFilter | KeyAction::NextFilter => {
+                self.filter_key(key)
+            }
             KeyAction::PrevCard | KeyAction::NextCard => self.move_card(key == KeyAction::NextCard),
             KeyAction::PrevSlot | KeyAction::NextSlot => self.move_slot(key == KeyAction::NextSlot),
             KeyAction::Run(action) => self.run(action),
@@ -338,7 +382,7 @@ impl PanelState {
             return vec![Effect::Focus(None)];
         }
         let uuids = Filter::Waiting.uuids(&self.all);
-        let mut effects = self.pick(Filter::All);
+        let mut effects = self.pick(Tab::Filter(Filter::All));
         if !uuids.is_empty() {
             effects.push(Effect::DeleteAll(uuids));
         }
@@ -355,6 +399,7 @@ impl PanelState {
         self.agents.clear();
         self.expanded = false;
         self.filter = Filter::All;
+        self.ideas = false;
         self.armed = Armed::None;
         self.focus = None;
         vec![Effect::Render, Effect::Release]
@@ -369,24 +414,33 @@ impl PanelState {
         }
     }
 
-    /// Show this tab's cards. Nothing without the keyboard, for a tab hidden
-    /// for having no tasks, or for the tab already picked.
-    fn pick(&mut self, filter: Filter) -> Vec<Effect> {
-        if !self.keyboard || self.filter == filter || !Filter::shown(&self.all).contains(&filter) {
+    /// Show this tab: a filter tab's cards, or Ideas. Nothing without the
+    /// keyboard, for a filter tab hidden for having no tasks, or for the tab
+    /// already picked.
+    fn pick(&mut self, tab: Tab) -> Vec<Effect> {
+        if !self.keyboard || self.tab() == tab {
             return Vec::new();
         }
-        self.filter = filter;
+        match tab {
+            Tab::Filter(filter) if !Filter::shown(&self.all).contains(&filter) => return Vec::new(),
+            Tab::Filter(filter) => {
+                self.filter = filter;
+                self.ideas = false;
+            }
+            Tab::Ideas => self.ideas = true,
+        }
         self.rerender()
     }
 
-    /// 1 to 5 pick a tab; [ and ] step along the tabs on show, stopping at
-    /// the ends.
+    /// 1 to 5 pick a filter tab and 6 Ideas; [ and ] step along the tabs on
+    /// show, Ideas the last, stopping at the ends.
     fn filter_key(&mut self, key: KeyAction) -> Vec<Effect> {
         let to = match key {
-            KeyAction::Filter(filter) => filter,
+            KeyAction::Filter(filter) => Tab::Filter(filter),
+            KeyAction::Ideas => Tab::Ideas,
             _ => {
-                let shown = Filter::shown(&self.all);
-                let at = shown.iter().position(|f| *f == self.filter).unwrap_or(0);
+                let shown = Tab::shown(&self.all);
+                let at = shown.iter().position(|t| *t == self.tab()).unwrap_or(0);
                 shown[keys::step(at, shown.len(), key == KeyAction::NextFilter)]
             }
         };
@@ -398,13 +452,13 @@ impl PanelState {
     /// All. Any re-render disarms, a tab switch included. The focus stays on
     /// the same card and slot; on the card's body when it lost that button
     /// (Stop on a task that just stopped); on the first card when the card
-    /// left.
+    /// left. On Ideas no card has the focus: the text area has it.
     fn rerender(&mut self) -> Vec<Effect> {
         if self.keyboard && !Filter::shown(&self.all).contains(&self.filter) {
             self.filter = Filter::All;
         }
         self.armed = Armed::None;
-        self.focus = if self.keyboard {
+        self.focus = if self.keyboard && !self.ideas {
             let shown = self.visible();
             let kept = self.focus.take().and_then(|f| {
                 let card = shown.iter().find(|s| s.card.uuid.as_deref() == Some(f.uuid.as_str()))?;
@@ -642,9 +696,12 @@ mod tests {
         let mut state = keyboard(pending(&["a", "b"]));
         assert_eq!(key(&mut state, KeyAction::NextFilter), vec![Effect::Render]);
         assert_eq!(state.filter(), Filter::ToRefine, "past the hidden Active and Planned");
-        assert_eq!(key(&mut state, KeyAction::NextFilter), Vec::new(), "To refine is the last shown");
+        assert_eq!(key(&mut state, KeyAction::NextFilter), vec![Effect::Render]);
+        assert_eq!(state.tab(), Tab::Ideas, "after the last filter tab shown");
+        assert_eq!(key(&mut state, KeyAction::NextFilter), Vec::new(), "Ideas is the last");
         key(&mut state, KeyAction::PrevFilter);
-        assert_eq!(state.filter(), Filter::All);
+        key(&mut state, KeyAction::PrevFilter);
+        assert_eq!(state.tab(), Tab::Filter(Filter::All));
         assert_eq!(key(&mut state, KeyAction::PrevFilter), Vec::new());
     }
 
@@ -1002,5 +1059,110 @@ mod tests {
         let mut state = PanelState::default();
         state.set_cards(&pending(&["a", "b"]));
         assert_eq!(state.on_key(KeyAction::NextCard), None);
+    }
+
+    // ─── the Ideas tab ───────────────────────────────────────────────────
+
+    #[test]
+    fn six_opens_ideas_with_no_cards_no_focus_and_no_clear_all() {
+        let mut state = keyboard(vec![card("p", Status::Pending), card("w", Status::Waiting)]);
+        assert_eq!(key(&mut state, KeyAction::Ideas), vec![Effect::Render]);
+        assert_eq!(state.tab(), Tab::Ideas);
+        assert!(state.on_ideas());
+        assert!(state.visible().is_empty(), "Ideas shows no cards");
+        assert_eq!(state.empty_text(), None, "nor says it has none");
+        assert_eq!(state.focus(), None);
+        assert!(!state.shows_clear_all());
+        assert_eq!(key(&mut state, KeyAction::Ideas), Vec::new(), "already there");
+    }
+
+    /// ] from Waiting, the last filter tab, reaches Ideas; [ comes back, onto
+    /// the first card.
+    #[test]
+    fn the_bracket_past_waiting_is_ideas() {
+        let mut state = keyboard(vec![card("p", Status::Pending), card("w", Status::Waiting)]);
+        key(&mut state, KeyAction::Filter(Filter::Waiting));
+        assert_eq!(key(&mut state, KeyAction::NextFilter), vec![Effect::Render]);
+        assert_eq!(state.tab(), Tab::Ideas);
+        assert_eq!(key(&mut state, KeyAction::NextFilter), Vec::new(), "Ideas is the last");
+        assert_eq!(key(&mut state, KeyAction::PrevFilter), vec![Effect::Render]);
+        assert_eq!(state.tab(), Tab::Filter(Filter::Waiting));
+        assert_eq!(state.focus(), focused("w", Slot::Body).as_ref());
+    }
+
+    /// The text area takes every key as typing: on Ideas a card's keys, the
+    /// arrows, Enter and the rest are not the panel's. Escape still gives the
+    /// keyboard back, onto All for next time.
+    #[test]
+    fn on_ideas_only_escape_and_the_tab_keys_are_the_panels() {
+        let mut state = keyboard(pending(&["a"]));
+        key(&mut state, KeyAction::Ideas);
+        for k in [
+            KeyAction::Run(Action::Edit),
+            KeyAction::Run(Action::Remove),
+            KeyAction::PrevCard,
+            KeyAction::NextCard,
+            KeyAction::PrevSlot,
+            KeyAction::NextSlot,
+            KeyAction::Enter,
+            KeyAction::Advance,
+            KeyAction::ClearAll,
+            KeyAction::Ignore,
+        ] {
+            assert_eq!(state.on_key(k), None, "{k:?}");
+        }
+        assert!(state.on_ideas());
+        assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render, Effect::Release]);
+        assert!(!state.on_ideas());
+        assert_eq!(state.tab(), Tab::Filter(Filter::All));
+    }
+
+    /// Leaving Ideas works for the filter tab picked before it too: All here.
+    #[test]
+    fn a_tab_key_or_click_leaves_ideas_for_its_tab() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        key(&mut state, KeyAction::Ideas);
+        assert_eq!(key(&mut state, KeyAction::Filter(Filter::All)), vec![Effect::Render]);
+        assert_eq!(state.tab(), Tab::Filter(Filter::All));
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+        assert_eq!(state.on_tab(Tab::Ideas), vec![Effect::Render]);
+        assert_eq!(state.on_tab(Tab::Filter(Filter::ToRefine)), vec![Effect::Render]);
+        assert_eq!(state.tab(), Tab::Filter(Filter::ToRefine));
+    }
+
+    #[test]
+    fn a_hidden_tabs_key_on_ideas_stays_on_ideas() {
+        let mut state = keyboard(pending(&["a"]));
+        key(&mut state, KeyAction::Ideas);
+        assert_eq!(key(&mut state, KeyAction::Filter(Filter::Planned)), Vec::new());
+        assert!(state.on_ideas());
+    }
+
+    /// A tick mid-typing draws again and stays on Ideas, no card focused.
+    #[test]
+    fn a_refresh_keeps_ideas() {
+        let mut state = keyboard(pending(&["a"]));
+        key(&mut state, KeyAction::Ideas);
+        assert_eq!(state.set_cards(&pending(&["a", "b"])), vec![Effect::Render]);
+        assert!(state.on_ideas());
+        assert_eq!(state.focus(), None);
+    }
+
+    #[test]
+    fn the_keyboard_opens_on_all_even_from_ideas() {
+        let mut state = keyboard(pending(&["a"]));
+        key(&mut state, KeyAction::Ideas);
+        assert!(state.take_keyboard(Vec::new()));
+        assert_eq!(state.tab(), Tab::Filter(Filter::All));
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+    }
+
+    #[test]
+    fn six_disarms_clear_all_on_the_way_to_ideas() {
+        let mut state = waiting_tab();
+        key(&mut state, KeyAction::ClearAll);
+        assert_eq!(key(&mut state, KeyAction::Ideas), vec![Effect::Render]);
+        assert_eq!(state.armed(), &Armed::None);
+        assert!(state.on_ideas());
     }
 }

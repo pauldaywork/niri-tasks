@@ -25,7 +25,10 @@ pub enum KeyAction {
     Run(Action),
     /// 1 to 5: show this filter tab's cards, when it is shown.
     Filter(Filter),
-    /// [ and ]: the tab either side, stopping at the ends as the cards do.
+    /// 6: the Ideas tab, after the filter tabs.
+    Ideas,
+    /// [ and ]: the tab either side, Ideas the last, stopping at the ends as
+    /// the cards do. Ctrl+[ and Ctrl+] on Ideas.
     PrevFilter,
     NextFilter,
     /// Ctrl+Enter: move the focused card's task on a step — refine it, or
@@ -44,8 +47,9 @@ pub enum KeyAction {
     Ignore,
 }
 
-/// Map a keypress to what it should do. The letters work without a modifier,
-/// because nothing on the panel takes typing. With Caps Lock on the keyval
+/// Map a keypress to what it should do, off the Ideas tab (on it,
+/// [`ideas_key_action`]). The letters work without a modifier, because
+/// nothing on the cards takes typing. With Caps Lock on the keyval
 /// arrives as a capital (`S`, not `s`), so the key is lowercased first and
 /// capitals press the same buttons. Ctrl is the exception: Ctrl+Enter advances
 /// the task and Ctrl+Delete clears the Waiting tab, and every other Ctrl chord
@@ -71,6 +75,7 @@ pub fn key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
         gdk::Key::_3 => KeyAction::Filter(Filter::TABS[2]),
         gdk::Key::_4 => KeyAction::Filter(Filter::TABS[3]),
         gdk::Key::_5 => KeyAction::Filter(Filter::TABS[4]),
+        gdk::Key::_6 => KeyAction::Ideas,
         gdk::Key::bracketleft => KeyAction::PrevFilter,
         gdk::Key::bracketright => KeyAction::NextFilter,
         // A letter presses the row's button that has it.
@@ -78,6 +83,20 @@ pub fn key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
             Some(action) => KeyAction::Run(action),
             None => KeyAction::Ignore,
         },
+    }
+}
+
+/// Map a keypress while the Ideas tab is picked, its text area having the
+/// focus. Every key is typing, the letters, digits and brackets that press
+/// buttons and pick tabs elsewhere included, but Escape, which gives the
+/// keyboard back, and Ctrl+[ and Ctrl+], which switch tab as [ and ] do off
+/// it.
+pub fn ideas_key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
+    match (key, ctrl) {
+        (gdk::Key::Escape, _) => KeyAction::Release,
+        (gdk::Key::bracketleft, true) => KeyAction::PrevFilter,
+        (gdk::Key::bracketright, true) => KeyAction::NextFilter,
+        _ => KeyAction::Ignore,
     }
 }
 
@@ -190,12 +209,54 @@ mod tests {
         assert_eq!(key_action(gdk::Key::bracketright, false), KeyAction::NextFilter);
     }
 
-    /// Past the five tabs a number is nothing, not a sixth tab.
+    /// 6 is the Ideas tab, after the five filter tabs.
+    #[test]
+    fn six_picks_ideas() {
+        assert_eq!(key_action(gdk::Key::_6, false), KeyAction::Ideas);
+    }
+
+    /// Past the six tabs a number is nothing, not a seventh tab.
     #[test]
     fn other_numbers_pass_through() {
-        for key in [gdk::Key::_0, gdk::Key::_6, gdk::Key::_9] {
+        for key in [gdk::Key::_0, gdk::Key::_7, gdk::Key::_9] {
             assert_eq!(key_action(key, false), KeyAction::Ignore, "{key:?}");
         }
+    }
+
+    /// On Ideas the text area takes every key as typing: the letters,
+    /// digits and brackets that press buttons and pick tabs elsewhere, Enter,
+    /// Tab, the arrows, Delete, and the Ctrl chords the cards use.
+    #[test]
+    fn on_ideas_every_other_key_is_typing() {
+        for key in [
+            gdk::Key::s,
+            gdk::Key::S,
+            gdk::Key::_1,
+            gdk::Key::_6,
+            gdk::Key::bracketleft,
+            gdk::Key::bracketright,
+            gdk::Key::Return,
+            gdk::Key::Tab,
+            gdk::Key::Up,
+            gdk::Key::Down,
+            gdk::Key::Left,
+            gdk::Key::Delete,
+            gdk::Key::space,
+        ] {
+            assert_eq!(ideas_key_action(key, false), KeyAction::Ignore, "{key:?}");
+        }
+        for key in [gdk::Key::Return, gdk::Key::Delete, gdk::Key::t, gdk::Key::a] {
+            assert_eq!(ideas_key_action(key, true), KeyAction::Ignore, "Ctrl+{key:?}");
+        }
+    }
+
+    /// Escape still gives the keyboard back, and Ctrl+[ and Ctrl+] switch
+    /// tab, as [ and ] do off Ideas.
+    #[test]
+    fn on_ideas_escape_gives_back_and_ctrl_brackets_switch_tab() {
+        assert_eq!(ideas_key_action(gdk::Key::Escape, false), KeyAction::Release);
+        assert_eq!(ideas_key_action(gdk::Key::bracketleft, true), KeyAction::PrevFilter);
+        assert_eq!(ideas_key_action(gdk::Key::bracketright, true), KeyAction::NextFilter);
     }
 
     /// Ctrl+Delete is Clear all, the stronger Delete as Ctrl+Enter is the
