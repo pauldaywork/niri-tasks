@@ -918,6 +918,10 @@ impl Panel {
                     self.column.append(&card.0);
                     folders.push(card);
                 }
+                // Nothing matches on the open list: what Enter makes instead.
+                if let Some(text) = l.no_match_text() {
+                    self.column.append(&empty_line(&text));
+                }
             }
             *self.folders.borrow_mut() = folders;
             if ideas {
@@ -1053,7 +1057,7 @@ impl Panel {
 
     /// One folder on the project list, drawn as a task card is: a box
     /// holding a body button with the folder's icon and name. A click on it
-    /// moves the task there. Out of the focus chain: the text field keeps
+    /// picks it. Out of the focus chain: the text field keeps
     /// the keyboard, and the highlight (`sync`) says which folder Enter
     /// takes.
     fn folder_card(self: &Rc<Self>, at: usize, folder: &str) -> (gtk4::Box, gtk4::Button) {
@@ -1061,8 +1065,7 @@ impl Panel {
         root.add_css_class("task-card");
         root.set_size_request(CARD_WIDTH_PX, -1);
         root.set_overflow(gtk4::Overflow::Hidden);
-        // The two spaces are the gap a task card leaves after its icon.
-        let label = gtk4::Label::new(Some(&format!("{}  {folder}", actions::FOLDER_ICON)));
+        let label = gtk4::Label::new(Some(&actions::folder_label(folder)));
         label.set_xalign(0.0);
         let body = gtk4::Button::builder().child(&label).build();
         body.add_css_class("card-body");

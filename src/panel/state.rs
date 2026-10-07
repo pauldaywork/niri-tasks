@@ -3,7 +3,7 @@
 //!
 //! The cards, the filter tab, "+N more" opened or not, which card and button
 //! has the keyboard's focus, what a first press has armed, and the project
-//! list Move to workspace swaps in all live here, keyed by task uuid and
+//! list Move to workspace and Mod+Alt+W swap in all live here, keyed by task uuid and
 //! slot rather than by widget. Every change comes back
 //! as a list of [`Effect`]s for `surface.rs` to run: draw again, move the
 //! focus, spawn a command. So the rules between them (one arming at a time,
@@ -75,6 +75,11 @@ pub enum Purpose {
     /// Move to workspace: the task being moved, by uuid, and its
     /// description, for the line over the folders.
     Move { uuid: String, text: String },
+    /// Mod+Alt+W: open the project picked on its own workspace, cloning a
+    /// GitHub row or making a folder of a new name, as `project open` does.
+    /// It has no task, so it shows with no cards and on an unnamed
+    /// workspace too: opening a project is how a workspace gets a name.
+    Open,
 }
 
 /// The project list the panel swaps in for the cards: the `~/Projects`
@@ -98,6 +103,7 @@ impl ProjectList {
     pub fn moving(&self) -> Option<&str> {
         match &self.purpose {
             Purpose::Move { uuid, .. } => Some(uuid.as_str()),
+            Purpose::Open => None,
         }
     }
 
@@ -105,6 +111,7 @@ impl ProjectList {
     pub fn title(&self) -> String {
         match &self.purpose {
             Purpose::Move { text, .. } => format!("{}: {text}", Action::Move.label(false)),
+            Purpose::Open => actions::OPEN_TITLE.to_string(),
         }
     }
 
@@ -112,6 +119,36 @@ impl ProjectList {
     pub fn keys(&self) -> &'static str {
         match self.purpose {
             Purpose::Move { .. } => actions::MOVE_KEYS,
+            Purpose::Open => actions::OPEN_KEYS,
+        }
+    }
+
+    /// What Enter makes a new `~/Projects` folder of on the open list: the
+    /// text typed, normalised as `project open` will, once nothing matches
+    /// it, as fuzzel echoed text that matched no row. None on Move's list,
+    /// while anything matches, and for text no folder can be named.
+    pub fn new_folder(&self) -> Option<String> {
+        if self.purpose != Purpose::Open || !self.shown.is_empty() {
+            return None;
+        }
+        match crate::project::resolve(&self.query, &self.folders) {
+            crate::project::Resolved::Create(name) => Some(name),
+            _ => None,
+        }
+    }
+
+    /// The line under the title when the open list shows nothing: what
+    /// Enter will make, why the text cannot be a folder, or, with nothing
+    /// typed and no folder at all, to type a name. None on Move's list.
+    pub fn no_match_text(&self) -> Option<String> {
+        if self.purpose != Purpose::Open || !self.shown.is_empty() {
+            return None;
+        }
+        match crate::project::resolve(&self.query, &self.folders) {
+            crate::project::Resolved::Create(name) => Some(format!("Enter makes ~/Projects/{name}")),
+            crate::project::Resolved::Rejected(why) => Some(why),
+            crate::project::Resolved::Nothing => Some(actions::TYPE_A_NAME.to_string()),
+            crate::project::Resolved::Existing(_) => None,
         }
     }
 }
@@ -214,10 +251,11 @@ impl PanelState {
     /// waiting or finished task, so they hide with nothing else; the
     /// keyboard's panel still has the Waiting and Finished tabs, and hides
     /// only with no task at all. On
-    /// Ideas it never hides: the notepad is there with no task too.
+    /// Ideas it never hides: the notepad is there with no task too. Nor on
+    /// the project list, which Mod+Alt+W opens with no task.
     pub fn hidden(&self) -> bool {
         if self.keyboard {
-            self.all.is_empty() && !self.ideas
+            self.all.is_empty() && !self.ideas && self.projects.is_none()
         } else {
             Filter::All.pick(&self.all).is_empty()
         }
@@ -280,7 +318,8 @@ impl PanelState {
     /// The last task going while the panel has the keyboard gives it back, so
     /// the next card shows as a peek and the next Mod+Alt+Ctrl+T opens on All.
     /// Not on Ideas, where it could be mid-typing: giving the keyboard back
-    /// there would send the next keystrokes to another window.
+    /// there would send the next keystrokes to another window. Nor on the
+    /// project list, which needs no task.
     pub fn set_cards(&mut self, cards: &[Card]) -> Vec<Effect> {
         if self.all == cards {
             return Vec::new();
@@ -296,7 +335,7 @@ impl PanelState {
         if gone {
             self.projects = None;
         }
-        if self.keyboard && self.all.is_empty() && !self.ideas {
+        if self.keyboard && self.all.is_empty() && !self.ideas && self.projects.is_none() {
             return self.release();
         }
         self.rerender()
@@ -317,6 +356,23 @@ impl PanelState {
         self.armed = Armed::None;
         self.focus = first_task(&self.visible());
         true
+    }
+
+    /// Mod+Alt+W: take the keyboard on the project list for opening a
+    /// project, `rows` being the `~/Projects` folders and then the GitHub
+    /// repos not cloned yet. With no cards too, and on an unnamed workspace.
+    /// It takes the panel over as `take_keyboard` does: All, nothing
+    /// expanded, armed or focused.
+    pub fn open_projects(&mut self, rows: Vec<String>) -> Vec<Effect> {
+        self.keyboard = true;
+        self.filter = Filter::All;
+        self.ideas = false;
+        self.expanded = false;
+        self.armed = Armed::None;
+        self.focus = None;
+        let shown = rows.clone();
+        self.projects = Some(ProjectList { purpose: Purpose::Open, folders: rows, query: String::new(), shown, at: 0 });
+        vec![Effect::Render]
     }
 
     /// The pointer left and the cards slid back: an expanded list folds up.
@@ -394,7 +450,7 @@ impl PanelState {
             };
         }
         if self.projects.is_some() {
-            // The project list's: Up and Down walk it, Enter moves the task,
+            // The project list's: Up and Down walk it, Enter picks the folder,
             // Escape clears the text, then goes back to the cards. Every
             // other key is typing, for the text field.
             return match key {
@@ -535,24 +591,35 @@ impl PanelState {
         vec![Effect::Render]
     }
 
-    /// A folder on the project list, by Enter or a click: move the task
-    /// there with `task move`, back on the cards with the focus on the next
-    /// one, since the task leaves this workspace. The keyboard stays.
+    /// A folder on the project list, by Enter or a click. Moving, `task
+    /// move` takes the task there, back on the cards with the focus on the
+    /// next one, since the task leaves this workspace; the keyboard stays.
+    /// Opening, `project open` opens it, or makes a folder of a new name
+    /// with nothing matching, and the keyboard goes back first: the user is
+    /// off to that workspace. Nothing with no row and no new name.
     pub fn on_folder(&mut self, at: usize) -> Vec<Effect> {
         let Some(list) = self.projects.take() else { return Vec::new() };
-        let Some(folder) = list.shown.get(at).cloned() else {
+        let Some(row) = list.shown.get(at).cloned().or_else(|| list.new_folder()) else {
             self.projects = Some(list);
             return Vec::new();
         };
-        let Purpose::Move { uuid, .. } = &list.purpose;
-        if let Some(next) = self.neighbour(uuid) {
-            self.focus = Some(next);
+        match &list.purpose {
+            Purpose::Open => {
+                let mut effects = self.release();
+                effects.push(Effect::Spawn(crate::project::open_args(&row)));
+                effects
+            }
+            Purpose::Move { uuid, .. } => {
+                if let Some(next) = self.neighbour(uuid) {
+                    self.focus = Some(next);
+                }
+                let mut effects = self.rerender();
+                let mut args = Action::Move.args(uuid);
+                args.push(row);
+                effects.push(Effect::Spawn(args));
+                effects
+            }
         }
-        let mut effects = self.rerender();
-        let mut args = Action::Move.args(uuid);
-        args.push(folder);
-        effects.push(Effect::Spawn(args));
-        effects
     }
 
     /// Give the keyboard back: every card to one line again, All for the next
@@ -620,7 +687,7 @@ impl PanelState {
 
     /// Escape on the project list: with text typed, clear it and show every
     /// folder again; with none, back to the cards, on the card and slot the
-    /// focus was on.
+    /// focus was on; or, on the open list, the keyboard given back.
     fn escape_projects(&mut self) -> Vec<Effect> {
         match self.projects.as_mut().filter(|m| !m.query.is_empty()) {
             Some(m) => {
@@ -630,6 +697,11 @@ impl PanelState {
                 vec![Effect::ClearQuery, Effect::Render]
             }
             None => {
+                // The open list was asked for from anywhere, not from the
+                // cards, which there may be none of: it closes the panel.
+                if self.projects.as_ref().is_some_and(|l| l.purpose == Purpose::Open) {
+                    return self.release();
+                }
                 self.projects = None;
                 self.rerender()
             }
@@ -1896,5 +1968,152 @@ mod tests {
         state.set_cards(&pending(&["a"]));
         assert_eq!(state.show_projects("a", folders(&["x"])), Vec::new());
         assert_eq!(state.projects(), None);
+    }
+
+    // ─── Open a project (Mod+Alt+W) ──────────────────────────────────────
+
+    /// The panel on the open list of folder x and GitHub repo y.
+    fn opening(cards: &[Card]) -> PanelState {
+        let mut state = PanelState::default();
+        state.set_cards(cards);
+        assert_eq!(state.open_projects(folders(&["x", "y  (github)"])), vec![Effect::Render]);
+        state
+    }
+
+    fn open(row: &str) -> Effect {
+        Effect::Spawn(crate::project::open_args(row))
+    }
+
+    /// With no task on the workspace, the list still takes the keyboard and
+    /// shows: no cards, no tabs, no focus.
+    #[test]
+    fn the_open_list_shows_with_no_cards() {
+        let state = opening(&[]);
+        assert!(state.keyboard());
+        assert!(!state.hidden());
+        let list = state.projects().unwrap();
+        assert_eq!(list.purpose, Purpose::Open);
+        assert_eq!(list.shown, folders(&["x", "y  (github)"]));
+        assert_eq!((list.title(), list.keys()), (actions::OPEN_TITLE.to_string(), actions::OPEN_KEYS));
+        assert_eq!(list.moving(), None);
+        assert!(state.visible().is_empty());
+        assert!(state.tabs().is_empty());
+        assert_eq!(state.empty_text(), None);
+        assert_eq!(state.focus(), None);
+    }
+
+    /// Over cards it takes their place, dropping the focus and anything armed.
+    #[test]
+    fn the_open_list_takes_the_place_of_the_cards() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        key(&mut state, KeyAction::Run(Action::Remove));
+        assert_eq!(state.open_projects(folders(&["x"])), vec![Effect::Render]);
+        assert!(state.visible().is_empty());
+        assert_eq!(state.focus(), None);
+        assert_eq!(state.armed(), &Armed::None);
+    }
+
+    /// Enter opens the highlighted row, GitHub marker and all, giving the
+    /// keyboard back first: the user is off to that workspace.
+    #[test]
+    fn enter_opens_the_highlighted_row_and_gives_the_keyboard_back() {
+        let mut state = opening(&[]);
+        assert_eq!(key(&mut state, KeyAction::NextCard), vec![Effect::ShowFolder]);
+        assert_eq!(key(&mut state, KeyAction::Enter), vec![Effect::Render, Effect::Release, open("y  (github)")]);
+        assert!(!state.keyboard());
+        assert_eq!(state.projects(), None);
+        assert!(state.hidden(), "no cards to peek");
+    }
+
+    #[test]
+    fn a_click_opens_that_row() {
+        let mut state = opening(&pending(&["a"]));
+        assert_eq!(state.on_folder(0), vec![Effect::Render, Effect::Release, open("x")]);
+        assert!(!state.hidden(), "the card peeks again");
+    }
+
+    /// A name matching nothing makes a folder of it, normalised as
+    /// `project open` will, and the line under the title says so first.
+    #[test]
+    fn a_name_matching_nothing_makes_a_new_folder() {
+        let mut state = opening(&[]);
+        state.on_query("my thing", Vec::new());
+        let list = state.projects().unwrap();
+        assert_eq!(list.new_folder(), Some("my-thing".to_string()));
+        assert_eq!(list.no_match_text(), Some("Enter makes ~/Projects/my-thing".to_string()));
+        assert_eq!(key(&mut state, KeyAction::Enter), vec![Effect::Render, Effect::Release, open("my-thing")]);
+    }
+
+    /// While anything matches, Enter takes the match, as fuzzel did.
+    #[test]
+    fn a_match_wins_over_a_new_name() {
+        let mut state = opening(&[]);
+        state.on_query("xx", folders(&["x"]));
+        assert_eq!(state.projects().unwrap().new_folder(), None);
+        assert_eq!(state.projects().unwrap().no_match_text(), None);
+        assert_eq!(key(&mut state, KeyAction::Enter), vec![Effect::Render, Effect::Release, open("x")]);
+    }
+
+    /// A name that cannot be a folder says why, and Enter does nothing.
+    #[test]
+    fn a_name_that_cannot_be_a_folder_says_why() {
+        let mut state = opening(&[]);
+        state.on_query("a/b", Vec::new());
+        let text = state.projects().unwrap().no_match_text().unwrap();
+        assert!(text.contains("can't contain '/'"), "{text}");
+        assert_eq!(key(&mut state, KeyAction::Enter), Vec::new());
+        assert!(state.projects().is_some());
+    }
+
+    /// An empty ~/Projects with nothing typed asks for a name.
+    #[test]
+    fn no_folder_and_nothing_typed_asks_for_a_name() {
+        let mut state = PanelState::default();
+        state.open_projects(Vec::new());
+        assert_eq!(state.projects().unwrap().no_match_text(), Some(actions::TYPE_A_NAME.to_string()));
+        assert_eq!(key(&mut state, KeyAction::Enter), Vec::new());
+    }
+
+    /// Move's list never makes a folder: with nothing matching, Enter does
+    /// nothing and no line says otherwise.
+    #[test]
+    fn the_move_list_makes_no_new_folder() {
+        let mut state = moving_a();
+        state.on_query("zz", Vec::new());
+        assert_eq!(state.projects().unwrap().new_folder(), None);
+        assert_eq!(state.projects().unwrap().no_match_text(), None);
+    }
+
+    /// Escape clears the text, then gives the keyboard back: there may be
+    /// no cards to go back to.
+    #[test]
+    fn escape_clears_the_text_then_closes_the_open_list() {
+        let mut state = opening(&pending(&["a"]));
+        state.on_query("y", folders(&["y  (github)"]));
+        assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::ClearQuery, Effect::Render]);
+        assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render, Effect::Release]);
+        assert!(!state.keyboard());
+        assert_eq!(state.projects(), None);
+    }
+
+    /// The daemon's ticks with no task, or with tasks coming and going,
+    /// leave the open list up and the keyboard held.
+    #[test]
+    fn ticks_keep_the_open_list() {
+        let mut state = opening(&[]);
+        assert_eq!(state.set_cards(&[]), Vec::new());
+        assert_eq!(state.set_cards(&pending(&["a"])), vec![Effect::Render]);
+        assert_eq!(state.set_cards(&[]), vec![Effect::Render]);
+        assert!(state.keyboard());
+        assert_eq!(state.projects().map(|l| l.purpose.clone()), Some(Purpose::Open));
+    }
+
+    /// Mod+Alt+Ctrl+T over the open list puts the cards back.
+    #[test]
+    fn taking_the_keyboard_closes_the_open_list() {
+        let mut state = opening(&pending(&["a"]));
+        assert!(state.take_keyboard(Vec::new()));
+        assert_eq!(state.projects(), None);
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
     }
 }

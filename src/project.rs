@@ -187,6 +187,13 @@ pub fn move_task(task: &crate::task::Task, current_tag: &str, folder: &str, name
     Ok(to)
 }
 
+/// The `niritasks` words that open `row`, a row of the project list or a
+/// new folder's name: what picking one on the panel spawns. The row goes as
+/// the list shows it, so a GitHub row's marker is what makes it a clone.
+pub fn open_args(row: &str) -> Vec<String> {
+    vec!["project".to_string(), "open".to_string(), row.to_string()]
+}
+
 /// The editor opened beside the terminal when a project workspace starts.
 pub const EDITOR: &str = "code";
 
@@ -518,5 +525,11 @@ mod tests {
             cmds[1],
             vec![EDITOR.to_string(), "/home/x/Projects/alpha".to_string()]
         );
+    }
+
+    /// Picking a row runs `project open` with the row as the list shows it.
+    #[test]
+    fn opening_a_row_is_project_open_with_the_row() {
+        assert_eq!(open_args("alpha  (github)"), vec!["project", "open", "alpha  (github)"]);
     }
 }

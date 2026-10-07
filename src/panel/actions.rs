@@ -159,6 +159,33 @@ pub const MOVE_KEYS: &str = "Type to filter · Up, Down: pick · Enter: move the
 /// workspace's open one shut.
 pub const FOLDER_ICON: &str = "\u{f07b}";
 
+/// The line over the project list Mod+Alt+W opens.
+pub const OPEN_TITLE: &str = "Open a project";
+
+/// The footer while that list shows: the same keys as Move's, but Enter
+/// opens the project and Escape, with nothing typed, closes the panel, there
+/// being no cards it was opened from.
+pub const OPEN_KEYS: &str = "Type to filter · Up, Down: pick · Enter: open it · Esc: clear, then close";
+
+/// What the open list says with no folder to show and nothing typed: an
+/// empty `~/Projects`, where the first project has to be made.
+pub const TYPE_A_NAME: &str = "Type a name to make a new project";
+
+/// A GitHub repo's card on the open list: Font Awesome's GitHub mark, so a
+/// repo not cloned yet reads apart from a folder.
+pub const GITHUB_ICON: &str = "\u{f09b}";
+
+/// A project list row as its card reads: the icon, then the name. A GitHub
+/// row shows the bare repo name, its marker being for `project open`, not
+/// for reading.
+pub fn folder_label(row: &str) -> String {
+    // The two spaces are the gap a task card leaves after its icon.
+    match crate::github::unmark(row) {
+        Some(repo) => format!("{GITHUB_ICON}  {repo}"),
+        None => format!("{FOLDER_ICON}  {row}"),
+    }
+}
+
 /// The command Clear all spawns: Remove's own `task status <uuid> deleted
 /// --yes` for each of `uuids`, one after another in one shell. So every task
 /// goes the way Remove takes it, notification and all, and no two
@@ -547,5 +574,13 @@ mod tests {
     fn confirm_remove_fits_on_the_widest_row() {
         let n = widest_row();
         assert!(n * 32 + (n - 1) + 128 <= 760, "{n} buttons");
+    }
+
+    /// A GitHub row shows the repo's bare name beside GitHub's mark; a
+    /// folder its name beside the folder.
+    #[test]
+    fn a_rows_label_says_whether_it_is_a_repo() {
+        assert_eq!(folder_label("alpha"), format!("{FOLDER_ICON}  alpha"));
+        assert_eq!(folder_label(&crate::github::mark("convo")), format!("{GITHUB_ICON}  convo"));
     }
 }
