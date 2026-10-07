@@ -1,7 +1,6 @@
 //! Talking to niri over `$NIRI_SOCKET`.
 //!
-//! The shell scripts shelled out to `niri msg -j …` and piped the result
-//! through `jq`. This replaces both: one socket connection, typed responses.
+//! One socket connection, typed responses, instead of `niri msg -j …` and `jq`.
 
 use anyhow::{bail, Context, Result};
 use niri_ipc::{socket::Socket, Action, Request, Response, Window, Workspace, WorkspaceReferenceArg};

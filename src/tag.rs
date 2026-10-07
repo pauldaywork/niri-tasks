@@ -6,12 +6,10 @@
 //! "Ubuntu-Setup", "ubuntu setup" and "ubuntu-setup" all resolve to one tag
 //! rather than three tags holding a third of the project's tasks each.
 //!
-//! Ported from `task-lib.sh:workspace_tag`, which was:
-//!     tr '[:upper:]' '[:lower:]'
-//!     | sed -e 's/[^a-z0-9_]\+/_/g' -e 's/^_\+//' -e 's/_\+$//'
-//!
-//! Note the order: lowercasing happens *first*, so an uppercase letter becomes
-//! its lowercase self rather than an underscore.
+//! The rule: lowercase first, then every run of characters outside
+//! `[a-z0-9_]` becomes one underscore, then leading and trailing underscores
+//! go. The order matters: lowercasing happens *first*, so an uppercase letter
+//! becomes its lowercase self rather than an underscore.
 
 /// Derive the taskwarrior tag for a workspace name. Returns an empty string
 /// when the name has no usable characters — callers treat that as "no tag".
@@ -90,11 +88,33 @@ mod tests {
 
     #[test]
     fn non_ascii_folds_to_underscore() {
-        // The shell version's [^a-z0-9_] is ASCII-only; keep that behaviour so
-        // tags stay typeable at a shell prompt. The trailing underscore the
-        // substitution leaves is then stripped by the trim.
+        // The rule is ASCII-only, so tags stay typeable at a shell prompt. The
+        // trailing underscore the substitution leaves is then stripped by the
+        // trim.
         assert_eq!(workspace_tag("café"), "caf");
         assert_eq!(workspace_tag("día 2"), "d_a_2");
         assert_eq!(workspace_tag("日本"), "");
+    }
+
+    /// The awkward names the shell version was checked against, kept as a
+    /// table so the folding rule stays pinned to the cases that once broke it.
+    #[test]
+    fn the_awkward_name_corpus_folds_the_same() {
+        let cases = [
+            ("general", "general"),
+            ("ubuntu-setup", "ubuntu_setup"),
+            ("Ubuntu-Setup", "ubuntu_setup"),
+            ("UBUNTU SETUP", "ubuntu_setup"),
+            ("with.dots", "with_dots"),
+            ("with:colons", "with_colons"),
+            ("trailing-", "trailing"),
+            ("-leading", "leading"),
+            ("MiXeD CaSe-Thing", "mixed_case_thing"),
+            ("tabs\tand spaces", "tabs_and_spaces"),
+            ("under_score-dash mix", "under_score_dash_mix"),
+        ];
+        for (name, tag) in cases {
+            assert_eq!(workspace_tag(name), tag, "{name:?}");
+        }
     }
 }

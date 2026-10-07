@@ -6,26 +6,16 @@
 //! * **Adding** a task word-splits the description, so taskwarrior's own
 //!   attribute syntax works — "ship the release due:friday priority:H" sets a
 //!   due date and a priority rather than becoming part of the description.
-//!   (`task-add-text.sh:30`, which used `set -f` + unquoted expansion.)
 //! * **Editing** and **annotating** do *not* split. The text is passed as one
 //!   argument after `--`, so a typed `due:` stays literal text.
-//!   (`task-edit-text.sh`, `task-annotate-text.sh`.)
 //!
-//! In Rust the split is explicit rather than a shell side effect, which also
-//! retires the `set -f` glob guard the shell version needed: arguments never
-//! hit a glob expander here.
-
-/// Trim leading and trailing whitespace. Matches the
-/// `sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'` the scripts all ran.
-pub fn trim(s: &str) -> &str {
-    s.trim()
-}
+//! The split is explicit rather than a shell side effect, so arguments never
+//! hit a glob expander.
 
 /// Collapse any run of whitespace to a single space, then trim.
 ///
 /// Taskwarrior descriptions are single-line, and the box is multi-line, so a
-/// pasted newline has to go somewhere. `TaskBoxModal.qml` did this with
-/// `.replace(/\s+/g, " ").trim()` before submitting.
+/// pasted newline has to go somewhere.
 pub fn collapse_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -43,13 +33,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn trims_surrounding_whitespace() {
-        assert_eq!(trim("  hello  "), "hello");
-        assert_eq!(trim("\t hello \n"), "hello");
-        assert_eq!(trim(""), "");
-    }
-
-    #[test]
     fn collapses_newlines_for_single_line_descriptions() {
         assert_eq!(collapse_whitespace("a\nb"), "a b");
         assert_eq!(collapse_whitespace("a  \n\t  b"), "a b");
@@ -58,8 +41,7 @@ mod tests {
         assert_eq!(collapse_whitespace("   "), "");
     }
 
-    /// The behaviour `set -f` + unquoted expansion bought in the shell version:
-    /// attributes reach `task` as their own arguments.
+    /// Attributes reach `task` as their own arguments.
     #[test]
     fn add_splits_so_taskwarrior_attributes_parse() {
         assert_eq!(
@@ -74,9 +56,8 @@ mod tests {
         assert!(add_args("   ").is_empty());
     }
 
-    /// The shell version needed `set -f` so a description containing `*` was not
-    /// expanded against the current directory. Passing argv directly means there
-    /// is no glob stage at all — assert the character survives untouched.
+    /// A description containing `*` is never expanded against the current
+    /// directory: argv is passed directly, so there is no glob stage at all.
     #[test]
     fn add_does_not_glob() {
         assert_eq!(add_args("clean up * files"), vec!["clean", "up", "*", "files"]);

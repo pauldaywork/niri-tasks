@@ -372,6 +372,7 @@ mod tests {
         assert_eq!(normalize("my project"), "my-project");
         assert_eq!(normalize("a   b   c"), "a-b-c");
         assert_eq!(normalize("  padded  "), "padded");
+        assert_eq!(normalize("tabs\tand spaces"), "tabs-and-spaces");
     }
 
     #[test]

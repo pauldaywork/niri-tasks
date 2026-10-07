@@ -1,9 +1,8 @@
 //! Desktop notifications, with a stderr fallback.
 //!
-//! Ported from `task_notify` / `notify` in the shell scripts. Failure to notify
-//! is never fatal — the notification is feedback about work that already
-//! happened, so a missing `notify-send` must not turn a completed action into
-//! an error.
+//! Failure to notify is never fatal — the notification is feedback about work
+//! that already happened, so a missing `notify-send` must not turn a completed
+//! action into an error.
 
 use std::process::Command;
 

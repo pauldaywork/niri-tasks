@@ -330,7 +330,7 @@ the cards alone instead, and niri takes noise and saturation from the rule.
 ```bash
 bash tests/all.sh           # everything this machine can run       ~100s
 
-cargo test                  # unit, differential, write-path        ~2s
+cargo test                  # unit and write-path                   ~2s
 bash tests/e2e-tag.sh       # the session's tag, against real niri    ~1s
 bash tests/e2e-panel.sh     # the task panel, in a nested niri       ~30s
 bash tests/e2e-box.sh       # the task box, in a nested niri         ~65s
@@ -349,7 +349,7 @@ nested niri parked on a spare workspace, and it tells you which one to keep off.
 | | Needs | Touches |
 |---|---|---|
 | `tests/all.sh` | Nothing of its own — whatever is missing is skipped and named | Whatever the suites it ends up running touch |
-| `cargo test` | `taskwarrior` on `$PATH`, and `bash` for the differential suite | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
+| `cargo test` | `taskwarrior` on `$PATH` | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
 | `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the name of that spare workspace, taken off again. No herdr session (a fake `herdr` stands in), and only a scratch task database of its own |
 | `tests/e2e-panel.sh` | niri, a Wayland session, `python3-pil`, taskwarrior; `wtype` for its keyboard checks, which are skipped without it | A nested niri window for the run, parked on the spare workspace at the end of your monitor; keep off that workspace until it finishes. Not your clipboard, your screenshots or the `niri-tasks` daemon |
 | `tests/e2e-box.sh` | `wtype`, niri, a Wayland session, taskwarrior | A nested niri window for the run, parked like the panel test's; keep off that workspace until it finishes. Its keys go only to that nested niri. Not your keyboard or the `niri-tasks` daemon |
@@ -467,8 +467,3 @@ only when asked, so each frame is shot until two in a row agree. It counts
 lines rather than pixels: the cards' shadows fade into the background over
 many pixels, and a column or row counts only once at least 20 of its pixels
 changed, which is what puts the panel's edge at the same column every run.
-
-`tests/differential.rs` runs the original shell pipelines this was ported from
-and compares them against the Rust functions over a corpus of awkward workspace
-names. It is there because the tag-folding and project-name rules are subtly
-different from each other, and the shell versions were the specification.
