@@ -29,7 +29,7 @@ The herdr session a workspace's project terminal attaches to: one per
 workspace, where that workspace's agents and terminals run. Refine, Start
 working and Go to session each open a task's tab or agent in it, and a pane
 inside one knows which session it is in without asking what is focused.
-_Avoid_: project (the project picker's word), terminal (the window showing it), herdr
+_Avoid_: project (the project list's word), terminal (the window showing it), herdr
 workspace (a session has several of those)
 
 **Active task**:
