@@ -281,7 +281,8 @@ pub fn blocked_uuids_for_tag(tag: &str) -> Result<Vec<String>> {
 }
 
 /// How many finished tasks the task panel's Finished tab lists: enough to
-/// find one closed too soon, few enough that it never needs "+N more".
+/// find one closed too soon, and few enough to keep the list short. Past the
+/// panel's own cap of 8 cards the rest fold into "+N more", as on any tab.
 pub const FINISHED_CAP: usize = 12;
 
 /// The last [`FINISHED_CAP`] tasks finished on `tag`, the most recently

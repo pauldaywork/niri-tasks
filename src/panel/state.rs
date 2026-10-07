@@ -198,7 +198,7 @@ impl PanelState {
     }
 
     /// The line shown in place of cards when the tab has none: only All, on
-    /// a workspace whose tasks are all waiting. Never on Ideas, which has no
+    /// a workspace whose tasks are all waiting or finished. Never on Ideas, which has no
     /// cards to have none of.
     pub fn empty_text(&self) -> Option<&'static str> {
         if self.ideas {

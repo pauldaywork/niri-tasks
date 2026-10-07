@@ -204,7 +204,7 @@ mod tests {
     }
 
     /// Refine until the task has a plan, then Start working; nothing once a
-    /// planned task is being worked, nor on a waiting task.
+    /// planned task is being worked, nor on a waiting or finished task.
     #[test]
     fn ctrl_enter_refines_an_unplanned_task_and_starts_a_planned_one() {
         assert_eq!(Action::advance(on_list(false)), Some(Refine));

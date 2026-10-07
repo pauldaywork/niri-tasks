@@ -507,7 +507,7 @@ if command -v wtype >/dev/null; then
     shot ideas_tab || { summary; exit 1; }
     read -r x0 x1 y0 y1 < <(measure ideas_tab)
     if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ]; then
-        ok "6 opens the Ideas tab in the middle (columns ${x0}-${x1}, rows ${y0}-${y1})"
+        ok "7 opens the Ideas tab in the middle (columns ${x0}-${x1}, rows ${y0}-${y1})"
     else
         bad "on the Ideas tab the panel covers columns ${x0}-${x1}, rows ${y0}-${y1}, expected
       within ${SURFACE_LEFT}-${SURFACE_RIGHT}"
@@ -564,8 +564,9 @@ fi
 
 # ─── nothing pending shows nothing ───────────────────────────────────────────
 # rc.bulk=0: completing more than two tasks at once otherwise stops to ask,
-# and with no terminal to answer, completes none of them. A panel with no
-# tasks also gives the keyboard back, when wtype was not there to press Escape.
+# and with no terminal to answer, completes none of them. Completed tasks
+# become finished cards, which the hover/peek does not show, so the edge is
+# empty; the keyboard's panel would still have the Finished tab.
 task rc.verbose=nothing rc.confirmation=no rc.bulk=0 "+$TAG" done </dev/null >/dev/null 2>&1
 settle
 shot empty || { summary; exit 1; }

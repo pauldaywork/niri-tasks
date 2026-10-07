@@ -74,9 +74,10 @@ impl TaskState {
         self.waiting || self.finished
     }
 
-    /// `task`'s state, finished included, read from its status. Whether it is waiting is passed in, because its export
-    /// cannot say (see `task::is_waiting`), and so is whether a Claude is on
-    /// it, which herdr knows and the task does not.
+    /// `task`'s state, finished included, read from its status. Whether it is
+    /// waiting is passed in, because its export cannot say (see
+    /// `task::is_waiting`), and so is whether a Claude is on it, which herdr
+    /// knows and the task does not.
     pub fn of(task: &Task, waiting: bool, has_session: bool) -> TaskState {
         TaskState {
             active: task.is_active(),
@@ -95,12 +96,12 @@ impl Action {
     pub const ALL: [Action; 12] = [Session, Back, Start, Refine, Grill, Edit, Note, Speak, UpNext, Stop, Wait, Remove];
 
     /// Whether the action makes sense on a task in `state`. A waiting or
-    /// finished task is off the list: it gets the way back to it, and what works on a task
-    /// whatever its place. Start working, Refine and Grill me are for a task
-    /// on the list, and Up next and Waiting only move one on it. Go to
-    /// session needs a Claude to go to, and Stop a task that was started.
-    /// Start working stays on an active task, where it goes back to the
-    /// worktree and the Claude; a view with no room for both it and Stop
+    /// finished task is off the list: it gets the way back to it, and what
+    /// works on a task whatever its place. Start working, Refine and Grill me
+    /// are for a task on the list, and Up next and Waiting only move one on
+    /// it. Go to session needs a Claude to go to, and Stop a task that was
+    /// started. Start working stays on an active task, where it goes back to
+    /// the worktree and the Claude; a view with no room for both it and Stop
     /// drops it there.
     pub fn applies(self, state: TaskState) -> bool {
         match self {
