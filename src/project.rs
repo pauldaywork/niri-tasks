@@ -81,6 +81,99 @@ pub fn move_destinations(names: &[String], current_tag: &str) -> Vec<String> {
         .collect()
 }
 
+/// The projects a name can mean, read once per use: the `~/Projects`
+/// folders, and the account's GitHub repos not cloned yet, from the cache
+/// `project open` refreshes. One value, so the panel's list, its hint and
+/// `project open` all read the same two lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Projects {
+    /// `~/Projects`.
+    pub dir: std::path::PathBuf,
+    /// Its folders, sorted, dotfiles left out.
+    pub local: Vec<String>,
+    /// The repos worth offering: not a folder already, not a dotfile, in
+    /// `gh`'s most-recently-pushed order.
+    pub remote: Vec<String>,
+}
+
+/// One row of the project list: a folder in `~/Projects`, or a GitHub repo
+/// not cloned yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Row {
+    Folder(String),
+    Repo(String),
+}
+
+impl Row {
+    /// The name a pick spawns, bare: `project open` tells a repo from a
+    /// folder by [`Projects::choice`], not by how the row read.
+    pub fn name(&self) -> &str {
+        match self {
+            Row::Folder(name) | Row::Repo(name) => name,
+        }
+    }
+}
+
+/// What `project open` does with a name, and so what Enter on the project
+/// list will do with what is typed: one decision for the hint and the act.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Choice {
+    /// A folder that exists: open its workspace.
+    Open(String),
+    /// A new name, normalised and allowed: make the folder, then open it.
+    Create(String),
+    /// A GitHub repo not cloned yet: clone it, then open it.
+    Clone(String),
+    /// Normalised into something that must not become a directory.
+    Rejected(String),
+    /// Nothing usable was typed.
+    Nothing,
+}
+
+impl Projects {
+    /// Read `~/Projects` and the GitHub cache. The cache missing is an empty
+    /// repo list, never an error: the list works without GitHub.
+    pub fn load() -> Result<Projects> {
+        let (dir, local) = list()?;
+        let cached = crate::github::cache_path()
+            .map(|cache| crate::github::read_cache(&cache))
+            .unwrap_or_default();
+        let remote = crate::github::remote_only(&cached, &local);
+        Ok(Projects { dir, local, remote })
+    }
+
+    /// The project list Mod+Alt+W shows: the folders, then the repos.
+    pub fn rows(&self) -> Vec<Row> {
+        self.local
+            .iter()
+            .cloned()
+            .map(Row::Folder)
+            .chain(self.remote.iter().cloned().map(Row::Repo))
+            .collect()
+    }
+
+    /// The folders a task on `current_tag` can move to: every folder but the
+    /// one it is on. Never a repo: a repo is not a workspace until it is
+    /// cloned.
+    pub fn move_destinations(&self, current_tag: &str) -> Vec<Row> {
+        move_destinations(&self.local, current_tag).into_iter().map(Row::Folder).collect()
+    }
+
+    /// What `typed` means, a picked row's name or text: [`resolve`] against
+    /// the folders, then a creatable name that is one of the repos clones
+    /// instead, because an empty folder shadowing your own repo is never
+    /// what you want.
+    pub fn choice(&self, typed: &str) -> Choice {
+        match resolve(typed, &self.local) {
+            Resolved::Existing(name) => Choice::Open(name),
+            Resolved::Create(name) if self.remote.contains(&name) => Choice::Clone(name),
+            Resolved::Create(name) => Choice::Create(name),
+            Resolved::Nothing => Choice::Nothing,
+            Resolved::Rejected(why) => Choice::Rejected(why),
+        }
+    }
+}
+
 /// The program the project list ranks what is typed against the folders
 /// with.
 pub const MATCHER: &str = "fzf";
@@ -564,5 +657,66 @@ mod tests {
             rows_to_open(&names, &cached),
             vec!["alpha".to_string(), "hansard".to_string(), crate::github::mark("convo")]
         );
+    }
+
+    fn projects_of(local: &[&str], remote: &[&str]) -> Projects {
+        Projects {
+            dir: std::path::PathBuf::from("/home/x/Projects"),
+            local: local.iter().map(|s| s.to_string()).collect(),
+            remote: remote.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    /// The list Mod+Alt+W shows: the folders in their order, then the repos.
+    #[test]
+    fn rows_are_folders_then_uncloned_repos() {
+        let p = projects_of(&["alpha", "hansard"], &["convo"]);
+        assert_eq!(
+            p.rows(),
+            vec![Row::Folder("alpha".into()), Row::Folder("hansard".into()), Row::Repo("convo".into())]
+        );
+        assert_eq!(p.rows()[2].name(), "convo");
+    }
+
+    /// A task can move to a folder, never to a repo that is not one yet, and
+    /// never to the folder it is already on.
+    #[test]
+    fn move_destinations_are_other_folders_only() {
+        let p = projects_of(&["alpha", "niri-tasks"], &["convo"]);
+        assert_eq!(p.move_destinations("niri_tasks"), vec![Row::Folder("alpha".into())]);
+    }
+
+    #[test]
+    fn a_folder_name_opens_it() {
+        assert_eq!(projects_of(&["alpha"], &[]).choice("alpha"), Choice::Open("alpha".into()));
+    }
+
+    #[test]
+    fn a_new_name_makes_a_folder() {
+        assert_eq!(projects_of(&["alpha"], &["convo"]).choice("brand new thing"), Choice::Create("brand-new-thing".into()));
+    }
+
+    #[test]
+    fn a_repo_name_clones_it() {
+        assert_eq!(projects_of(&["alpha"], &["convo"]).choice("convo"), Choice::Clone("convo".into()));
+    }
+
+    /// The case the panel's hint got wrong: "my repo" normalises to a repo
+    /// name, so Enter clones, and the hint has to say so.
+    #[test]
+    fn a_spaced_variant_of_a_repo_name_clones_it() {
+        assert_eq!(projects_of(&["alpha"], &["my-repo"]).choice("my repo"), Choice::Clone("my-repo".into()));
+    }
+
+    #[test]
+    fn a_local_folder_wins_over_a_same_named_repo() {
+        assert_eq!(projects_of(&["alpha"], &["alpha"]).choice("alpha"), Choice::Open("alpha".into()));
+    }
+
+    #[test]
+    fn nothing_and_rejections_pass_through() {
+        assert_eq!(projects_of(&[], &[]).choice("  "), Choice::Nothing);
+        assert!(matches!(projects_of(&[], &[]).choice("../etc"), Choice::Rejected(_)));
+        assert!(matches!(projects_of(&[], &[]).choice(".hidden"), Choice::Rejected(_)));
     }
 }
