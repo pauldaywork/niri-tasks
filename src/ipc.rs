@@ -1,10 +1,9 @@
 //! Asking the running daemon to open the task box, to hand the task panel
 //! the keyboard, or to show its project list.
 //!
-//! The box is a GTK window, and building one costs about 2.6s on a cold start
-//! and 0.6s warm — every time, because each `niritasks task add` was its own process.
-//! The daemon is already a warm GTK process holding the task panels, so it can put
-//! the window up immediately instead.
+//! The box once cost 0.6s to 2.6s to appear when each `niritasks task add`
+//! built it in a process of its own; the daemon's warm GTK process puts it
+//! up at once.
 //!
 //! The daemon is the one process that draws: the panels, the box and the
 //! project list. The CLI asks it over this socket and, when nothing answers,
@@ -85,8 +84,8 @@ pub const NO_DAEMON: &str =
 pub fn send(req: &Request) -> Result<()> {
     let path = socket_path();
     let mut stream = UnixStream::connect(&path).context(NO_DAEMON)?;
-    writeln!(stream, "{}", req.encode())?;
-    stream.flush()?;
+    writeln!(stream, "{}", req.encode()).context(NO_DAEMON)?;
+    stream.flush().context(NO_DAEMON)?;
     Ok(())
 }
 

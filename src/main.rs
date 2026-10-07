@@ -284,12 +284,11 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             // focus to another workspace; anywhere else, the focused one.
             let tag = caller_workspace_tag()?;
             let description = text::collapse_whitespace(&words.join(" "));
-            let notes: Vec<String> = Vec::new();
 
             if description.is_empty() {
                 return Ok(());
             }
-            let uuid = task::add_with_notes(&tag, &text::add_args(&description), &notes)?;
+            let uuid = task::add(&tag, &text::add_args(&description))?;
             notify::tasks(&format!("Added to +{tag}: {description}"));
             if let (true, Some(uuid)) = (and_refine, uuid) {
                 refine::spawn_quick(&uuid);

@@ -28,14 +28,14 @@
 | `niritasks task status <uuid> deleted --yes` | Delete it | scriptable |
 | `niritasks task move <uuid> <folder>` | Move it to another `~/Projects` folder's workspace: it trades this workspace's tag for the folder's. Refused for a folder not in `~/Projects`, this workspace's own, or a task not on this workspace | scriptable, follows the herdr session, else focus |
 | `niritasks task add <text>` | Add a task to the herdr session's workspace in a herdr pane, else to the focused workspace; the text is word-split, so `due:friday` is an attribute | scriptable, follows the herdr session, else focus |
-| `niritasks task add` | With no text, the task box, to type a task and its notes | GUI |
-| `niritasks task add --refine` | The task box with Add & refine as its default (Mod+Alt+Shift+T); with text, adds the task and refines it straight away | GUI, or scriptable with text, follows the herdr session, else focus |
+| `niritasks task add` | With no text, the task box, to type a task and its notes; exit 1 with no daemon | GUI |
+| `niritasks task add --refine` | The task box with Add & refine as its default (Mod+Alt+Shift+T), and exit 1 with no daemon; with text, adds the task and refines it straight away | GUI, or scriptable with text, follows the herdr session, else focus |
 | `niritasks task get-text <uuid>` | Print its description | scriptable |
 | `niritasks task edit <uuid> <text>` | Replace its description, as typed | scriptable |
-| `niritasks task edit <uuid>` | With no text, the task box on its description and notes | GUI |
+| `niritasks task edit <uuid>` | With no text, the task box on its description and notes; exit 1 with no daemon | GUI |
 | `niritasks task get-notes <uuid>` | Print its notes, one per line: date, two spaces, text | scriptable |
 | `niritasks task note <uuid> <text>` | Add a note, as typed | scriptable |
-| `niritasks task note <uuid>` | With no text, the task box with the cursor in a new note | GUI |
+| `niritasks task note <uuid>` | With no text, the task box with the cursor in a new note; exit 1 with no daemon | GUI |
 | `niritasks task speak <uuid>` | Read its description and notes aloud in the background, rewritten by Claude Haiku for listening and spoken by a local Kokoro server, which it starts in docker if needed; returns at once. Run while any task is being spoken, it stops that instead. It sends the task's text to Anthropic | audio |
 | `niritasks task speak <uuid> --here` | Internal: the speaking itself, which `task speak` runs in the background | internal |
 | `niritasks task up-next <uuid>` | Mark it up next with Taskwarrior's own `+next` tag: its task card turns yellow and sorts under the active tasks, and its urgency rises by 15. Run again to clear it. Nothing else about the task changes | scriptable |
