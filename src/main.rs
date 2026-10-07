@@ -229,8 +229,11 @@ enum WorkspaceCommand {
 
 #[derive(Subcommand)]
 enum ProjectCommand {
-    /// Pick a folder from ~/Projects and put it on its own named workspace
-    Open,
+    /// Show the task panel's project list (Mod+Alt+W); with a name, put that project on its own named workspace
+    Open {
+        /// A ~/Projects folder, a GitHub repo as the list shows it, or a new name to make a folder of
+        name: Option<String>,
+    },
 }
 
 fn main() {
@@ -261,7 +264,7 @@ fn dispatch(cli: Cli) -> Result<()> {
         }
         Command::Task(c) => return task_command(c),
         Command::Workspace(c) => return workspace_command(c),
-        Command::Project(ProjectCommand::Open) => return project_open(),
+        Command::Project(ProjectCommand::Open { name }) => return project_open(name),
         Command::Terminal => return terminal(),
         Command::Daemon => return niri_tasks::daemon::run(),
     }
@@ -521,36 +524,38 @@ fn prompt_for_name(prompt: &str, prefill: &str) -> Result<Option<String>> {
     Ok((!name.is_empty()).then_some(name))
 }
 
-fn project_open() -> Result<()> {
-    let (projects_dir, names) = project::list()?;
-
-    // Under the local folders, the account's GitHub repos that are not cloned
-    // yet. The rows come from the cache; the refresh fired here feeds the
-    // *next* open, so the popup never waits on the network.
-    let remote = match github::cache_path() {
-        Some(cache) => {
+/// `project open`: with no name, the daemon's project list, which runs this
+/// again with the row picked; with one, open that project.
+///
+/// The GitHub rows come from a cache, refreshed here for the *next* open so
+/// the list never waits on the network. Here and not in the daemon: the
+/// refresh is a child never waited on, which init reaps once this process
+/// exits, and which the daemon would keep as a zombie.
+fn project_open(name: Option<String>) -> Result<()> {
+    let Some(name) = name else {
+        if let Some(cache) = github::cache_path() {
             github::spawn_refresh(&cache);
-            github::remote_only(&github::read_cache(&cache), &names)
         }
-        None => Vec::new(),
+        anyhow::ensure!(
+            delegate_to_daemon(ipc::Request::Projects),
+            "The niri-tasks daemon is not running, so there is no project list. Start it with `systemctl --user start niri-tasks`."
+        );
+        return Ok(());
     };
+    open_project(&name)
+}
 
-    let mut entries = names.clone();
-    entries.extend(remote.iter().map(|n| github::mark(n)));
+/// Open `selected`, a row of the project list or a name typed there: a
+/// folder as it is, a GitHub row cloned first, a new name made a folder
+/// first. Then back to the project's workspace if it has one, else onto the
+/// last workspace on this output, named for it, with its programs started.
+fn open_project(selected: &str) -> Result<()> {
+    let (projects_dir, names) = project::list()?;
+    let remote = github::cache_path()
+        .map(|cache| github::remote_only(&github::read_cache(&cache), &names))
+        .unwrap_or_default();
 
-    let longest = entries.iter().map(|n| n.chars().count()).max().unwrap_or(0);
-
-    // An empty ~/Projects is not an error: fuzzel shows a bare input box and
-    // whatever you type becomes the first project.
-    let selected = Picker::new()
-        .arg("--no-sort")
-        .lines(niri_tasks::picker::clamp_lines(entries.len()))
-        .width(niri_tasks::picker::clamp_project_width(longest))
-        .run(&entries)?;
-
-    let Some(selected) = selected else { return Ok(()) };
-
-    let name = match github::choose(&selected, &names, &remote) {
+    let name = match github::choose(selected, &names, &remote) {
         github::Choice::Nothing => return Ok(()),
         github::Choice::Rejected(msg) => anyhow::bail!(msg),
         github::Choice::Local(n) => n,
@@ -646,6 +651,16 @@ mod tests {
     fn moving_a_task_is_a_command() {
         assert!(Cli::try_parse_from(["niritasks", "task", "move", "c53b6e3d", "alpha"]).is_ok());
         assert!(Cli::try_parse_from(["niritasks", "task", "move", "c53b6e3d"]).is_err());
+    }
+
+    /// Mod+Alt+W runs `project open` bare, for the panel's project list,
+    /// and picking a row runs it again with the row, GitHub marker and all.
+    #[test]
+    fn opening_a_project_takes_an_optional_name() {
+        assert!(Cli::try_parse_from(["niritasks", "project", "open"]).is_ok());
+        let mut argv = vec!["niritasks".to_string()];
+        argv.extend(project::open_args(&github::mark("convo")));
+        assert!(Cli::try_parse_from(&argv).is_ok(), "{argv:?}");
     }
 
     /// The action row runs a task action as its own `niritasks` words, so each

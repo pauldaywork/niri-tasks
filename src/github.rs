@@ -1,38 +1,38 @@
-//! GitHub rows for the project picker.
+//! GitHub rows for the project list.
 //!
-//! `niritasks project open` lists the folders in `~/Projects`; underneath
-//! them it also offers the account's GitHub repos that are not cloned yet,
-//! and cloning one is what "opening" it means. The rows come from `gh` — the
-//! authenticated CLI already knows the account and the clone protocol, so
-//! there is no username or URL scheme configured here.
+//! The task panel's project list (Mod+Alt+W) lists the folders in
+//! `~/Projects`; underneath them it also offers the account's GitHub repos
+//! that are not cloned yet, and cloning one is what "opening" it means. The
+//! rows come from `gh` — the authenticated CLI already knows the account and
+//! the clone protocol, so there is no username or URL scheme configured here.
 //!
-//! The list is cached rather than fetched while the popup waits: `gh repo
+//! The list is cached rather than fetched while the list waits: `gh repo
 //! list` costs about a second, which is the whole latency budget of a
-//! keybind. Each open reads the cache and fires a background refresh, so the
-//! rows are at most one invocation stale, and the very first open after
-//! install shows no GitHub rows at all.
+//! keybind. Each `project open` fires a background refresh and the list reads
+//! the cache, so the rows are at most one invocation stale, and the very
+//! first open after install shows no GitHub rows at all.
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-/// The suffix that tells a GitHub row apart from a local folder in the
-/// picker. fuzzel echoes the whole accepted row back, so the suffix is also
-/// how the selection is recognised as a repo to clone.
+/// The suffix that tells a GitHub row apart from a local folder on the
+/// project list. Picking a row runs `project open` with the whole row, so
+/// the suffix is also how the selection is recognised as a repo to clone.
 const MARKER: &str = "  (github)";
 
-/// A repo name rendered as a picker row.
+/// A repo name rendered as a project list row.
 pub fn mark(name: &str) -> String {
     format!("{name}{MARKER}")
 }
 
-/// The repo name back out of a picker row, or `None` for a row (or typed
+/// The repo name back out of a project list row, or `None` for a row (or typed
 /// text) that is not a GitHub row.
 pub fn unmark(row: &str) -> Option<&str> {
     row.strip_suffix(MARKER).filter(|n| !n.is_empty())
 }
 
 /// The remote repos worth offering: not already a folder in `~/Projects`,
-/// and not a name the picker could never show again after cloning (it
+/// and not a name the project list could never show again after cloning (it
 /// filters dotfiles). Order is preserved — `gh` lists most recently pushed
 /// first, which is the useful order for "clone what I was just working on".
 pub fn remote_only(remote: &[String], local: &[String]) -> Vec<String> {
@@ -43,7 +43,7 @@ pub fn remote_only(remote: &[String], local: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// What the picker's accepted text means, GitHub rows included.
+/// What the project list's accepted text means, GitHub rows included.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Choice {
     /// A local project folder — open it.
@@ -58,7 +58,7 @@ pub enum Choice {
     Rejected(String),
 }
 
-/// Resolve accepted picker text against both lists.
+/// Resolve accepted project list text against both lists.
 ///
 /// A marked row clones. Everything else goes through [`project::resolve`]
 /// as before, with one addition: text that resolves to a *creatable* name
@@ -90,7 +90,7 @@ pub fn cache_path() -> Option<PathBuf> {
 }
 
 /// The cached repo names — one per line, written by [`spawn_refresh`]. A
-/// missing or unreadable cache is an empty list, never an error: the picker
+/// missing or unreadable cache is an empty list, never an error: the project list
 /// works without GitHub rows.
 pub fn read_cache(path: &Path) -> Vec<String> {
     std::fs::read_to_string(path)
@@ -106,7 +106,7 @@ pub fn read_cache(path: &Path) -> Vec<String> {
 ///
 /// `gh` writes to a sibling temp file that is moved over the cache only on
 /// success, so a flaky network truncates nothing. Failure is silent by
-/// design — no `gh`, no auth, no network all just mean the picker keeps
+/// design — no `gh`, no auth, no network all just mean the project list keeps
 /// showing whatever it last knew. The explicit `--limit` matters: the
 /// default is 30, which quietly drops repos on any account past its first
 /// thirty.
@@ -173,7 +173,7 @@ mod tests {
     }
 
     /// A repo actually named like a marked row still unmarks — the row for
-    /// it would be `x  (github)  (github)`, and only the picker's own
+    /// it would be `x  (github)  (github)`, and only the project list's own
     /// suffix comes off.
     #[test]
     fn only_the_outer_marker_comes_off() {
@@ -197,7 +197,7 @@ mod tests {
         );
     }
 
-    /// A cloned `.github` folder would vanish from the picker, which filters
+    /// A cloned `.github` folder would vanish from the project list, which filters
     /// dotfiles — so it is never offered.
     #[test]
     fn dotfile_repos_are_not_offered() {

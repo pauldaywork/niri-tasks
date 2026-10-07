@@ -630,6 +630,33 @@ else
     bad "something is still drawn with no tasks (columns ${x0}-${x1}, rows ${y0}-${y1})"
 fi
 
+# ─── Mod+Alt+W's project list, with no task ──────────────────────────────────
+# `project open` shows the project list on a workspace with no tasks, where
+# the panel had nothing to show, and Escape hides it again. Nothing is
+# picked: the open would run in the nested niri's spawn, on the real
+# ~/Projects. Its own XDG_CACHE_HOME keeps its gh refresh off the real cache.
+if command -v wtype >/dev/null && [ -d "$HOME/Projects" ]; then
+    "${NENV[@]}" XDG_CACHE_HOME="$SB/cache" "$NIRITASKS" project open >/dev/null 2>&1
+    sleep 1
+    shot open_list || { summary; exit 1; }
+    if same baseline open_list; then
+        bad "project open drew nothing on a workspace with no tasks"
+    else
+        ok "project open shows the project list with no task on the workspace"
+    fi
+    "${NENV[@]}" wtype -k Escape
+    sleep 1
+    shot open_closed || { summary; exit 1; }
+    if same baseline open_closed; then
+        ok "Escape closes the project list, leaving nothing drawn"
+    else
+        read -r x0 x1 y0 y1 < <(measure open_closed)
+        bad "after Escape from the project list something is still drawn (columns ${x0}-${x1}, rows ${y0}-${y1})"
+    fi
+else
+    skip "Mod+Alt+W's project list (needs wtype and ~/Projects)"
+fi
+
 # ─── the map-once trap: a daemon that starts with nothing to show ────────────
 # A layer surface that has never been mapped does not respond to a later
 # present(), so this once stayed invisible for an entire session however many
