@@ -103,6 +103,10 @@ pub const PADDING_PX: i32 = 12;
 pub const ACTION_PADDING: &str = "6px 12px";
 /// ghostty `font-family` and `font-size`, which is in points too.
 pub const FONT: &str = "10pt \"Iosevka Term Extended\"";
+/// The keys' hints, beside the focused card's buttons and on the footer under
+/// the list: a point under [`FONT`], so they read as captions and the widest
+/// hint fits beside the widest action row.
+pub const HINT_FONT: &str = "9pt \"Iosevka Term Extended\"";
 /// mako `margin=0,0,8`: the gap between stacked notifications.
 pub const GAP_PX: i32 = 8;
 /// Twice mako `width`, so a long description fits on one line. The peek is
@@ -131,7 +135,8 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .task-card,
 .task-panel .filter-tabs,
 .task-panel .filter-empty,
-.task-panel .ideas {{
+.task-panel .ideas,
+.task-panel .keys-footer {{
     background-color: {BACKGROUND};
     color: {TEXT};
     border-radius: {RADIUS_PX}px;
@@ -173,8 +178,9 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .card-body {{ border-radius: {RADIUS_PX}px; }}
 .task-panel .card-actions button {{ padding: {ACTION_PADDING}; }}
 .task-panel .card-actions button:first-child {{ border-bottom-left-radius: {RADIUS_PX}px; }}
-/* The focused button's name, dimmed so it reads as a caption to the icons. */
-.task-panel .card-hint {{ color: alpha({TEXT}, 0.55); padding: {ACTION_PADDING}; }}
+/* The focused card's keys, dimmed and a point smaller so they read as a
+   caption to the icons. */
+.task-panel .card-hint {{ color: alpha({TEXT}, 0.55); padding: {ACTION_PADDING}; font: {HINT_FONT}; }}
 .task-panel .card-separator {{
     background-color: {SEPARATOR};
     background-image: none;
@@ -202,6 +208,9 @@ window.task-panel {{ background-color: transparent; }}
    and caret are the cards' colour. */
 .task-panel .ideas textview,
 .task-panel .ideas textview text {{ background-color: transparent; color: {TEXT}; caret-color: {TEXT}; }}
+/* The keys every card shares, under the list: a strip like the tab bar,
+   its text dimmed and small like the card's hint. */
+.task-panel .keys-footer {{ padding: {ACTION_PADDING}; color: alpha({TEXT}, 0.55); font: {HINT_FONT}; }}
 /* :focus-within, not :focus-visible: GTK clears focus-visible 3s after the
    last key press (VISIBLE_FOCUS_DURATION), and the darker fill would vanish
    mid-pick. Within, so the card stays darkened while one of its buttons is
@@ -380,13 +389,33 @@ mod tests {
             .expect("no shared card rule");
         assert!(rule.contains(".task-panel .filter-tabs"), "the strip lacks the card look");
         assert!(rule.contains(".task-panel .filter-empty"), "the empty line lacks the card look");
+        assert!(rule.contains(".task-panel .keys-footer"), "the footer lacks the card look");
+    }
+
+    /// The keys' hints are captions: dimmed, a point under the cards' text,
+    /// so more fits beside the buttons. The footer's rule comes after the
+    /// card look it shares, whose font would otherwise win.
+    #[test]
+    fn the_hints_are_dimmed_and_a_point_smaller() {
+        let css = css();
+        assert!(css.contains(&format!(
+            ".task-panel .card-hint {{ color: alpha({TEXT}, 0.55); padding: {ACTION_PADDING}; font: {HINT_FONT}; }}"
+        )));
+        let footer = format!(
+            ".task-panel .keys-footer {{ padding: {ACTION_PADDING}; color: alpha({TEXT}, 0.55); font: {HINT_FONT}; }}"
+        );
+        let at = css.find(&footer).unwrap_or_else(|| panic!("missing `{footer}`"));
+        let shared = css.find(".task-panel .task-card,").expect("no shared card rule");
+        assert!(at > shared, "the card look's font would win over the footer's");
+        assert_eq!(HINT_FONT, "9pt \"Iosevka Term Extended\"");
+        assert!(FONT.starts_with("10pt "), "the hint is a point under the cards' text");
     }
 
     /// The notepad is drawn as a card is, its text view see-through over it.
     #[test]
     fn the_ideas_notepad_wears_a_cards_look() {
         let css = css();
-        assert!(css.contains(".task-panel .filter-empty,\n.task-panel .ideas {"));
+        assert!(css.contains(".task-panel .filter-empty,\n.task-panel .ideas,\n"));
         assert!(css.contains(".task-panel .ideas textview text { background-color: transparent;"));
     }
 

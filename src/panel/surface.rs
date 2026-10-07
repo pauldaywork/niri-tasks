@@ -110,7 +110,7 @@
 //! switching to on-demand once focused would drop the focus at once.
 
 use super::actions;
-use crate::actions::Action;
+use crate::actions::{Action, TaskState};
 use super::blur::{self, Blur};
 use super::keys;
 use super::notepad::Notepad;
@@ -185,6 +185,9 @@ pub struct Panel {
     /// Clear all, at the tab bar's far end, shown only on the Waiting tab:
     /// deletes every task the tab lists, on its second press.
     clear: gtk4::Button,
+    /// The keys every card shares, under the scroller so it stays put while
+    /// the cards scroll, shown only while the panel has the keyboard.
+    footer: gtk4::Label,
     /// For its height, which caps the column's: read at each render, since a
     /// scale change alters it.
     monitor: gdk::Monitor,
@@ -227,11 +230,12 @@ struct CardWidgets {
 struct ActionRow {
     separator: gtk4::Separator,
     row: gtk4::Box,
-    /// The focused button's name in words, after the icons.
+    /// The keys that change from card to card, after the icons: the focused
+    /// button's, and what Ctrl+Enter does to this task.
     hint: gtk4::Label,
     buttons: Vec<(Action, gtk4::Button)>,
-    /// The task is up next, so its Up next reads Not up next.
-    up_next: bool,
+    /// The task's state, for the hint and for Up next reading Not up next.
+    state: TaskState,
 }
 
 impl CardWidgets {
@@ -254,6 +258,9 @@ struct Slide {
     /// The filter tabs' height, with the gap under them: what the cards sit
     /// below. 0 without the keyboard, which has no tabs.
     tabs_h: Cell<i32>,
+    /// The footer's height, with the gap over it: what sits under the cards.
+    /// 0 without the keyboard, which has no footer.
+    footer_h: Cell<i32>,
     /// The surface's right margin, which slides it off the screen edge into
     /// the middle while the panel has the keyboard, and where it is going.
     margin: Cell<i32>,
@@ -272,6 +279,7 @@ impl Slide {
             grace: Cell::new(None),
             cards_h: Cell::new(0),
             tabs_h: Cell::new(0),
+            footer_h: Cell::new(0),
             margin: Cell::new(0),
             margin_from: Cell::new(0),
             margin_to: Cell::new(0),
@@ -310,6 +318,8 @@ impl Panel {
         let front = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         front.append(&tabs);
         front.append(&scroller);
+        let footer = keys_footer();
+        front.append(&footer);
         overlay.add_overlay(&front);
         window.set_child(Some(&overlay));
 
@@ -324,6 +334,7 @@ impl Panel {
             tab_buttons,
             ideas_button,
             clear,
+            footer,
             slide: Rc::new(Slide::tucked()),
             state: RefCell::new(PanelState::default()),
             cards: RefCell::new(Vec::new()),
@@ -343,7 +354,7 @@ impl Panel {
                     slide.x.get().round() as i32 - RING_PX,
                     SHADOW_PX - RING_PX,
                     CARD_WIDTH_PX + 2 * RING_PX,
-                    slide.tabs_h.get() + slide.cards_h.get() + 2 * RING_PX,
+                    slide.tabs_h.get() + slide.cards_h.get() + slide.footer_h.get() + 2 * RING_PX,
                 ))
             });
         }
@@ -642,7 +653,7 @@ impl Panel {
         self.clear.set_visible(state.shows_clear_all());
     }
 
-    /// Measure the cards and the tabs, and size the surface to them: the
+    /// Measure the cards, the tabs and the footer, and size the surface to them: the
     /// heights the blur region and the input region work from. Run by every
     /// render, and again whenever a card's action row shows or hides, which
     /// changes its height without a render.
@@ -667,15 +678,24 @@ impl Panel {
             0
         };
 
+        // The footer, measured the same way: margins included, so the gap
+        // over it and the ring room under it. Hidden on Ideas, so 0 there.
+        let footer_h = if self.footer.is_visible() {
+            self.footer.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX).1
+        } else {
+            0
+        };
+
         // The column's margins are in what it measures, and in the width it
         // is measured for; the cards' height is without them.
         let (_, with_ring, _, _) =
             self.column.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX);
         let cards_h = with_ring - 2 * RING_PX;
-        let shown = shown_height(cards_h, tabs_h, self.monitor.geometry().height());
+        let shown = shown_height(cards_h, tabs_h + footer_h, self.monitor.geometry().height());
         self.slide.tabs_h.set(tabs_h);
+        self.slide.footer_h.set(footer_h);
         self.slide.cards_h.set(shown);
-        let height = tabs_h + shown + 2 * SHADOW_PX;
+        let height = tabs_h + shown + footer_h + 2 * SHADOW_PX;
         // Both calls: the size request lets the surface grow, the default size
         // lets it shrink back when the list gets shorter.
         self.base.set_size_request(SURFACE_WIDTH, height);
@@ -726,6 +746,9 @@ impl Panel {
             }
         });
         self.tabs.set_visible(keyboard);
+        // The footer names the cards' keys, so not on Ideas, where the
+        // text area takes Enter and Delete as typing.
+        self.footer.set_visible(keyboard && !ideas);
         self.update_tabs();
         self.fit();
 
@@ -784,19 +807,24 @@ impl Panel {
         }
         root.append(&body);
 
-        let row = card.uuid.as_ref().filter(|_| !shown.actions.is_empty()).map(|uuid| {
-            let row = self.action_row(uuid, card.up_next, &shown.actions);
-            root.append(&row.separator);
-            root.append(&row.row);
-            row
-        });
+        let row = card
+            .uuid
+            .as_ref()
+            .zip(card.state(false))
+            .filter(|_| !shown.actions.is_empty())
+            .map(|(uuid, state)| {
+                let row = self.action_row(uuid, state, &shown.actions);
+                root.append(&row.separator);
+                root.append(&row.row);
+                row
+            });
         CardWidgets { uuid: card.uuid.clone(), root, body, row }
     }
 
     /// A card's buttons, left-aligned and only as wide as their icons, then
     /// the focused one's name in words: the icons alone do not say what they
     /// do. Hidden, with the line over them, until the card has focus.
-    fn action_row(self: &Rc<Self>, uuid: &str, up_next: bool, actions: &[Action]) -> ActionRow {
+    fn action_row(self: &Rc<Self>, uuid: &str, state: TaskState, actions: &[Action]) -> ActionRow {
         let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         row.add_css_class("card-actions");
         row.set_halign(gtk4::Align::Start);
@@ -807,7 +835,7 @@ impl Panel {
             let button = gtk4::Button::with_label(action.icon());
             // The icon's name in words, under the pointer and for a screen
             // reader. Up next reads Not up next on a task already up next.
-            button.set_tooltip_text(Some(action.label(up_next)));
+            button.set_tooltip_text(Some(action.label(state.up_next)));
             button.add_css_class(action.class());
             let weak = Rc::downgrade(self);
             let uuid = uuid.to_string();
@@ -825,7 +853,7 @@ impl Panel {
         separator.add_css_class("card-separator");
         separator.set_visible(false);
         row.set_visible(false);
-        ActionRow { separator, row, hint, buttons, up_next }
+        ActionRow { separator, row, hint, buttons, state }
     }
 
     /// The state's focus as GTK's, its card's row shown first: a hidden
@@ -873,7 +901,7 @@ impl Panel {
 
     /// Draw what the state says that a render does not: which Remove, and
     /// whether Clear all, reads as armed, and which card shows its action row
-    /// and the focused button's name.
+    /// and its hint for the focused slot.
     fn sync(&self) {
         let (focus, armed) = {
             let state = self.state.borrow();
@@ -890,12 +918,21 @@ impl Panel {
                 set_class(remove, "confirm", removing);
             }
             let hint = match &focus {
-                Some(Focus { uuid, slot: Slot::Button(action) }) if Some(uuid) == card.uuid.as_ref() => {
-                    action.label(row.up_next)
+                Some(Focus { uuid, slot }) if Some(uuid) == card.uuid.as_ref() => {
+                    let buttons: Vec<Action> = row.buttons.iter().map(|(a, _)| *a).collect();
+                    let focused = match slot {
+                        Slot::Button(action) => Some(*action),
+                        Slot::Body => None,
+                    };
+                    Action::hint(row.state, &buttons, focused)
                 }
-                _ => "",
+                _ => String::new(),
             };
-            row.hint.set_label(hint);
+            // Only when it changed: every sync passes every card, and an
+            // unchanged label should not cost a relayout.
+            if row.hint.label().as_str() != hint.as_str() {
+                row.hint.set_label(&hint);
+            }
         }
         self.show_row(focus.as_ref().map(|f| f.uuid.as_str()));
     }
@@ -965,8 +1002,8 @@ impl Panel {
         let x = x.round() as i32;
         let width = region_width(x, self.state.borrow().keyboard());
         // From the top of the tabs, when there are any, to the bottom of the
-        // cards on screen.
-        let height = self.slide.tabs_h.get() + self.slide.cards_h.get();
+        // footer under the cards on screen.
+        let height = self.slide.tabs_h.get() + self.slide.cards_h.get() + self.slide.footer_h.get();
         let rect = cairo::RectangleInt::new(x, SHADOW_PX, width, height);
         surface.set_input_region(Some(&cairo::Region::create_rectangle(&rect)));
     }
@@ -996,6 +1033,13 @@ impl Panel {
             y += h + GAP_PX;
         }
         rects.extend(blur::clip_rows(&cards, top, top + self.slide.cards_h.get()));
+        let footer_h = self.slide.footer_h.get();
+        if footer_h > 0 {
+            // The footer, which does not scroll: under the cards on screen
+            // and the card gap, not the gap itself.
+            let y = top + self.slide.cards_h.get() + GAP_PX;
+            rects.extend(blur::card_region((x, y, width, footer_h - GAP_PX), RADIUS_PX, on_screen));
+        }
         blur.set(&rects);
     }
 
@@ -1160,6 +1204,22 @@ fn tab_bar() -> (gtk4::Box, Vec<gtk4::Button>, gtk4::Button, gtk4::Button) {
     (tabs, tab_buttons, ideas, clear)
 }
 
+/// The keys that act on whichever card has the focus, in a strip shaped like
+/// the tab bar: ring room on three sides, as the column keeps, and over it the
+/// card gap less the ring the column keeps under the last card, so it sits a
+/// card gap below.
+fn keys_footer() -> gtk4::Label {
+    let footer = gtk4::Label::new(Some(actions::CARD_KEYS));
+    footer.add_css_class("keys-footer");
+    footer.set_xalign(0.0);
+    footer.set_margin_top(GAP_PX - RING_PX);
+    footer.set_margin_start(RING_PX);
+    footer.set_margin_end(RING_PX);
+    footer.set_margin_bottom(RING_PX);
+    footer.set_visible(false);
+    footer
+}
+
 /// The one line a filter tab with nothing under it shows where its cards
 /// would be (only All, when every task is waiting), in a card's look so it
 /// reads as part of the panel. Not a card: it has no task and nothing to
@@ -1250,11 +1310,12 @@ fn region_width(x: i32, centred: bool) -> i32 {
 }
 
 /// How tall the column of cards is on screen: all of it, or as much as fits
-/// inside the screen's margins under the `tabs_h` the filter tabs take, with
-/// the rest scrolled. Only the keyboard's wrapped cards, or "+N more" opened
-/// onto a long list, get that tall.
-fn shown_height(cards_h: i32, tabs_h: i32, screen_h: i32) -> i32 {
-    cards_h.min(screen_h - 2 * (SHADOW_PX + EDGE_GAP_PX) - tabs_h).max(0)
+/// inside the screen's margins less the `bars_h` the filter tabs over them and
+/// the keys footer under them take, with the rest scrolled. Only the
+/// keyboard's wrapped cards, or "+N more" opened onto a long list, get that
+/// tall.
+fn shown_height(cards_h: i32, bars_h: i32, screen_h: i32) -> i32 {
+    cards_h.min(screen_h - 2 * (SHADOW_PX + EDGE_GAP_PX) - bars_h).max(0)
 }
 
 /// The scroll position that shows all of `top..bottom`, moving as little as it
