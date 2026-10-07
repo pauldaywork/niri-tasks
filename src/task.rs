@@ -870,7 +870,7 @@ mod tests {
     /// wrong one, and a multi-byte character is no panic.
     #[test]
     fn a_stamp_of_another_shape_has_no_age() {
-        for bad in ["", "2026-10-06", "20261006T120929", "20261306T120929Z", "2026100éT12092Z", "20261006X120929Z"] {
+        for bad in ["", "2026-10-06", "20261006T120929", "20261306T120929Z", "202é006T120929Z", "20261006X120929Z"] {
             assert_eq!(age(bad, 0), None, "{bad:?}");
         }
     }

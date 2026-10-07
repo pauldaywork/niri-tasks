@@ -507,7 +507,7 @@ mod tests {
     }
 
     /// Up next is the one to do next, so it sits right under the work in
-    /// progress, even when something else is more urgent.
+    /// progress, even when something else is higher priority or newer.
     #[test]
     fn up_next_sorts_right_under_the_active_tasks() {
         let got = cards(
@@ -609,6 +609,15 @@ mod tests {
         old.urgency = 20.0;
         let got = cards(&[old, task("new", 9, false)], &[]);
         assert_eq!(texts(&got), vec!["new", "old"]);
+    }
+
+    /// A task with no entry stamp counts as the oldest.
+    #[test]
+    fn a_task_without_an_entry_sorts_after_one_with_it() {
+        let mut bare = task("bare", 9, false);
+        bare.entry = String::new();
+        let got = cards(&[bare, task("old", 1, false)], &[]);
+        assert_eq!(texts(&got), vec!["old", "bare"]);
     }
 
     #[test]

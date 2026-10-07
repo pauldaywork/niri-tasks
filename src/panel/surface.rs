@@ -725,15 +725,25 @@ impl Panel {
 
     /// Rewrite each card's age where it stands. Not a render: the cards are
     /// the same, and a render would tear the column down and disarm a
-    /// half-pressed Remove.
+    /// half-pressed Remove. A wrapped card can gain or lose a line when its
+    /// age changes width, so the surface is fitted again if any text changed.
     fn refresh_ages(&self) {
         let now = crate::task::now_secs();
+        let mut changed = false;
         for card in self.cards.borrow().iter() {
             if let Some((label, entry)) = &card.age {
                 if let Some(age) = crate::task::age(entry, now) {
-                    label.set_text(&age);
+                    if label.text() != age {
+                        label.set_text(&age);
+                        changed = true;
+                    }
                 }
             }
+        }
+        if changed {
+            self.fit();
+            self.set_region(self.slide.x.get().min(self.slide.to.get()));
+            self.update_blur(self.slide.x.get());
         }
     }
 
