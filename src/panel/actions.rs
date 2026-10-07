@@ -37,9 +37,10 @@ impl Action {
 
     /// The button Ctrl+Enter presses for a card: Refine until the task has a
     /// plan, then Start working. Nothing once a planned task is being
-    /// worked, nor on a waiting task, which have no step to take.
+    /// worked, nor on a waiting or finished task, which have no step to take.
     pub fn advance(state: TaskState) -> Option<Action> {
         match state {
+            TaskState { finished: true, .. } => None,
             TaskState { waiting: true, .. } => None,
             TaskState { active: true, planned: true, .. } => None,
             TaskState { planned: true, .. } => Some(Start),
@@ -182,6 +183,10 @@ mod tests {
         TaskState { waiting: true, planned, ..TaskState::default() }
     }
 
+    fn finished(planned: bool) -> TaskState {
+        TaskState { finished: true, planned, ..TaskState::default() }
+    }
+
     fn with_claude(state: TaskState) -> TaskState {
         TaskState { has_session: true, ..state }
     }
@@ -190,7 +195,7 @@ mod tests {
     fn every_state() -> Vec<TaskState> {
         let mut all = Vec::new();
         for planned in [false, true] {
-            for state in [on_list(planned), active(planned), waiting(planned)] {
+            for state in [on_list(planned), active(planned), waiting(planned), finished(planned)] {
                 all.push(state);
                 all.push(with_claude(state));
             }
@@ -262,6 +267,24 @@ mod tests {
         }
     }
 
+    /// A finished task gets the way back, and what still works on it, as a
+    /// waiting one does: Note is the menu's, as on every card.
+    #[test]
+    fn a_finished_task_gets_back_to_list_edit_speak_and_remove() {
+        for state in [finished(false), with_claude(finished(true))] {
+            assert_eq!(Action::row(state), vec![Back, Edit, Speak, Remove], "{state:?}");
+        }
+    }
+
+    /// Nothing to refine or start on a task already done.
+    #[test]
+    fn ctrl_enter_leaves_a_finished_task_alone() {
+        assert_eq!(Action::advance(finished(false)), None);
+        assert_eq!(Action::advance(finished(true)), None);
+        assert_eq!(hint(finished(false), None), "");
+        assert_eq!(hint(finished(false), Some(Back)), "b: Back to list");
+    }
+
     /// Every card that stands for a task can be listened to, whatever its
     /// state.
     #[test]
@@ -271,12 +294,12 @@ mod tests {
         }
     }
 
-    /// Every card on the list gets Up next, active ones too; a waiting task
-    /// is off the list.
+    /// Every card on the list gets Up next, active ones too; a waiting or
+    /// finished task is off the list.
     #[test]
-    fn every_card_but_a_waiting_one_gets_up_next() {
+    fn every_card_on_the_list_gets_up_next() {
         for state in every_state() {
-            assert_eq!(Action::row(state).contains(&UpNext), !state.waiting, "{state:?}");
+            assert_eq!(Action::row(state).contains(&UpNext), !state.off_list(), "{state:?}");
         }
     }
 

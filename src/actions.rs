@@ -17,8 +17,8 @@ use crate::task::Task;
 pub enum Action {
     /// Back to the Claude working on the task. Never starts one.
     Session,
-    /// Off waiting and back on the list: Update status → Stopped, which
-    /// clears the wait date.
+    /// Back on the list: Update status → Stopped, which clears a waiting
+    /// task's wait date and reopens a finished one.
     Back,
     /// The task's own worktree and a Claude to plan it; run again, back to
     /// both.
@@ -56,6 +56,8 @@ pub struct TaskState {
     pub active: bool,
     /// Parked with Waiting, until a wait date still to come.
     pub waiting: bool,
+    /// Completed: on the Finished tab, off the list as a waiting task is.
+    pub finished: bool,
     /// Carries `+planned`, from Refine or Grill me.
     pub planned: bool,
     /// Carries `+next`.
@@ -65,13 +67,22 @@ pub struct TaskState {
 }
 
 impl TaskState {
-    /// `task`'s state. Whether it is waiting is passed in, because its export
+    /// Off the list: parked as waiting, or finished. Either way it gets the
+    /// way back and what works on any task, and nothing that moves a task
+    /// along the list.
+    pub fn off_list(self) -> bool {
+        self.waiting || self.finished
+    }
+
+    /// `task`'s state, finished included, read from its status. Whether it is waiting is passed in, because its export
     /// cannot say (see `task::is_waiting`), and so is whether a Claude is on
     /// it, which herdr knows and the task does not.
     pub fn of(task: &Task, waiting: bool, has_session: bool) -> TaskState {
         TaskState {
             active: task.is_active(),
             waiting,
+            // A completed task's export says so, unlike a waiting one's.
+            finished: task.status == "completed",
             planned: task.is_planned(),
             up_next: task.is_up_next(),
             has_session,
@@ -83,8 +94,8 @@ impl Action {
     /// Every task action, in the order the action row puts the ones it has.
     pub const ALL: [Action; 12] = [Session, Back, Start, Refine, Grill, Edit, Note, Speak, UpNext, Stop, Wait, Remove];
 
-    /// Whether the action makes sense on a task in `state`. A waiting task
-    /// is parked: it gets the way back to the list, and what works on a task
+    /// Whether the action makes sense on a task in `state`. A waiting or
+    /// finished task is off the list: it gets the way back to it, and what works on a task
     /// whatever its place. Start working, Refine and Grill me are for a task
     /// on the list, and Up next and Waiting only move one on it. Go to
     /// session needs a Claude to go to, and Stop a task that was started.
@@ -93,10 +104,10 @@ impl Action {
     /// drops it there.
     pub fn applies(self, state: TaskState) -> bool {
         match self {
-            Session => state.has_session && !state.waiting,
-            Back => state.waiting,
+            Session => state.has_session && !state.off_list(),
+            Back => state.off_list(),
             Stop => state.active,
-            Start | Refine | Grill | UpNext | Wait => !state.waiting,
+            Start | Refine | Grill | UpNext | Wait => !state.off_list(),
             Edit | Note | Speak | Remove => true,
         }
     }
@@ -299,9 +310,25 @@ mod tests {
         .unwrap();
         assert_eq!(
             TaskState::of(&task, false, true),
-            TaskState { active: true, waiting: false, planned: true, up_next: true, has_session: true }
+            TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true }
         );
         let bare: Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
         assert_eq!(TaskState::of(&bare, true, false), TaskState { waiting: true, ..TaskState::default() });
+        let done: Task = serde_json::from_str(r#"{"uuid":"u","description":"d","status":"completed"}"#).unwrap();
+        assert_eq!(TaskState::of(&done, false, false), TaskState { finished: true, ..TaskState::default() });
+    }
+
+    /// A finished task is off the list, as a waiting one is: the way back,
+    /// and what still works on any task. Never Start working or Up next.
+    #[test]
+    fn a_finished_task_gets_back_to_list_and_what_still_works_on_it() {
+        for has_session in [false, true] {
+            for up_next in [false, true] {
+                for planned in [false, true] {
+                    let state = TaskState { finished: true, has_session, up_next, planned, ..TaskState::default() };
+                    assert_eq!(offered(state), vec![Back, Edit, Note, Speak, Remove], "{state:?}");
+                }
+            }
+        }
     }
 }

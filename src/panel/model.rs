@@ -85,6 +85,7 @@ impl Card {
         (self.status != Status::More).then(|| TaskState {
             active: self.status == Status::Active,
             waiting: self.status == Status::Waiting,
+            finished: false,
             planned: self.planned,
             up_next: self.up_next,
             has_session,
@@ -573,7 +574,7 @@ mod tests {
         let card = |status, planned, up_next| Card { status, text: "t".into(), uuid: Some("u".into()), planned, up_next, entry: String::new() };
         assert_eq!(
             card(Status::Active, true, true).state(true),
-            Some(TaskState { active: true, waiting: false, planned: true, up_next: true, has_session: true })
+            Some(TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true })
         );
         assert_eq!(
             card(Status::Waiting, false, false).state(false),

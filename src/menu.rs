@@ -113,6 +113,16 @@ mod tests {
         }
     }
 
+    /// Enter on a finished card opens this menu, which offers what its row
+    /// does, as a waiting task's does.
+    #[test]
+    fn a_finished_task_gets_no_start_working_or_refine() {
+        for has_session in [false, true] {
+            let state = TaskState { finished: true, has_session, ..TaskState::default() };
+            assert_eq!(labels(state), ["Edit", "Note", "Speak", "Update status", "Move to workspace"], "{state:?}");
+        }
+    }
+
     /// Every row the menu shows finds its own entry again, and no two rows
     /// read the same.
     #[test]
