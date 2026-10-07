@@ -5,7 +5,7 @@
 //! propagation phase that lets it see the arrows first is `surface.rs`'s.
 
 use crate::actions::Action;
-use super::model::Filter;
+use super::model::{Filter, Tab};
 use gtk4::gdk;
 
 /// What a keypress on the panel should do.
@@ -23,7 +23,8 @@ pub enum KeyAction {
     NextSlot,
     /// Press this button on the focused card, if it has one.
     Run(Action),
-    /// 1 to 6: show this filter tab's cards, when it is shown.
+    /// 1 to 6: show this filter tab's cards, when it is shown. Its label
+    /// says which ([`tab_number`]).
     Filter(Filter),
     /// 7: the Ideas tab, after the filter tabs.
     Ideas,
@@ -90,6 +91,20 @@ pub fn key_action(key: gdk::Key, ctrl: bool, shift: bool) -> KeyAction {
             Some(action) => KeyAction::Run(action),
             None => KeyAction::Ignore,
         },
+    }
+}
+
+/// The number key that picks this tab, which its label shows: 1 to 6 the
+/// filter tabs in `Filter::TABS` order, 7 Ideas after them, as
+/// [`key_action`] maps them. Fixed, so a hidden tab keeps its number and
+/// the shown ones do not renumber.
+pub fn tab_number(tab: Tab) -> u32 {
+    match tab {
+        Tab::Filter(filter) => {
+            let index = Filter::TABS.iter().position(|f| *f == filter).expect("every filter is a tab");
+            index as u32 + 1
+        }
+        Tab::Ideas => Filter::TABS.len() as u32 + 1,
     }
 }
 
@@ -220,6 +235,21 @@ mod tests {
     #[test]
     fn seven_picks_ideas() {
         assert_eq!(key_action(gdk::Key::_7, false, false), KeyAction::Ideas);
+    }
+
+    /// The number on a tab's label is the key that picks it: 1 to 6 the
+    /// filter tabs left to right, 7 Ideas.
+    #[test]
+    fn each_tabs_number_is_the_key_that_picks_it() {
+        let numbers: Vec<u32> = Filter::TABS.into_iter().map(|f| tab_number(Tab::Filter(f))).collect();
+        assert_eq!(numbers, [1, 2, 3, 4, 5, 6]);
+        assert_eq!(tab_number(Tab::Ideas), 7);
+        for filter in Filter::TABS {
+            let key = gdk::Key::from_name(tab_number(Tab::Filter(filter)).to_string()).unwrap();
+            assert_eq!(key_action(key, false, false), KeyAction::Filter(filter), "{filter:?}");
+        }
+        let key = gdk::Key::from_name(tab_number(Tab::Ideas).to_string()).unwrap();
+        assert_eq!(key_action(key, false, false), KeyAction::Ideas);
     }
 
     /// Past the seven tabs a number is nothing, not an eighth tab.

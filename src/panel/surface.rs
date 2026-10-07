@@ -57,10 +57,11 @@
 //! not the user's, so they are not passed on.
 //!
 //! Above the cards, a bar of filter tabs, All, Active, Planned, To refine,
-//! Waiting and Finished, narrows them to the tasks it names. A tab shows only while it has
-//! a task under it, All apart. 1 to 6 pick one, always the same one, and do
-//! nothing for a hidden tab; [ and ] step along the shown ones, stopping at
-//! the ends; a click picks one too. The tabs never take focus, so the arrows
+//! Waiting and Finished, narrows them to the tasks it names. A tab shows only
+//! while it has a task under it, All apart. 1 to 6 pick one, always the same
+//! one, and each wears its key in brackets after its name, as To refine (4);
+//! they do nothing for a hidden tab; [ and ] step along the shown ones,
+//! stopping at the ends; a click picks one too. The tabs never take focus, so the arrows
 //! and Tab still move only between cards and buttons. The panel takes the
 //! keyboard on All every time; a refresh keeps the tab, falling back to All
 //! once it has nothing left, and focus falls back to the first card when the
@@ -1268,6 +1269,13 @@ fn clear_strip_rect(x: i32, bar_h: i32, (w, h): (i32, i32)) -> blur::Rect {
     (left, SHADOW_PX + bar_h + GAP_PX, w.min(SURFACE_WIDTH - left), h)
 }
 
+/// A tab button's face: its name, then the key that picks it in brackets,
+/// so the keys can be learnt off the bar. The plain name stays
+/// `Tab::label`'s, for the tests and the empty tab's line.
+fn tab_label(tab: Tab) -> String {
+    format!("{} ({})", tab.label(), keys::tab_number(tab))
+}
+
 /// What [`tab_bar`] builds, for the panel to keep.
 struct TabBar {
     /// The bar and Clear all's strip, one over the other, with the ring
@@ -1304,7 +1312,7 @@ fn tab_bar() -> TabBar {
     let tab_buttons: Vec<gtk4::Button> = Filter::TABS
         .iter()
         .map(|filter| {
-            let button = gtk4::Button::with_label(filter.label());
+            let button = gtk4::Button::with_label(&tab_label(Tab::Filter(*filter)));
             // Out of the focus chain: the arrows and Tab stay between the
             // cards and their buttons, and a click does not take the focus.
             button.set_focusable(false);
@@ -1314,7 +1322,7 @@ fn tab_bar() -> TabBar {
         })
         .collect();
     // Ideas, last of the tabs: not a filter, and always shown.
-    let ideas = gtk4::Button::with_label(Tab::Ideas.label());
+    let ideas = gtk4::Button::with_label(&tab_label(Tab::Ideas));
     ideas.set_focusable(false);
     ideas.set_focus_on_click(false);
     bar.append(&ideas);
@@ -1570,6 +1578,26 @@ mod tests {
     fn clear_alls_strip_is_cut_at_the_surface_edge() {
         let x = SURFACE_WIDTH - CARD_WIDTH_PX + 50;
         assert_eq!(clear_strip_rect(x, 30, (120, 36)).2, 70);
+    }
+
+    /// A tab wears its name, a space, and the key that picks it in brackets.
+    #[test]
+    fn a_tab_wears_its_key_in_brackets() {
+        assert_eq!(tab_label(Tab::Filter(Filter::All)), "All (1)");
+        assert_eq!(tab_label(Tab::Filter(Filter::ToRefine)), "To refine (4)");
+        assert_eq!(tab_label(Tab::Filter(Filter::Finished)), "Finished (6)");
+        assert_eq!(tab_label(Tab::Ideas), "Ideas (7)");
+    }
+
+    /// Every tab shown at once, numbered, still fits the bar's one line:
+    /// Iosevka Term Extended at 10pt is 8px a character, and each tab adds
+    /// 24px of padding and, after the first, a 1px line. 758px of 760.
+    #[test]
+    fn the_numbered_tabs_fit_the_bar() {
+        let tabs: Vec<Tab> = Filter::TABS.into_iter().map(Tab::Filter).chain([Tab::Ideas]).collect();
+        let width: usize =
+            tabs.iter().map(|t| tab_label(*t).chars().count() * 8 + 24).sum::<usize>() + tabs.len() - 1;
+        assert!(width <= CARD_WIDTH_PX as usize, "{width}px");
     }
 
     /// Remove's trash can and its words, then, armed, what it asks.
