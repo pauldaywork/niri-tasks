@@ -75,10 +75,17 @@ impl Notepad {
     /// on from. What was typed for the tag before is saved to it first, so a
     /// workspace's ideas never land in another's file.
     ///
+    /// When that save fails, nothing loads: the buffer keeps what was typed,
+    /// and the tag it was typed for, so the save stays owed and the next
+    /// flush tries it again rather than the typing being thrown away.
+    ///
     /// A file that will not read leaves the notepad empty and read-only:
     /// saving it would write over ideas that are still there.
     pub fn load(&self, tag: &str) {
         self.flush();
+        if self.dirty.get() {
+            return;
+        }
         let (tag, text) = match crate::ideas::file_for(tag).map(|path| crate::ideas::read(&path)) {
             Some(Ok(text)) => (Some(tag.to_string()), text),
             Some(Err(e)) => {
@@ -91,7 +98,11 @@ impl Notepad {
         *self.tag.borrow_mut() = tag;
         let buffer = self.view.buffer();
         self.loading.set(true);
+        // Off the undo stack: Ctrl+Z undoing a load would empty the notepad,
+        // or bring back another tag's text, and autosave that.
+        buffer.begin_irreversible_action();
         buffer.set_text(&text);
+        buffer.end_irreversible_action();
         buffer.place_cursor(&buffer.end_iter());
         self.loading.set(false);
         self.dirty.set(false);
@@ -99,7 +110,10 @@ impl Notepad {
 
     /// Save now what was typed since the last save, if anything, to the tag
     /// it was typed for; the save waiting for typing to stop is not needed
-    /// after this. A save that fails says so and stays owed.
+    /// after this. A save that fails says so and stays owed: the notepad is
+    /// still dirty, so [`Notepad::load`] keeps the buffer rather than load
+    /// over it, and the next flush, by typing, a load or the keyboard given
+    /// back, tries it again.
     pub fn flush(&self) {
         if let Some(id) = self.pending.borrow_mut().take() {
             id.remove();
