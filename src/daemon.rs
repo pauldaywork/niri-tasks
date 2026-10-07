@@ -159,11 +159,9 @@ fn build(app: &Application) {
     // Paint once immediately rather than waiting out the first tick.
     tick(&panels, &state);
 
-    // Serve task-box requests. The daemon is already a warm GTK process, so a
-    // box it opens appears immediately instead of paying ~0.6s (2.6s cold) to
-    // start another one. Failing to listen is not fatal: the CLI falls back to
-    // building the box itself, which is the whole reason this is a cache and
-    // not a dependency.
+    // Serve the CLI's requests: the box, the panel's keyboard, the project
+    // list. Failing to listen is not fatal for the panels, but every GUI
+    // command will report no daemon until it is fixed.
     if let Err(e) = crate::ipc::listen(move |req| {
         // Back onto the main thread: GTK may only be touched from there, and
         // the listener runs on its own. The Application cannot be captured
@@ -178,7 +176,9 @@ fn build(app: &Application) {
             }
         });
     }) {
-        eprintln!("task box over IPC unavailable ({e}); the CLI will open its own");
+        eprintln!(
+            "IPC unavailable ({e}); task add, edit, note, panel and project open will report no daemon"
+        );
     }
 }
 

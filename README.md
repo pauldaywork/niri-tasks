@@ -331,7 +331,7 @@ bash tests/all.sh           # everything this machine can run       ~100s
 cargo test                  # unit and write-path                   ~2s
 bash tests/e2e-tag.sh       # the session's tag, against real niri    ~1s
 bash tests/e2e-panel.sh     # the task panel, in a nested niri       ~30s
-bash tests/e2e-box.sh       # the task box, in a nested niri         ~65s
+bash tests/e2e-box.sh       # the task box, in a nested niri         ~35s
 ```
 
 Each exits non-zero on failure, so any of them can go in a loop or a hook.
@@ -386,10 +386,10 @@ list taller than the screen scrolls with the focus; a click on a filter tab swit
 `e2e-box.sh` runs in the same kind of nested niri (`tests/lib/nested-niri.sh`
 starts it for both). Its keys are pressed with `wtype` pointed at that nested
 niri, so they never reach your windows, and you can keep working while it
-runs — keep off the workspace it is parked on, as for the panel test. It
-proves both ways the box opens: served by a daemon running inside the nested
-niri, then with none running there, when the CLI builds the box itself. Your
-own `niri-tasks` daemon is never stopped.
+runs — keep off the workspace it is parked on, as for the panel test. The
+box is served by a daemon started inside the nested niri; once that is
+stopped, it checks the CLI refuses with "daemon is not running" rather than
+drawing a box of its own. Your own `niri-tasks` daemon is never stopped.
 
 It cannot click, so after a change to `src/taskbox.rs` check the pointer half by
 hand: × deletes its row, "+ Add note" appends an empty row with the cursor in
@@ -416,9 +416,9 @@ view.
 `tests/e2e-box.sh` is not a cargo test and cannot be: it needs a running niri, a
 Wayland display, and `wtype` to press the keys. It opens the box, types into it,
 presses Ctrl+Enter, and checks a task was actually written — against a sandboxed
-`TASKDATA`, so your real database is untouched. It runs the whole thing twice,
-inside a nested niri of its own, once served by a daemon there and once with
-none, because the fallback is the reason this tool does not depend on a daemon.
+`TASKDATA`, so your real database is untouched. It runs inside a nested niri
+of its own, served by a daemon started there, because the daemon is the one
+process that draws.
 
 It exists because two bugs reached daily use that no unit test could have caught.
 The box opened carrying the daemon's `app_id` instead of its own, so every check

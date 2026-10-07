@@ -6,11 +6,10 @@
 //! The daemon is already a warm GTK process holding the task panels, so it can put
 //! the window up immediately instead.
 //!
-//! This is the same shape as the `dms ipc call taskBox` boundary that used to
-//! exist, with one difference that matters: the daemon is ours. If it is not
-//! running, the CLI builds the box itself and everything still works, which is
-//! the property that made dropping the DMS plugin worth doing. A daemon you can
-//! do without is a cache; one you cannot is a dependency.
+//! The daemon is the one process that draws: the panels, the box and the
+//! project list. The CLI asks it over this socket and, when nothing answers,
+//! says so with [`NO_DAEMON`] rather than building a window of its own, which
+//! would mean a second copy of what the box does on submit.
 //!
 //! The protocol is one line per request, because it only ever carries a mode,
 //! a uuid and the add box's refine flag:
@@ -76,12 +75,16 @@ pub fn socket_path() -> PathBuf {
     dir.join("niri-tasks.sock")
 }
 
-/// Ask the daemon to open the box. `Err` means no daemon — callers fall back to
-/// building the window themselves rather than reporting a failure.
+/// What every GUI command says when the daemon is not there to draw for it.
+pub const NO_DAEMON: &str =
+    "The niri-tasks daemon is not running, so there is nothing to draw the window. Start it with `systemctl --user start niri-tasks`.";
+
+/// Ask the daemon to draw something. `Err` means no daemon is listening; the
+/// daemon is the only process that draws, so the caller reports it rather
+/// than drawing itself.
 pub fn send(req: &Request) -> Result<()> {
     let path = socket_path();
-    let mut stream = UnixStream::connect(&path)
-        .with_context(|| format!("no daemon listening on {}", path.display()))?;
+    let mut stream = UnixStream::connect(&path).context(NO_DAEMON)?;
     writeln!(stream, "{}", req.encode())?;
     stream.flush()?;
     Ok(())
@@ -189,10 +192,25 @@ mod tests {
         );
     }
 
+    /// Tests run on parallel threads and both of these set XDG_RUNTIME_DIR,
+    /// so each holds this while the variable is theirs.
+    static RUNTIME_DIR: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn socket_lives_under_the_runtime_dir() {
+        let _env = RUNTIME_DIR.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1234");
         assert_eq!(socket_path(), PathBuf::from("/run/user/1234/niri-tasks.sock"));
+        std::env::remove_var("XDG_RUNTIME_DIR");
+    }
+
+    /// With no daemon the error is the one sentence every GUI command shows.
+    #[test]
+    fn no_daemon_is_one_sentence() {
+        let _env = RUNTIME_DIR.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("XDG_RUNTIME_DIR", "/nonexistent-niri-tasks-test");
+        let err = send(&Request::Panel).unwrap_err();
+        assert_eq!(err.to_string(), NO_DAEMON);
         std::env::remove_var("XDG_RUNTIME_DIR");
     }
 }

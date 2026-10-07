@@ -33,9 +33,9 @@
 # its WAYLAND_DISPLAY names and nothing else, so you can keep working while it
 # runs — but keep off that workspace: going there focuses the nested window,
 # and the run fails rather than trust keys that might have been yours. Your
-# own niri-tasks daemon keeps running: the fallback half runs with no daemon
-# inside the nested niri, which is where the box looks for one. The task
-# database is a sandbox's.
+# own niri-tasks daemon keeps running: the box looks for a daemon inside the
+# nested niri, where one is started for the run. The task database is a
+# sandbox's.
 set -uo pipefail
 
 command -v wtype >/dev/null || {
@@ -423,19 +423,26 @@ run_refine_suite() {
 
 nested_start
 
-# Both paths matter: the daemon serves the box when it is running, and the CLI
-# builds its own when it is not. The fallback is the reason this tool does not
-# depend on a daemon, so it is tested rather than assumed. The box looks for
-# a daemon under the nested niri's runtime dir, so the second half needs only
-# none running there — yours keeps running throughout.
 nested_daemon_start "$SB/daemon.err"
 run_suite "served by the daemon"
 run_refine_suite "served by the daemon"
 nested_daemon_stop
 sleep 1
 
-run_suite "fallback, no daemon running"
-run_refine_suite "fallback, no daemon running"
+# With no daemon in the nested niri there is nothing to draw the box, and the
+# CLI says so instead of building one: the daemon is the one process that
+# draws, so a window with no daemon would be a bug, not a fallback.
+echo
+echo "=== no daemon ==="
+if out=$("${NENV[@]}" "$NIRITASKS" task add 2>&1); then
+    bad "task add with no daemon exited 0 (output: $out)"
+else
+    case "$out" in
+        *"daemon is not running"*) ok "task add with no daemon says the daemon is not running" ;;
+        *) bad "task add with no daemon said: $out" ;;
+    esac
+fi
+[ -z "$(box_id)" ] && ok "and opened no box" || bad "a box opened with no daemon"
 
 nested_service_untouched
 summary

@@ -13,19 +13,8 @@ use niri_tasks::{
     actions::Action,
     caller_workspace, caller_workspace_tag, github, ipc, link, niri, notify, project, refine,
     require_workspace_tag, session,
-    speak, task, taskbox, text, work,
+    speak, task, text, work,
 };
-
-/// Hand the box to the daemon if one is listening.
-///
-/// The daemon is already a warm GTK process, so its box appears immediately
-/// rather than paying ~0.6s (2.6s cold) to start another one. Returning false
-/// means no daemon, and the caller builds the box itself — the fallback is the
-/// point, since a daemon you cannot do without is a dependency rather than a
-/// cache, and needing one was the thing that made the DMS plugin worth removing.
-fn delegate_to_daemon(req: ipc::Request) -> bool {
-    ipc::send(&req).is_ok()
-}
 
 #[derive(Parser)]
 #[command(name = "niritasks", version, about, long_about = None)]
@@ -254,29 +243,10 @@ fn dispatch(cli: Cli) -> Result<()> {
     Ok(())
 }
 
-/// Open the task box on an existing task and save what comes back. Edit and
-/// Note are one window; the mode only says where the cursor starts.
-fn edit_in_box(uuid: &str, mode: taskbox::Mode) -> Result<()> {
-    let t = task::get(uuid)?.context("task not found")?;
-    // The uuid the task was found under, not the one typed: `task edit 4a3f`
-    // is a prefix, and replace_text insists on the exact task it opened.
-    let uuid = t.uuid.clone();
-    if let Some(s) = taskbox::show(taskbox::BoxConfig::for_task(mode, t)) {
-        task::replace_text(&uuid, &s.description, &s.notes)?;
-    }
-    Ok(())
-}
-
 fn task_command(cmd: TaskCommand) -> Result<()> {
     match cmd {
-        // The daemon draws the panel. Without one there is no panel to
-        // hand the keyboard to, and saying so beats doing nothing.
-        TaskCommand::Panel => {
-            anyhow::ensure!(
-                delegate_to_daemon(ipc::Request::Panel),
-                "The niri-tasks daemon is not running, so there is no task panel. Start it with `systemctl --user start niri-tasks`."
-            );
-        }
+        // The daemon draws the panel; with none, say so.
+        TaskCommand::Panel => ipc::send(&ipc::Request::Panel)?,
 
         TaskCommand::Status { uuid, state, yes } => {
             anyhow::ensure!(
@@ -297,31 +267,24 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             notify::tasks(&format!("Moved to +{to}: {}", t.description));
         }
 
-        // With no text, open the box. With text, add straight away — which is
-        // what makes `niritasks task add ship it due:friday` work from a shell.
+        // With no text, ask the daemon for the box. With text, add straight
+        // away — which is what makes `niritasks task add ship it due:friday`
+        // work from a shell.
         // The binding is `and_refine` because `refine` is the module, imported
         // at the top of this file.
         TaskCommand::Add { text: words, refine: and_refine } => {
-            // From a herdr pane, the session's workspace: an agent filing a
-            // task must not follow the user's focus to another workspace.
+            // The box is a keybind's, so the daemon files what it adds under
+            // the focused workspace and reports its own refusal; this process
+            // only asks, and resolving a tag here would be one the box ignores.
+            if words.is_empty() {
+                return ipc::send(&ipc::Request::Add { refine: and_refine });
+            }
+            // With text, the caller's workspace: from a herdr pane, the
+            // session's, so an agent filing a task does not follow the user's
+            // focus to another workspace; anywhere else, the focused one.
             let tag = caller_workspace_tag()?;
-            // The box can return notes with the description; the shell form has
-            // nowhere to type them, so it never does. Which button was pressed
-            // decides whether to refine, not how the box was opened.
-            let (description, notes, and_refine) = if words.is_empty() {
-                if delegate_to_daemon(ipc::Request::Add { refine: and_refine }) {
-                    return Ok(());
-                }
-                match taskbox::show(taskbox::BoxConfig::add(&tag, and_refine)) {
-                    Some(s) => {
-                        let notes = s.note_texts();
-                        (s.description, notes, s.refine)
-                    }
-                    None => return Ok(()),
-                }
-            } else {
-                (text::collapse_whitespace(&words.join(" ")), Vec::new(), and_refine)
-            };
+            let description = text::collapse_whitespace(&words.join(" "));
+            let notes: Vec<String> = Vec::new();
 
             if description.is_empty() {
                 return Ok(());
@@ -340,10 +303,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
 
         TaskCommand::Edit { uuid, text: words } => {
             if words.is_empty() {
-                if delegate_to_daemon(ipc::Request::Edit(uuid.clone())) {
-                    return Ok(());
-                }
-                return edit_in_box(&uuid, taskbox::Mode::Edit);
+                return ipc::send(&ipc::Request::Edit(uuid));
             }
             let description = text::collapse_whitespace(&words.join(" "));
             if description.is_empty() {
@@ -361,10 +321,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
 
         TaskCommand::Note { uuid, text: words } => {
             if words.is_empty() {
-                if delegate_to_daemon(ipc::Request::Note(uuid.clone())) {
-                    return Ok(());
-                }
-                return edit_in_box(&uuid, taskbox::Mode::Note);
+                return ipc::send(&ipc::Request::Note(uuid));
             }
             let note = text::collapse_whitespace(&words.join(" "));
             if note.is_empty() {
@@ -460,11 +417,7 @@ fn project_open(name: Option<String>) -> Result<()> {
         if let Some(cache) = github::cache_path() {
             github::spawn_refresh(&cache);
         }
-        anyhow::ensure!(
-            delegate_to_daemon(ipc::Request::Projects),
-            "The niri-tasks daemon is not running, so there is no project list. Start it with `systemctl --user start niri-tasks`."
-        );
-        return Ok(());
+        return ipc::send(&ipc::Request::Projects);
     };
     open_project(&name)
 }
