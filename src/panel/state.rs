@@ -402,7 +402,7 @@ impl PanelState {
     /// focus moves to the next card (the one above, from the last) to still be
     /// there when the next tick drops this one. Speak and Up next keep the
     /// card and the focus, so a second press undoes them. Move to workspace
-    /// asks for the project list.
+    /// disarms and asks for the project list.
     pub fn on_press(&mut self, uuid: &str, slot: Slot) -> Vec<Effect> {
         if self.moving.is_some() {
             return Vec::new();
@@ -411,6 +411,7 @@ impl PanelState {
         // The folders are on disk, which the surface reads: it answers
         // with show_projects. The keyboard and the focus stay put.
         if action == Action::Move {
+            self.armed = Armed::None;
             return vec![Effect::ListProjects(uuid.into())];
         }
         if action == Action::Remove && self.armed != Armed::Remove(uuid.into()) {
@@ -1596,6 +1597,19 @@ mod tests {
         let mut state = keyboard(pending(&["a"]));
         assert_eq!(state.show_projects("a", Vec::new()), vec![Effect::Notify(NO_DESTINATIONS.into())]);
         assert_eq!(state.moving(), None);
+    }
+
+    /// An armed Remove must not survive an m that finds no folders: the next
+    /// Enter would delete the task.
+    #[test]
+    fn move_disarms_remove_even_when_there_is_no_folder() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        key(&mut state, KeyAction::Run(Action::Remove));
+        assert_eq!(state.armed(), &Armed::Remove("a".into()));
+        assert_eq!(key(&mut state, KeyAction::Run(Action::Move)), vec![Effect::ListProjects("a".into())]);
+        assert_eq!(state.armed(), &Armed::None);
+        assert_eq!(state.show_projects("a", Vec::new()), vec![Effect::Notify(NO_DESTINATIONS.into())]);
+        assert_eq!(state.armed(), &Armed::None);
     }
 
     #[test]

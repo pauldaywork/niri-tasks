@@ -109,9 +109,9 @@ The answer to a clarifying question *is* the task — "make it lower" only becam
 actionable when the user said how low. Left in the chat it dies with the
 session, and the task is back to its terse one line for whoever reads it next,
 including the next run of this skill. Annotating is also how the detail reaches
-the desktop: the picker marks an annotated task with `¶` and the **Note** box
-lists the notes above the input, so it is visible from the keybind, not only
-from here.
+the desktop: the notes show in the task box that a card's **Edit** opens, and
+`niritasks task get-notes` prints them, so they are visible from the panel, not
+only from here.
 
 Annotate only the tasks you actually asked about, one annotation each, and
 record the decision rather than the exchange — *"80 chars, ellipsised"*, not
@@ -226,7 +226,7 @@ for a missing test, `docs:`, `refactor:`, `perf:`, `chore:` and so on, never
 Using the tag **captured in Phase 1**, not a freshly resolved one — see the
 table there.
 
-One line is all the picker shows, and it is not enough to act on months later:
+One line is all the task card shows, and it is not enough to act on months later:
 you are holding the file, the line number and the reason right now, and nobody
 will have them again without rediscovering the finding from scratch. The
 annotation is where they go. Skip it only when the one line genuinely says

@@ -630,6 +630,7 @@ fn terminal() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
 
     /// The fuzzel picker and menu are gone: the task panel does what they did.
     #[test]
@@ -646,7 +647,6 @@ mod tests {
         assert!(Cli::try_parse_from(["niritasks", "task", "move", "c53b6e3d", "alpha"]).is_ok());
         assert!(Cli::try_parse_from(["niritasks", "task", "move", "c53b6e3d"]).is_err());
     }
-    use clap::CommandFactory;
 
     /// The action row runs a task action as its own `niritasks` words, so each
     /// has to be a command the real CLI accepts. Otherwise a typo shows up as

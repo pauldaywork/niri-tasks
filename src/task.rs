@@ -20,7 +20,7 @@ use std::process::{Command, Stdio};
 pub const PLANNED_TAG: &str = "planned";
 
 /// The tag that marks a task as the one to do next. Taskwarrior's own: its
-/// `urgency.next.coefficient` adds 15 urgency to a `+next` task, so the
+/// `urgency.next.coefficient` adds 15 urgency to a `+next` task, so
 /// `task next`, which sorts by urgency, lifts it with no code here.
 pub const UP_NEXT_TAG: &str = "next";
 

@@ -572,8 +572,8 @@ fi
 # the nested niri's spawn, with the real HOME and ~/Projects. write_path.rs
 # checks the retagging, against its sandbox.
 if command -v wtype >/dev/null; then
-    add "complete me"
     add "move me"
+    add "complete me"
     settle
     completed() { task rc.verbose=nothing "+$TAG" status:completed count 2>/dev/null; }
     before=$(completed)

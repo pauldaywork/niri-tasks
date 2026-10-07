@@ -3,7 +3,7 @@ name: refine-task
 description: >
   Work one Taskwarrior task up into a plan — a sharper one-line description and a
   consolidated set of notes — then write it back and tag it +planned. Invoked by
-  niri-tasks' Refine and Grill me menu rows as `/refine-task <uuid> [grill]`.
+  niri-tasks' task card's Refine and Grill me buttons as `/refine-task <uuid> [grill]`.
 disable-model-invocation: true
 argument-hint: <uuid> [grill]
 ---
@@ -69,8 +69,8 @@ Show the proposal in your reply. Do not ask the user to approve it yourself —
 no AskUserQuestion: the write tool in step 5 shows them exactly what it will
 write and asks them. The proposal contains:
 
-1. **New description** — one line, about 50 characters or fewer: the card and
-   picker row show one line at that width. It starts with a Conventional
+1. **New description** — one line, about 50 characters or fewer: the task card
+   shows one line at that width. It starts with a Conventional
    Commits type, lowercase, a colon and a space — `feat`, `fix`, `docs`,
    `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `style` or `revert` —
    and the type counts toward the 50. A bug is `fix:`; there is no `bug:`.

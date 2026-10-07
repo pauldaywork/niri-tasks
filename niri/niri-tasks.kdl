@@ -74,9 +74,10 @@ binds {
 
     // Taskwarrior, scoped to the current workspace's name as a tag.
     // Mod+Alt+T writes a new task; its Ctrl companion, Mod+Alt+Ctrl+T, shows the
-    // task panel in the middle of the screen to pick one with the arrow keys, and
-    // Enter offers edit / note / delete / complete / set-active on it. With no
-    // tasks on the workspace (or no daemon) it opens the fuzzel list instead.
+    // task panel in the middle of the screen to pick one with the arrow keys; the
+    // focused card's buttons act on it (start working, refine, edit, complete,
+    // move, remove). With no tasks on the workspace, or a workspace with no
+    // name, a notification says so instead.
     Mod+Alt+T hotkey-overlay-title="Add Task" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niritasks-taskbox.lock\" niritasks task add"; }
     // Mod+Alt+Shift+T is the same box with Add & refine as the default: once
     // added, the task opens in a "Refine: …" tab of the workspace's herdr

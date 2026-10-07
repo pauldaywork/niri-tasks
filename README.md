@@ -81,7 +81,6 @@ task there, retagging it to that folder's workspace, and goes back to the
 cards with the next one focused. Escape goes back to the cards on the same
 one without moving it.
 
-
 Ctrl+Enter and Ctrl+Delete act on the focused card, whichever of its buttons is
 focused, without giving the keyboard back. Ctrl+Enter refines the task, or
 starts working on it once it is planned, and the panel stays up with the same
