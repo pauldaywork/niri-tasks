@@ -418,13 +418,7 @@ fn project_open(name: Option<String>) -> Result<()> {
         return ipc::send(&ipc::Request::Projects);
     };
     let projects = project::Projects::load()?;
-    // Until the panel sends bare names (the next tasks), a GitHub row still
-    // arrives with its "  (github)" marker on.
-    let choice = match github::unmark(&name) {
-        Some(repo) => project::Choice::Clone(repo.to_string()),
-        None => projects.choice(&name),
-    };
-    projects.open(choice)
+    projects.open(projects.choice(&name))
 }
 
 /// A terminal in the focused workspace's project folder.
@@ -484,12 +478,12 @@ mod tests {
     }
 
     /// Mod+Alt+W runs `project open` bare, for the panel's project list,
-    /// and picking a row runs it again with the row, GitHub marker and all.
+    /// and picking a row runs it again with the row's bare name.
     #[test]
     fn opening_a_project_takes_an_optional_name() {
         assert!(Cli::try_parse_from(["niritasks", "project", "open"]).is_ok());
         let mut argv = vec!["niritasks".to_string()];
-        argv.extend(project::open_args(&github::mark("convo")));
+        argv.extend(project::open_args("convo"));
         assert!(Cli::try_parse_from(&argv).is_ok(), "{argv:?}");
     }
 

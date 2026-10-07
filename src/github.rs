@@ -1,35 +1,19 @@
-//! GitHub rows for the project list.
+//! The account's GitHub repos, for the project list and `project open`.
 //!
 //! The task panel's project list (Mod+Alt+W) lists the folders in
 //! `~/Projects`; underneath them it also offers the account's GitHub repos
 //! that are not cloned yet, and cloning one is what "opening" it means. The
-//! rows come from `gh` — the authenticated CLI already knows the account and
+//! repos come from `gh`: the authenticated CLI already knows the account and
 //! the clone protocol, so there is no username or URL scheme configured here.
 //!
 //! The list is cached rather than fetched while the list waits: `gh repo
 //! list` costs about a second, which is the whole latency budget of a
 //! keybind. Each `project open` fires a background refresh and the list reads
-//! the cache, so the rows are at most one invocation stale, and the very
-//! first open after install shows no GitHub rows at all.
+//! the cache, so the repos are at most one invocation stale, and the very
+//! first open after install shows none at all. Cloning goes through `gh` too.
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
-
-/// The suffix that tells a GitHub row apart from a local folder on the
-/// project list. Picking a row runs `project open` with the whole row, so
-/// the suffix is also how the selection is recognised as a repo to clone.
-const MARKER: &str = "  (github)";
-
-/// A repo name rendered as a project list row.
-pub fn mark(name: &str) -> String {
-    format!("{name}{MARKER}")
-}
-
-/// The repo name back out of a project list row, or `None` for a row (or typed
-/// text) that is not a GitHub row.
-pub fn unmark(row: &str) -> Option<&str> {
-    row.strip_suffix(MARKER).filter(|n| !n.is_empty())
-}
 
 /// The remote repos worth offering: not already a folder in `~/Projects`,
 /// and not a name the project list could never show again after cloning (it
@@ -41,43 +25,6 @@ pub fn remote_only(remote: &[String], local: &[String]) -> Vec<String> {
         .filter(|n| !n.starts_with('.') && !local.contains(n))
         .cloned()
         .collect()
-}
-
-/// What the project list's accepted text means, GitHub rows included.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Choice {
-    /// A local project folder — open it.
-    Local(String),
-    /// A GitHub repo — clone it, then open it.
-    Clone(String),
-    /// A genuinely new name — create the folder, then open it.
-    Create(String),
-    /// Nothing usable was typed.
-    Nothing,
-    /// Normalised into something that must not become a directory.
-    Rejected(String),
-}
-
-/// Resolve accepted project list text against both lists.
-///
-/// A marked row clones. Everything else goes through [`project::resolve`]
-/// as before, with one addition: text that resolves to a *creatable* name
-/// which happens to be one of the remote repos clones instead — creating an
-/// empty folder that shadows your own repo is never what you want.
-///
-/// [`project::resolve`]: crate::project::resolve
-pub fn choose(selected: &str, local: &[String], remote: &[String]) -> Choice {
-    if let Some(repo) = unmark(selected) {
-        return Choice::Clone(repo.to_string());
-    }
-
-    match crate::project::resolve(selected, local) {
-        crate::project::Resolved::Existing(n) => Choice::Local(n),
-        crate::project::Resolved::Create(n) if remote.contains(&n) => Choice::Clone(n),
-        crate::project::Resolved::Create(n) => Choice::Create(n),
-        crate::project::Resolved::Nothing => Choice::Nothing,
-        crate::project::Resolved::Rejected(msg) => Choice::Rejected(msg),
-    }
 }
 
 /// Where the repo list is cached: `$XDG_CACHE_HOME/niritasks/github-repos`,
@@ -160,27 +107,6 @@ mod tests {
     }
 
     #[test]
-    fn a_marked_row_round_trips_to_its_repo_name() {
-        assert_eq!(mark("convo"), "convo  (github)");
-        assert_eq!(unmark(&mark("convo")), Some("convo"));
-    }
-
-    /// Local rows and typed text are not GitHub rows.
-    #[test]
-    fn plain_text_does_not_unmark() {
-        assert_eq!(unmark("convo"), None);
-        assert_eq!(unmark(""), None);
-    }
-
-    /// A repo actually named like a marked row still unmarks — the row for
-    /// it would be `x  (github)  (github)`, and only the project list's own
-    /// suffix comes off.
-    #[test]
-    fn only_the_outer_marker_comes_off() {
-        assert_eq!(unmark("x  (github)  (github)"), Some("x  (github)"));
-    }
-
-    #[test]
     fn repos_already_cloned_are_not_offered() {
         assert_eq!(
             remote_only(&strings(&["convo", "hansard", "ragraph"]), &strings(&["hansard"])),
@@ -202,56 +128,6 @@ mod tests {
     #[test]
     fn dotfile_repos_are_not_offered() {
         assert_eq!(remote_only(&strings(&[".github", "convo"]), &[]), strings(&["convo"]));
-    }
-
-    #[test]
-    fn picking_a_marked_row_clones() {
-        assert_eq!(
-            choose("convo  (github)", &strings(&["alpha"]), &strings(&["convo"])),
-            Choice::Clone("convo".into())
-        );
-    }
-
-    /// Typing a repo's bare name clones it rather than creating an empty
-    /// folder that shadows the repo.
-    #[test]
-    fn typing_a_repo_name_clones_it() {
-        assert_eq!(
-            choose("convo", &strings(&["alpha"]), &strings(&["convo"])),
-            Choice::Clone("convo".into())
-        );
-    }
-
-    /// The normalised form is checked too: "my repo" is "my-repo" on GitHub.
-    #[test]
-    fn a_spaced_variant_of_a_repo_name_clones_it() {
-        assert_eq!(
-            choose("my repo", &strings(&["alpha"]), &strings(&["my-repo"])),
-            Choice::Clone("my-repo".into())
-        );
-    }
-
-    /// A local folder wins over a same-named repo — it is already here.
-    #[test]
-    fn a_local_folder_wins_over_a_same_named_repo() {
-        assert_eq!(
-            choose("alpha", &strings(&["alpha"]), &strings(&["alpha"])),
-            Choice::Local("alpha".into())
-        );
-    }
-
-    #[test]
-    fn new_names_still_create_folders() {
-        assert_eq!(
-            choose("brand new thing", &strings(&["alpha"]), &strings(&["convo"])),
-            Choice::Create("brand-new-thing".into())
-        );
-    }
-
-    #[test]
-    fn nothing_and_rejections_pass_through() {
-        assert_eq!(choose("  ", &[], &[]), Choice::Nothing);
-        assert!(matches!(choose("../etc", &[], &[]), Choice::Rejected(_)));
     }
 
     #[test]

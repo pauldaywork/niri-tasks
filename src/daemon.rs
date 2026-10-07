@@ -221,8 +221,8 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
                 notify::tasks(NO_PANEL);
                 return;
             };
-            match crate::project::open_rows() {
-                Ok(rows) => panel.open_projects(rows),
+            match crate::project::Projects::load() {
+                Ok(projects) => panel.open_projects(projects),
                 Err(e) => notify::tasks(&e.to_string()),
             }
         }

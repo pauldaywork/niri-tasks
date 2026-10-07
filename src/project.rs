@@ -338,33 +338,13 @@ pub fn move_task(task: &crate::task::Task, current_tag: &str, folder: &str, name
     Ok(to)
 }
 
-/// The `niritasks` words that open `row`, a row of the project list or a
-/// new folder's name: what picking one on the panel spawns. The row goes as
-/// the list shows it, so a GitHub row's marker is what makes it a clone.
+/// The `niritasks` words that open `row`, a row of the project list by its
+/// bare name or a new folder's name: what picking one on the panel spawns.
+/// `project open` tells a repo from a folder itself, by [`Projects::choice`].
 /// The row follows `--` because a name may start with a dash, which clap
 /// would otherwise take for a flag.
 pub fn open_args(row: &str) -> Vec<String> {
     vec!["project".to_string(), "open".to_string(), "--".to_string(), row.to_string()]
-}
-
-/// The project list Mod+Alt+W shows: every `~/Projects` folder, then the
-/// account's GitHub repos not cloned yet, from the cache `project open`
-/// refreshes. Read on every open, so a folder made since shows.
-pub fn open_rows() -> Result<Vec<String>> {
-    let (_, names) = list()?;
-    let cached = crate::github::cache_path()
-        .map(|cache| crate::github::read_cache(&cache))
-        .unwrap_or_default();
-    Ok(rows_to_open(&names, &cached))
-}
-
-/// [`open_rows`] from the folders and the cached repo names: the folders,
-/// then each repo that is not one already, marked as GitHub's. Split out so
-/// it is tested without the real `~/Projects` or cache.
-pub fn rows_to_open(names: &[String], cached: &[String]) -> Vec<String> {
-    let mut rows = names.to_vec();
-    rows.extend(crate::github::remote_only(cached, names).iter().map(|n| crate::github::mark(n)));
-    rows
 }
 
 /// The editor opened beside the terminal when a project workspace starts.
@@ -701,22 +681,11 @@ mod tests {
         );
     }
 
-    /// Picking a row runs `project open` with the row as the list shows it.
+    /// Picking a row runs `project open` with the row's bare name, a repo's
+    /// as much as a folder's.
     #[test]
     fn opening_a_row_is_project_open_with_the_row() {
-        assert_eq!(open_args("alpha  (github)"), vec!["project", "open", "--", "alpha  (github)"]);
-    }
-
-    /// The folders first, then each cached repo that is not one already,
-    /// marked as GitHub's.
-    #[test]
-    fn rows_to_open_are_folders_then_uncloned_repos() {
-        let names: Vec<String> = ["alpha", "hansard"].iter().map(|s| s.to_string()).collect();
-        let cached: Vec<String> = ["convo", "hansard"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(
-            rows_to_open(&names, &cached),
-            vec!["alpha".to_string(), "hansard".to_string(), crate::github::mark("convo")]
-        );
+        assert_eq!(open_args("alpha"), vec!["project", "open", "--", "alpha"]);
     }
 
     fn projects_of(local: &[&str], remote: &[&str]) -> Projects {

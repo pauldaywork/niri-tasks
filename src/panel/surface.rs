@@ -142,8 +142,10 @@ use super::blur::{self, Blur};
 use super::keys;
 use super::notepad::Notepad;
 use super::model::{Card, Filter, Status, Tab};
+use super::projects::ProjectList;
 use super::state::{Armed, Effect, Focus, PanelState, Shown, Slot};
 use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX};
+use crate::project::{Projects, Row};
 use gtk4::prelude::*;
 use gtk4::{cairo, gdk, glib, Application, ApplicationWindow};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
@@ -446,15 +448,17 @@ impl Panel {
     /// A click on a tab picks it; a click on Clear all presses it.
     fn connect_tab_bar(self: &Rc<Self>) {
         {
-            // Every change of the project list's text ranks the folders
-            // again; clearing it to what the state already has is no change.
+            // Every change of the project list's text ranks the rows again,
+            // by `rank`; clearing it to what the state already has is no
+            // change. The state borrow and `rank`'s `fzf_missing` are
+            // different cells, so the matcher may run while the state is
+            // borrowed.
             let weak = Rc::downgrade(self);
             self.query.connect_changed(move |entry| {
                 let Some(p) = weak.upgrade() else { return };
-                let Some(folders) = p.state.borrow().projects().map(|m| m.folders.clone()) else { return };
                 let query = entry.text().to_string();
-                let shown = p.rank(&folders, &query);
-                let effects = p.state.borrow_mut().on_query(&query, shown);
+                let matcher = |names: &[String], q: &str| p.rank(names, q);
+                let effects = p.state.borrow_mut().on_query(&query, &matcher);
                 p.apply(effects);
             });
         }
@@ -648,8 +652,8 @@ impl Panel {
     /// Mod+Alt+W: the project list for opening a project, in the middle of
     /// the monitor with the keyboard, as `take_keyboard` puts the cards
     /// there. With no cards too: the panel shows for the list alone.
-    pub fn open_projects(self: &Rc<Self>, rows: Vec<String>) {
-        let effects = self.state.borrow_mut().open_projects(rows);
+    pub fn open_projects(self: &Rc<Self>, projects: Projects) {
+        let effects = self.state.borrow_mut().open_projects(projects);
         self.centre(effects);
     }
 
@@ -695,10 +699,11 @@ impl Panel {
                 Effect::SaveIdeas => self.notepad.flush(),
                 Effect::ListProjects(uuid) => {
                     // Read on every press, so a folder made since shows.
-                    let folders = crate::project::list()
-                        .map(|(_, names)| crate::project::move_destinations(&names, &self.tag.borrow()));
-                    let effects = match folders {
-                        Ok(folders) => self.state.borrow_mut().show_projects(&uuid, folders),
+                    let effects = match Projects::load() {
+                        Ok(projects) => {
+                            let rows = projects.move_destinations(&self.tag.borrow());
+                            self.state.borrow_mut().show_projects(&uuid, rows, projects)
+                        }
                         Err(e) => vec![Effect::Notify(e.to_string())],
                     };
                     self.apply(effects);
@@ -774,7 +779,7 @@ impl Panel {
             let list = state.projects();
             self.ideas_button.set_visible(list.is_none());
             self.query.set_visible(list.is_some());
-            list.map_or(String::new(), |m| m.query.clone())
+            list.map_or(String::new(), |m| m.query().to_string())
         };
         // Outside the borrow: setting the text runs the field's changed
         // handler there and then, which finds the state already has it.
@@ -783,14 +788,11 @@ impl Panel {
         }
     }
 
-    /// The folders matching what is typed on the project list, best first:
-    /// fzf's ranking, or, when fzf cannot run, the folders holding the text,
-    /// with a notification the first time saying why. Every folder with
-    /// nothing typed.
+    /// The names matching what is typed on the project list, best first:
+    /// fzf's ranking, or, when fzf cannot run, the names holding the text,
+    /// with a notification the first time saying why. The list never asks
+    /// with nothing typed: it shows every row then.
     fn rank(&self, folders: &[String], query: &str) -> Vec<String> {
-        if query.is_empty() {
-            return folders.to_vec();
-        }
         match crate::project::fzf_matches(folders, query) {
             Ok(matches) => matches,
             Err(e) => {
@@ -903,7 +905,7 @@ impl Panel {
             self.jump_to(TUCKED_X, 0);
             return;
         }
-        let (shown, keyboard, empty, focus, ideas, list) = {
+        let (shown, keyboard, empty, focus, ideas, list, hint) = {
             let state = self.state.borrow();
             (
                 state.visible(),
@@ -912,6 +914,7 @@ impl Panel {
                 state.focus().cloned(),
                 state.on_ideas(),
                 state.projects().cloned(),
+                state.hint(),
             )
         };
 
@@ -934,14 +937,14 @@ impl Panel {
             if let Some(l) = &list {
                 // What the list is for, over the folders.
                 self.column.append(&empty_line(&l.title()));
-                for (at, folder) in l.shown.iter().enumerate() {
-                    let card = self.folder_card(at, folder);
+                for (at, row) in l.shown().iter().enumerate() {
+                    let card = self.folder_card(at, row);
                     self.column.append(&card.0);
                     folders.push(card);
                 }
-                // Nothing matches on the open list: what Enter makes instead.
-                if let Some(text) = l.no_match_text() {
-                    self.column.append(&empty_line(&text));
+                // Nothing matches on the open list: what Enter does instead.
+                if let Some(text) = &hint {
+                    self.column.append(&empty_line(text));
                 }
             }
             *self.folders.borrow_mut() = folders;
@@ -1076,17 +1079,17 @@ impl Panel {
         ActionRow { separator, row, hint, buttons, state }
     }
 
-    /// One folder on the project list, drawn as a task card is: a box
-    /// holding a body button with the folder's icon and name. A click on it
-    /// picks it. Out of the focus chain: the text field keeps
+    /// One row on the project list, a folder or a repo, drawn as a task card
+    /// is: a box holding a body button with the row's icon and name. A click
+    /// on it picks it. Out of the focus chain: the text field keeps
     /// the keyboard, and the highlight (`sync`) says which folder Enter
     /// takes.
-    fn folder_card(self: &Rc<Self>, at: usize, folder: &str) -> (gtk4::Box, gtk4::Button) {
+    fn folder_card(self: &Rc<Self>, at: usize, row: &Row) -> (gtk4::Box, gtk4::Button) {
         let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         root.add_css_class("task-card");
         root.set_size_request(CARD_WIDTH_PX, -1);
         root.set_overflow(gtk4::Overflow::Hidden);
-        let label = gtk4::Label::new(Some(&actions::folder_label(folder)));
+        let label = gtk4::Label::new(Some(&ProjectList::label(row)));
         label.set_xalign(0.0);
         let body = gtk4::Button::builder().child(&label).build();
         body.add_css_class("card-body");
@@ -1154,7 +1157,7 @@ impl Panel {
             let state = self.state.borrow();
             (state.focus().cloned(), state.armed().clone())
         };
-        let picked = self.state.borrow().projects().map(|m| m.at);
+        let picked = self.state.borrow().projects().map(ProjectList::at);
         for (at, (root, _)) in self.folders.borrow().iter().enumerate() {
             set_class(root, "picked", picked == Some(at));
         }
@@ -1204,7 +1207,7 @@ impl Panel {
         let weak = Rc::downgrade(self);
         crate::taskbox::after_next_paint(&self.window, move || {
             let Some(p) = weak.upgrade() else { return };
-            let folder = p.state.borrow().projects().map(|m| m.at);
+            let folder = p.state.borrow().projects().map(ProjectList::at);
             let root = match folder {
                 Some(at) => p.folders.borrow().get(at).map(|(root, _)| root.clone()),
                 None => {
