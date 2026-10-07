@@ -38,9 +38,9 @@
 //! hidden as the focus moves rather than built again, since a render would
 //! lose the focused button. Up and Down move between cards, Down onto "+N
 //! more" showing the cards it stands for and landing on the first of them;
-//! Left, Right and Tab move along the focused one, and g, b, s, r, e, t and
-//! Delete press its Go to session, Back to list, Start, Refine, Edit, Stop and
-//! Remove. Ctrl+Delete deletes the focused card's task at once and keeps the
+//! Left, Right and Tab move along the focused one, and g, b, s, r, i, e, c, t
+//! and Delete press its Go to session, Back to list, Start, Refine, Grill me,
+//! Edit, Complete, Stop and Remove. Ctrl+Delete deletes the focused card's task at once and keeps the
 //! keyboard. After the buttons a dimmed hint names the keys that change per
 //! card, the focused button's and what Ctrl+Enter does to the task
 //! (`Action::hint`); a footer under the scroller names Enter and Ctrl+Delete,
@@ -1001,6 +1001,9 @@ impl Panel {
                 set_class(remove, "confirm", removing);
             }
             let hint = match &focus {
+                // Armed, Remove reads Confirm remove, which says what Enter
+                // does; on the widest row the hint would not fit beside it.
+                _ if removing => String::new(),
                 Some(Focus { uuid, slot }) if Some(uuid) == card.uuid.as_ref() => {
                     let buttons: Vec<Action> = row.buttons.iter().map(|(a, _)| *a).collect();
                     let focused = match slot {

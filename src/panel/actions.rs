@@ -11,12 +11,11 @@ use crate::actions::{Action, TaskState};
 use Action::*;
 
 impl Action {
-    /// The row's buttons, left to right. Grill me and Note are the menu's
-    /// alone: Enter on the card opens it.
-    pub const ROW: [Action; 10] = [Session, Back, Start, Refine, Edit, Speak, UpNext, Stop, Wait, Remove];
+    /// The row's buttons, left to right: every task action, the row being
+    /// the only view of them.
+    pub const ROW: [Action; 12] = Self::ALL;
 
-    /// What Remove reads between its first press and its second, the way the
-    /// menu's delete asks "delete?" before it deletes.
+    /// What Remove reads between its first press and its second.
     pub const CONFIRM_REMOVE: &'static str = "Confirm remove";
 
     /// What Speak shows in place of its speaker while the speech is being got
@@ -25,9 +24,9 @@ impl Action {
     pub const SPINNER: [&'static str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
     /// The buttons a card in `state` gets, left to right: the row's actions
-    /// that apply. The row is narrow, so an active task gets Stop in the
-    /// place of Start working, which the menu still offers to go back to its
-    /// worktree.
+    /// that apply. An active task gets Stop in the place of Start working,
+    /// which would only go back to its worktree; Go to session goes back to
+    /// its Claude.
     pub fn row(state: TaskState) -> Vec<Action> {
         Self::ROW
             .into_iter()
@@ -82,12 +81,12 @@ impl Action {
     }
 
     /// Whether the panel keeps the keyboard after the button runs. Back to
-    /// list, Up next, Waiting and Remove only change the task, and Speak
-    /// plays in the background, so none opens anything that needs the
+    /// list, Up next, Complete, Waiting and Remove only change the task, and
+    /// Speak plays in the background, so none opens anything that needs the
     /// keyboard and the list stays up; the rest open a box, a terminal or a
-    /// menu, which takes it.
+    /// herdr tab, which takes it.
     pub fn keeps_keyboard(self) -> bool {
-        matches!(self, Back | Speak | UpNext | Wait | Remove)
+        matches!(self, Back | Speak | UpNext | Complete | Wait | Remove)
     }
 
     /// Whether the button takes its card off the list, so the focus has to
@@ -95,7 +94,7 @@ impl Action {
     /// Up next's, which only moves up or down the list; the focus stays on the
     /// button, so a second press undoes it.
     pub fn leaves_the_list(self) -> bool {
-        matches!(self, Back | Wait | Remove)
+        matches!(self, Back | Complete | Wait | Remove)
     }
 
     /// The button's CSS class, which `style::colour` gives its colour.
@@ -107,9 +106,9 @@ impl Action {
             Refine => "refine",
             Grill => "grill",
             Edit => "edit",
-            Note => "note",
             Speak => "speak",
             UpNext => "up-next",
+            Complete => "complete",
             Stop => "stop",
             Wait => "wait",
             Remove => "remove",
@@ -125,9 +124,11 @@ impl Action {
             Back => Some('b'),
             Start => Some('s'),
             Refine => Some('r'),
+            Grill => Some('i'),
             Edit => Some('e'),
+            Complete => Some('c'),
             Stop => Some('t'),
-            Grill | Note | Speak | UpNext | Wait | Remove => None,
+            Speak | UpNext | Wait | Remove => None,
         }
     }
 
@@ -229,7 +230,7 @@ mod tests {
     #[test]
     fn an_active_task_gets_stop_in_place_of_start() {
         let classes: Vec<&str> = Action::row(active(false)).iter().map(|a| a.class()).collect();
-        assert_eq!(classes, vec!["refine", "edit", "speak", "up-next", "stop", "wait", "remove"]);
+        assert_eq!(classes, vec!["refine", "grill", "edit", "speak", "up-next", "complete", "stop", "wait", "remove"]);
     }
 
     #[test]
@@ -237,7 +238,7 @@ mod tests {
         for planned in [false, true] {
             assert_eq!(
                 Action::row(on_list(planned)),
-                vec![Start, Refine, Edit, Speak, UpNext, Wait, Remove],
+                vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Wait, Remove],
                 "planned={planned}"
             );
         }
@@ -249,26 +250,26 @@ mod tests {
     fn a_task_with_a_live_claude_gets_go_to_session_first() {
         assert_eq!(
             Action::row(with_claude(active(false))),
-            vec![Session, Refine, Edit, Speak, UpNext, Stop, Wait, Remove]
+            vec![Session, Refine, Grill, Edit, Speak, UpNext, Complete, Stop, Wait, Remove]
         );
         // A refine open on a task not yet started.
         assert_eq!(
             Action::row(with_claude(on_list(true))),
-            vec![Session, Start, Refine, Edit, Speak, UpNext, Wait, Remove]
+            vec![Session, Start, Refine, Grill, Edit, Speak, UpNext, Complete, Wait, Remove]
         );
     }
 
     /// A waiting task gets the way back, and what still works on it, a
     /// Claude or not.
     #[test]
-    fn a_waiting_task_gets_back_to_list_edit_speak_and_remove() {
+    fn a_waiting_task_gets_back_to_list_and_what_still_works_on_it() {
         for state in [waiting(false), with_claude(waiting(true))] {
-            assert_eq!(Action::row(state), vec![Back, Edit, Speak, Remove], "{state:?}");
+            assert_eq!(Action::row(state), vec![Back, Edit, Speak, Complete, Remove], "{state:?}");
         }
     }
 
     /// A finished task gets the way back, and what still works on it, as a
-    /// waiting one does: Note is the menu's, as on every card.
+    /// waiting one does, less Complete: it is done already.
     #[test]
     fn a_finished_task_gets_back_to_list_edit_speak_and_remove() {
         for state in [finished(false), with_claude(finished(true))] {
@@ -303,21 +304,30 @@ mod tests {
         }
     }
 
-    /// Note and Grill me are the menu's alone.
+    /// Grill me goes where Refine goes: every card on the list, not a
+    /// waiting or finished one.
     #[test]
-    fn the_row_leaves_note_and_grill_me_to_the_menu() {
+    fn every_card_on_the_list_gets_grill_me() {
         for state in every_state() {
-            let row = Action::row(state);
-            assert!(!row.contains(&Note) && !row.contains(&Grill), "{state:?}");
+            assert_eq!(Action::row(state).contains(&Grill), !state.off_list(), "{state:?}");
+        }
+    }
+
+    /// Every card can be completed, a waiting one too; a finished one is
+    /// done already.
+    #[test]
+    fn every_card_but_a_finished_one_gets_complete() {
+        for state in every_state() {
+            assert_eq!(Action::row(state).contains(&Complete), !state.finished, "{state:?}");
         }
     }
 
     /// Speak and Up next open nothing, so the list stays up, as it does for
     /// the buttons that only change the task.
     #[test]
-    fn back_speak_up_next_wait_and_remove_keep_the_list_open() {
+    fn the_buttons_that_open_nothing_keep_the_list_open() {
         let kept: Vec<Action> = Action::ROW.into_iter().filter(|a| a.keeps_keyboard()).collect();
-        assert_eq!(kept, vec![Back, Speak, UpNext, Wait, Remove]);
+        assert_eq!(kept, vec![Back, Speak, UpNext, Complete, Wait, Remove]);
     }
 
     /// Up next's card stays on the list, only moving up it, so the focus
@@ -330,9 +340,9 @@ mod tests {
     /// Their card drops off the list, so the focus moves to a neighbour;
     /// Speak's card stays, and so does the focus, on the button that stops it.
     #[test]
-    fn only_back_wait_and_remove_take_their_card_off_the_list() {
+    fn back_complete_wait_and_remove_take_their_card_off_the_list() {
         let leaving: Vec<Action> = Action::ROW.into_iter().filter(|a| a.leaves_the_list()).collect();
-        assert_eq!(leaving, vec![Back, Wait, Remove]);
+        assert_eq!(leaving, vec![Back, Complete, Wait, Remove]);
         assert!(leaving.iter().all(|a| a.keeps_keyboard()), "a button that releases the keyboard moves no focus");
     }
 
@@ -346,13 +356,20 @@ mod tests {
         assert_eq!(classes.len(), Action::ROW.len());
     }
 
-    /// g b s r e t press Go to session, Back to list, Start working, Refine,
-    /// Edit and Stop, and each letter finds its own button.
+    /// g b s r i e c t press Go to session, Back to list, Start working,
+    /// Refine, Grill me, Edit, Complete and Stop, and each letter finds its
+    /// own button.
     #[test]
     fn letters_press_their_own_buttons() {
         let lettered: Vec<(char, Action)> =
             Action::ROW.into_iter().filter_map(|a| a.letter().map(|c| (c, a))).collect();
-        assert_eq!(lettered, vec![('g', Session), ('b', Back), ('s', Start), ('r', Refine), ('e', Edit), ('t', Stop)]);
+        assert_eq!(
+            lettered,
+            vec![
+                ('g', Session), ('b', Back), ('s', Start), ('r', Refine), ('i', Grill), ('e', Edit),
+                ('c', Complete), ('t', Stop)
+            ]
+        );
         for (c, action) in lettered {
             assert_eq!(Action::for_letter(c), Some(action));
         }
@@ -429,6 +446,8 @@ mod tests {
         assert_eq!(hint(on_list(true), Some(Start)), "s: Start working · Ctrl+Enter: start working");
         assert_eq!(hint(on_list(false), Some(Refine)), "r: Refine · Ctrl+Enter: refine");
         assert_eq!(hint(active(false), Some(Edit)), "e: Edit · Ctrl+Enter: refine");
+        assert_eq!(hint(on_list(false), Some(Grill)), "i: Grill me · Ctrl+Enter: refine");
+        assert_eq!(hint(on_list(true), Some(Complete)), "c: Complete · Ctrl+Enter: start working");
         assert_eq!(hint(active(true), Some(Stop)), "t: Stop");
         assert_eq!(hint(waiting(false), Some(Back)), "b: Back to list");
     }
@@ -485,18 +504,33 @@ mod tests {
         assert_eq!(CARD_KEYS, "Enter: press the button · Ctrl+Del: delete the task");
     }
 
-    /// Room for the hint on the widest row, at the hint's 9pt, where
-    /// Iosevka Term Extended is 7px a character: the 760px card, less eight
-    /// buttons of one 8px glyph, 24px of padding and a 1px line between
-    /// (263px), less the hint's own 24px of padding, less "  Confirm remove"
-    /// (16 characters at the buttons' 10pt, 128px) while Remove is armed:
-    /// 345px, so 49 characters.
-    const HINT_ROOM: usize = 49;
+    /// Room for the hint beside a row of `buttons`, in characters at the
+    /// hint's 9pt, where Iosevka Term Extended is 7px a character: the 760px
+    /// card, less each button's one 8px glyph and 24px of padding, a 1px
+    /// line between each two, and the hint's own 24px of padding.
+    fn hint_room(buttons: usize) -> usize {
+        (760 - buttons * 32 - (buttons - 1) - 24) / 7
+    }
+
+    /// The most buttons any card gets.
+    fn widest_row() -> usize {
+        every_state().into_iter().map(|s| Action::row(s).len()).max().unwrap()
+    }
 
     #[test]
-    fn every_hint_fits_beside_the_widest_row() {
+    fn every_hint_fits_beside_its_row() {
         for (state, focused, text) in every_hint() {
-            assert!(text.chars().count() <= HINT_ROOM, "{state:?} {focused:?}: {text:?} is {} long", text.chars().count());
+            let room = hint_room(Action::row(state).len());
+            assert!(text.chars().count() <= room, "{state:?} {focused:?}: {text:?} is {} long, room {room}", text.chars().count());
         }
+    }
+
+    /// Armed, Remove reads "  Confirm remove" (16 characters at the
+    /// buttons' 10pt, 128px), and the surface leaves the hint blank: the
+    /// button says what Enter does. The widest row still fits the card.
+    #[test]
+    fn confirm_remove_fits_on_the_widest_row() {
+        let n = widest_row();
+        assert!(n * 32 + (n - 1) + 128 <= 760, "{n} buttons");
     }
 }

@@ -55,7 +55,7 @@ pub const ACTIVE: &str = "#8cd283";
 pub const UP_NEXT: &str = "#f9e2af";
 /// The keyboard's action buttons, each its own colour from the same Catppuccin
 /// palette as [`ACTIVE`] (mocha's): Go to session blue, Back to list lavender, Refine mauve, Edit
-/// yellow, Speak pink, Stop peach, Waiting teal, Remove red. Start shares [`ACTIVE`]'s green, because
+/// yellow, Complete green, Speak pink, Stop peach, Waiting teal, Remove red. Start shares [`ACTIVE`]'s green, because
 /// starting a task is what turns its card green, and Up next shares Edit's yellow, [`UP_NEXT`],
 /// because it is what turns its card yellow.
 pub const REFINE: &str = "#cba6f7";
@@ -74,22 +74,25 @@ pub const REMOVE: &str = "#f38ba8";
 pub const BACK: &str = "#b4befe";
 /// Go to session blue: mocha's `blue`, apart from every other button's colour.
 pub const SESSION: &str = "#89b4fa";
+/// Complete green: mocha's own `green`, paler than [`ACTIVE`]'s, for the step
+/// after the work rather than the work.
+pub const COMPLETE: &str = "#a6e3a1";
 /// Text on a solid colour fill, the armed Remove: mocha's `base`, so it reads
 /// as dark on red.
 pub const ON_FILL: &str = "#1e1e2e";
 /// Each task action's colour. Exhaustive, so a new action cannot be a grey
-/// button. Note and Grill me are the menu's alone. They wear the colour of
-/// the button nearest them, Edit's and Refine's, so one moved onto the row
-/// needs no new colour.
+/// button. Grill me wears Refine's mauve, being a refine that interviews
+/// first.
 pub fn colour(action: Action) -> &'static str {
     match action {
         Action::Session => SESSION,
         Action::Back => BACK,
         Action::Start => ACTIVE,
         Action::Refine | Action::Grill => REFINE,
-        Action::Edit | Action::Note => EDIT,
+        Action::Edit => EDIT,
         Action::Speak => SPEAK,
         Action::UpNext => UP_NEXT,
+        Action::Complete => COMPLETE,
         Action::Stop => STOP,
         Action::Wait => WAIT,
         Action::Remove => REMOVE,

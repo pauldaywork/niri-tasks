@@ -2,22 +2,19 @@
 //! words, its icon and the `niritasks` command it runs, and which of them a
 //! task gets in each state.
 //!
-//! The action menu (`menu.rs`) and the task panel's action row
-//! (`panel/actions.rs`) are two views of this one list, each choosing its own
-//! subset and order. So a label is spelled once, neither view offers a task
-//! an action the other knows it would refuse, and a new action is a variant
-//! here and a place in each view that shows it.
+//! The task panel's action row (`panel/actions.rs`) is the view of them:
+//! which it shows, in what order, and their keys. A new action is a variant
+//! here and a place on the row.
 
 use crate::task::Task;
 
 /// One thing that can be done to a task. Each is one `niritasks` command,
-/// which is what both views run, so a button cannot drift from its menu
-/// entry.
+/// which is what its button runs, so a script can do anything a click can.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     /// Back to the Claude working on the task. Never starts one.
     Session,
-    /// Back on the list: Update status → Stopped, which clears a waiting
+    /// Back on the list: `task status <uuid> stopped`, which clears a waiting
     /// task's wait date and reopens a finished one.
     Back,
     /// The task's own worktree and a Claude to plan it; run again, back to
@@ -28,16 +25,17 @@ pub enum Action {
     Refine,
     /// Refine, interviewing first rather than drafting straight away.
     Grill,
-    /// The task box on the description. The box rather than a one-line
-    /// picker: the descriptions you reach for it to fix are the long ones.
+    /// The task box on the description and every note. The box, not a
+    /// one-line prompt: the descriptions you reach for it to fix are the long
+    /// ones.
     Edit,
-    /// The task box on a new note, under the notes already there.
-    Note,
     /// Read the task aloud in the background; run again, on any task, stop.
     Speak,
     /// Mark the task up next; on one already up next, clear it.
     UpNext,
-    /// Stop working on it: Update status → Stopped.
+    /// Mark it done: it leaves the list, as `task status <uuid> completed`.
+    Complete,
+    /// Stop working on it: `task status <uuid> stopped`.
     Stop,
     /// Park the task: it leaves the list until it is stopped again.
     Wait,
@@ -93,7 +91,7 @@ impl TaskState {
 
 impl Action {
     /// Every task action, in the order the action row puts the ones it has.
-    pub const ALL: [Action; 12] = [Session, Back, Start, Refine, Grill, Edit, Note, Speak, UpNext, Stop, Wait, Remove];
+    pub const ALL: [Action; 12] = [Session, Back, Start, Refine, Grill, Edit, Speak, UpNext, Complete, Stop, Wait, Remove];
 
     /// Whether the action makes sense on a task in `state`. A waiting or
     /// finished task is off the list: it gets the way back to it, and what
@@ -109,11 +107,13 @@ impl Action {
             Back => state.off_list(),
             Stop => state.active,
             Start | Refine | Grill | UpNext | Wait => !state.off_list(),
-            Edit | Note | Speak | Remove => true,
+            // A finished task is done already.
+            Complete => !state.finished,
+            Edit | Speak | Remove => true,
         }
     }
 
-    /// The action's words, the same in the menu and on the row's tooltip. Up
+    /// The action's words, on its button's tooltip and in the card's hint. Up
     /// next reads as the step it takes, Not up next on a task already up
     /// next, so `up_next` is whether the task is.
     pub fn label(self, up_next: bool) -> &'static str {
@@ -124,10 +124,10 @@ impl Action {
             Refine => "Refine",
             Grill => "Grill me",
             Edit => "Edit",
-            Note => "Note",
             Speak => "Speak",
             UpNext if up_next => "Not up next",
             UpNext => "Up next",
+            Complete => "Complete",
             Stop => "Stop",
             Wait => "Waiting",
             Remove => "Remove",
@@ -136,7 +136,7 @@ impl Action {
 
     /// The action's glyph on the action row, so the row stays narrow. Font
     /// Awesome's, from the same Nerd Font as the cards' lock: terminal, undo
-    /// arrow, play, magic wand, comments, pencil, sticky note, bookmark,
+    /// arrow, play, magic wand, comments, pencil, bookmark, check,
     /// stop, pause and trash can. Speak's speaker is Material Design's, from
     /// the same font.
     pub fn icon(self) -> &'static str {
@@ -147,13 +147,14 @@ impl Action {
             Refine => "\u{f0d0}",
             Grill => "\u{f086}",
             Edit => "\u{f040}",
-            Note => "\u{f249}",
             // Material Design's volume-medium, not Font Awesome's volume-up,
             // which is drawn nearly twice as wide as its cell and sat off
             // centre; this one fits its cell exactly.
             Speak => "\u{f0580}",
             // Font Awesome's bookmark: marked as the one to do next.
             UpNext => "\u{f02e}",
+            // Font Awesome's check: done.
+            Complete => "\u{f00c}",
             Stop => "\u{f04d}",
             Wait => "\u{f04c}",
             Remove => "\u{f1f8}",
@@ -161,8 +162,7 @@ impl Action {
     }
 
     /// The `niritasks` arguments the action runs, without the program: what
-    /// the menu runs when it is picked and the row when its button is
-    /// pressed. Remove carries `--yes`, because whatever offers it asks
+    /// its button spawns. Remove carries `--yes`, because its button asks
     /// first.
     pub fn args(self, uuid: &str) -> Vec<String> {
         let words: &[&str] = match self {
@@ -172,9 +172,9 @@ impl Action {
             Refine => &["task", "refine", uuid],
             Grill => &["task", "refine", uuid, "--grill"],
             Edit => &["task", "edit", uuid],
-            Note => &["task", "note", uuid],
             Speak => &["task", "speak", uuid],
             UpNext => &["task", "up-next", uuid],
+            Complete => &["task", "status", uuid, "completed"],
             Stop => &["task", "status", uuid, "stopped"],
             Wait => &["task", "status", uuid, "waiting"],
             Remove => &["task", "status", uuid, "deleted", "--yes"],
@@ -198,7 +198,7 @@ mod tests {
     fn a_task_on_the_list_gets_all_but_session_back_and_stop() {
         assert_eq!(
             offered(TaskState::default()),
-            vec![Start, Refine, Grill, Edit, Note, Speak, UpNext, Wait, Remove]
+            vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Wait, Remove]
         );
     }
 
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn an_active_task_can_be_stopped_and_started_again() {
         let state = TaskState { active: true, ..TaskState::default() };
-        assert_eq!(offered(state), vec![Start, Refine, Grill, Edit, Note, Speak, UpNext, Stop, Wait, Remove]);
+        assert_eq!(offered(state), vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Stop, Wait, Remove]);
     }
 
     /// Go to session never starts a Claude, so it needs one already there.
@@ -226,26 +226,25 @@ mod tests {
             for up_next in [false, true] {
                 for planned in [false, true] {
                     let state = TaskState { waiting: true, has_session, up_next, planned, ..TaskState::default() };
-                    assert_eq!(offered(state), vec![Back, Edit, Note, Speak, Remove], "{state:?}");
+                    assert_eq!(offered(state), vec![Back, Edit, Speak, Complete, Remove], "{state:?}");
                 }
             }
         }
     }
 
     #[test]
-    fn labels_read_as_the_menu_does() {
+    fn labels_read_as_the_tooltips_do() {
         let labels: Vec<&str> = Action::ALL.iter().map(|a| a.label(false)).collect();
         assert_eq!(
             labels,
             vec![
-                "Go to session", "Back to list", "Start working", "Refine", "Grill me", "Edit", "Note",
-                "Speak", "Up next", "Stop", "Waiting", "Remove",
+                "Go to session", "Back to list", "Start working", "Refine", "Grill me", "Edit",
+                "Speak", "Up next", "Complete", "Stop", "Waiting", "Remove",
             ]
         );
     }
 
-    /// The menu finds the picked action by its words, so no two may share
-    /// them, either way up next reads.
+    /// Each is its button's tooltip, so no two may share one, either way up next reads.
     #[test]
     fn no_two_actions_share_a_label() {
         for up_next in [false, true] {
@@ -288,9 +287,9 @@ mod tests {
         assert_eq!(Refine.args(u), vec!["task", "refine", u]);
         assert_eq!(Grill.args(u), vec!["task", "refine", u, "--grill"]);
         assert_eq!(Edit.args(u), vec!["task", "edit", u]);
-        assert_eq!(Note.args(u), vec!["task", "note", u]);
         assert_eq!(Speak.args(u), vec!["task", "speak", u]);
         assert_eq!(UpNext.args(u), vec!["task", "up-next", u]);
+        assert_eq!(Complete.args(u), vec!["task", "status", u, "completed"]);
         assert_eq!(Stop.args(u), vec!["task", "status", u, "stopped"]);
         assert_eq!(Wait.args(u), vec!["task", "status", u, "waiting"]);
         assert_eq!(Remove.args(u), vec!["task", "status", u, "deleted", "--yes"]);
@@ -320,14 +319,15 @@ mod tests {
     }
 
     /// A finished task is off the list, as a waiting one is: the way back,
-    /// and what still works on any task. Never Start working or Up next.
+    /// and what still works on any task. Never Start working or Up next, and
+    /// not Complete, being done already.
     #[test]
     fn a_finished_task_gets_back_to_list_and_what_still_works_on_it() {
         for has_session in [false, true] {
             for up_next in [false, true] {
                 for planned in [false, true] {
                     let state = TaskState { finished: true, has_session, up_next, planned, ..TaskState::default() };
-                    assert_eq!(offered(state), vec![Back, Edit, Note, Speak, Remove], "{state:?}");
+                    assert_eq!(offered(state), vec![Back, Edit, Speak, Remove], "{state:?}");
                 }
             }
         }
