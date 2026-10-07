@@ -122,6 +122,20 @@ pub fn ideas_key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
     }
 }
 
+/// Map a keypress while the project list shows, its text field having the
+/// focus. Up and Down walk the folders, Enter moves the task and Escape
+/// clears the text or goes back; every other key is typing, so the field
+/// gets it, modifiers and all.
+pub fn project_key_action(key: gdk::Key) -> KeyAction {
+    match key {
+        gdk::Key::Escape => KeyAction::Release,
+        gdk::Key::Up => KeyAction::PrevCard,
+        gdk::Key::Down => KeyAction::NextCard,
+        gdk::Key::Return | gdk::Key::KP_Enter => KeyAction::Enter,
+        _ => KeyAction::Ignore,
+    }
+}
+
 /// One along a list of `len`, stopping at either end rather than wrapping: a
 /// key held down settles on the last card instead of cycling past it.
 pub fn step(index: usize, len: usize, forward: bool) -> usize {
@@ -322,5 +336,20 @@ mod tests {
         assert_eq!(key_action(gdk::Key::Delete, false, true), KeyAction::Run(Action::Remove));
         assert_eq!(key_action(gdk::Key::Return, true, true), KeyAction::Advance);
         assert_eq!(key_action(gdk::Key::Escape, false, true), KeyAction::Release);
+    }
+
+    /// On the project list the arrows walk it, Enter moves the task and
+    /// Escape clears or goes back; every other key is typing for its field,
+    /// the letters that press a card's buttons included.
+    #[test]
+    fn on_the_project_list_only_the_arrows_enter_and_escape_are_the_panels() {
+        assert_eq!(project_key_action(gdk::Key::Up), KeyAction::PrevCard);
+        assert_eq!(project_key_action(gdk::Key::Down), KeyAction::NextCard);
+        assert_eq!(project_key_action(gdk::Key::Return), KeyAction::Enter);
+        assert_eq!(project_key_action(gdk::Key::KP_Enter), KeyAction::Enter);
+        assert_eq!(project_key_action(gdk::Key::Escape), KeyAction::Release);
+        for key in [gdk::Key::e, gdk::Key::m, gdk::Key::_1, gdk::Key::Delete, gdk::Key::BackSpace, gdk::Key::Tab] {
+            assert_eq!(project_key_action(key), KeyAction::Ignore, "{key:?}");
+        }
     }
 }

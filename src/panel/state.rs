@@ -78,7 +78,12 @@ pub struct Moving {
     pub text: String,
     /// The folders, as `project::move_destinations` gives them.
     pub folders: Vec<String>,
-    /// The folder the keyboard is on.
+    /// What is typed in the field over the list.
+    pub query: String,
+    /// The folders on show: those matching `query`, best first, or every
+    /// folder with nothing typed. Ranked by the surface, which can run fzf.
+    pub shown: Vec<String>,
+    /// The folder in `shown` the highlight is on: Up, Down and Enter's.
     pub at: usize,
 }
 
@@ -106,8 +111,10 @@ pub enum Effect {
     /// [`PanelState::show_projects`]: Move to workspace's first step, which
     /// the state cannot take, having no disk to read.
     ListProjects(String),
-    /// Put the focus on the project list's folder card at this index.
-    FocusFolder(usize),
+    /// Scroll the project list's highlighted folder into view.
+    ShowFolder,
+    /// Empty the project list's text field: Escape with text typed.
+    ClearQuery,
 }
 
 #[derive(Debug, Default)]
@@ -336,8 +343,8 @@ impl PanelState {
     /// landing after it was given back is not for it. On Ideas only Escape,
     /// which goes back to the tab picked before it, and the tab keys are the
     /// panel's; the rest are typing, for the text area. On the project list
-    /// every key is the panel's: Up and Down, Enter and Escape act, and the
-    /// rest do nothing.
+    /// Up and Down, Enter and Escape are the panel's, and the rest are
+    /// typing, for its text field.
     pub fn on_key(&mut self, key: KeyAction) -> Option<Vec<Effect>> {
         if !self.keyboard {
             return None;
@@ -354,16 +361,17 @@ impl PanelState {
         }
         if self.moving.is_some() {
             // The project list's: Up and Down walk it, Enter moves the task,
-            // Escape goes back to the cards. No card is there for the rest.
-            return Some(match key {
-                KeyAction::Release => self.leave_projects(),
-                KeyAction::PrevCard | KeyAction::NextCard => self.move_folder(key == KeyAction::NextCard),
+            // Escape clears the text, then goes back to the cards. Every
+            // other key is typing, for the text field.
+            return match key {
+                KeyAction::Release => Some(self.escape_projects()),
+                KeyAction::PrevCard | KeyAction::NextCard => Some(self.move_folder(key == KeyAction::NextCard)),
                 KeyAction::Enter => {
                     let at = self.moving.as_ref().map_or(0, |m| m.at);
-                    self.on_folder(at)
+                    Some(self.on_folder(at))
                 }
-                _ => Vec::new(),
-            });
+                _ => None,
+            };
         }
         if matches!(self.armed, Armed::ClearAll { .. }) {
             return Some(match key {
@@ -471,7 +479,19 @@ impl PanelState {
             return vec![Effect::Notify(NO_DESTINATIONS.into())];
         }
         self.armed = Armed::None;
-        self.moving = Some(Moving { uuid: uuid.into(), text, folders, at: 0 });
+        let shown = folders.clone();
+        self.moving = Some(Moving { uuid: uuid.into(), text, folders, query: String::new(), shown, at: 0 });
+        vec![Effect::Render]
+    }
+
+    /// The project list's text field changed: `shown` is what the surface
+    /// ranked for `query`. The highlight goes back to the top match. Nothing
+    /// when the text is what it was, as when Escape empties the field.
+    pub fn on_query(&mut self, query: &str, shown: Vec<String>) -> Vec<Effect> {
+        let Some(m) = self.moving.as_mut().filter(|m| m.query != query) else { return Vec::new() };
+        m.query = query.to_string();
+        m.shown = shown;
+        m.at = 0;
         vec![Effect::Render]
     }
 
@@ -480,7 +500,7 @@ impl PanelState {
     /// one, since the task leaves this workspace. The keyboard stays.
     pub fn on_folder(&mut self, at: usize) -> Vec<Effect> {
         let Some(moving) = self.moving.take() else { return Vec::new() };
-        let Some(folder) = moving.folders.get(at).cloned() else {
+        let Some(folder) = moving.shown.get(at).cloned() else {
             self.moving = Some(moving);
             return Vec::new();
         };
@@ -557,18 +577,30 @@ impl PanelState {
         self.pick(Tab::Filter(back))
     }
 
-    /// Escape on the project list: back to the cards, on the card and slot
-    /// the focus was on.
-    fn leave_projects(&mut self) -> Vec<Effect> {
-        self.moving = None;
-        self.rerender()
+    /// Escape on the project list: with text typed, clear it and show every
+    /// folder again; with none, back to the cards, on the card and slot the
+    /// focus was on.
+    fn escape_projects(&mut self) -> Vec<Effect> {
+        match self.moving.as_mut().filter(|m| !m.query.is_empty()) {
+            Some(m) => {
+                m.query.clear();
+                m.shown = m.folders.clone();
+                m.at = 0;
+                vec![Effect::ClearQuery, Effect::Render]
+            }
+            None => {
+                self.moving = None;
+                self.rerender()
+            }
+        }
     }
 
-    /// Up and Down on the project list, stopping at the ends.
+    /// Up and Down on the project list, stopping at the ends. Nothing when no
+    /// folder matches.
     fn move_folder(&mut self, forward: bool) -> Vec<Effect> {
-        let Some(m) = self.moving.as_mut() else { return Vec::new() };
-        m.at = keys::step(m.at, m.folders.len(), forward);
-        vec![Effect::FocusFolder(m.at)]
+        let Some(m) = self.moving.as_mut().filter(|m| !m.shown.is_empty()) else { return Vec::new() };
+        m.at = keys::step(m.at, m.shown.len(), forward);
+        vec![Effect::ShowFolder]
     }
 
     /// 1 to 6 pick a filter tab and 7 Ideas; [ and ] step along the tabs on
@@ -1582,7 +1614,14 @@ mod tests {
         assert!(state.keyboard());
         assert_eq!(
             state.moving(),
-            Some(&Moving { uuid: "a".into(), text: "a".into(), folders: folders(&["x", "y"]), at: 0 })
+            Some(&Moving {
+                uuid: "a".into(),
+                text: "a".into(),
+                folders: folders(&["x", "y"]),
+                query: String::new(),
+                shown: folders(&["x", "y"]),
+                at: 0,
+            })
         );
         assert!(state.visible().is_empty(), "no task cards");
         assert!(state.tabs().is_empty(), "no tabs");
@@ -1615,10 +1654,13 @@ mod tests {
     #[test]
     fn up_and_down_walk_the_folders_and_stop_at_the_ends() {
         let mut state = moving_a();
-        assert_eq!(key(&mut state, KeyAction::NextCard), vec![Effect::FocusFolder(1)]);
-        assert_eq!(key(&mut state, KeyAction::NextCard), vec![Effect::FocusFolder(1)]);
-        assert_eq!(key(&mut state, KeyAction::PrevCard), vec![Effect::FocusFolder(0)]);
-        assert_eq!(key(&mut state, KeyAction::PrevCard), vec![Effect::FocusFolder(0)]);
+        assert_eq!(key(&mut state, KeyAction::NextCard), vec![Effect::ShowFolder]);
+        assert_eq!(state.moving().map(|m| m.at), Some(1));
+        key(&mut state, KeyAction::NextCard);
+        assert_eq!(state.moving().map(|m| m.at), Some(1), "stops at the last");
+        key(&mut state, KeyAction::PrevCard);
+        key(&mut state, KeyAction::PrevCard);
+        assert_eq!(state.moving().map(|m| m.at), Some(0), "stops at the first");
     }
 
     /// Enter moves the task to the folder the keyboard is on, back on the
@@ -1658,9 +1700,9 @@ mod tests {
         assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render, Effect::Release]);
     }
 
-    /// Every other key is the list's and does nothing: no card is there to act on.
+    /// Every other key is typing, for the text field: not the panel's.
     #[test]
-    fn the_project_list_takes_no_other_key() {
+    fn the_project_list_leaves_every_other_key_to_the_text_field() {
         let mut state = moving_a();
         for k in [
             KeyAction::Run(Action::Edit),
@@ -1676,10 +1718,92 @@ mod tests {
             KeyAction::ClearAll,
             KeyAction::Ignore,
         ] {
-            assert_eq!(state.on_key(k), Some(Vec::new()), "{k:?}");
+            assert_eq!(state.on_key(k), None, "{k:?}");
         }
         assert!(state.moving().is_some());
         assert_eq!(state.on_tab(Tab::Ideas), Vec::new());
+    }
+
+    /// What is typed narrows the list to the matches the surface ranked, and
+    /// puts the highlight back on the top one.
+    #[test]
+    fn typing_narrows_the_list_to_the_top_match() {
+        let mut state = moving_a();
+        key(&mut state, KeyAction::NextCard);
+        assert_eq!(state.on_query("y", folders(&["y"])), vec![Effect::Render]);
+        let m = state.moving().unwrap();
+        assert_eq!((m.query.as_str(), m.shown.clone(), m.at), ("y", folders(&["y"]), 0));
+        assert_eq!(
+            key(&mut state, KeyAction::Enter),
+            vec![Effect::Render, Effect::Spawn(vec!["task".into(), "move".into(), "a".into(), "y".into()])],
+        );
+    }
+
+    /// The field's text set to what it already is (as clearing it does)
+    /// changes nothing.
+    #[test]
+    fn the_same_text_again_changes_nothing() {
+        let mut state = moving_a();
+        assert_eq!(state.on_query("", folders(&["x", "y"])), Vec::new());
+        state.on_query("y", folders(&["y"]));
+        assert_eq!(state.on_query("y", folders(&["y"])), Vec::new());
+    }
+
+    #[test]
+    fn down_then_enter_picks_the_second_match() {
+        let mut state = moving_a();
+        state.on_query("q", folders(&["y", "x"]));
+        assert_eq!(key(&mut state, KeyAction::NextCard), vec![Effect::ShowFolder]);
+        assert_eq!(
+            key(&mut state, KeyAction::Enter),
+            vec![Effect::Render, Effect::Spawn(vec!["task".into(), "move".into(), "a".into(), "x".into()])],
+        );
+    }
+
+    /// Nothing matches: Enter and the arrows do nothing, and the list stays.
+    #[test]
+    fn with_no_match_enter_does_nothing() {
+        let mut state = moving_a();
+        state.on_query("zz", Vec::new());
+        assert_eq!(key(&mut state, KeyAction::NextCard), Vec::new());
+        assert_eq!(key(&mut state, KeyAction::Enter), Vec::new());
+        assert!(state.moving().is_some());
+    }
+
+    /// A click picks from the list as it shows, narrowed.
+    #[test]
+    fn a_click_picks_from_the_narrowed_list() {
+        let mut state = moving_a();
+        state.on_query("y", folders(&["y"]));
+        assert_eq!(
+            state.on_folder(0),
+            vec![Effect::Render, Effect::Spawn(vec!["task".into(), "move".into(), "a".into(), "y".into()])],
+        );
+    }
+
+    /// With text typed, Escape clears it and shows every folder again; the
+    /// next Escape goes back to the cards.
+    #[test]
+    fn escape_clears_the_text_then_goes_back() {
+        let mut state = moving_a();
+        state.on_query("y", folders(&["y"]));
+        assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::ClearQuery, Effect::Render]);
+        let m = state.moving().unwrap();
+        assert_eq!((m.query.as_str(), m.shown.clone(), m.at), ("", folders(&["x", "y"]), 0));
+        assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render]);
+        assert_eq!(state.moving(), None);
+    }
+
+    /// The text typed for one task's list does not carry over to the next.
+    #[test]
+    fn a_new_list_starts_with_no_text() {
+        let mut state = moving_a();
+        state.on_query("y", folders(&["y"]));
+        key(&mut state, KeyAction::Release);
+        key(&mut state, KeyAction::Release);
+        key(&mut state, KeyAction::Run(Action::Move));
+        state.show_projects("a", folders(&["x", "y"]));
+        assert_eq!(state.moving().map(|m| m.query.as_str()), Some(""));
     }
 
     /// GTK's focus on a folder card is no card's: the task's focus is kept

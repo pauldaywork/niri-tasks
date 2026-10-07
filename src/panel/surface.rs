@@ -52,9 +52,14 @@
 //!
 //! Move to workspace (m) swaps the cards for the project list: the
 //! `~/Projects` folders the task can move to, drawn as cards under a line
-//! naming it, with no tabs and a footer of its own. Up and Down walk it,
-//! Enter or a click runs `task move` and goes back to the cards on the next
-//! one, and Escape goes back to the cards on the same one.
+//! naming it, with a footer of its own. A text field takes the tab bar's
+//! place and the keyboard: what is typed narrows the folders to fzf's
+//! matches, best first (`project::fzf_matches`), or to those holding the
+//! text when fzf cannot run. The highlighted folder is darkened by a class,
+//! the field keeping the focus; each keystroke puts it on the top match. Up
+//! and Down move it, Enter or a click runs `task move` and goes back to the
+//! cards on the next one, and Escape clears the text, then goes back to the
+//! cards on the same one.
 //!
 //! GTK's focus and the state's are kept the same both ways: an
 //! [`Effect::Focus`] moves GTK's, and GTK's moving (a click on a button)
@@ -202,6 +207,12 @@ pub struct Panel {
     ideas_button: gtk4::Button,
     /// Clear all's strip under the bar, shown only on the Waiting tab.
     clear_strip: gtk4::Box,
+    /// The project list's text field, on the bar in the tabs' place while it
+    /// shows: what is typed there narrows the folders.
+    query: gtk4::Entry,
+    /// fzf could not run once already, and a notification said so: the
+    /// project list matches plain text from then on without saying it again.
+    fzf_missing: Cell<bool>,
     /// Clear all, on its strip: deletes every task the tab lists, on its
     /// second press.
     clear: gtk4::Button,
@@ -348,7 +359,7 @@ impl Panel {
         let overlay = gtk4::Overlay::new();
         overlay.set_child(Some(&base));
         let scroller = scroller(&column);
-        let TabBar { head: tabs, bar, tab_buttons, ideas: ideas_button, clear_strip, clear } = tab_bar();
+        let TabBar { head: tabs, bar, tab_buttons, ideas: ideas_button, query, clear_strip, clear } = tab_bar();
         let front = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         front.append(&tabs);
         front.append(&scroller);
@@ -369,6 +380,8 @@ impl Panel {
             tab_buttons,
             ideas_button,
             clear_strip,
+            query,
+            fzf_missing: Cell::new(false),
             clear,
             footer,
             slide: Rc::new(Slide::tucked()),
@@ -425,6 +438,19 @@ impl Panel {
 
     /// A click on a tab picks it; a click on Clear all presses it.
     fn connect_tab_bar(self: &Rc<Self>) {
+        {
+            // Every change of the project list's text ranks the folders
+            // again; clearing it to what the state already has is no change.
+            let weak = Rc::downgrade(self);
+            self.query.connect_changed(move |entry| {
+                let Some(p) = weak.upgrade() else { return };
+                let Some(folders) = p.state.borrow().moving().map(|m| m.folders.clone()) else { return };
+                let query = entry.text().to_string();
+                let shown = p.rank(&folders, &query);
+                let effects = p.state.borrow_mut().on_query(&query, shown);
+                p.apply(effects);
+            });
+        }
         for (button, filter) in self.tab_buttons.iter().zip(Filter::TABS) {
             let weak = Rc::downgrade(self);
             button.connect_clicked(move |_| {
@@ -514,8 +540,16 @@ impl Panel {
             let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
             // On Ideas the text area takes every key as typing, bar Escape
             // and the Ctrl+[ and Ctrl+] that switch tab.
-            let action = if p.state.borrow().on_ideas() {
+            let (ideas, moving) = {
+                let state = p.state.borrow();
+                (state.on_ideas(), state.moving().is_some())
+            };
+            let action = if ideas {
                 keys::ideas_key_action(key, ctrl)
+            } else if moving {
+                // The project list's field takes every key as typing but
+                // the arrows, Enter and Escape.
+                keys::project_key_action(key)
             } else {
                 keys::key_action(key, ctrl, shift)
             };
@@ -648,7 +682,9 @@ impl Panel {
                     };
                     self.apply(effects);
                 }
-                Effect::FocusFolder(at) => self.focus_folder(at),
+                Effect::ShowFolder => self.follow_focus(),
+                // Its changed handler finds the state already cleared.
+                Effect::ClearQuery => self.query.set_text(""),
             }
         }
         self.sync();
@@ -701,17 +737,48 @@ impl Panel {
     }
 
     /// Which filter tabs show, which tab is picked, and whether Clear all's
-    /// strip shows. Ideas is always shown: the bar itself hides without the
-    /// keyboard.
+    /// strip shows. Ideas shows with the tabs: the bar itself hides without
+    /// the keyboard. On the project list its text field stands in for them
+    /// all.
     fn update_tabs(&self) {
-        let state = self.state.borrow();
-        let shown = state.tabs();
-        for (button, filter) in self.tab_buttons.iter().zip(Filter::TABS) {
-            button.set_visible(shown.contains(&filter));
-            set_class(button, "current", state.tab() == Tab::Filter(filter));
+        let text = {
+            let state = self.state.borrow();
+            let shown = state.tabs();
+            for (button, filter) in self.tab_buttons.iter().zip(Filter::TABS) {
+                button.set_visible(shown.contains(&filter));
+                set_class(button, "current", state.tab() == Tab::Filter(filter));
+            }
+            set_class(&self.ideas_button, "current", state.on_ideas());
+            self.clear_strip.set_visible(state.shows_clear_all());
+            let moving = state.moving();
+            self.ideas_button.set_visible(moving.is_none());
+            self.query.set_visible(moving.is_some());
+            moving.map_or(String::new(), |m| m.query.clone())
+        };
+        // Outside the borrow: setting the text runs the field's changed
+        // handler there and then, which finds the state already has it.
+        if self.query.text() != text {
+            self.query.set_text(&text);
         }
-        set_class(&self.ideas_button, "current", state.on_ideas());
-        self.clear_strip.set_visible(state.shows_clear_all());
+    }
+
+    /// The folders matching what is typed on the project list, best first:
+    /// fzf's ranking, or, when fzf cannot run, the folders holding the text,
+    /// with a notification the first time saying why. Every folder with
+    /// nothing typed.
+    fn rank(&self, folders: &[String], query: &str) -> Vec<String> {
+        if query.is_empty() {
+            return folders.to_vec();
+        }
+        match crate::project::fzf_matches(folders, query) {
+            Ok(matches) => matches,
+            Err(e) => {
+                if !self.fzf_missing.replace(true) {
+                    crate::notify::tasks(&format!("{e:#}; the project list matches plain text instead."));
+                }
+                crate::project::substring_matches(folders, query)
+            }
+        }
     }
 
     /// Measure the cards, the tabs and the footer, and size the surface to them: the
@@ -846,7 +913,7 @@ impl Panel {
             if let Some(m) = &moving {
                 // Which task is moving, over the folders.
                 self.column.append(&empty_line(&format!("{}: {}", Action::Move.label(false), m.text)));
-                for (at, folder) in m.folders.iter().enumerate() {
+                for (at, folder) in m.shown.iter().enumerate() {
                     let card = self.folder_card(at, folder);
                     self.column.append(&card.0);
                     folders.push(card);
@@ -862,8 +929,9 @@ impl Panel {
                 self.column.append(&empty_line(text));
             }
         });
-        // The project list has no tabs: they filter task cards.
-        self.tabs.set_visible(keyboard && moving.is_none());
+        // On the project list the bar holds its text field instead of the
+        // tabs, which filter task cards.
+        self.tabs.set_visible(keyboard);
         // The footer names the cards' keys, so not on Ideas, where the
         // text area takes Enter and Delete as typing; on the project list,
         // its own.
@@ -879,8 +947,10 @@ impl Panel {
 
         if ideas {
             self.notepad.focus();
-        } else if let Some(m) = &moving {
-            self.focus_folder(m.at);
+        } else if moving.is_some() {
+            // Without selecting: a render mid-typing must not select what
+            // was typed, for the next key to replace.
+            self.query.grab_focus_without_selecting();
         } else if keyboard {
             self.focus_on(focus.as_ref());
         }
@@ -982,8 +1052,10 @@ impl Panel {
     }
 
     /// One folder on the project list, drawn as a task card is: a box
-    /// holding a body button with the folder's icon and name. Enter or a
-    /// click on it moves the task there.
+    /// holding a body button with the folder's icon and name. A click on it
+    /// moves the task there. Out of the focus chain: the text field keeps
+    /// the keyboard, and the highlight (`sync`) says which folder Enter
+    /// takes.
     fn folder_card(self: &Rc<Self>, at: usize, folder: &str) -> (gtk4::Box, gtk4::Button) {
         let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         root.add_css_class("task-card");
@@ -994,6 +1066,7 @@ impl Panel {
         label.set_xalign(0.0);
         let body = gtk4::Button::builder().child(&label).build();
         body.add_css_class("card-body");
+        body.set_focusable(false);
         body.set_focus_on_click(false);
         let weak = Rc::downgrade(self);
         body.connect_clicked(move |_| {
@@ -1004,16 +1077,6 @@ impl Panel {
         });
         root.append(&body);
         (root, body)
-    }
-
-    /// GTK's focus on the project list's folder card `at`; connect_focus
-    /// then scrolls it into view. The button is cloned out first: grabbing
-    /// the focus runs connect_focus there and then.
-    fn focus_folder(&self, at: usize) {
-        let body = self.folders.borrow().get(at).map(|(_, body)| body.clone());
-        if let Some(body) = body {
-            body.grab_focus();
-        }
     }
 
     /// The state's focus as GTK's, its card's row shown first: a hidden
@@ -1067,6 +1130,10 @@ impl Panel {
             let state = self.state.borrow();
             (state.focus().cloned(), state.armed().clone())
         };
+        let picked = self.state.borrow().moving().map(|m| m.at);
+        for (at, (root, _)) in self.folders.borrow().iter().enumerate() {
+            set_class(root, "picked", picked == Some(at));
+        }
         let clear_armed = matches!(armed, Armed::ClearAll { .. });
         // Armed, its label is longer and the strip wider: the blur follows it.
         let relabelled = self.clear.label().as_deref() != Some(clear_label(clear_armed).as_str());
@@ -1392,14 +1459,17 @@ struct TabBar {
     bar: gtk4::Box,
     tab_buttons: Vec<gtk4::Button>,
     ideas: gtk4::Button,
+    /// The project list's text field, on the bar in the tabs' place.
+    query: gtk4::Entry,
     /// Clear all's own strip, at the right under the bar, shown on the
     /// Waiting tab alone.
     clear_strip: gtk4::Box,
     clear: gtk4::Button,
 }
 
-/// The filter tabs and Ideas on a bar, and under it Clear all on a strip of
-/// its own, over the scroller rather than in it, so they stay put while the
+/// The filter tabs and Ideas on a bar (the project list's text field in
+/// their place while it shows), and under it Clear all on a strip of its
+/// own, over the scroller rather than in it, so they stay put while the
 /// cards scroll. Clear all is off the bar because the seven tabs fill the
 /// card's width. Ring room on three sides, as the column keeps, and under
 /// them the card gap less the ring the column keeps above the first card:
@@ -1433,6 +1503,14 @@ fn tab_bar() -> TabBar {
     ideas.set_focusable(false);
     ideas.set_focus_on_click(false);
     bar.append(&ideas);
+    // The project list's text field, the whole bar wide while it shows and
+    // the tabs hide.
+    let query = gtk4::Entry::new();
+    query.add_css_class("project-query");
+    query.set_placeholder_text(Some("Type to find a project"));
+    query.set_hexpand(true);
+    query.set_visible(false);
+    bar.append(&query);
     // Clear all's strip: dressed as the bar is, and End keeps it its own
     // width at the right, under the bar's end.
     let clear_strip = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
@@ -1450,7 +1528,7 @@ fn tab_bar() -> TabBar {
     clear.set_focus_on_click(false);
     clear_strip.append(&clear);
     head.append(&clear_strip);
-    TabBar { head, bar, tab_buttons, ideas, clear_strip, clear }
+    TabBar { head, bar, tab_buttons, ideas, query, clear_strip, clear }
 }
 
 /// The keys that act on whichever card has the focus, in a strip shaped like

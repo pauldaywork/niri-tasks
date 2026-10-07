@@ -76,10 +76,13 @@ the buttons — only the keyboard does.
 
 **Move to workspace** swaps the cards for a list of your `~/Projects`
 folders, drawn like cards under a line naming the task: every folder but
-this workspace's own. Up and Down walk it, and Enter or a click moves the
-task there, retagging it to that folder's workspace, and goes back to the
-cards with the next one focused. Escape goes back to the cards on the same
-one without moving it.
+this workspace's own. Type to narrow it: a field above the folders ranks
+them as fzf does, best match first, and the highlight goes to the top match
+(without fzf it keeps the folders whose names hold what you typed). Up and
+Down move the highlight, and Enter or a click moves the task there,
+retagging it to that folder's workspace, and goes back to the cards with
+the next one focused. Escape clears what you typed, and on an empty field
+goes back to the cards on the same one without moving it.
 
 Ctrl+Enter and Ctrl+Delete act on the focused card, whichever of its buttons is
 focused, without giving the keyboard back. Ctrl+Enter refines the task, or
@@ -164,7 +167,9 @@ copy to keep in sync.
 
 `niri`, `taskwarrior`, `fuzzel`, `ghostty` 1.2 or later (for `+new-window`),
 and a Rust toolchain to build with. `notify-send` is used for feedback and
-degrades to stderr without it.
+degrades to stderr without it. `fzf` ranks what you type on Move to
+workspace's project list; without it the list matches plain text instead,
+and says so once.
 
 [herdr](https://herdr.dev) is optional. With it on `$PATH`, `niritasks project
 open` runs the workspace's herdr session in the project terminal; without it the

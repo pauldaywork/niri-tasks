@@ -212,6 +212,21 @@ window.task-panel {{ background-color: transparent; }}
    tabs' dimmed colour and the press reset's clear fill. */
 .task-panel .filter-tabs .clear-all {{ color: {REMOVE}; }}
 .task-panel .filter-tabs .clear-all.confirm {{ background-color: {REMOVE}; color: {ON_FILL}; }}
+/* The project list's text field, in the tab bar's place: the bar's own
+   fill and rounding, so no frame, fill or focus ring of the theme's. */
+.task-panel .filter-tabs entry.project-query {{
+    background-color: transparent;
+    background-image: none;
+    color: {TEXT};
+    caret-color: {TEXT};
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    outline: none;
+    min-height: 0;
+    padding: {ACTION_PADDING};
+    font: inherit;
+}}
 /* An empty tab's one line, padded like a card's text and dimmed like
    \"+N more\". */
 .task-panel .filter-empty {{ padding: {PADDING_PX}px; color: alpha({TEXT}, 0.55); }}
@@ -226,7 +241,8 @@ window.task-panel {{ background-color: transparent; }}
    last key press (VISIBLE_FOCUS_DURATION), and the darker fill would vanish
    mid-pick. Within, so the card stays darkened while one of its buttons is
    focused. */
-.task-panel .task-card:focus-within {{ background-color: {FOCUSED_BACKGROUND}; }}
+.task-panel .task-card:focus-within,
+.task-panel .task-card.picked {{ background-color: {FOCUSED_BACKGROUND}; }}
 .task-panel .task-card.active {{ color: {ACTIVE}; }}
 .task-panel .task-card.blocked,
 .task-panel .task-card.waiting,
@@ -269,7 +285,7 @@ mod tests {
             ".task-card.active { color: #8cd283; }",
             "padding: 12px",
             "font: 10pt \"Iosevka Term Extended\"",
-            ".task-card:focus-within { background-color: rgba(0, 0, 0, 0.6); }",
+            ".task-card.picked { background-color: rgba(0, 0, 0, 0.6); }",
         ] {
             assert!(css.contains(want), "missing `{want}`");
         }
@@ -498,4 +514,23 @@ mod tests {
             ".task-panel .card-age {{ color: alpha({TEXT}, 0.55); padding-left: {PADDING_PX}px; }}"
         )));
     }
+
+    /// The project list's highlighted folder is darkened as the focused card
+    /// is: the text field keeps the focus, so :focus-within cannot do it.
+    #[test]
+    fn the_picked_folder_is_darkened_like_the_focused_card() {
+        assert!(css().contains(".task-panel .task-card:focus-within,\n.task-panel .task-card.picked { background-color: rgba(0, 0, 0, 0.6); }"));
+    }
+
+    /// The text field wears the bar's look, not the theme's frame.
+    #[test]
+    fn the_project_field_has_no_frame_of_its_own() {
+        let css = css();
+        let rule = css.split(".task-panel .filter-tabs entry.project-query {").nth(1).expect("a rule for the field");
+        let rule = rule.split('}').next().unwrap();
+        for want in ["background-color: transparent;", "border: none;", "box-shadow: none;", "outline: none;"] {
+            assert!(rule.contains(want), "missing `{want}`");
+        }
+    }
+
 }

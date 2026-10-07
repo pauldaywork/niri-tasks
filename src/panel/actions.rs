@@ -151,9 +151,9 @@ pub const CONFIRM_CLEAR_ALL: &str = "Confirm clear all";
 /// out.
 pub const CARD_KEYS: &str = "Enter: press the button · Ctrl+Del: delete the task";
 
-/// The footer while the project list shows: the keys it takes, which are
-/// all it takes.
-pub const MOVE_KEYS: &str = "Up, Down: pick a folder · Enter: move the task there · Esc: back";
+/// The footer while the project list shows: typing narrows it, and these
+/// are the keys that act.
+pub const MOVE_KEYS: &str = "Type to filter · Up, Down: pick · Enter: move the task there · Esc: clear, then back";
 
 /// A folder card's icon on the project list: Font Awesome's folder, Move to
 /// workspace's open one shut.

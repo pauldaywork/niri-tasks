@@ -126,9 +126,11 @@ _Avoid_: sliver, handle, tab
 **Project list**:
 What Move to workspace shows in the task panel in place of the task cards:
 the `~/Projects` folders the task can move to, every one but its own
-workspace's, drawn like task cards under a line naming the task. Up and
-Down walk it, Enter or a click moves the task to that folder's workspace,
-and Escape goes back to the task cards on the same card.
+workspace's, drawn like task cards under a line naming the task, with a
+text field above them that narrows them to fzf's matches as you type. Up
+and Down move the highlight, Enter or a click moves the task to that
+folder's workspace, and Escape clears the text, then goes back to the task
+cards on the same card.
 _Avoid_: picker (the fuzzel list Mod+Alt+W opens), menu, folder list
 
 **Task box**:
