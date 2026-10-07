@@ -11,11 +11,12 @@
 //!
 //!   1. which workspace each monitor is showing, over the niri socket (no
 //!      subprocess), and
-//!   2. the mtime of taskwarrior's `pending.data` (a stat).
+//!   2. the mtimes of taskwarrior's `pending.data` and `completed.data` (two
+//!      stats).
 //!
 //! `task export` is a subprocess and the expensive part, so it runs only when
 //! one of those actually moved, and once per workspace tag rather than once
-//! per monitor. Idle cost is a socket round-trip and a stat.
+//! per monitor. Idle cost is a socket round-trip and two stats.
 
 use crate::panel::{model, style, Panel};
 use crate::{niri, tag, task};
@@ -45,19 +46,25 @@ struct State {
     /// Connector → the name of the workspace it shows. `None` until the first
     /// tick, and again after a hotplug, to force a redraw.
     outputs: Option<BTreeMap<String, Option<String>>>,
-    task_mtime: Option<SystemTime>,
+    /// [`task_db_mtimes`] at the last tick.
+    task_mtimes: [Option<SystemTime>; 2],
 }
 
-fn pending_data_path() -> Option<std::path::PathBuf> {
-    // Honour TASKDATA so a sandboxed run watches the right file.
+/// One of taskwarrior's data files. Honour TASKDATA so a sandboxed run
+/// watches the right one.
+fn data_path(file: &str) -> Option<std::path::PathBuf> {
     if let Some(d) = std::env::var_os("TASKDATA") {
-        return Some(std::path::PathBuf::from(d).join("pending.data"));
+        return Some(std::path::PathBuf::from(d).join(file));
     }
-    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".task/pending.data"))
+    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".task").join(file))
 }
 
-fn task_db_mtime() -> Option<SystemTime> {
-    std::fs::metadata(pending_data_path()?).ok()?.modified().ok()
+/// The mtimes of `pending.data` and `completed.data`. Both: editing, noting
+/// or removing a finished task writes `completed.data` alone, and its card
+/// on the Finished tab has to follow.
+fn task_db_mtimes() -> [Option<SystemTime>; 2] {
+    ["pending.data", "completed.data"]
+        .map(|file| data_path(file).and_then(|p| std::fs::metadata(p).ok()?.modified().ok()))
 }
 
 /// Every task card for a workspace, or none when it is unnamed or empty. The
@@ -73,6 +80,9 @@ fn cards_for_workspace(name: Option<&str>) -> Vec<model::Card> {
     // Waiting ones too, for the keyboard's Waiting tab; the panel keeps them
     // off the hover and the peek.
     tasks.extend(task::waiting_for_tag(&t).unwrap_or_default());
+    // The last few finished, for the Finished tab; the panel keeps them off
+    // every other tab, the hover and the peek, as it does waiting ones.
+    tasks.extend(task::completed_for_tag(&t).unwrap_or_default());
     if tasks.is_empty() {
         return Vec::new();
     }
@@ -276,11 +286,11 @@ fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {
     let outputs = niri::workspaces()
         .map(|ws| niri::active_workspace_by_output(&ws))
         .unwrap_or_default();
-    let mtime = task_db_mtime();
+    let mtimes = task_db_mtimes();
 
     {
         let s = state.borrow();
-        if s.outputs.as_ref() == Some(&outputs) && s.task_mtime == mtime {
+        if s.outputs.as_ref() == Some(&outputs) && s.task_mtimes == mtimes {
             return; // nothing moved; skip the subprocess
         }
     }
@@ -300,7 +310,7 @@ fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {
 
     let mut s = state.borrow_mut();
     s.outputs = Some(outputs);
-    s.task_mtime = mtime;
+    s.task_mtimes = mtimes;
 }
 
 /// Give every monitor a panel, keyed by its connector, and drop panels whose
@@ -353,12 +363,18 @@ fn sync_monitors(app: &Application, display: &gdk::Display, panels: &Panels, sta
 mod tests {
     use super::*;
 
+    /// Both files the tick watches follow TASKDATA, so a sandboxed run
+    /// watches its own.
     #[test]
-    fn pending_data_path_follows_taskdata() {
+    fn data_paths_follow_taskdata() {
         std::env::set_var("TASKDATA", "/tmp/somewhere");
         assert_eq!(
-            pending_data_path().unwrap(),
+            data_path("pending.data").unwrap(),
             std::path::PathBuf::from("/tmp/somewhere/pending.data")
+        );
+        assert_eq!(
+            data_path("completed.data").unwrap(),
+            std::path::PathBuf::from("/tmp/somewhere/completed.data")
         );
         std::env::remove_var("TASKDATA");
     }
