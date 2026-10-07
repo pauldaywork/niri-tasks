@@ -409,10 +409,8 @@ pub fn quick_command(exe: &str, uuid: &str) -> Vec<String> {
 /// Hand a task just added to the refine-task skill — Add & refine.
 ///
 /// In a `niritasks task refine` process of its own, spawned by niri as the
-/// panel's Refine button is: the daemon's GTK loop must never wait on herdr,
-/// and a child of `niritasks task add` would inherit the `flock` the
-/// Mod+Alt+T binds hold and keep it for as long as Claude's terminal stayed
-/// open. That process reports its own failures; this only reports failing to
+/// panel's Refine button is: the daemon's GTK loop must never wait on herdr.
+/// That process reports its own failures; this only reports failing to
 /// start it. Either way the task is already added.
 pub fn spawn_quick(uuid: &str) {
     let result = std::env::current_exe()

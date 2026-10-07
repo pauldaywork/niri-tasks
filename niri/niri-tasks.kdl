@@ -29,16 +29,10 @@ layer-rule {
     }
 }
 
-// One of the binds below is guarded against opening twice, and only one needs
-// to be.
-//
-// The task panel and its project list are the daemon's own surfaces, one per
-// monitor, so pressing their keys again shows the same one again rather than a
-// second. The task box is the exception: it is the GTK window in
-// src/taskbox.rs, a new one each time, so pressing Mod+Alt+T twice stacked two
-// boxes. It spawns nothing that outlives it — Add & refine's refine goes
-// through niri's spawn, not as its child — so a flock held across it is
-// released when it closes.
+// None of these binds is guarded against a double press. Each spawns a
+// niritasks process that asks the daemon over its socket and exits at once,
+// so a lock here would be held for milliseconds and guard nothing; keeping
+// the daemon to one task box at a time is the daemon's job.
 binds {
     // A terminal in the focused workspace's project folder, ~/Projects/<name>
     // (or ~/Projects when there is no such folder). This replaces the plain
@@ -63,10 +57,10 @@ binds {
     // focused card's buttons act on it (start working, refine, edit, complete,
     // move, remove). With no tasks on the workspace, or a workspace with no
     // name, a notification says so instead.
-    Mod+Alt+T hotkey-overlay-title="Add Task" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niritasks-taskbox.lock\" niritasks task add"; }
+    Mod+Alt+T hotkey-overlay-title="Add Task" { spawn "niritasks" "task" "add"; }
     // Mod+Alt+Shift+T is the same box with Add & refine as the default: once
     // added, the task opens in a "Refine: …" tab of the workspace's herdr
-    // session. Same lock as Mod+Alt+T, so the two share one box at a time.
-    Mod+Alt+Shift+T hotkey-overlay-title="Add Task and Refine" { spawn-sh "flock -n \"${XDG_RUNTIME_DIR:-/tmp}/niritasks-taskbox.lock\" niritasks task add --refine"; }
+    // session.
+    Mod+Alt+Shift+T hotkey-overlay-title="Add Task and Refine" { spawn "niritasks" "task" "add" "--refine"; }
     Mod+Alt+Ctrl+T hotkey-overlay-title="Workspace Tasks: pick on the panel" { spawn "niritasks" "task" "panel"; }
 }
