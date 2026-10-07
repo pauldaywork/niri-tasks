@@ -194,6 +194,26 @@ pub fn open_args(row: &str) -> Vec<String> {
     vec!["project".to_string(), "open".to_string(), row.to_string()]
 }
 
+/// The project list Mod+Alt+W shows: every `~/Projects` folder, then the
+/// account's GitHub repos not cloned yet, from the cache `project open`
+/// refreshes. Read on every open, so a folder made since shows.
+pub fn open_rows() -> Result<Vec<String>> {
+    let (_, names) = list()?;
+    let cached = crate::github::cache_path()
+        .map(|cache| crate::github::read_cache(&cache))
+        .unwrap_or_default();
+    Ok(rows_to_open(&names, &cached))
+}
+
+/// [`open_rows`] from the folders and the cached repo names: the folders,
+/// then each repo that is not one already, marked as GitHub's. Split out so
+/// it is tested without the real `~/Projects` or cache.
+pub fn rows_to_open(names: &[String], cached: &[String]) -> Vec<String> {
+    let mut rows = names.to_vec();
+    rows.extend(crate::github::remote_only(cached, names).iter().map(|n| crate::github::mark(n)));
+    rows
+}
+
 /// The editor opened beside the terminal when a project workspace starts.
 pub const EDITOR: &str = "code";
 
@@ -531,5 +551,17 @@ mod tests {
     #[test]
     fn opening_a_row_is_project_open_with_the_row() {
         assert_eq!(open_args("alpha  (github)"), vec!["project", "open", "alpha  (github)"]);
+    }
+
+    /// The folders first, then each cached repo that is not one already,
+    /// marked as GitHub's.
+    #[test]
+    fn rows_to_open_are_folders_then_uncloned_repos() {
+        let names: Vec<String> = ["alpha", "hansard"].iter().map(|s| s.to_string()).collect();
+        let cached: Vec<String> = ["convo", "hansard"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(
+            rows_to_open(&names, &cached),
+            vec!["alpha".to_string(), "hansard".to_string(), crate::github::mark("convo")]
+        );
     }
 }

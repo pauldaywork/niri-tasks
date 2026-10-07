@@ -1,5 +1,5 @@
-//! Asking the running daemon to open the task box, or to hand the task panel
-//! the keyboard.
+//! Asking the running daemon to open the task box, to hand the task panel
+//! the keyboard, or to show its project list.
 //!
 //! The box is a GTK window, and building one costs about 2.6s on a cold start
 //! and 0.6s warm — every time, because each `niritasks task add` was its own process.
@@ -21,6 +21,7 @@
 //! edit <uuid>
 //! note <uuid>
 //! panel
+//! projects
 //! ```
 
 use anyhow::{Context, Result};
@@ -37,6 +38,9 @@ pub enum Request {
     Note(String),
     /// Slide out the focused monitor's task panel and give it the keyboard.
     Panel,
+    /// Show the focused monitor's project list, for opening a project, with
+    /// the keyboard: Mod+Alt+W.
+    Projects,
 }
 
 impl Request {
@@ -47,6 +51,7 @@ impl Request {
             Request::Edit(uuid) => format!("edit {uuid}"),
             Request::Note(uuid) => format!("note {uuid}"),
             Request::Panel => "panel".into(),
+            Request::Projects => "projects".into(),
         }
     }
 
@@ -55,6 +60,7 @@ impl Request {
         match (parts.next()?, parts.next()) {
             ("add", rest) => Some(Request::Add { refine: rest == Some("refine") }),
             ("panel", _) => Some(Request::Panel),
+            ("projects", _) => Some(Request::Projects),
             ("edit", Some(uuid)) if !uuid.is_empty() => Some(Request::Edit(uuid.to_string())),
             ("note", Some(uuid)) if !uuid.is_empty() => Some(Request::Note(uuid.to_string())),
             _ => None,
@@ -129,6 +135,7 @@ mod tests {
             Request::Edit("abc-123".into()),
             Request::Note("def-456".into()),
             Request::Panel,
+            Request::Projects,
         ] {
             assert_eq!(Request::decode(&req.encode()), Some(req));
         }
@@ -143,6 +150,13 @@ mod tests {
         assert_eq!(Request::decode("add\n"), Some(Request::Add { refine: false }));
         assert_eq!(Request::decode("add refine\n"), Some(Request::Add { refine: true }));
         assert_eq!(Request::decode("add sideways"), Some(Request::Add { refine: false }));
+    }
+
+    /// Mod+Alt+W's project list is a request of its own, with no uuid.
+    #[test]
+    fn projects_is_one_word() {
+        assert_eq!(Request::Projects.encode(), "projects");
+        assert_eq!(Request::decode("projects\n"), Some(Request::Projects));
     }
 
     #[test]

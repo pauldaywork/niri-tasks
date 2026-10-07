@@ -61,6 +61,13 @@
 //! cards on the next one, and Escape clears the text, then goes back to the
 //! cards on the same one.
 //!
+//! Mod+Alt+W shows the same list for opening a project (`state::Purpose::Open`):
+//! every `~/Projects` folder, then the GitHub repos not cloned yet, under
+//! "Open a project", with or without cards, on a named workspace or not.
+//! Enter or a click gives the keyboard back and runs `project open` with the
+//! row; text matching no row makes a folder of it, and a line says so
+//! first. Escape clears the text, then gives the keyboard back.
+//!
 //! GTK's focus and the state's are kept the same both ways: an
 //! [`Effect::Focus`] moves GTK's, and GTK's moving (a click on a button)
 //! tells the state, which is how moving off an armed Remove disarms it. A
@@ -630,26 +637,40 @@ impl Panel {
     /// its buttons, focusing the first. `agents` are the session's live agent
     /// names, for which cards get Go to session. False when there are no cards
     /// to take it for.
+    pub fn take_keyboard(self: &Rc<Self>, agents: Vec<String>) -> bool {
+        if !self.state.borrow_mut().take_keyboard(agents) {
+            return false;
+        }
+        self.centre(vec![Effect::Render]);
+        true
+    }
+
+    /// Mod+Alt+W: the project list for opening a project, in the middle of
+    /// the monitor with the keyboard, as `take_keyboard` puts the cards
+    /// there. With no cards too: the panel shows for the list alone.
+    pub fn open_projects(self: &Rc<Self>, rows: Vec<String>) {
+        let effects = self.state.borrow_mut().open_projects(rows);
+        self.centre(effects);
+    }
+
+    /// Hold the keyboard in the middle of the monitor, running `effects`,
+    /// the state's render, on the way.
     ///
     /// The right anchor alone already centres the surface vertically; its
     /// right margin grows to half the room the surface leaves, centring it
     /// across too. The margin rides on the same slide as the cards, so they
     /// slide out from the peek all the way to the middle. The peek goes with
     /// it: there is one surface, and it is in the middle now.
-    pub fn take_keyboard(self: &Rc<Self>, agents: Vec<String>) -> bool {
-        if !self.state.borrow_mut().take_keyboard(agents) {
-            return false;
-        }
+    fn centre(self: &Rc<Self>, effects: Vec<Effect>) {
         self.cancel_grace();
         // Afresh every time: another panel may have saved this tag's ideas
         // since, its workspace having moved monitor.
         self.notepad.load(&self.tag.borrow());
         self.window.set_keyboard_mode(KeyboardMode::Exclusive);
-        self.apply(vec![Effect::Render]);
+        self.apply(effects);
         // After the render, which measures the cards the region needs.
         self.slide_to(CENTRED_X, centre_margin(self.monitor.geometry().width()));
         self.start_spinner();
-        true
     }
 
     /// Run what the state asked for, in order, then draw what it says that a

@@ -191,6 +191,10 @@ fn debug(msg: &str) {
 /// What Mod+Alt+Ctrl+T says on a workspace with no task to show.
 pub const NO_TASKS: &str = "No tasks here — Mod+Alt+T adds one.";
 
+/// What Mod+Alt+W says when the focused monitor has no panel to show the
+/// project list on: a monitor GTK has not named yet (see `sync_monitors`).
+pub const NO_PANEL: &str = "No task panel on this monitor yet to show the project list on.";
+
 /// What Mod+Alt+Ctrl+T says when there is no card to hand the keyboard to:
 /// the tag's own refusal on an unnamed workspace, which says how to name it,
 /// else that the workspace has no tasks. `tag` is
@@ -204,11 +208,22 @@ fn no_cards_text(tag: anyhow::Result<String>) -> String {
 
 /// Open the box for a request from the CLI, and do the taskwarrior work when it
 /// is submitted — the CLI has already exited by then, so this side owns it. Or
-/// hand the focused monitor's panel the keyboard.
+/// hand the focused monitor's panel the keyboard, on its cards or on the project list.
 fn serve_box_request(app: &Application, req: crate::ipc::Request) {
     use crate::{ipc::Request, notify, task, taskbox, text};
 
     match req {
+        Request::Projects => {
+            let output = niri::focused_workspace().ok().flatten().and_then(|w| w.output);
+            let Some(panel) = output.and_then(|o| PANELS.with(|p| p.borrow().get(&o).cloned())) else {
+                notify::tasks(NO_PANEL);
+                return;
+            };
+            match crate::project::open_rows() {
+                Ok(rows) => panel.open_projects(rows),
+                Err(e) => notify::tasks(&e.to_string()),
+            }
+        }
         Request::Panel => {
             let focused = niri::focused_workspace().ok().flatten();
             let output = focused.as_ref().and_then(|w| w.output.clone());
