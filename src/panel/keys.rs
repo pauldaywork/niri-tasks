@@ -23,9 +23,9 @@ pub enum KeyAction {
     NextSlot,
     /// Press this button on the focused card, if it has one.
     Run(Action),
-    /// 1 to 5: show this filter tab's cards, when it is shown.
+    /// 1 to 6: show this filter tab's cards, when it is shown.
     Filter(Filter),
-    /// 6: the Ideas tab, after the filter tabs.
+    /// 7: the Ideas tab, after the filter tabs.
     Ideas,
     /// [ and ]: the tab either side, Ideas the last, stopping at the ends as
     /// the cards do. Ctrl+[ and Ctrl+] on Ideas.
@@ -81,7 +81,8 @@ pub fn key_action(key: gdk::Key, ctrl: bool, shift: bool) -> KeyAction {
         gdk::Key::_3 => KeyAction::Filter(Filter::TABS[2]),
         gdk::Key::_4 => KeyAction::Filter(Filter::TABS[3]),
         gdk::Key::_5 => KeyAction::Filter(Filter::TABS[4]),
-        gdk::Key::_6 => KeyAction::Ideas,
+        gdk::Key::_6 => KeyAction::Filter(Filter::TABS[5]),
+        gdk::Key::_7 => KeyAction::Ideas,
         gdk::Key::bracketleft => KeyAction::PrevFilter,
         gdk::Key::bracketright => KeyAction::NextFilter,
         // A letter presses the row's button that has it.
@@ -200,10 +201,10 @@ mod tests {
         assert_eq!(step(0, 0, true), 0);
     }
 
-    /// 1 to 5 are the tabs left to right.
+    /// 1 to 6 are the tabs left to right.
     #[test]
     fn numbers_pick_the_tabs_in_order() {
-        let numbers = [gdk::Key::_1, gdk::Key::_2, gdk::Key::_3, gdk::Key::_4, gdk::Key::_5];
+        let numbers = [gdk::Key::_1, gdk::Key::_2, gdk::Key::_3, gdk::Key::_4, gdk::Key::_5, gdk::Key::_6];
         for (key, filter) in numbers.into_iter().zip(Filter::TABS) {
             assert_eq!(key_action(key, false, false), KeyAction::Filter(filter), "{key:?}");
         }
@@ -215,16 +216,16 @@ mod tests {
         assert_eq!(key_action(gdk::Key::bracketright, false, false), KeyAction::NextFilter);
     }
 
-    /// 6 is the Ideas tab, after the five filter tabs.
+    /// 7 is the Ideas tab, after the six filter tabs.
     #[test]
-    fn six_picks_ideas() {
-        assert_eq!(key_action(gdk::Key::_6, false, false), KeyAction::Ideas);
+    fn seven_picks_ideas() {
+        assert_eq!(key_action(gdk::Key::_7, false, false), KeyAction::Ideas);
     }
 
-    /// Past the six tabs a number is nothing, not a seventh tab.
+    /// Past the seven tabs a number is nothing, not an eighth tab.
     #[test]
     fn other_numbers_pass_through() {
-        for key in [gdk::Key::_0, gdk::Key::_7, gdk::Key::_9] {
+        for key in [gdk::Key::_0, gdk::Key::_8, gdk::Key::_9] {
             assert_eq!(key_action(key, false, false), KeyAction::Ignore, "{key:?}");
         }
     }
@@ -239,6 +240,7 @@ mod tests {
             gdk::Key::S,
             gdk::Key::_1,
             gdk::Key::_6,
+            gdk::Key::_7,
             gdk::Key::bracketleft,
             gdk::Key::bracketright,
             gdk::Key::Return,

@@ -144,8 +144,9 @@ impl PanelState {
     }
 
     /// Nothing to show, so the panel hides. The hover and the peek show no
-    /// waiting task, so they hide with nothing else; the keyboard's panel
-    /// still has the Waiting tab, and hides only with no task at all. On
+    /// waiting or finished task, so they hide with nothing else; the
+    /// keyboard's panel still has the Waiting and Finished tabs, and hides
+    /// only with no task at all. On
     /// Ideas it never hides: the notepad is there with no task too.
     pub fn hidden(&self) -> bool {
         if self.keyboard {
@@ -458,7 +459,7 @@ impl PanelState {
         self.pick(Tab::Filter(back))
     }
 
-    /// 1 to 5 pick a filter tab and 6 Ideas; [ and ] step along the tabs on
+    /// 1 to 6 pick a filter tab and 7 Ideas; [ and ] step along the tabs on
     /// show, Ideas the last, stopping at the ends.
     fn filter_key(&mut self, key: KeyAction) -> Vec<Effect> {
         let to = match key {
@@ -748,6 +749,99 @@ mod tests {
         key(&mut state, KeyAction::PrevFilter);
         assert_eq!(state.tab(), Tab::Filter(Filter::All));
         assert_eq!(key(&mut state, KeyAction::PrevFilter), Vec::new());
+    }
+
+    // ─── the Finished tab ────────────────────────────────────────────────
+
+    /// Finished tasks are off the hover and the peek, as waiting ones are,
+    /// and a workspace with only finished tasks shows nothing on its edge.
+    #[test]
+    fn finished_tasks_are_off_the_hover() {
+        let mut state = PanelState::default();
+        state.set_cards(&[card("a", Status::Pending), card("f", Status::Finished)]);
+        assert_eq!(uuids(&state), vec!["a"]);
+        state.set_cards(&[card("f", Status::Finished)]);
+        assert!(state.hidden());
+    }
+
+    /// Only finished tasks: the keyboard's panel opens on All saying it has
+    /// none, beside the Finished tab, as with only waiting tasks.
+    #[test]
+    fn only_finished_tasks_open_on_all_beside_the_finished_tab() {
+        let state = keyboard(vec![card("f", Status::Finished)]);
+        assert!(!state.hidden());
+        assert_eq!(state.empty_text(), Some("No tasks"));
+        assert_eq!(state.tabs(), vec![Filter::All, Filter::Finished]);
+        assert_eq!(state.focus(), None);
+    }
+
+    /// After Waiting, and only while it has a task.
+    #[test]
+    fn the_finished_tab_shows_after_waiting_while_it_has_a_task() {
+        let state = keyboard(vec![card("p", Status::Pending), card("w", Status::Waiting), card("f", Status::Finished)]);
+        assert_eq!(state.tabs(), vec![Filter::All, Filter::ToRefine, Filter::Waiting, Filter::Finished]);
+        assert!(!keyboard(pending(&["p"])).tabs().contains(&Filter::Finished));
+    }
+
+    /// Its cards alone, each with Back to list, Edit, Speak and Remove, and
+    /// no Clear all.
+    #[test]
+    fn the_finished_tab_lists_its_cards_with_their_buttons_and_no_clear_all() {
+        let mut state = keyboard(vec![card("p", Status::Pending), card("f1", Status::Finished), card("f2", Status::Finished)]);
+        assert_eq!(uuids(&state), vec!["p"], "All leaves them out");
+        assert_eq!(key(&mut state, KeyAction::Filter(Filter::Finished)), vec![Effect::Render]);
+        assert_eq!(uuids(&state), vec!["f1", "f2"]);
+        assert_eq!(state.visible()[0].actions, vec![Action::Back, Action::Edit, Action::Speak, Action::Remove]);
+        assert_eq!(state.focus(), focused("f1", Slot::Body).as_ref());
+        assert!(!state.shows_clear_all());
+        assert_eq!(key(&mut state, KeyAction::ClearAll), Vec::new());
+    }
+
+    /// Back to list reopens the task with `task status <uuid> stopped`: it
+    /// leaves the tab, the focus moves on and the keyboard stays. Once the
+    /// daemon's next cards have it pending, it is back on All.
+    #[test]
+    fn back_to_list_on_a_finished_card_puts_it_back_on_all() {
+        let mut state = keyboard(vec![card("p", Status::Pending), card("f1", Status::Finished), card("f2", Status::Finished)]);
+        key(&mut state, KeyAction::Filter(Filter::Finished));
+        assert_eq!(
+            key(&mut state, KeyAction::Run(Action::Back)),
+            vec![Effect::Focus(focused("f2", Slot::Body)), Effect::Spawn(vec![
+                "task".into(), "status".into(), "f1".into(), "stopped".into(),
+            ])],
+        );
+        assert!(state.keyboard());
+        state.set_cards(&[card("p", Status::Pending), card("f1", Status::Pending), card("f2", Status::Finished)]);
+        assert_eq!(state.filter(), Filter::Finished);
+        assert_eq!(uuids(&state), vec!["f2"]);
+        key(&mut state, KeyAction::Filter(Filter::All));
+        assert_eq!(uuids(&state), vec!["p", "f1"]);
+    }
+
+    /// Finishing a task while the panel is up takes it off All and onto
+    /// the Finished tab, which comes up with it.
+    #[test]
+    fn finishing_a_task_moves_it_to_the_finished_tab() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        assert!(!state.tabs().contains(&Filter::Finished));
+        state.set_cards(&[card("b", Status::Pending), card("a", Status::Finished)]);
+        assert_eq!(uuids(&state), vec!["b"]);
+        assert!(state.tabs().contains(&Filter::Finished));
+        key(&mut state, KeyAction::Filter(Filter::Finished));
+        assert_eq!(uuids(&state), vec!["a"]);
+    }
+
+    /// [ and ] step from Waiting to Finished, then Ideas.
+    #[test]
+    fn the_brackets_step_from_waiting_to_finished_to_ideas() {
+        let mut state = keyboard(vec![card("w", Status::Waiting), card("f", Status::Finished)]);
+        key(&mut state, KeyAction::Filter(Filter::Waiting));
+        key(&mut state, KeyAction::NextFilter);
+        assert_eq!(state.tab(), Tab::Filter(Filter::Finished));
+        key(&mut state, KeyAction::NextFilter);
+        assert_eq!(state.tab(), Tab::Ideas);
+        key(&mut state, KeyAction::PrevFilter);
+        assert_eq!(state.tab(), Tab::Filter(Filter::Finished));
     }
 
     #[test]

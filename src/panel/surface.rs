@@ -56,9 +56,9 @@
 //! render tears the column down, and the focus moves GTK makes meanwhile are
 //! not the user's, so they are not passed on.
 //!
-//! Above the cards, a bar of filter tabs, All, Active, Planned, To refine and
-//! Waiting, narrows them to the tasks it names. A tab shows only while it has
-//! a task under it, All apart. 1 to 5 pick one, always the same one, and do
+//! Above the cards, a bar of filter tabs, All, Active, Planned, To refine,
+//! Waiting and Finished, narrows them to the tasks it names. A tab shows only while it has
+//! a task under it, All apart. 1 to 6 pick one, always the same one, and do
 //! nothing for a hidden tab; [ and ] step along the shown ones, stopping at
 //! the ends; a click picks one too. The tabs never take focus, so the arrows
 //! and Tab still move only between cards and buttons. The panel takes the
@@ -79,7 +79,7 @@
 //!
 //! After the filter tabs, Ideas is always shown: not a filter but the
 //! workspace's notepad, `notepad.rs`'s text area in the column in place of the
-//! cards, one per workspace tag. 6 picks it, and ] from the last filter tab.
+//! cards, one per workspace tag. 7 picks it, and ] from the last filter tab.
 //! While it is picked the text area takes every key but Escape, Ctrl+[ and
 //! Ctrl+] (`keys::ideas_key_action`), and a tick's render leaves it in place
 //! so typing keeps its focus. Escape saves and goes back to the task list, on
@@ -87,10 +87,12 @@
 //! a second after typing stops and again on leaving Ideas or giving the
 //! keyboard back, to the tag it was typed for.
 //!
-//! Waiting tasks are on the Waiting tab and nowhere else: not on All, not on
-//! the hover or the peek, so a workspace whose tasks are all waiting shows
-//! nothing on its edge. With the keyboard it opens on All, which then says it
-//! has no tasks, beside the Waiting tab.
+//! Waiting tasks are on the Waiting tab and nowhere else, and the last
+//! twelve finished ones on the Finished tab and nowhere else: not on All,
+//! not on the hover or the peek, so a workspace whose tasks are all waiting
+//! or finished shows nothing on its edge. With the keyboard it opens on
+//! All, which then says it has no tasks, beside those tabs. A finished
+//! card's Back to list reopens its task.
 //!
 //! Wrapped, the cards can stand taller than the screen, so the column sits in
 //! a scroller under the tabs, capped at the screen's height less its margins,
@@ -784,8 +786,8 @@ impl Panel {
                 self.column.append(&self.notepad.root);
             }
             if let Some(text) = empty {
-                // Only All, with every task waiting: it says so, and the
-                // Waiting tab beside it has them.
+                // Only All, with every task waiting or finished: it says so,
+                // and the tabs beside it have them.
                 self.column.append(&empty_line(text));
             }
         });
@@ -1278,9 +1280,9 @@ fn keys_footer() -> gtk4::Label {
 }
 
 /// The one line a filter tab with nothing under it shows where its cards
-/// would be (only All, when every task is waiting), in a card's look so it
-/// reads as part of the panel. Not a card: it has no task and nothing to
-/// focus.
+/// would be (only All, when every task is waiting or finished), in a card's
+/// look so it reads as part of the panel. Not a card: it has no task and
+/// nothing to focus.
 fn empty_line(text: &str) -> gtk4::Label {
     let line = gtk4::Label::new(Some(text));
     line.add_css_class("filter-empty");

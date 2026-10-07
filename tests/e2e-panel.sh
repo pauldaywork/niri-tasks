@@ -492,7 +492,7 @@ if command -v wtype >/dev/null; then
     settle
 
     # ─── the Ideas tab ───────────────────────────────────────────────────────
-    # 6 opens Ideas: no cards, one text area in the middle, taking every key
+    # 7 opens Ideas: no cards, one text area in the middle, taking every key
     # as typing, the s, 1 and ] that press a button or pick a tab elsewhere
     # included. It saves a second after typing stops, and again at once when
     # Escape goes back to the task list, the panel staying up; a second
@@ -500,7 +500,7 @@ if command -v wtype >/dev/null; then
     "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
     settle
     shot ideas_before || { summary; exit 1; }
-    "${NENV[@]}" wtype 6
+    "${NENV[@]}" wtype 7
     # The caret blinks, and no two frames are alike, until GTK's blink
     # timeout (10s without a key) stops it.
     sleep 11
@@ -599,7 +599,7 @@ fi
 if command -v wtype >/dev/null; then
     "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
     settle
-    "${NENV[@]}" wtype 6
+    "${NENV[@]}" wtype 7
     sleep 1
     "${NENV[@]}" wtype -k Return
     "${NENV[@]}" wtype 'after the restart'
