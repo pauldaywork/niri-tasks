@@ -17,7 +17,7 @@ from — opening one, or moving a task to another workspace.
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
 | `Mod+Alt+Shift+T` | The same, with Add & refine as the default: once added, the task opens in a "Refine: …" tab of the workspace's herdr session, where Claude works it up into a plan |
-| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, read it aloud, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up. Tabs above the cards, picked with 1–5 or [ and ], narrow them to All, Active, Planned, To refine or Waiting, and the Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task. Ctrl+Delete deletes the focused task at once. A hint beside the focused card's buttons, and a line under the list, name the keys. The last tab, Ideas (6), is a notepad for the workspace's ideas that are not tasks yet. With no tasks, or no daemon, the fuzzel list instead |
+| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, read it aloud, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up. Tabs above the cards, picked with 1–6 or [ and ], narrow them to All, Active, Planned, To refine, Waiting or Finished, and the Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task. Finished lists the last 12 finished tasks, and Back to list (`b`) reopens one. Ctrl+Delete deletes the focused task at once. A hint beside the focused card's buttons, and a line under the list, name the keys. The last tab, Ideas (7), is a notepad for the workspace's ideas that are not tasks yet. With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+W` | Pick a folder from `~/Projects` (or type a new name to make one), put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
 
@@ -53,11 +53,11 @@ under it:
 | **Start working** (green) | `s` | The menu's Start working: the task's own worktree, herdr tab and Claude — not on an active task, which is already being worked |
 | **Refine** (mauve) | `r` | Work it up into a plan with Claude |
 | **Edit** (yellow) | `e` | Open it in the task box |
-| **Speak** (pink) | | Read its description and notes aloud, rewritten by Claude for listening; its speaker turns into a spinner until the audio starts, and a second press stops it — on every task, waiting ones too |
-| **Up next** (yellow) | | Mark it as the one to do next: its card turns yellow and moves up under the active tasks. On a task already up next it reads **Not up next**, and clears it — not on a waiting task |
+| **Speak** (pink) | | Read its description and notes aloud, rewritten by Claude for listening; its speaker turns into a spinner until the audio starts, and a second press stops it — on every task, waiting and finished ones too |
+| **Up next** (yellow) | | Mark it as the one to do next: its card turns yellow and moves up under the active tasks. On a task already up next it reads **Not up next**, and clears it — not on a waiting or finished task |
 | **Stop** (peach) | `t` | Stop it — only on an active task |
 | **Waiting** (teal) | | Park it as waiting: off the panel, and on the Waiting tab instead |
-| **Back to list** (lavender) | `b` | Off waiting and back on the list — only on a waiting task, which gets just this, Edit, Speak and Remove |
+| **Back to list** (lavender) | `b` | Off waiting, or reopened from finished, and back on the list — only on a waiting or finished task, which gets just this, Edit, Speak and Remove |
 | **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back. `Ctrl+Delete` deletes the focused task at once, whichever of its buttons is focused, and moves on to the next card |
 | **Clear all** (red) | `Ctrl+Shift+Delete` | On the Waiting tab's bar, not a card: turns into **Confirm clear all** and takes the focus off the cards; a second press, or `Enter`, deletes every waiting task on the workspace and goes back to All, while `Escape` or moving away puts it back |
 
@@ -71,7 +71,7 @@ names the keys that act the same on every card: Enter, and Ctrl+Delete (not on
 Ideas, where the notepad takes those keys as typing). Enter
 on the card itself opens its full menu, which also has Note, Grill me, Update
 status and Move to workspace — led by Go to session while a Claude is
-working on the task, and on a waiting task just Edit, Note, Speak, Update
+working on the task, and on a waiting or finished task just Edit, Note, Speak, Update
 status and Move to workspace. Every
 button that opens something gives the keyboard back as it runs; Speak, Up next, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
 right edge, tucked away with the cards folded back to one line. A list taller
@@ -82,24 +82,27 @@ Ctrl+Enter and Ctrl+Delete act on the focused card, whichever of its buttons is
 focused, without giving the keyboard back. Ctrl+Enter refines the task, or
 starts working on it once it is planned, and the panel stays up with the same
 card focused, so you can carry on down the list. It does nothing on a task that
-is already being worked, or on a waiting task. Ctrl+Delete deletes the task at
-once, with no Confirm remove, and moves the focus to the next card (the one
-above, from the last) with the list kept up; Delete alone still asks first.
-Ctrl still held from the `Mod+Alt+Ctrl+T` chord counts, so let go of Ctrl
+is already being worked, or on a waiting or finished task. Ctrl+Delete deletes
+the task at once, with no Confirm remove, and moves the focus to the next card
+(the one above, from the last) with the list kept up; Delete alone still asks
+first. Ctrl still held from the `Mod+Alt+Ctrl+T` chord counts, so let go of Ctrl
 before pressing Enter if you only want the card's menu, or Delete if you want
 Remove to ask. Apart from Ctrl+Shift+Delete, the Waiting tab's Clear all
 (below), every other Ctrl chord passes through untouched.
 
 Above the cards, tabs narrow them while the panel has the keyboard: **All**,
 **Active** (started), **Planned** (refined or grilled into a plan, and not
-started yet), **To refine** (not planned yet) and **Waiting** (parked). A tab
-shows only while it has a task under it, All apart. `1` to `5` pick one, each
-always the same tab and doing nothing while it is hidden; `[` and `]` step to
-the shown tab either side; a click picks one too. The arrows and Tab still
-move only between cards and buttons. A started planned task is under Active,
-not Planned. Waiting tasks are on the Waiting tab only: not on All, the hover
-or the peek. The panel opens on All every time, and goes back to All when the
-tab it is on runs out of tasks. The Waiting tab alone ends in **Clear all**,
+started yet), **To refine** (not planned yet), **Waiting** (parked) and
+**Finished** (the last 12 completed, the most recently finished first, each
+aged from when it was finished). A tab shows only while it has a task under it,
+All apart. `1` to `6` pick one, each always the same tab and doing nothing
+while it is hidden; `[` and `]` step to the shown tab either side; a click
+picks one too. The arrows and Tab still move only between cards and buttons. A
+started planned task is under Active, not Planned. Waiting tasks are on the
+Waiting tab only: not on All, the hover or the peek. Finished tasks are on the
+Finished tab only, the same way, and Back to list on one reopens it, back on
+All. The panel opens on All every time, and goes back to All when the tab it is
+on runs out of tasks. The Waiting tab alone ends in **Clear all**,
 which `Ctrl+Shift+Delete` presses (`Ctrl+Delete` and `Delete` are still the
 focused card's). Like Remove it asks first, as **Confirm clear all**, and its
 second press deletes every waiting task on this workspace, one `task status <uuid>
@@ -110,15 +113,15 @@ kept. Armed, it takes the focus off the cards, so no card's buttons show and
 the card it was on, and the panel stays up; switching tab puts it back too.
 
 The last tab, **Ideas**, is not a filter: in place of the cards it shows one
-large text area, a notepad for this workspace's ideas that are not tasks yet.
-It is always there, after Waiting; `6` picks it, as `]` does from the last tab
+large text area, a notepad for this workspace's ideas that are not tasks yet. It
+is always there, after Finished; `7` picks it, as `]` does from the last tab
 before it. While it is picked every key is typing, the letters, digits and
-brackets included: `Escape` saves and goes back to the task list, on the tab
-you were on before Ideas, with the panel still up (a second `Escape` gives
-the keyboard back), and `Ctrl+[` and `Ctrl+]` switch tab. Each workspace tag
-has its own notepad, plain text in `$XDG_DATA_HOME/niri-tasks/ideas/<tag>.md`
-(under `~/.local/share` without it), saved a second after typing stops and
-again on leaving Ideas or when the panel gives the keyboard back.
+brackets included: `Escape` saves and goes back to the task list, on the tab you
+were on before Ideas, with the panel still up (a second `Escape` gives the
+keyboard back), and `Ctrl+[` and `Ctrl+]` switch tab. Each workspace tag has its
+own notepad, plain text in `$XDG_DATA_HOME/niri-tasks/ideas/<tag>.md` (under
+`~/.local/share` without it), saved a second after typing stops and again on
+leaving Ideas or when the panel gives the keyboard back.
 
 The cards are shaped like mako notifications and take a terminal window's font
 and colours: a dark tint over blurred wallpaper, with niri's faint focus-ring outline
@@ -222,7 +225,7 @@ niritasks task list --dry-run      # the picker's rows (marker, description, ¶ 
 niritasks task panel               # hand the task panel the keyboard (Mod+Alt+Ctrl+T)
 niritasks task menu <uuid>         # one task's actions, as a task card click opens them
 niritasks task status <uuid> <state>  # the menu's Update status: active|stopped|waiting|completed|deleted
-                                   #   (stopped also brings back a waiting task)
+                                   #   (stopped also brings back a waiting task, and reopens a completed one)
 niritasks task status <uuid> deleted --yes  # deleted needs --yes, the menu's confirmation
 niritasks task add <text>          # honours taskwarrior attributes: due:friday, priority:H
                                    #   to the herdr session's workspace in herdr, else the focused one

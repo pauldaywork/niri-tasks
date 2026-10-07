@@ -66,50 +66,53 @@ One task in the task panel, drawn like a notification: a status icon, a
 one-line description and, at its right end, how long ago the task was added
 (5m, 3h, 2d, 4w) — or, while the task panel has the keyboard, the whole
 description wrapped, above its action row while it has focus. The cards run
-active, then up next, then by Taskwarrior priority, newest first, with
-blocked tasks under the rest.
+active, then up next, then by Taskwarrior priority, newest first, with blocked
+tasks under the rest. A finished task's card, on the Finished tab alone, is
+dimmed, carries a check, and counts its age from when the task was finished.
 _Avoid_: row (that is the picker's word), item, block
 
 **Task action**:
 One thing that can be done to a task — Go to session, Back to list, Start
-working, Refine, Grill me, Edit, Note, Speak, Up next, Stop, Waiting or
-Remove — with its words, its icon and the `niritasks` command it runs. Which
-ones a task gets goes by its state: a waiting task gets only Back to list,
-Edit, Note, Speak and Remove. The action row and the action menu each show
-their own share of them, in their own order.
+working, Refine, Grill me, Edit, Note, Speak, Up next, Stop, Waiting or Remove
+— with its words, its icon and the `niritasks` command it runs. Which ones a
+task gets goes by its state: a waiting or finished task gets only Back to list,
+Edit, Note, Speak and Remove, and Back to list reopens a finished one. The
+action row and the action menu each show their own share of them, in their own
+order.
 _Avoid_: command (the CLI's word), button, menu entry, verb
 
 **Action row**:
-The buttons along the focused task card's bottom edge while the task panel
-has the keyboard; the other cards hide theirs — Go to session, Start working,
+The buttons along the focused task card's bottom edge while the task panel has
+the keyboard; the other cards hide theirs — Go to session, Start working,
 Refine, Edit, Speak, Up next, Stop, Waiting and Remove, an active task getting
 Stop in place of Start working, only a task with a live Claude getting Go to
-session, and a waiting task getting just Back to list, Edit, Speak and Remove —
-each running what the same entry in the task's action menu runs. After the
-buttons, dimmed, the hint names the keys that change from card to card: the
-focused button's, and what Ctrl+Enter does to the task. The keys every card
-shares, Enter and Ctrl+Delete, are on a line under the list instead.
+session, and a waiting or finished task getting just Back to list, Edit, Speak
+and Remove — each running what the same entry in the task's action menu runs.
+After the buttons, dimmed, the hint names the keys that change from card to
+card: the focused button's, and what Ctrl+Enter does to the task. The keys
+every card shares, Enter and Ctrl+Delete, are on a line under the list instead.
 _Avoid_: toolbar, button bar, quick actions
 
 **Filter tab**:
 One of the tabs above the task cards while the task panel has the keyboard —
-All, Active, Planned, To refine and Waiting — narrowing the cards to the tasks
-it names, and shown only while it has any, All apart. A filter, not a status:
-a started planned task is under Active and not Planned, To refine is every
-task that is not a planned task, and a waiting task is under Waiting alone.
-The Waiting tab alone ends in Clear all (Ctrl+Shift+Delete), which deletes
-every task under it on a second press, as Remove does one. The Ideas tab
-after them is not one.
+All, Active, Planned, To refine, Waiting and Finished — narrowing the cards to
+the tasks it names, and shown only while it has any, All apart. A filter, not a
+status: a started planned task is under Active and not Planned, To refine is
+every task that is not a planned task, and a waiting task is under Waiting
+alone. Finished lists the workspace's last 12 completed tasks, the most
+recently finished first, and a finished task is under it alone. The Waiting tab
+alone ends in Clear all (Ctrl+Shift+Delete), which deletes every task under it
+on a second press, as Remove does one. The Ideas tab after them is not one.
 _Avoid_: tab alone (Tab is also a key), category, view, status
 
 **Ideas tab**:
 The last tab above the task cards while the task panel has the keyboard,
-after Waiting and always shown: in place of the cards, one large text area,
+after Finished and always shown: in place of the cards, one large text area,
 the workspace's notepad for ideas that are not tasks yet, kept per workspace
 tag in `$XDG_DATA_HOME/niri-tasks/ideas/<tag>.md`. Not a filter tab: it shows
 no cards, and while it is picked every key is typing but Escape, which goes
 back to the task list on the tab picked before it, keeping the keyboard, and
-Ctrl+[ and Ctrl+], which switch tab. 6 picks it, as ] does from the last
+Ctrl+[ and Ctrl+], which switch tab. 7 picks it, as ] does from the last
 filter tab. Saved a second after typing stops, and again on leaving it or
 giving the keyboard back.
 _Avoid_: notes (a note row is a task's), scratchpad, memo
@@ -126,11 +129,11 @@ _Avoid_: menu, launcher
 **Action menu**:
 The fuzzel menu of what can be done to one task, opened by picking it in the
 picker, clicking its task card, or Enter on the card: Go to session while a
-Claude is working on it, then Edit, Note, Speak, Up next (Not up next on a
-task already up next), Refine, Grill me, Start working, Update status and
-Move to workspace. A waiting task's is just Edit, Note, Speak, Update status
-and Move to workspace. Speak reads the task aloud in the background; picked
-again, on any task, it stops.
+Claude is working on it, then Edit, Note, Speak, Up next (Not up next on a task
+already up next), Refine, Grill me, Start working, Update status and Move to
+workspace. A waiting task's is just Edit, Note, Speak, Update status and Move
+to workspace. So is a finished task's, from Enter on its card. Speak reads the
+task aloud in the background; picked again, on any task, it stops.
 _Avoid_: context menu, actions list
 
 **Task box**:
