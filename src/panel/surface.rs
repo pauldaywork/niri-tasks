@@ -444,7 +444,7 @@ impl Panel {
             let weak = Rc::downgrade(self);
             self.query.connect_changed(move |entry| {
                 let Some(p) = weak.upgrade() else { return };
-                let Some(folders) = p.state.borrow().moving().map(|m| m.folders.clone()) else { return };
+                let Some(folders) = p.state.borrow().projects().map(|m| m.folders.clone()) else { return };
                 let query = entry.text().to_string();
                 let shown = p.rank(&folders, &query);
                 let effects = p.state.borrow_mut().on_query(&query, shown);
@@ -540,13 +540,13 @@ impl Panel {
             let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
             // On Ideas the text area takes every key as typing, bar Escape
             // and the Ctrl+[ and Ctrl+] that switch tab.
-            let (ideas, moving) = {
+            let (ideas, listing) = {
                 let state = p.state.borrow();
-                (state.on_ideas(), state.moving().is_some())
+                (state.on_ideas(), state.projects().is_some())
             };
             let action = if ideas {
                 keys::ideas_key_action(key, ctrl)
-            } else if moving {
+            } else if listing {
                 // The project list's field takes every key as typing but
                 // the arrows, Enter and Escape.
                 keys::project_key_action(key)
@@ -750,10 +750,10 @@ impl Panel {
             }
             set_class(&self.ideas_button, "current", state.on_ideas());
             self.clear_strip.set_visible(state.shows_clear_all());
-            let moving = state.moving();
-            self.ideas_button.set_visible(moving.is_none());
-            self.query.set_visible(moving.is_some());
-            moving.map_or(String::new(), |m| m.query.clone())
+            let list = state.projects();
+            self.ideas_button.set_visible(list.is_none());
+            self.query.set_visible(list.is_some());
+            list.map_or(String::new(), |m| m.query.clone())
         };
         // Outside the borrow: setting the text runs the field's changed
         // handler there and then, which finds the state already has it.
@@ -882,7 +882,7 @@ impl Panel {
             self.jump_to(TUCKED_X, 0);
             return;
         }
-        let (shown, keyboard, empty, focus, ideas, moving) = {
+        let (shown, keyboard, empty, focus, ideas, list) = {
             let state = self.state.borrow();
             (
                 state.visible(),
@@ -890,7 +890,7 @@ impl Panel {
                 state.empty_text(),
                 state.focus().cloned(),
                 state.on_ideas(),
-                state.moving().cloned(),
+                state.projects().cloned(),
             )
         };
 
@@ -910,10 +910,10 @@ impl Panel {
             }
             *self.cards.borrow_mut() = cards;
             let mut folders = Vec::new();
-            if let Some(m) = &moving {
-                // Which task is moving, over the folders.
-                self.column.append(&empty_line(&format!("{}: {}", Action::Move.label(false), m.text)));
-                for (at, folder) in m.shown.iter().enumerate() {
+            if let Some(l) = &list {
+                // What the list is for, over the folders.
+                self.column.append(&empty_line(&l.title()));
+                for (at, folder) in l.shown.iter().enumerate() {
                     let card = self.folder_card(at, folder);
                     self.column.append(&card.0);
                     folders.push(card);
@@ -936,7 +936,7 @@ impl Panel {
         // text area takes Enter and Delete as typing; on the project list,
         // its own.
         self.footer.set_visible(keyboard && !ideas);
-        self.footer.set_label(if moving.is_some() { actions::MOVE_KEYS } else { actions::CARD_KEYS });
+        self.footer.set_label(list.as_ref().map_or(actions::CARD_KEYS, |l| l.keys()));
         self.update_tabs();
         self.fit();
 
@@ -947,7 +947,7 @@ impl Panel {
 
         if ideas {
             self.notepad.focus();
-        } else if moving.is_some() {
+        } else if list.is_some() {
             // Without selecting: a render mid-typing must not select what
             // was typed, for the next key to replace.
             self.query.grab_focus_without_selecting();
@@ -1130,7 +1130,7 @@ impl Panel {
             let state = self.state.borrow();
             (state.focus().cloned(), state.armed().clone())
         };
-        let picked = self.state.borrow().moving().map(|m| m.at);
+        let picked = self.state.borrow().projects().map(|m| m.at);
         for (at, (root, _)) in self.folders.borrow().iter().enumerate() {
             set_class(root, "picked", picked == Some(at));
         }
@@ -1180,7 +1180,7 @@ impl Panel {
         let weak = Rc::downgrade(self);
         crate::taskbox::after_next_paint(&self.window, move || {
             let Some(p) = weak.upgrade() else { return };
-            let folder = p.state.borrow().moving().map(|m| m.at);
+            let folder = p.state.borrow().projects().map(|m| m.at);
             let root = match folder {
                 Some(at) => p.folders.borrow().get(at).map(|(root, _)| root.clone()),
                 None => {
