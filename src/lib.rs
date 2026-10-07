@@ -8,6 +8,7 @@ pub mod actions;
 pub mod daemon;
 pub mod github;
 pub mod herdr;
+pub mod ideas;
 pub mod ipc;
 pub mod link;
 pub mod menu;
