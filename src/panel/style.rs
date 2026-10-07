@@ -55,7 +55,7 @@ pub const ACTIVE: &str = "#8cd283";
 pub const UP_NEXT: &str = "#f9e2af";
 /// The keyboard's action buttons, each its own colour from the same Catppuccin
 /// palette as [`ACTIVE`] (mocha's): Go to session blue, Back to list lavender, Refine mauve, Edit
-/// yellow, Complete green, Speak pink, Stop peach, Waiting teal, Remove red. Start shares [`ACTIVE`]'s green, because
+/// yellow, Complete green, Move sapphire, Speak pink, Stop peach, Waiting teal, Remove red. Start shares [`ACTIVE`]'s green, because
 /// starting a task is what turns its card green, and Up next shares Edit's yellow, [`UP_NEXT`],
 /// because it is what turns its card yellow.
 pub const REFINE: &str = "#cba6f7";
@@ -77,6 +77,9 @@ pub const SESSION: &str = "#89b4fa";
 /// Complete green: mocha's own `green`, paler than [`ACTIVE`]'s, for the step
 /// after the work rather than the work.
 pub const COMPLETE: &str = "#a6e3a1";
+/// Move to workspace sapphire: mocha's `sapphire`, between Go to session's
+/// blue and Waiting's teal, apart from both.
+pub const MOVE: &str = "#74c7ec";
 /// Text on a solid colour fill, the armed Remove: mocha's `base`, so it reads
 /// as dark on red.
 pub const ON_FILL: &str = "#1e1e2e";
@@ -93,6 +96,7 @@ pub fn colour(action: Action) -> &'static str {
         Action::Speak => SPEAK,
         Action::UpNext => UP_NEXT,
         Action::Complete => COMPLETE,
+        Action::Move => MOVE,
         Action::Stop => STOP,
         Action::Wait => WAIT,
         Action::Remove => REMOVE,

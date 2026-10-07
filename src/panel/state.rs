@@ -2,8 +2,9 @@
 //! plain data.
 //!
 //! The cards, the filter tab, "+N more" opened or not, which card and button
-//! has the keyboard's focus, and what a first press has armed all live here,
-//! keyed by task uuid and slot rather than by widget. Every change comes back
+//! has the keyboard's focus, what a first press has armed, and the project
+//! list Move to workspace swaps in all live here, keyed by task uuid and
+//! slot rather than by widget. Every change comes back
 //! as a list of [`Effect`]s for `surface.rs` to run: draw again, move the
 //! focus, spawn a command. So the rules between them (one arming at a time,
 //! any re-render disarming, where the focus lands) are tested without a
@@ -64,6 +65,23 @@ impl Shown {
     }
 }
 
+/// What the panel says when Move to workspace finds no folder to move to.
+pub const NO_DESTINATIONS: &str = "No other project to move this to.";
+
+/// The project list Move to workspace swaps in for the cards: the task being
+/// moved, and the `~/Projects` folders it can go to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Moving {
+    /// The task being moved, by uuid.
+    pub uuid: String,
+    /// Its description, for the line over the folders.
+    pub text: String,
+    /// The folders, as `project::move_destinations` gives them.
+    pub folders: Vec<String>,
+    /// The folder the keyboard is on.
+    pub at: usize,
+}
+
 /// What `surface.rs` does once the state has changed, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
@@ -84,6 +102,12 @@ pub enum Effect {
     Notify(String),
     /// Save what was typed on Ideas now, the panel having left it.
     SaveIdeas,
+    /// Read the `~/Projects` folders this task can move to and hand them to
+    /// [`PanelState::show_projects`]: Move to workspace's first step, which
+    /// the state cannot take, having no disk to read.
+    ListProjects(String),
+    /// Put the focus on the project list's folder card at this index.
+    FocusFolder(usize),
 }
 
 #[derive(Debug, Default)]
@@ -109,6 +133,9 @@ pub struct PanelState {
     /// Clear all is armed.
     focus: Option<Focus>,
     armed: Armed,
+    /// The project list is up in place of the cards: Move to workspace was
+    /// pressed. Only ever with the keyboard.
+    moving: Option<Moving>,
 }
 
 impl PanelState {
@@ -143,6 +170,10 @@ impl PanelState {
         &self.armed
     }
 
+    pub fn moving(&self) -> Option<&Moving> {
+        self.moving.as_ref()
+    }
+
     /// Nothing to show, so the panel hides. The hover and the peek show no
     /// waiting or finished task, so they hide with nothing else; the
     /// keyboard's panel still has the Waiting and Finished tabs, and hides
@@ -158,9 +189,9 @@ impl PanelState {
 
     /// The filter tabs on show, in `Filter::TABS` order: All, and every
     /// other tab with a task under it. None without the keyboard. Ideas,
-    /// always shown, follows them.
+    /// always shown, follows them. None on the project list either.
     pub fn tabs(&self) -> Vec<Filter> {
-        if self.keyboard {
+        if self.keyboard && self.moving.is_none() {
             Filter::shown(&self.all)
         } else {
             Vec::new()
@@ -169,15 +200,15 @@ impl PanelState {
 
     /// Clear all shows, on its strip under the tab bar, on the Waiting tab alone.
     pub fn shows_clear_all(&self) -> bool {
-        self.keyboard && !self.ideas && self.filter == Filter::Waiting
+        self.keyboard && !self.ideas && self.moving.is_none() && self.filter == Filter::Waiting
     }
 
     /// The cards to draw, top to bottom: the picked tab's, or All's off the
     /// keyboard, filtered before the cap so "+N more" is the rest of this
     /// tab, and uncapped once expanded. None on Ideas, which is a notepad, not
-    /// cards.
+    /// cards, nor on the project list, which draws folders.
     pub fn visible(&self) -> Vec<Shown> {
-        if self.ideas {
+        if self.ideas || self.moving.is_some() {
             return Vec::new();
         }
         let picked = self.shown_filter().pick(&self.all);
@@ -201,7 +232,7 @@ impl PanelState {
     /// a workspace whose tasks are all waiting or finished. Never on Ideas, which has no
     /// cards to have none of.
     pub fn empty_text(&self) -> Option<&'static str> {
-        if self.ideas {
+        if self.ideas || self.moving.is_some() {
             return None;
         }
         let filter = self.shown_filter();
@@ -219,6 +250,11 @@ impl PanelState {
             return Vec::new();
         }
         self.all = cards.to_vec();
+        // The task being moved has gone (done elsewhere, say): its project
+        // list goes with it.
+        if self.moving.as_ref().is_some_and(|m| !self.all.iter().any(|c| c.uuid.as_deref() == Some(m.uuid.as_str()))) {
+            self.moving = None;
+        }
         if self.keyboard && self.all.is_empty() && !self.ideas {
             return self.release();
         }
@@ -236,6 +272,7 @@ impl PanelState {
         self.agents = agents;
         self.filter = Filter::All;
         self.ideas = false;
+        self.moving = None;
         self.armed = Armed::None;
         self.focus = first_task(&self.visible());
         true
@@ -271,9 +308,10 @@ impl PanelState {
     /// [`Effect::Focus`] asked for, which is no change. Moving off an armed
     /// Remove disarms it, and moving at all disarms Clear all. Without the
     /// keyboard it is ignored: GTK moves focus in a window that is only being
-    /// shown, and the hover has none.
+    /// shown, and the hover has none. On the project list too: a folder card
+    /// is no task's, and the task's focus is kept for Escape.
     pub fn on_focus(&mut self, focus: Option<Focus>) {
-        if !self.keyboard || self.focus == focus {
+        if !self.keyboard || self.moving.is_some() || self.focus == focus {
             return;
         }
         self.focus = focus;
@@ -297,7 +335,9 @@ impl PanelState {
     /// focused to act on. Without the keyboard no key is the panel's: one
     /// landing after it was given back is not for it. On Ideas only Escape,
     /// which goes back to the tab picked before it, and the tab keys are the
-    /// panel's; the rest are typing, for the text area.
+    /// panel's; the rest are typing, for the text area. On the project list
+    /// every key is the panel's: Up and Down, Enter and Escape act, and the
+    /// rest do nothing.
     pub fn on_key(&mut self, key: KeyAction) -> Option<Vec<Effect>> {
         if !self.keyboard {
             return None;
@@ -311,6 +351,19 @@ impl PanelState {
                 }
                 _ => None,
             };
+        }
+        if self.moving.is_some() {
+            // The project list's: Up and Down walk it, Enter moves the task,
+            // Escape goes back to the cards. No card is there for the rest.
+            return Some(match key {
+                KeyAction::Release => self.leave_projects(),
+                KeyAction::PrevCard | KeyAction::NextCard => self.move_folder(key == KeyAction::NextCard),
+                KeyAction::Enter => {
+                    let at = self.moving.as_ref().map_or(0, |m| m.at);
+                    self.on_folder(at)
+                }
+                _ => Vec::new(),
+            });
         }
         if matches!(self.armed, Armed::ClearAll { .. }) {
             return Some(match key {
@@ -348,9 +401,18 @@ impl PanelState {
     /// box or terminal it opens can take it. Back, Waiting and Remove take the card off the list, so the
     /// focus moves to the next card (the one above, from the last) to still be
     /// there when the next tick drops this one. Speak and Up next keep the
-    /// card and the focus, so a second press undoes them.
+    /// card and the focus, so a second press undoes them. Move to workspace
+    /// asks for the project list.
     pub fn on_press(&mut self, uuid: &str, slot: Slot) -> Vec<Effect> {
+        if self.moving.is_some() {
+            return Vec::new();
+        }
         let Slot::Button(action) = slot else { return Vec::new() };
+        // The folders are on disk, which the surface reads: it answers
+        // with show_projects. The keyboard and the focus stay put.
+        if action == Action::Move {
+            return vec![Effect::ListProjects(uuid.into())];
+        }
         if action == Action::Remove && self.armed != Armed::Remove(uuid.into()) {
             // Focus first: the move disarms whatever was armed before, and
             // this one is armed only after it.
@@ -393,6 +455,44 @@ impl PanelState {
         effects
     }
 
+    /// The folders Move to workspace asked for: the project list in place of
+    /// the cards, the keyboard on the first. With none, a notification and
+    /// the cards stay. Nothing without the keyboard, or once the task has
+    /// left the cards.
+    pub fn show_projects(&mut self, uuid: &str, folders: Vec<String>) -> Vec<Effect> {
+        if !self.keyboard {
+            return Vec::new();
+        }
+        let Some(text) = self.all.iter().find(|c| c.uuid.as_deref() == Some(uuid)).map(|c| c.text.clone()) else {
+            return Vec::new();
+        };
+        if folders.is_empty() {
+            return vec![Effect::Notify(NO_DESTINATIONS.into())];
+        }
+        self.armed = Armed::None;
+        self.moving = Some(Moving { uuid: uuid.into(), text, folders, at: 0 });
+        vec![Effect::Render]
+    }
+
+    /// A folder on the project list, by Enter or a click: move the task
+    /// there with `task move`, back on the cards with the focus on the next
+    /// one, since the task leaves this workspace. The keyboard stays.
+    pub fn on_folder(&mut self, at: usize) -> Vec<Effect> {
+        let Some(moving) = self.moving.take() else { return Vec::new() };
+        let Some(folder) = moving.folders.get(at).cloned() else {
+            self.moving = Some(moving);
+            return Vec::new();
+        };
+        if let Some(next) = self.neighbour(&moving.uuid) {
+            self.focus = Some(next);
+        }
+        let mut effects = self.rerender();
+        let mut args = Action::Move.args(&moving.uuid);
+        args.push(folder);
+        effects.push(Effect::Spawn(args));
+        effects
+    }
+
     /// Give the keyboard back: every card to one line again, All for the next
     /// time, and nothing expanded, armed or focused.
     fn release(&mut self) -> Vec<Effect> {
@@ -404,6 +504,7 @@ impl PanelState {
         self.expanded = false;
         self.filter = Filter::All;
         self.ideas = false;
+        self.moving = None;
         self.armed = Armed::None;
         self.focus = None;
         vec![Effect::Render, Effect::Release]
@@ -425,7 +526,7 @@ impl PanelState {
     /// with no cards the panel hides, and must not hide holding the keyboard.
     /// Leaving Ideas saves what was typed there at once.
     fn pick(&mut self, tab: Tab) -> Vec<Effect> {
-        if !self.keyboard || self.tab() == tab {
+        if !self.keyboard || self.moving.is_some() || self.tab() == tab {
             return Vec::new();
         }
         if matches!(tab, Tab::Filter(_)) && self.all.is_empty() {
@@ -455,6 +556,20 @@ impl PanelState {
         self.pick(Tab::Filter(back))
     }
 
+    /// Escape on the project list: back to the cards, on the card and slot
+    /// the focus was on.
+    fn leave_projects(&mut self) -> Vec<Effect> {
+        self.moving = None;
+        self.rerender()
+    }
+
+    /// Up and Down on the project list, stopping at the ends.
+    fn move_folder(&mut self, forward: bool) -> Vec<Effect> {
+        let Some(m) = self.moving.as_mut() else { return Vec::new() };
+        m.at = keys::step(m.at, m.folders.len(), forward);
+        vec![Effect::FocusFolder(m.at)]
+    }
+
     /// 1 to 6 pick a filter tab and 7 Ideas; [ and ] step along the tabs on
     /// show, Ideas the last, stopping at the ends.
     fn filter_key(&mut self, key: KeyAction) -> Vec<Effect> {
@@ -481,6 +596,10 @@ impl PanelState {
             self.filter = Filter::All;
         }
         self.armed = Armed::None;
+        // The project list keeps the task's focus for Escape to go back to.
+        if self.moving.is_some() {
+            return vec![Effect::Render];
+        }
         self.focus = if self.keyboard && !self.ideas {
             let shown = self.visible();
             let kept = self.focus.take().and_then(|f| {
@@ -1438,5 +1557,156 @@ mod tests {
         assert_eq!(key(&mut state, KeyAction::Ideas), vec![Effect::Render]);
         assert_eq!(state.armed(), &Armed::None);
         assert!(state.on_ideas());
+    }
+
+    // ─── Move to workspace ───────────────────────────────────────────────
+
+    fn folders(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| n.to_string()).collect()
+    }
+
+    /// The panel on `a`'s project list, of folders x and y.
+    fn moving_a() -> PanelState {
+        let mut state = keyboard(pending(&["a", "b"]));
+        assert_eq!(key(&mut state, KeyAction::Run(Action::Move)), vec![Effect::ListProjects("a".into())]);
+        assert_eq!(state.show_projects("a", folders(&["x", "y"])), vec![Effect::Render]);
+        state
+    }
+
+    /// m asks for the folders, keeping the keyboard and the focus; they come
+    /// back as the project list, on the first.
+    #[test]
+    fn move_shows_the_project_list_in_place_of_the_cards() {
+        let state = moving_a();
+        assert!(state.keyboard());
+        assert_eq!(
+            state.moving(),
+            Some(&Moving { uuid: "a".into(), text: "a".into(), folders: folders(&["x", "y"]), at: 0 })
+        );
+        assert!(state.visible().is_empty(), "no task cards");
+        assert!(state.tabs().is_empty(), "no tabs");
+        assert_eq!(state.empty_text(), None);
+        assert!(!state.shows_clear_all());
+        assert!(!state.hidden());
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref(), "kept for Escape");
+    }
+
+    #[test]
+    fn no_other_project_says_so_and_stays_on_the_cards() {
+        let mut state = keyboard(pending(&["a"]));
+        assert_eq!(state.show_projects("a", Vec::new()), vec![Effect::Notify(NO_DESTINATIONS.into())]);
+        assert_eq!(state.moving(), None);
+    }
+
+    #[test]
+    fn up_and_down_walk_the_folders_and_stop_at_the_ends() {
+        let mut state = moving_a();
+        assert_eq!(key(&mut state, KeyAction::NextCard), vec![Effect::FocusFolder(1)]);
+        assert_eq!(key(&mut state, KeyAction::NextCard), vec![Effect::FocusFolder(1)]);
+        assert_eq!(key(&mut state, KeyAction::PrevCard), vec![Effect::FocusFolder(0)]);
+        assert_eq!(key(&mut state, KeyAction::PrevCard), vec![Effect::FocusFolder(0)]);
+    }
+
+    /// Enter moves the task to the folder the keyboard is on, back on the
+    /// cards with the focus on the next one, as the task leaves this list.
+    #[test]
+    fn enter_moves_the_task_to_the_focused_folder() {
+        let mut state = moving_a();
+        key(&mut state, KeyAction::NextCard);
+        assert_eq!(
+            key(&mut state, KeyAction::Enter),
+            vec![Effect::Render, Effect::Spawn(vec!["task".into(), "move".into(), "a".into(), "y".into()])],
+        );
+        assert_eq!(state.moving(), None);
+        assert!(state.keyboard());
+        assert_eq!(state.focus(), focused("b", Slot::Body).as_ref());
+    }
+
+    #[test]
+    fn a_click_on_a_folder_moves_the_task_there() {
+        let mut state = moving_a();
+        assert_eq!(
+            state.on_folder(0),
+            vec![Effect::Render, Effect::Spawn(vec!["task".into(), "move".into(), "a".into(), "x".into()])],
+        );
+        assert_eq!(state.on_folder(0), Vec::new(), "once the list has gone");
+    }
+
+    /// Escape goes back to the cards on the same card and slot; a second
+    /// gives the keyboard back.
+    #[test]
+    fn escape_goes_back_to_the_same_card() {
+        let mut state = moving_a();
+        assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render]);
+        assert_eq!(state.moving(), None);
+        assert!(state.keyboard());
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+        assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render, Effect::Release]);
+    }
+
+    /// Every other key is the list's and does nothing: no card is there to act on.
+    #[test]
+    fn the_project_list_takes_no_other_key() {
+        let mut state = moving_a();
+        for k in [
+            KeyAction::Run(Action::Edit),
+            KeyAction::Run(Action::Remove),
+            KeyAction::PrevSlot,
+            KeyAction::NextSlot,
+            KeyAction::Filter(Filter::All),
+            KeyAction::Ideas,
+            KeyAction::PrevFilter,
+            KeyAction::NextFilter,
+            KeyAction::Advance,
+            KeyAction::Delete,
+            KeyAction::ClearAll,
+            KeyAction::Ignore,
+        ] {
+            assert_eq!(state.on_key(k), Some(Vec::new()), "{k:?}");
+        }
+        assert!(state.moving().is_some());
+        assert_eq!(state.on_tab(Tab::Ideas), Vec::new());
+    }
+
+    /// GTK's focus on a folder card is no card's: the task's focus is kept
+    /// for Escape.
+    #[test]
+    fn focus_moves_on_the_project_list_keep_the_tasks_focus() {
+        let mut state = moving_a();
+        state.on_focus(None);
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+    }
+
+    #[test]
+    fn a_refresh_keeps_the_list_while_its_task_is_there() {
+        let mut state = moving_a();
+        key(&mut state, KeyAction::NextCard);
+        assert_eq!(state.set_cards(&pending(&["a", "b", "c"])), vec![Effect::Render]);
+        assert_eq!(state.moving().map(|m| m.at), Some(1));
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+    }
+
+    /// The task done or moved elsewhere meanwhile: the list goes with it.
+    #[test]
+    fn a_refresh_without_its_task_closes_the_list() {
+        let mut state = moving_a();
+        assert_eq!(state.set_cards(&pending(&["b"])), vec![Effect::Render]);
+        assert_eq!(state.moving(), None);
+        assert_eq!(state.focus(), focused("b", Slot::Body).as_ref());
+    }
+
+    #[test]
+    fn taking_the_keyboard_again_closes_the_list() {
+        let mut state = moving_a();
+        assert!(state.take_keyboard(Vec::new()));
+        assert_eq!(state.moving(), None);
+    }
+
+    #[test]
+    fn no_project_list_without_the_keyboard() {
+        let mut state = PanelState::default();
+        state.set_cards(&pending(&["a"]));
+        assert_eq!(state.show_projects("a", folders(&["x"])), Vec::new());
+        assert_eq!(state.moving(), None);
     }
 }

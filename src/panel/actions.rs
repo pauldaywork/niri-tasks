@@ -13,7 +13,7 @@ use Action::*;
 impl Action {
     /// The row's buttons, left to right: every task action, the row being
     /// the only view of them.
-    pub const ROW: [Action; 12] = Self::ALL;
+    pub const ROW: [Action; 13] = Self::ALL;
 
     /// What Remove reads between its first press and its second.
     pub const CONFIRM_REMOVE: &'static str = "Confirm remove";
@@ -83,10 +83,11 @@ impl Action {
     /// Whether the panel keeps the keyboard after the button runs. Back to
     /// list, Up next, Complete, Waiting and Remove only change the task, and
     /// Speak plays in the background, so none opens anything that needs the
-    /// keyboard and the list stays up; the rest open a box, a terminal or a
-    /// herdr tab, which takes it.
+    /// keyboard and the list stays up. Move opens the project list in the
+    /// panel itself. The rest open a box, a terminal or a herdr tab, which
+    /// takes it.
     pub fn keeps_keyboard(self) -> bool {
-        matches!(self, Back | Speak | UpNext | Complete | Wait | Remove)
+        matches!(self, Back | Speak | UpNext | Complete | Move | Wait | Remove)
     }
 
     /// Whether the button takes its card off the list, so the focus has to
@@ -109,6 +110,7 @@ impl Action {
             Speak => "speak",
             UpNext => "up-next",
             Complete => "complete",
+            Move => "move",
             Stop => "stop",
             Wait => "wait",
             Remove => "remove",
@@ -127,6 +129,7 @@ impl Action {
             Grill => Some('i'),
             Edit => Some('e'),
             Complete => Some('c'),
+            Move => Some('m'),
             Stop => Some('t'),
             Speak | UpNext | Wait | Remove => None,
         }
@@ -147,6 +150,14 @@ pub const CONFIRM_CLEAR_ALL: &str = "Confirm clear all";
 /// has the focus, the same on every one, so the card's own hint leaves them
 /// out.
 pub const CARD_KEYS: &str = "Enter: press the button · Ctrl+Del: delete the task";
+
+/// The footer while the project list shows: the keys it takes, which are
+/// all it takes.
+pub const MOVE_KEYS: &str = "Up, Down: pick a folder · Enter: move the task there · Esc: back";
+
+/// A folder card's icon on the project list: Font Awesome's folder, Move to
+/// workspace's open one shut.
+pub const FOLDER_ICON: &str = "\u{f07b}";
 
 /// The command Clear all spawns: Remove's own `task status <uuid> deleted
 /// --yes` for each of `uuids`, one after another in one shell. So every task
@@ -230,7 +241,7 @@ mod tests {
     #[test]
     fn an_active_task_gets_stop_in_place_of_start() {
         let classes: Vec<&str> = Action::row(active(false)).iter().map(|a| a.class()).collect();
-        assert_eq!(classes, vec!["refine", "grill", "edit", "speak", "up-next", "complete", "stop", "wait", "remove"]);
+        assert_eq!(classes, vec!["refine", "grill", "edit", "speak", "up-next", "complete", "move", "stop", "wait", "remove"]);
     }
 
     #[test]
@@ -238,7 +249,7 @@ mod tests {
         for planned in [false, true] {
             assert_eq!(
                 Action::row(on_list(planned)),
-                vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Wait, Remove],
+                vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Wait, Remove],
                 "planned={planned}"
             );
         }
@@ -250,12 +261,12 @@ mod tests {
     fn a_task_with_a_live_claude_gets_go_to_session_first() {
         assert_eq!(
             Action::row(with_claude(active(false))),
-            vec![Session, Refine, Grill, Edit, Speak, UpNext, Complete, Stop, Wait, Remove]
+            vec![Session, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Stop, Wait, Remove]
         );
         // A refine open on a task not yet started.
         assert_eq!(
             Action::row(with_claude(on_list(true))),
-            vec![Session, Start, Refine, Grill, Edit, Speak, UpNext, Complete, Wait, Remove]
+            vec![Session, Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
         );
     }
 
@@ -264,7 +275,7 @@ mod tests {
     #[test]
     fn a_waiting_task_gets_back_to_list_and_what_still_works_on_it() {
         for state in [waiting(false), with_claude(waiting(true))] {
-            assert_eq!(Action::row(state), vec![Back, Edit, Speak, Complete, Remove], "{state:?}");
+            assert_eq!(Action::row(state), vec![Back, Edit, Speak, Complete, Move, Remove], "{state:?}");
         }
     }
 
@@ -313,21 +324,24 @@ mod tests {
         }
     }
 
-    /// Every card can be completed, a waiting one too; a finished one is
-    /// done already.
+    /// Every card can be completed, a waiting one too, and moved to another
+    /// project's workspace; a finished one is done already, and stays put.
     #[test]
-    fn every_card_but_a_finished_one_gets_complete() {
+    fn every_card_but_a_finished_one_gets_complete_and_move() {
         for state in every_state() {
             assert_eq!(Action::row(state).contains(&Complete), !state.finished, "{state:?}");
+            assert_eq!(Action::row(state).contains(&Move), !state.finished, "{state:?}");
         }
     }
 
     /// Speak and Up next open nothing, so the list stays up, as it does for
-    /// the buttons that only change the task.
+    /// the buttons that only change the task. Move opens the project list in
+    /// the panel itself, so it keeps the keyboard with the buttons that only
+    /// change the task.
     #[test]
     fn the_buttons_that_open_nothing_keep_the_list_open() {
         let kept: Vec<Action> = Action::ROW.into_iter().filter(|a| a.keeps_keyboard()).collect();
-        assert_eq!(kept, vec![Back, Speak, UpNext, Complete, Wait, Remove]);
+        assert_eq!(kept, vec![Back, Speak, UpNext, Complete, Move, Wait, Remove]);
     }
 
     /// Up next's card stays on the list, only moving up it, so the focus
@@ -356,9 +370,9 @@ mod tests {
         assert_eq!(classes.len(), Action::ROW.len());
     }
 
-    /// g b s r i e c t press Go to session, Back to list, Start working,
-    /// Refine, Grill me, Edit, Complete and Stop, and each letter finds its
-    /// own button.
+    /// g b s r i e c m t press Go to session, Back to list, Start working,
+    /// Refine, Grill me, Edit, Complete, Move to workspace and Stop, and each
+    /// letter finds its own button.
     #[test]
     fn letters_press_their_own_buttons() {
         let lettered: Vec<(char, Action)> =
@@ -367,7 +381,7 @@ mod tests {
             lettered,
             vec![
                 ('g', Session), ('b', Back), ('s', Start), ('r', Refine), ('i', Grill), ('e', Edit),
-                ('c', Complete), ('t', Stop)
+                ('c', Complete), ('m', Move), ('t', Stop)
             ]
         );
         for (c, action) in lettered {
@@ -448,6 +462,7 @@ mod tests {
         assert_eq!(hint(active(false), Some(Edit)), "e: Edit · Ctrl+Enter: refine");
         assert_eq!(hint(on_list(false), Some(Grill)), "i: Grill me · Ctrl+Enter: refine");
         assert_eq!(hint(on_list(true), Some(Complete)), "c: Complete · Ctrl+Enter: start working");
+        assert_eq!(hint(on_list(true), Some(Move)), "m: Move to workspace · Ctrl+Enter: start working");
         assert_eq!(hint(active(true), Some(Stop)), "t: Stop");
         assert_eq!(hint(waiting(false), Some(Back)), "b: Back to list");
     }

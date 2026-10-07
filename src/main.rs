@@ -656,6 +656,10 @@ mod tests {
         for action in Action::ALL {
             let mut argv = vec!["niritasks".to_string()];
             argv.extend(action.args("c53b6e3d"));
+            // Move's words stop short of the folder the project list picks.
+            if action == Action::Move {
+                argv.push("alpha".to_string());
+            }
             if let Err(e) = Cli::try_parse_from(&argv) {
                 panic!("{} runs {argv:?}, which the CLI rejects: {e}", action.label(false));
             }

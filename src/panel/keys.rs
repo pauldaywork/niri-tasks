@@ -165,6 +165,7 @@ mod tests {
         assert_eq!(key_action(gdk::Key::i, false, false), KeyAction::Run(Action::Grill));
         assert_eq!(key_action(gdk::Key::e, false, false), KeyAction::Run(Action::Edit));
         assert_eq!(key_action(gdk::Key::c, false, false), KeyAction::Run(Action::Complete));
+        assert_eq!(key_action(gdk::Key::m, false, false), KeyAction::Run(Action::Move));
         assert_eq!(key_action(gdk::Key::t, false, false), KeyAction::Run(Action::Stop));
         assert_eq!(key_action(gdk::Key::Delete, false, false), KeyAction::Run(Action::Remove));
         assert_eq!(key_action(gdk::Key::KP_Delete, false, false), KeyAction::Run(Action::Remove));
@@ -179,6 +180,7 @@ mod tests {
         assert_eq!(key_action(gdk::Key::I, false, false), KeyAction::Run(Action::Grill));
         assert_eq!(key_action(gdk::Key::E, false, false), KeyAction::Run(Action::Edit));
         assert_eq!(key_action(gdk::Key::C, false, false), KeyAction::Run(Action::Complete));
+        assert_eq!(key_action(gdk::Key::M, false, false), KeyAction::Run(Action::Move));
         assert_eq!(key_action(gdk::Key::T, false, false), KeyAction::Run(Action::Stop));
     }
 

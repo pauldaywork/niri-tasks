@@ -38,9 +38,9 @@
 //! hidden as the focus moves rather than built again, since a render would
 //! lose the focused button. Up and Down move between cards, Down onto "+N
 //! more" showing the cards it stands for and landing on the first of them;
-//! Left, Right and Tab move along the focused one, and g, b, s, r, i, e, c, t
-//! and Delete press its Go to session, Back to list, Start, Refine, Grill me,
-//! Edit, Complete, Stop and Remove. Ctrl+Delete deletes the focused card's task at once and keeps the
+//! Left, Right and Tab move along the focused one, and g, b, s, r, i, e, c,
+//! m, t and Delete press its Go to session, Back to list, Start, Refine,
+//! Grill me, Edit, Complete, Move to workspace, Stop and Remove. Ctrl+Delete deletes the focused card's task at once and keeps the
 //! keyboard. After the buttons a dimmed hint names the keys that change per
 //! card, the focused button's and what Ctrl+Enter does to the task
 //! (`Action::hint`); a footer under the scroller names Enter and Ctrl+Delete,
@@ -49,6 +49,12 @@
 //! the panel. The focused card is darkened. Enter or a click on its body does nothing.
 //! Escape, or anything that runs, hands the keyboard back, folds the cards to
 //! one line again, and puts the panel back on the right edge as a peek.
+//!
+//! Move to workspace (m) swaps the cards for the project list: the
+//! `~/Projects` folders the task can move to, drawn as cards under a line
+//! naming it, with no tabs and a footer of its own. Up and Down walk it,
+//! Enter or a click runs `task move` and goes back to the cards on the next
+//! one, and Escape goes back to the cards on the same one.
 //!
 //! GTK's focus and the state's are kept the same both ways: an
 //! [`Effect::Focus`] moves GTK's, and GTK's moving (a click on a button)
@@ -210,6 +216,9 @@ pub struct Panel {
     state: RefCell<PanelState>,
     /// The cards on screen, as the last render drew them.
     cards: RefCell<Vec<CardWidgets>>,
+    /// The project list's folder cards, top to bottom, while a task is
+    /// being moved: each card's box, to scroll to, and its body, to focus.
+    folders: RefCell<Vec<(gtk4::Box, gtk4::Button)>>,
     /// The panel is drawing the state: tearing the column down, or hiding
     /// the rows the focus is leaving. GTK's focus moves meanwhile are its own
     /// doing, not the user's, and the state is not told of them.
@@ -365,6 +374,7 @@ impl Panel {
             slide: Rc::new(Slide::tucked()),
             state: RefCell::new(PanelState::default()),
             cards: RefCell::new(Vec::new()),
+            folders: RefCell::new(Vec::new()),
             drawing: Cell::new(false),
             spinning: Cell::new(false),
             frame: Cell::new(0),
@@ -628,6 +638,17 @@ impl Panel {
                 Effect::DeleteAll(uuids) => delete_all(&self.output, &uuids),
                 Effect::Notify(text) => crate::notify::tasks(&text),
                 Effect::SaveIdeas => self.notepad.flush(),
+                Effect::ListProjects(uuid) => {
+                    // Read on every press, so a folder made since shows.
+                    let folders = crate::project::list()
+                        .map(|(_, names)| crate::project::move_destinations(&names, &self.tag.borrow()));
+                    let effects = match folders {
+                        Ok(folders) => self.state.borrow_mut().show_projects(&uuid, folders),
+                        Err(e) => vec![Effect::Notify(e.to_string())],
+                    };
+                    self.apply(effects);
+                }
+                Effect::FocusFolder(at) => self.focus_folder(at),
             }
         }
         self.sync();
@@ -698,7 +719,6 @@ impl Panel {
     /// render, and again whenever a card's action row shows or hides, which
     /// changes its height without a render.
     fn fit(&self) {
-        let keyboard = self.state.borrow().keyboard();
         // Measured only once they are in the window: a label outside it has no
         // stylesheet, so it measures without its padding, and GTK keeps that
         // wrong size for the column's own measurement too.
@@ -712,7 +732,7 @@ impl Panel {
 
         // Measured, like the cards, once in the window; margins included,
         // so this is the bar and the gap under it.
-        let tabs_h = if keyboard {
+        let tabs_h = if self.tabs.is_visible() {
             self.tabs.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX).1
         } else {
             0
@@ -720,8 +740,9 @@ impl Panel {
 
         // The bar and Clear all's strip apart, for the blur, which leaves
         // out the gap between them and the room left of the strip.
-        let bar_h = if keyboard { self.bar.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX).1 } else { 0 };
-        let clear = if keyboard && self.clear_strip.is_visible() {
+        let bar_shown = self.tabs.is_visible();
+        let bar_h = if bar_shown { self.bar.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX).1 } else { 0 };
+        let clear = if bar_shown && self.clear_strip.is_visible() {
             (
                 self.clear_strip.measure(gtk4::Orientation::Horizontal, -1).1,
                 self.clear_strip.measure(gtk4::Orientation::Vertical, -1).1,
@@ -794,9 +815,16 @@ impl Panel {
             self.jump_to(TUCKED_X, 0);
             return;
         }
-        let (shown, keyboard, empty, focus, ideas) = {
+        let (shown, keyboard, empty, focus, ideas, moving) = {
             let state = self.state.borrow();
-            (state.visible(), state.keyboard(), state.empty_text(), state.focus().cloned(), state.on_ideas())
+            (
+                state.visible(),
+                state.keyboard(),
+                state.empty_text(),
+                state.focus().cloned(),
+                state.on_ideas(),
+                state.moving().cloned(),
+            )
         };
 
         self.while_drawing(|| {
@@ -814,6 +842,17 @@ impl Panel {
                 self.column.append(&card.root);
             }
             *self.cards.borrow_mut() = cards;
+            let mut folders = Vec::new();
+            if let Some(m) = &moving {
+                // Which task is moving, over the folders.
+                self.column.append(&empty_line(&format!("{}: {}", Action::Move.label(false), m.text)));
+                for (at, folder) in m.folders.iter().enumerate() {
+                    let card = self.folder_card(at, folder);
+                    self.column.append(&card.0);
+                    folders.push(card);
+                }
+            }
+            *self.folders.borrow_mut() = folders;
             if ideas {
                 self.column.append(&self.notepad.root);
             }
@@ -823,10 +862,13 @@ impl Panel {
                 self.column.append(&empty_line(text));
             }
         });
-        self.tabs.set_visible(keyboard);
+        // The project list has no tabs: they filter task cards.
+        self.tabs.set_visible(keyboard && moving.is_none());
         // The footer names the cards' keys, so not on Ideas, where the
-        // text area takes Enter and Delete as typing.
+        // text area takes Enter and Delete as typing; on the project list,
+        // its own.
         self.footer.set_visible(keyboard && !ideas);
+        self.footer.set_label(if moving.is_some() { actions::MOVE_KEYS } else { actions::CARD_KEYS });
         self.update_tabs();
         self.fit();
 
@@ -837,6 +879,8 @@ impl Panel {
 
         if ideas {
             self.notepad.focus();
+        } else if let Some(m) = &moving {
+            self.focus_folder(m.at);
         } else if keyboard {
             self.focus_on(focus.as_ref());
         }
@@ -937,6 +981,41 @@ impl Panel {
         ActionRow { separator, row, hint, buttons, state }
     }
 
+    /// One folder on the project list, drawn as a task card is: a box
+    /// holding a body button with the folder's icon and name. Enter or a
+    /// click on it moves the task there.
+    fn folder_card(self: &Rc<Self>, at: usize, folder: &str) -> (gtk4::Box, gtk4::Button) {
+        let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        root.add_css_class("task-card");
+        root.set_size_request(CARD_WIDTH_PX, -1);
+        root.set_overflow(gtk4::Overflow::Hidden);
+        // The two spaces are the gap a task card leaves after its icon.
+        let label = gtk4::Label::new(Some(&format!("{}  {folder}", actions::FOLDER_ICON)));
+        label.set_xalign(0.0);
+        let body = gtk4::Button::builder().child(&label).build();
+        body.add_css_class("card-body");
+        body.set_focus_on_click(false);
+        let weak = Rc::downgrade(self);
+        body.connect_clicked(move |_| {
+            if let Some(p) = weak.upgrade() {
+                let effects = p.state.borrow_mut().on_folder(at);
+                p.apply(effects);
+            }
+        });
+        root.append(&body);
+        (root, body)
+    }
+
+    /// GTK's focus on the project list's folder card `at`; connect_focus
+    /// then scrolls it into view. The button is cloned out first: grabbing
+    /// the focus runs connect_focus there and then.
+    fn focus_folder(&self, at: usize) {
+        let body = self.folders.borrow().get(at).map(|(_, body)| body.clone());
+        if let Some(body) = body {
+            body.grab_focus();
+        }
+    }
+
     /// The state's focus as GTK's, its card's row shown first: a hidden
     /// button is no place for the focus. Hiding the row it leaves moves
     /// GTK's focus off it on the way, which the state has no need to hear.
@@ -1034,8 +1113,14 @@ impl Panel {
         let weak = Rc::downgrade(self);
         crate::taskbox::after_next_paint(&self.window, move || {
             let Some(p) = weak.upgrade() else { return };
-            let Some(uuid) = p.state.borrow().focus().map(|f| f.uuid.clone()) else { return };
-            let root = p.cards.borrow().iter().find(|c| c.uuid.as_ref() == Some(&uuid)).map(|c| c.root.clone());
+            let folder = p.state.borrow().moving().map(|m| m.at);
+            let root = match folder {
+                Some(at) => p.folders.borrow().get(at).map(|(root, _)| root.clone()),
+                None => {
+                    let Some(uuid) = p.state.borrow().focus().map(|f| f.uuid.clone()) else { return };
+                    p.cards.borrow().iter().find(|c| c.uuid.as_ref() == Some(&uuid)).map(|c| c.root.clone())
+                }
+            };
             let Some(bounds) = root.and_then(|r| r.compute_bounds(&p.column)) else { return };
             let adjustment = p.scroller.vadjustment();
             // Bounds are in the column; the viewport's content starts RING_PX
@@ -1387,11 +1472,13 @@ fn keys_footer() -> gtk4::Label {
 /// The one line a filter tab with nothing under it shows where its cards
 /// would be (only All, when every task is waiting or finished), in a card's
 /// look so it reads as part of the panel. Not a card: it has no task and
-/// nothing to focus.
+/// nothing to focus. Also the line naming the task over the project list.
 fn empty_line(text: &str) -> gtk4::Label {
     let line = gtk4::Label::new(Some(text));
     line.add_css_class("filter-empty");
     line.set_xalign(0.0);
+    line.set_wrap(true);
+    line.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
     line.set_size_request(CARD_WIDTH_PX, -1);
     line
 }

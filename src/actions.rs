@@ -35,6 +35,9 @@ pub enum Action {
     UpNext,
     /// Mark it done: it leaves the list, as `task status <uuid> completed`.
     Complete,
+    /// Move it to another `~/Projects` folder's workspace, picked on the
+    /// panel's project list.
+    Move,
     /// Stop working on it: `task status <uuid> stopped`.
     Stop,
     /// Park the task: it leaves the list until it is stopped again.
@@ -91,7 +94,8 @@ impl TaskState {
 
 impl Action {
     /// Every task action, in the order the action row puts the ones it has.
-    pub const ALL: [Action; 12] = [Session, Back, Start, Refine, Grill, Edit, Speak, UpNext, Complete, Stop, Wait, Remove];
+    pub const ALL: [Action; 13] =
+        [Session, Back, Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Stop, Wait, Remove];
 
     /// Whether the action makes sense on a task in `state`. A waiting or
     /// finished task is off the list: it gets the way back to it, and what
@@ -107,8 +111,8 @@ impl Action {
             Back => state.off_list(),
             Stop => state.active,
             Start | Refine | Grill | UpNext | Wait => !state.off_list(),
-            // A finished task is done already.
-            Complete => !state.finished,
+            // A finished task is done already, and stays where it was done.
+            Complete | Move => !state.finished,
             Edit | Speak | Remove => true,
         }
     }
@@ -128,6 +132,7 @@ impl Action {
             UpNext if up_next => "Not up next",
             UpNext => "Up next",
             Complete => "Complete",
+            Move => "Move to workspace",
             Stop => "Stop",
             Wait => "Waiting",
             Remove => "Remove",
@@ -136,8 +141,8 @@ impl Action {
 
     /// The action's glyph on the action row, so the row stays narrow. Font
     /// Awesome's, from the same Nerd Font as the cards' lock: terminal, undo
-    /// arrow, play, magic wand, comments, pencil, bookmark, check,
-    /// stop, pause and trash can. Speak's speaker is Material Design's, from
+    /// arrow, play, magic wand, comments, pencil, bookmark, check, open
+    /// folder, stop, pause and trash can. Speak's speaker is Material Design's, from
     /// the same font.
     pub fn icon(self) -> &'static str {
         match self {
@@ -155,6 +160,8 @@ impl Action {
             UpNext => "\u{f02e}",
             // Font Awesome's check: done.
             Complete => "\u{f00c}",
+            // Font Awesome's open folder: off to another project.
+            Move => "\u{f07c}",
             Stop => "\u{f04d}",
             Wait => "\u{f04c}",
             Remove => "\u{f1f8}",
@@ -163,7 +170,7 @@ impl Action {
 
     /// The `niritasks` arguments the action runs, without the program: what
     /// its button spawns. Remove carries `--yes`, because its button asks
-    /// first.
+    /// first. Move's stop short of the folder, which the project list adds.
     pub fn args(self, uuid: &str) -> Vec<String> {
         let words: &[&str] = match self {
             Session => &["task", "session", uuid],
@@ -175,6 +182,7 @@ impl Action {
             Speak => &["task", "speak", uuid],
             UpNext => &["task", "up-next", uuid],
             Complete => &["task", "status", uuid, "completed"],
+            Move => &["task", "move", uuid],
             Stop => &["task", "status", uuid, "stopped"],
             Wait => &["task", "status", uuid, "waiting"],
             Remove => &["task", "status", uuid, "deleted", "--yes"],
@@ -198,7 +206,7 @@ mod tests {
     fn a_task_on_the_list_gets_all_but_session_back_and_stop() {
         assert_eq!(
             offered(TaskState::default()),
-            vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Wait, Remove]
+            vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
         );
     }
 
@@ -207,7 +215,7 @@ mod tests {
     #[test]
     fn an_active_task_can_be_stopped_and_started_again() {
         let state = TaskState { active: true, ..TaskState::default() };
-        assert_eq!(offered(state), vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Stop, Wait, Remove]);
+        assert_eq!(offered(state), vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Stop, Wait, Remove]);
     }
 
     /// Go to session never starts a Claude, so it needs one already there.
@@ -226,7 +234,7 @@ mod tests {
             for up_next in [false, true] {
                 for planned in [false, true] {
                     let state = TaskState { waiting: true, has_session, up_next, planned, ..TaskState::default() };
-                    assert_eq!(offered(state), vec![Back, Edit, Speak, Complete, Remove], "{state:?}");
+                    assert_eq!(offered(state), vec![Back, Edit, Speak, Complete, Move, Remove], "{state:?}");
                 }
             }
         }
@@ -239,7 +247,7 @@ mod tests {
             labels,
             vec![
                 "Go to session", "Back to list", "Start working", "Refine", "Grill me", "Edit",
-                "Speak", "Up next", "Complete", "Stop", "Waiting", "Remove",
+                "Speak", "Up next", "Complete", "Move to workspace", "Stop", "Waiting", "Remove",
             ]
         );
     }
@@ -290,6 +298,8 @@ mod tests {
         assert_eq!(Speak.args(u), vec!["task", "speak", u]);
         assert_eq!(UpNext.args(u), vec!["task", "up-next", u]);
         assert_eq!(Complete.args(u), vec!["task", "status", u, "completed"]);
+        // The project list adds the folder.
+        assert_eq!(Move.args(u), vec!["task", "move", u]);
         assert_eq!(Stop.args(u), vec!["task", "status", u, "stopped"]);
         assert_eq!(Wait.args(u), vec!["task", "status", u, "waiting"]);
         assert_eq!(Remove.args(u), vec!["task", "status", u, "deleted", "--yes"]);
