@@ -1272,11 +1272,26 @@ fn clear_strip_rect(x: i32, bar_h: i32, (w, h): (i32, i32)) -> blur::Rect {
     (left, SHADOW_PX + bar_h + GAP_PX, w.min(SURFACE_WIDTH - left).max(0), h)
 }
 
-/// A tab button's face: its name, then the key that picks it in brackets,
-/// so the keys can be learnt off the bar. The plain name stays
-/// `Tab::label`'s, for the tests and the empty tab's line.
+/// A tab button's face, as Pango markup: its name, then the key that picks
+/// it in brackets, so the keys can be learnt off the bar. The key is set
+/// smaller, a caption to the name rather than part of it. The plain name
+/// stays `Tab::label`'s, for the tests and the empty tab's line.
 fn tab_label(tab: Tab) -> String {
-    format!("{} ({})", tab.label(), keys::tab_number(tab))
+    format!(
+        "{} <span size=\"smaller\">({})</span>",
+        glib::markup_escape_text(tab.label()),
+        keys::tab_number(tab)
+    )
+}
+
+/// A tab button wearing [`tab_label`]'s markup, which `Button::with_label`
+/// would print as it stands.
+fn tab_button(tab: Tab) -> gtk4::Button {
+    let face = gtk4::Label::new(None);
+    face.set_markup(&tab_label(tab));
+    let button = gtk4::Button::new();
+    button.set_child(Some(&face));
+    button
 }
 
 /// What [`tab_bar`] builds, for the panel to keep.
@@ -1315,7 +1330,7 @@ fn tab_bar() -> TabBar {
     let tab_buttons: Vec<gtk4::Button> = Filter::TABS
         .iter()
         .map(|filter| {
-            let button = gtk4::Button::with_label(&tab_label(Tab::Filter(*filter)));
+            let button = tab_button(Tab::Filter(*filter));
             // Out of the focus chain: the arrows and Tab stay between the
             // cards and their buttons, and a click does not take the focus.
             button.set_focusable(false);
@@ -1325,7 +1340,7 @@ fn tab_bar() -> TabBar {
         })
         .collect();
     // Ideas, last of the tabs: not a filter, and always shown.
-    let ideas = gtk4::Button::with_label(&tab_label(Tab::Ideas));
+    let ideas = tab_button(Tab::Ideas);
     ideas.set_focusable(false);
     ideas.set_focus_on_click(false);
     bar.append(&ideas);
@@ -1591,23 +1606,28 @@ mod tests {
         assert_eq!(clear_strip_rect(TUCKED_X as i32, 30, (120, 36)).2, 0);
     }
 
-    /// A tab wears its name, a space, and the key that picks it in brackets.
+    /// A tab wears its name, a space, and the key that picks it in
+    /// brackets, set smaller.
     #[test]
     fn a_tab_wears_its_key_in_brackets() {
-        assert_eq!(tab_label(Tab::Filter(Filter::All)), "All (1)");
-        assert_eq!(tab_label(Tab::Filter(Filter::ToRefine)), "To refine (4)");
-        assert_eq!(tab_label(Tab::Filter(Filter::Finished)), "Finished (6)");
-        assert_eq!(tab_label(Tab::Ideas), "Ideas (7)");
+        assert_eq!(tab_label(Tab::Filter(Filter::All)), "All <span size=\"smaller\">(1)</span>");
+        assert_eq!(tab_label(Tab::Filter(Filter::ToRefine)), "To refine <span size=\"smaller\">(4)</span>");
+        assert_eq!(tab_label(Tab::Ideas), "Ideas <span size=\"smaller\">(7)</span>");
     }
 
     /// Every tab shown at once, numbered, still fits the bar's one line:
     /// Iosevka Term Extended at 10pt is 8px a character, and each tab adds
-    /// 24px of padding and, after the first, a 1px line. 758px of 760.
+    /// 24px of padding and, after the first, a 1px line. Counting the
+    /// smaller key at the full size, 758px of 760, so it fits with room over.
     #[test]
     fn the_numbered_tabs_fit_the_bar() {
         let tabs: Vec<Tab> = Filter::TABS.into_iter().map(Tab::Filter).chain([Tab::Ideas]).collect();
-        let width: usize =
-            tabs.iter().map(|t| tab_label(*t).chars().count() * 8 + 24).sum::<usize>() + tabs.len() - 1;
+        let width: usize = tabs
+            .iter()
+            .map(|t| format!("{} ({})", t.label(), keys::tab_number(*t)).chars().count() * 8 + 24)
+            .sum::<usize>()
+            + tabs.len()
+            - 1;
         assert!(width <= CARD_WIDTH_PX as usize, "{width}px");
     }
 
