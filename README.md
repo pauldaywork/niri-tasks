@@ -17,7 +17,7 @@ from — opening one, or moving a task to another workspace.
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
 | `Mod+Alt+Shift+T` | The same, with Add & refine as the default: once added, the task opens in a "Refine: …" tab of the workspace's herdr session, where Claude works it up into a plan |
-| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, read it aloud, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up. Tabs above the cards, picked with 1–5 or [ and ], narrow them to All, Active, Planned, To refine or Waiting, and the Waiting tab's Clear all (Ctrl+Delete) deletes every waiting task. With no tasks, or no daemon, the fuzzel list instead |
+| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, read it aloud, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up. Tabs above the cards, picked with 1–5 or [ and ], narrow them to All, Active, Planned, To refine or Waiting, and the Waiting tab's Clear all (Ctrl+Delete) deletes every waiting task. The last tab, Ideas (6), is a notepad for the workspace's ideas that are not tasks yet. With no tasks, or no daemon, the fuzzel list instead |
 | `Mod+Alt+W` | Pick a folder from `~/Projects` (or type a new name to make one), put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
 
@@ -99,6 +99,16 @@ kept. Armed, it takes the focus off the cards, so no card's buttons show and
 `Enter` confirms as a second `Ctrl+Delete` does; a card's own keys do nothing
 until it is put back. `Escape`, an arrow or Tab puts it back with the focus on
 the card it was on, and the panel stays up; switching tab puts it back too.
+
+The last tab, **Ideas**, is not a filter: in place of the cards it shows one
+large text area, a notepad for this workspace's ideas that are not tasks yet.
+It is always there, after Waiting; `6` picks it, as `]` does from the last tab
+before it. While it is picked every key is typing, the letters, digits and
+brackets included: `Escape` still gives the keyboard back, and `Ctrl+[` and
+`Ctrl+]` switch tab. Each workspace tag has its own notepad, plain text in
+`$XDG_DATA_HOME/niri-tasks/ideas/<tag>.md` (under `~/.local/share` without
+it), saved a second after typing stops and again when the panel gives the
+keyboard back.
 
 The cards are shaped like mako notifications and take a terminal window's font
 and colours: a dark tint over blurred wallpaper, with niri's faint focus-ring outline

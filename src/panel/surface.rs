@@ -73,6 +73,14 @@
 //! than opening the card it was on, Escape and the keys that move put it back
 //! with the focus where it was, and a card's keys do nothing.
 //!
+//! After the filter tabs, Ideas is always shown: not a filter but the
+//! workspace's notepad, `notepad.rs`'s text area in the column in place of the
+//! cards, one per workspace tag. 6 picks it, and ] from the last filter tab.
+//! While it is picked the text area takes every key but Escape, Ctrl+[ and
+//! Ctrl+] (`keys::ideas_key_action`), and a tick's render leaves it in place
+//! so typing keeps its focus. What was typed is saved a second after typing
+//! stops and again as the keyboard is given back, to the tag it was typed for.
+//!
 //! Waiting tasks are on the Waiting tab and nowhere else: not on All, not on
 //! the hover or the peek, so a workspace whose tasks are all waiting shows
 //! nothing on its edge. With the keyboard it opens on All, which then says it
@@ -103,6 +111,7 @@ use super::actions;
 use crate::actions::Action;
 use super::blur::{self, Blur};
 use super::keys;
+use super::notepad::Notepad;
 use super::model::{Card, Filter, Status, Tab};
 use super::state::{Armed, Effect, Focus, PanelState, Shown, Slot};
 use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX};
@@ -169,6 +178,8 @@ pub struct Panel {
     /// One button per filter tab, in `Filter::TABS` order, for which ones show
     /// and which one is picked.
     tab_buttons: Vec<gtk4::Button>,
+    /// The Ideas tab, after the filter tabs and always shown with them.
+    ideas_button: gtk4::Button,
     /// Clear all, at the tab bar's far end, shown only on the Waiting tab:
     /// deletes every task the tab lists, on its second press.
     clear: gtk4::Button,
@@ -192,6 +203,10 @@ pub struct Panel {
     /// Each card's height, top to bottom, for the blur region.
     heights: RefCell<Vec<i32>>,
     blur: RefCell<Option<Blur>>,
+    /// The Ideas tab's text area, shown in the column in place of the cards.
+    notepad: Rc<Notepad>,
+    /// The workspace tag this panel shows, whose notepad Ideas opens.
+    tag: RefCell<String>,
 }
 
 /// One card on screen: the widgets a focus, a spinner frame or an arming is
@@ -289,7 +304,7 @@ impl Panel {
         let overlay = gtk4::Overlay::new();
         overlay.set_child(Some(&base));
         let scroller = scroller(&column);
-        let (tabs, tab_buttons, clear) = tab_bar();
+        let (tabs, tab_buttons, ideas_button, clear) = tab_bar();
         let front = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         front.append(&tabs);
         front.append(&scroller);
@@ -305,6 +320,7 @@ impl Panel {
             scroller,
             tabs,
             tab_buttons,
+            ideas_button,
             clear,
             slide: Rc::new(Slide::tucked()),
             state: RefCell::new(PanelState::default()),
@@ -314,6 +330,8 @@ impl Panel {
             frame: Cell::new(0),
             heights: RefCell::new(Vec::new()),
             blur: RefCell::new(None),
+            notepad: Notepad::new(),
+            tag: RefCell::new(String::new()),
         });
 
         {
@@ -342,7 +360,7 @@ impl Panel {
         panel
     }
 
-    /// A click on a filter tab picks it; a click on Clear all presses it.
+    /// A click on a tab picks it; a click on Clear all presses it.
     fn connect_tab_bar(self: &Rc<Self>) {
         for (button, filter) in self.tab_buttons.iter().zip(Filter::TABS) {
             let weak = Rc::downgrade(self);
@@ -353,6 +371,13 @@ impl Panel {
                 }
             });
         }
+        let weak = Rc::downgrade(self);
+        self.ideas_button.connect_clicked(move |_| {
+            if let Some(p) = weak.upgrade() {
+                let effects = p.state.borrow_mut().on_tab(Tab::Ideas);
+                p.apply(effects);
+            }
+        });
         let weak = Rc::downgrade(self);
         self.clear.connect_clicked(move |_| {
             if let Some(p) = weak.upgrade() {
@@ -422,7 +447,14 @@ impl Panel {
             let Some(p) = weak.upgrade() else {
                 return glib::Propagation::Proceed;
             };
-            let action = keys::key_action(key, modifiers.contains(gdk::ModifierType::CONTROL_MASK));
+            let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+            // On Ideas the text area takes every key as typing, bar Escape
+            // and the Ctrl+[ and Ctrl+] that switch tab.
+            let action = if p.state.borrow().on_ideas() {
+                keys::ideas_key_action(key, ctrl)
+            } else {
+                keys::key_action(key, ctrl)
+            };
             let effects = p.state.borrow_mut().on_key(action);
             match effects {
                 Some(effects) => {
@@ -478,8 +510,20 @@ impl Panel {
         });
     }
 
-    /// Show these cards, capped, or hide the panel when there are none.
-    pub fn show(self: &Rc<Self>, cards: &[Card]) {
+    /// Show the cards of the workspace this tag is for, capped, or hide the
+    /// panel when there are none. A new tag moves the notepad: what was typed
+    /// is saved to the tag it was typed for, and, with the keyboard still
+    /// held, the new tag's ideas load at once; without it they load when the
+    /// panel next takes it.
+    pub fn show(self: &Rc<Self>, tag: &str, cards: &[Card]) {
+        if self.tag.borrow().as_str() != tag {
+            *self.tag.borrow_mut() = tag.to_string();
+            if self.state.borrow().keyboard() {
+                self.notepad.load(tag);
+            } else {
+                self.notepad.flush();
+            }
+        }
         let effects = self.state.borrow_mut().set_cards(cards);
         self.apply(effects);
     }
@@ -499,6 +543,9 @@ impl Panel {
             return false;
         }
         self.cancel_grace();
+        // Afresh every time: another panel may have saved this tag's ideas
+        // since, its workspace having moved monitor.
+        self.notepad.load(&self.tag.borrow());
         self.window.set_keyboard_mode(KeyboardMode::Exclusive);
         self.apply(vec![Effect::Render]);
         // After the render, which measures the cards the region needs.
@@ -515,6 +562,8 @@ impl Panel {
                 Effect::Render => self.render(),
                 Effect::Focus(focus) => self.focus_on(focus.as_ref()),
                 Effect::Release => {
+                    // What was typed on Ideas, saved as the keyboard goes.
+                    self.notepad.flush();
                     // Snapped back rather than slid, so whatever the keyboard
                     // opened does not wait on the cards crossing half the
                     // screen.
@@ -575,14 +624,17 @@ impl Panel {
         self.apply(effects);
     }
 
-    /// Which tabs show, which one is picked, and whether Clear all shows.
+    /// Which filter tabs show, which tab is picked, and whether Clear all
+    /// shows. Ideas is always shown: the bar itself hides without the
+    /// keyboard.
     fn update_tabs(&self) {
         let state = self.state.borrow();
         let shown = state.tabs();
         for (button, filter) in self.tab_buttons.iter().zip(Filter::TABS) {
             button.set_visible(shown.contains(&filter));
-            set_class(button, "current", filter == state.filter());
+            set_class(button, "current", state.tab() == Tab::Filter(filter));
         }
+        set_class(&self.ideas_button, "current", state.on_ideas());
         self.clear.set_visible(state.shows_clear_all());
     }
 
@@ -640,12 +692,18 @@ impl Panel {
             self.jump_to(TUCKED_X, 0);
             return;
         }
-        let (shown, keyboard, empty, focus) = {
+        let (shown, keyboard, empty, focus, ideas) = {
             let state = self.state.borrow();
-            (state.visible(), state.keyboard(), state.empty_text(), state.focus().cloned())
+            (state.visible(), state.keyboard(), state.empty_text(), state.focus().cloned(), state.on_ideas())
         };
 
         self.while_drawing(|| {
+            // Mid-typing, a tick's render leaves the notepad where it is:
+            // taking it out of the column would take its focus with it.
+            let column: &gtk4::Widget = self.column.upcast_ref();
+            if ideas && self.notepad.root.parent().as_ref() == Some(column) {
+                return;
+            }
             while let Some(child) = self.column.first_child() {
                 self.column.remove(&child);
             }
@@ -654,6 +712,9 @@ impl Panel {
                 self.column.append(&card.root);
             }
             *self.cards.borrow_mut() = cards;
+            if ideas {
+                self.column.append(&self.notepad.root);
+            }
             if let Some(text) = empty {
                 // Only All, with every task waiting: it says so, and the
                 // Waiting tab beside it has them.
@@ -669,7 +730,9 @@ impl Panel {
         self.set_region(self.slide.x.get().min(self.slide.to.get()));
         self.update_blur(self.slide.x.get());
 
-        if keyboard {
+        if ideas {
+            self.notepad.focus();
+        } else if keyboard {
             self.focus_on(focus.as_ref());
         }
     }
@@ -878,6 +941,7 @@ impl Panel {
     }
 
     pub fn close(&self) {
+        self.notepad.flush();
         self.cancel_grace();
         self.window.close();
     }
@@ -1046,11 +1110,11 @@ fn scroller(column: &gtk4::Box) -> gtk4::ScrolledWindow {
     scroller
 }
 
-/// The filter tabs and Clear all, over the scroller rather than in it, so
-/// they stay put while the cards scroll. Ring room on three sides, as the
+/// The filter tabs, Ideas and Clear all, over the scroller rather than in it,
+/// so they stay put while the cards scroll. Ring room on three sides, as the
 /// column keeps, and under them the card gap less the ring the column keeps
 /// above the first card: the first card then sits a card gap below.
-fn tab_bar() -> (gtk4::Box, Vec<gtk4::Button>, gtk4::Button) {
+fn tab_bar() -> (gtk4::Box, Vec<gtk4::Button>, gtk4::Button, gtk4::Button) {
     let tabs = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     tabs.add_css_class("filter-tabs");
     tabs.set_margin_top(RING_PX);
@@ -1072,6 +1136,11 @@ fn tab_bar() -> (gtk4::Box, Vec<gtk4::Button>, gtk4::Button) {
             button
         })
         .collect();
+    // Ideas, last of the tabs: not a filter, and always shown.
+    let ideas = gtk4::Button::with_label(Tab::Ideas.label());
+    ideas.set_focusable(false);
+    ideas.set_focus_on_click(false);
+    tabs.append(&ideas);
     // Clear all, at the bar's far end: hexpand takes the room the tabs
     // leave, and End keeps the button its own width at the end of it. Out
     // of the focus chain like the tabs, which is why Ctrl+Delete presses it.
@@ -1084,7 +1153,7 @@ fn tab_bar() -> (gtk4::Box, Vec<gtk4::Button>, gtk4::Button) {
     clear.set_focus_on_click(false);
     clear.set_visible(false);
     tabs.append(&clear);
-    (tabs, tab_buttons, clear)
+    (tabs, tab_buttons, ideas, clear)
 }
 
 /// The one line a filter tab with nothing under it shows where its cards

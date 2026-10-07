@@ -130,7 +130,8 @@ pub fn css() -> String {
 window.task-panel {{ background-color: transparent; }}
 .task-panel .task-card,
 .task-panel .filter-tabs,
-.task-panel .filter-empty {{
+.task-panel .filter-empty,
+.task-panel .ideas {{
     background-color: {BACKGROUND};
     color: {TEXT};
     border-radius: {RADIUS_PX}px;
@@ -197,6 +198,10 @@ window.task-panel {{ background-color: transparent; }}
 /* An empty tab's one line, padded like a card's text and dimmed like
    \"+N more\". */
 .task-panel .filter-empty {{ padding: {PADDING_PX}px; color: alpha({TEXT}, 0.55); }}
+/* The Ideas tab's text area: the card's tint shows through it, and its text
+   and caret are the cards' colour. */
+.task-panel .ideas textview,
+.task-panel .ideas textview text {{ background-color: transparent; color: {TEXT}; caret-color: {TEXT}; }}
 /* :focus-within, not :focus-visible: GTK clears focus-visible 3s after the
    last key press (VISIBLE_FOCUS_DURATION), and the darker fill would vanish
    mid-pick. Within, so the card stays darkened while one of its buttons is
@@ -375,6 +380,14 @@ mod tests {
             .expect("no shared card rule");
         assert!(rule.contains(".task-panel .filter-tabs"), "the strip lacks the card look");
         assert!(rule.contains(".task-panel .filter-empty"), "the empty line lacks the card look");
+    }
+
+    /// The notepad is drawn as a card is, its text view see-through over it.
+    #[test]
+    fn the_ideas_notepad_wears_a_cards_look() {
+        let css = css();
+        assert!(css.contains(".task-panel .filter-empty,\n.task-panel .ideas {"));
+        assert!(css.contains(".task-panel .ideas textview text { background-color: transparent;"));
     }
 
     /// The picked tab is full text on a faint fill; the rest are dimmed.

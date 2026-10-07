@@ -290,10 +290,12 @@ fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {
     let mut by_name: HashMap<Option<String>, Vec<model::Card>> = HashMap::new();
     for (connector, panel) in panels.borrow().iter() {
         let name = outputs.get(connector).cloned().flatten();
+        // The panel's tag, for the notepad its Ideas tab opens.
+        let t = tag::workspace_tag(name.as_deref().unwrap_or_default());
         let cards = by_name
             .entry(name.clone())
             .or_insert_with(|| cards_for_workspace(name.as_deref()));
-        panel.show(cards);
+        panel.show(&t, cards);
     }
 
     let mut s = state.borrow_mut();

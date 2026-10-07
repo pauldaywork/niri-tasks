@@ -160,6 +160,10 @@ PY
 
 nested_start
 
+# The Ideas tab saves under XDG_DATA_HOME: the sandbox's, never the real
+# ~/.local/share. Set before the daemon starts, so it has it.
+NENV+=(XDG_DATA_HOME="$SB/share")
+
 TAG=$("${NENV[@]}" "$NIRITASKS" tag 2>/dev/null)
 if [ "$TAG" = e2e ]; then
     ok "the nested niri's workspace files its tasks under e2e"
@@ -167,6 +171,8 @@ else
     bad "the nested niri's workspace reads as tag '${TAG}', expected e2e"
     summary; exit 1
 fi
+IDEAS="$SB/share/niri-tasks/ideas/$TAG.md"
+ideas() { cat "$IDEAS" 2>/dev/null; }
 
 nested_daemon_start "$SB/daemon.err"
 
@@ -482,8 +488,55 @@ if command -v wtype >/dev/null; then
     fi
     "${NENV[@]}" wtype -k Escape
     settle
+
+    # ─── the Ideas tab ───────────────────────────────────────────────────────
+    # 6 opens Ideas: no cards, one text area in the middle, taking every key
+    # as typing, the s, 1 and ] that press a button or pick a tab elsewhere
+    # included. It saves a second after typing stops, and again at once when
+    # Escape gives the keyboard back.
+    "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
+    settle
+    "${NENV[@]}" wtype 6
+    # The caret blinks, and no two frames are alike, until GTK's blink
+    # timeout (10s without a key) stops it.
+    sleep 11
+    shot ideas_tab || { summary; exit 1; }
+    read -r x0 x1 y0 y1 < <(measure ideas_tab)
+    if [ "$x1" -gt 0 ] && [ "$x0" -ge "$SURFACE_LEFT" ] && [ "$x1" -le "$SURFACE_RIGHT" ]; then
+        ok "6 opens the Ideas tab in the middle (columns ${x0}-${x1}, rows ${y0}-${y1})"
+    else
+        bad "on the Ideas tab the panel covers columns ${x0}-${x1}, rows ${y0}-${y1}, expected
+      within ${SURFACE_LEFT}-${SURFACE_RIGHT}"
+    fi
+    "${NENV[@]}" wtype 'first idea'
+    "${NENV[@]}" wtype -k Return
+    "${NENV[@]}" wtype 'second: s, 1 and ] are typing'
+    sleep 2.5
+    want=$'first idea\nsecond: s, 1 and ] are typing'
+    if [ "$(ideas)" = "$want" ]; then
+        ok "what is typed on Ideas is saved once typing stops, the panel still up"
+    else
+        bad "a second after typing stopped, $IDEAS holds '$(ideas)', expected '$want'"
+    fi
+    "${NENV[@]}" wtype -k Return
+    "${NENV[@]}" wtype 'third'
+    "${NENV[@]}" wtype -k Escape
+    settle
+    want=$'first idea\nsecond: s, 1 and ] are typing\nthird'
+    if [ "$(ideas)" = "$want" ]; then
+        ok "Escape saves what was typed since, as it gives the keyboard back"
+    else
+        bad "after Escape, $IDEAS holds '$(ideas)', expected '$want'"
+    fi
+    shot ideas_released || { summary; exit 1; }
+    read -r x0 x1 _ _ < <(measure ideas_released)
+    if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ]; then
+        ok "Escape from Ideas tucks the panel back to its peek (columns ${x0}-${x1})"
+    else
+        bad "after Escape from Ideas the panel drew columns ${x0}-${x1}, expected ${PEEK_X}-${OUT_W}"
+    fi
 else
-    skip "the panel's cards in the middle of the screen, their buttons, the filter tabs, Clear all, and Escape back (needs wtype)"
+    skip "the panel's cards in the middle of the screen, their buttons, the filter tabs, Clear all, the Ideas tab, and Escape back (needs wtype)"
 fi
 
 # ─── nothing pending shows nothing ───────────────────────────────────────────
@@ -515,6 +568,29 @@ if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ]; then
     ok "a daemon started with nothing to show still shows the next task (columns ${x0}-${x1})"
 else
     bad "after a cold start with no tasks the panel drew columns ${x0}-${x1}, expected ${PEEK_X}-${OUT_W}"
+fi
+
+# ─── the Ideas tab survives a restart ────────────────────────────────────────
+# The daemon above is a new one: Ideas opens on what the last one saved, the
+# cursor at its end, so a line typed now lands after it.
+if command -v wtype >/dev/null; then
+    "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
+    settle
+    "${NENV[@]}" wtype 6
+    sleep 1
+    "${NENV[@]}" wtype -k Return
+    "${NENV[@]}" wtype 'after the restart'
+    "${NENV[@]}" wtype -k Escape
+    settle
+    want=$'first idea\nsecond: s, 1 and ] are typing\nthird\nafter the restart'
+    if [ "$(ideas)" = "$want" ]; then
+        ok "a restarted daemon's Ideas tab opens on the saved ideas and adds to them"
+    else
+        bad "after a restart, $IDEAS holds '$(ideas)', expected '$want' — the
+      first three lines missing means the new daemon did not load them"
+    fi
+else
+    skip "the Ideas tab after a daemon restart (needs wtype)"
 fi
 
 # ─── the real daemon, untouched ──────────────────────────────────────────────
