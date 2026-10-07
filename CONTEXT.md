@@ -132,9 +132,9 @@ workspace lists every folder but the task's own workspace's, and moves the
 task there; Escape clears the text, then goes back to the cards on the same
 card. Mod+Alt+W lists every folder and then the GitHub repos not cloned
 yet, and opens the one picked on its own named workspace, cloning a repo
-first; a typed name matching nothing makes a new folder. When nothing
-matches, the line under the title says what Enter will do with the text,
-opening, making or cloning, decided by the same rule `project open` acts on.
+first. When nothing matches, the line under the title says what Enter will
+do with the text, opening, making or cloning, decided by the same rule
+`project open` acts on.
 It shows with no task and on an unnamed workspace, and Escape clears the
 text, then closes the panel.
 _Avoid_: picker, menu, folder list

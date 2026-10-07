@@ -45,7 +45,7 @@
 | `niritasks task start <uuid> --here --workspace <name>` | Internal: the setup step `task start` runs inside the tab it opens | internal |
 | `niritasks task session <uuid>` | Go to the herdr tab of the Claude working on it | herdr tab, follows the herdr session, else focus |
 | `niritasks project open` | Show the task panel's project list with the keyboard (Mod+Alt+W): the `~/Projects` folders, then the account's GitHub repos not cloned yet. Picking a row runs `project open <row>`; a typed name matching nothing makes `~/Projects/<name>`. Exit 1 with no daemon | GUI |
-| `niritasks project open <name>` | Open that `~/Projects` folder on its own named workspace (cloning a GitHub row, or making a new folder, first): back to its workspace if it has one, else the last workspace on the focused monitor, named for it, with a terminal there, and VS Code too when `code` is on `$PATH` | GUI (windows), follows focus |
+| `niritasks project open <name>` | Open that `~/Projects` folder on its own named workspace (cloning it first when it is one of your GitHub repos not cloned yet, or making a new folder of a new name): back to its workspace if it has one, else the last workspace on the focused monitor, named for it, with a terminal there, and VS Code too when `code` is on `$PATH` | GUI (windows), follows focus |
 | `niritasks terminal` | Open a terminal in the focused workspace's `~/Projects` folder (Mod+Return) | GUI (window) |
 | `niritasks daemon` | Internal: the task panels and the task-box server, run by the niri-tasks systemd user unit | internal |
 
