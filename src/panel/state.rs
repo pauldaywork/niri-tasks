@@ -614,7 +614,7 @@ mod tests {
     use crate::panel::model::Status;
 
     fn card(uuid: &str, status: Status) -> Card {
-        Card { status, text: uuid.into(), uuid: Some(uuid.into()), planned: status == Status::Planned, up_next: false, entry: String::new() }
+        Card { status, text: uuid.into(), uuid: Some(uuid.into()), planned: status == Status::Planned, up_next: false, since: String::new() }
     }
 
     fn pending(uuids: &[&str]) -> Vec<Card> {

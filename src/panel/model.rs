@@ -21,6 +21,9 @@ pub enum Status {
     /// Parked with the Waiting button. Off the hover panel and the peek, and
     /// on the keyboard's Waiting tab only.
     Waiting,
+    /// Completed, on the keyboard's Finished tab only, as a waiting task is
+    /// on the Waiting tab only.
+    Finished,
     /// The "+N more" card standing in for everything past the cap.
     More,
 }
@@ -40,11 +43,12 @@ pub struct Card {
     /// is still up next, and its Up next button offers to clear it. Whether
     /// the card is drawn yellow is [`Card::shows_up_next`].
     pub up_next: bool,
-    /// When the task was added, taskwarrior's stamp, for the age at the
-    /// card's right end. The stamp, not the age: the age changes every
-    /// minute, and a changed card re-renders the panel, disarming a
-    /// half-pressed Remove. Empty on "+N more".
-    pub entry: String,
+    /// The stamp the age at the card's right end counts from: when the
+    /// task was added, or, on a finished card, when it was finished. The
+    /// stamp, not the age: the age changes every minute, and a changed card
+    /// re-renders the panel, disarming a half-pressed Remove. Empty on
+    /// "+N more".
+    pub since: String,
 }
 
 impl Card {
@@ -60,23 +64,27 @@ impl Card {
             Status::Planned => "●",
             // Font Awesome's pause, the Waiting button's own icon.
             Status::Waiting => "\u{f04c}",
+            // Font Awesome's check: done.
+            Status::Finished => "\u{f00c}",
             // The count is the text, so the peek reads "+3".
             Status::More => "",
         }
     }
 
     /// Whether the card is drawn yellow, as up next. Not an active card,
-    /// which stays green, nor a waiting one, which keeps its Waiting look:
-    /// starting or parking a task keeps its `+next`, and the card shows the
-    /// stronger fact. Every other card is yellow, the lock and the dot too.
+    /// which stays green, nor a waiting or finished one, which keep their
+    /// dimmed look: starting or parking a task keeps its `+next`, and the
+    /// card shows the stronger fact. Every other card is yellow, the lock
+    /// and the dot too.
     pub fn shows_up_next(&self) -> bool {
-        self.up_next && !matches!(self.status, Status::Active | Status::Waiting)
+        self.up_next && !matches!(self.status, Status::Active | Status::Waiting | Status::Finished)
     }
 
-    /// How long ago the task was added, `now` in Unix seconds. None on
-    /// "+N more", and on a stamp taskwarrior wrote in some other shape.
+    /// How long ago the task was added, or finished on a finished card,
+    /// `now` in Unix seconds. None on "+N more", and on a stamp taskwarrior
+    /// wrote in some other shape.
     pub fn age(&self, now: i64) -> Option<String> {
-        crate::task::age(&self.entry, now)
+        crate::task::age(&self.since, now)
     }
 
     /// The task's state, as the task actions read it, with whether a Claude
@@ -85,7 +93,7 @@ impl Card {
         (self.status != Status::More).then(|| TaskState {
             active: self.status == Status::Active,
             waiting: self.status == Status::Waiting,
-            finished: false,
+            finished: self.status == Status::Finished,
             planned: self.planned,
             up_next: self.up_next,
             has_session,
@@ -98,8 +106,8 @@ impl Card {
 /// A filter, not a status: Planned and To refine go by the `+planned` tag,
 /// which a card's icon can hide behind ▶ or the lock. A started task is
 /// under Active and not Planned, which is for picking what to start next. A
-/// waiting task is under Waiting and no other tab: it is parked, and All is
-/// what the hover shows.
+/// waiting task is under Waiting and no other tab, and a finished one under
+/// Finished: it is parked or done, and All is what the hover shows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Filter {
     #[default]
@@ -112,16 +120,19 @@ pub enum Filter {
     ToRefine,
     /// Tasks parked as waiting.
     Waiting,
+    /// Tasks completed lately, the last [`crate::task::FINISHED_CAP`].
+    Finished,
 }
 
 impl Filter {
-    /// The tabs left to right, which is also the order 1 to 5 pick them in.
-    pub const TABS: [Filter; 5] = [
+    /// The tabs left to right, which is also the order 1 to 6 pick them in.
+    pub const TABS: [Filter; 6] = [
         Filter::All,
         Filter::Active,
         Filter::Planned,
         Filter::ToRefine,
         Filter::Waiting,
+        Filter::Finished,
     ];
 
     pub fn label(self) -> &'static str {
@@ -131,11 +142,12 @@ impl Filter {
             Filter::Planned => "Planned",
             Filter::ToRefine => "To refine",
             Filter::Waiting => "Waiting",
+            Filter::Finished => "Finished",
         }
     }
 
     /// The one line a tab with nothing under it shows in place of cards. Only
-    /// All is ever shown empty, on a workspace whose tasks are all waiting;
+    /// All is ever shown empty, on a workspace whose tasks are all waiting or finished;
     /// every other tab is hidden while it has nothing.
     pub fn empty_text(self) -> &'static str {
         match self {
@@ -144,6 +156,7 @@ impl Filter {
             Filter::Planned => "No planned tasks",
             Filter::ToRefine => "No tasks to refine",
             Filter::Waiting => "No waiting tasks",
+            Filter::Finished => "No finished tasks",
         }
     }
 
@@ -152,7 +165,8 @@ impl Filter {
     pub fn matches(self, card: &Card) -> bool {
         match self {
             Filter::Waiting => card.status == Status::Waiting,
-            _ if card.status == Status::Waiting => false,
+            Filter::Finished => card.status == Status::Finished,
+            _ if matches!(card.status, Status::Waiting | Status::Finished) => false,
             Filter::All => true,
             Filter::Active => card.status == Status::Active,
             Filter::Planned => card.planned && card.status != Status::Active,
@@ -207,7 +221,8 @@ impl Tab {
 
 /// The task cards for one workspace tag, every one of them: the active tasks
 /// first, then the up next ones, then the rest by priority, newest first,
-/// with the blocked ones under the rest.
+/// with the blocked ones under the rest. Finished tasks, which only the
+/// Finished tab shows, go last, the one finished most recently first.
 ///
 /// Active first even when something else is higher priority: it is the work
 /// in progress, and the one card worth reading without hovering. Up next
@@ -220,23 +235,33 @@ impl Tab {
 pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
     // Only below up next: an active or up next task stays on top blocked.
     let sinks = |t: &Task| !t.is_active() && !t.is_up_next() && blocked.contains(&t.uuid);
+    let finished = |t: &Task| t.status == "completed";
     let mut sorted: Vec<&Task> = tasks.iter().collect();
     sorted.sort_by(|a, b| {
-        b.is_active()
-            .cmp(&a.is_active())
-            .then(b.is_up_next().cmp(&a.is_up_next()))
-            .then(sinks(a).cmp(&sinks(b)))
-            .then(b.priority_rank().cmp(&a.priority_rank()))
-            // The stamp sorts as text the way it does as a time.
-            .then(b.entry.cmp(&a.entry))
+        finished(a).cmp(&finished(b)).then_with(|| {
+            if finished(a) {
+                // Both finished: the one finished last on top.
+                return b.end.cmp(&a.end);
+            }
+            b.is_active()
+                .cmp(&a.is_active())
+                .then(b.is_up_next().cmp(&a.is_up_next()))
+                .then(sinks(a).cmp(&sinks(b)))
+                .then(b.priority_rank().cmp(&a.priority_rank()))
+                // The stamp sorts as text the way it does as a time.
+                .then(b.entry.cmp(&a.entry))
+        })
     });
 
     sorted
         .iter()
         .map(|t| Card {
-            // Waiting first: parking a task stops it, so a waiting task is
-            // not the work in progress whatever else it carries.
-            status: if t.status == "waiting" {
+            // Finished first, then waiting: parking a task stops it, so a
+            // waiting task is not the work in progress whatever else it
+            // carries.
+            status: if finished(t) {
+                Status::Finished
+            } else if t.status == "waiting" {
                 Status::Waiting
             } else if t.is_active() {
                 Status::Active
@@ -251,7 +276,7 @@ pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
             uuid: Some(t.uuid.clone()),
             planned: t.is_planned(),
             up_next: t.is_up_next(),
-            entry: t.entry.clone(),
+            since: if finished(t) { t.end.clone() } else { t.entry.clone() },
         })
         .collect()
 }
@@ -269,7 +294,7 @@ pub fn cap(cards: &[Card], n: usize) -> Vec<Card> {
             uuid: None,
             planned: false,
             up_next: false,
-            entry: String::new(),
+            since: String::new(),
         });
     }
     shown
@@ -427,9 +452,83 @@ mod tests {
     }
 
     #[test]
-    fn the_tabs_run_all_active_planned_to_refine_waiting() {
+    fn the_tabs_run_all_active_planned_to_refine_waiting_finished() {
         let labels: Vec<&str> = Filter::TABS.iter().map(|f| f.label()).collect();
-        assert_eq!(labels, vec!["All", "Active", "Planned", "To refine", "Waiting"]);
+        assert_eq!(labels, vec!["All", "Active", "Planned", "To refine", "Waiting", "Finished"]);
+    }
+
+    /// A task added on 1 October and finished on this day.
+    fn finished(uuid: &str, day: u32) -> Task {
+        let mut t = task(uuid, 1, false);
+        t.status = "completed".into();
+        t.end = format!("202610{day:02}T180000Z");
+        t
+    }
+
+    #[test]
+    fn a_finished_task_gets_the_check() {
+        let got = cards(&[finished("done", 2)], &[]);
+        assert_eq!(got[0].status, Status::Finished);
+        assert_eq!(got[0].icon(), "\u{f00c}");
+    }
+
+    /// Finished tasks go under every task still to do, the one finished
+    /// last on top, whatever was added when.
+    #[test]
+    fn finished_tasks_go_last_most_recently_finished_first() {
+        let got = cards(&[finished("old", 2), task("todo", 1, false), finished("new", 5), task("started", 1, true)], &[]);
+        assert_eq!(texts(&got), vec!["started", "todo", "new", "old"]);
+    }
+
+    /// Finished is finished: under the Finished tab and no other, so All
+    /// stays what the hover shows.
+    #[test]
+    fn a_finished_task_is_only_under_finished() {
+        let mut planned_done = finished("planned-done", 3);
+        planned_done.tags = vec![crate::task::PLANNED_TAG.into()];
+        let all = cards(&[task("plain", 9, false), waiting("parked"), finished("done", 4), planned_done], &[]);
+        assert_eq!(texts(&Filter::All.pick(&all)), vec!["plain"]);
+        assert!(Filter::Planned.pick(&all).is_empty());
+        assert_eq!(texts(&Filter::ToRefine.pick(&all)), vec!["plain"]);
+        assert_eq!(texts(&Filter::Waiting.pick(&all)), vec!["parked"]);
+        assert_eq!(texts(&Filter::Finished.pick(&all)), vec!["done", "planned-done"]);
+    }
+
+    /// The age on a finished card is how long ago it was finished.
+    #[test]
+    fn a_finished_card_ages_from_when_it_was_finished() {
+        let got = cards(&[finished("done", 6)], &[]);
+        assert_eq!(got[0].since, "20261006T180000Z");
+        // 2026-10-06 12:00:00Z is 1_791_288_000, so 18:00 is 6h on.
+        let later = 1_791_288_000 + 6 * 3_600 + 2 * 3_600;
+        assert_eq!(got[0].age(later).as_deref(), Some("2h"));
+    }
+
+    /// A finished card's state is finished, and it is not drawn yellow even
+    /// when the task still carries `+next`.
+    #[test]
+    fn a_finished_card_is_finished_and_never_yellow() {
+        let mut next_done = finished("done", 2);
+        next_done.tags = vec![crate::task::UP_NEXT_TAG.into()];
+        let got = cards(&[next_done], &[]);
+        assert_eq!(got[0].state(false), Some(TaskState { finished: true, up_next: true, ..TaskState::default() }));
+        assert!(!got[0].shows_up_next());
+    }
+
+    #[test]
+    fn the_finished_tab_comes_after_waiting_and_before_ideas() {
+        let all = cards(&[task("plain", 9, false), waiting("parked"), finished("done", 2)], &[]);
+        assert_eq!(
+            Tab::shown(&all),
+            vec![
+                Tab::Filter(Filter::All),
+                Tab::Filter(Filter::ToRefine),
+                Tab::Filter(Filter::Waiting),
+                Tab::Filter(Filter::Finished),
+                Tab::Ideas,
+            ]
+        );
+        assert_eq!(Filter::shown(&cards(&[finished("done", 2)], &[])), vec![Filter::All, Filter::Finished]);
     }
 
     #[test]
@@ -468,6 +567,7 @@ mod tests {
         assert_eq!(Filter::Planned.empty_text(), "No planned tasks");
         assert_eq!(Filter::ToRefine.empty_text(), "No tasks to refine");
         assert_eq!(Filter::Waiting.empty_text(), "No waiting tasks");
+        assert_eq!(Filter::Finished.empty_text(), "No finished tasks");
     }
 
     /// A filter, not a status. A started planned task is under Active alone:
@@ -571,7 +671,7 @@ mod tests {
     /// A card's status and tags are its task's state; "+N more" has none.
     #[test]
     fn a_cards_state_is_its_tasks() {
-        let card = |status, planned, up_next| Card { status, text: "t".into(), uuid: Some("u".into()), planned, up_next, entry: String::new() };
+        let card = |status, planned, up_next| Card { status, text: "t".into(), uuid: Some("u".into()), planned, up_next, since: String::new() };
         assert_eq!(
             card(Status::Active, true, true).state(true),
             Some(TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true })
@@ -680,7 +780,7 @@ mod tests {
     #[test]
     fn a_card_ages_from_its_tasks_stamp() {
         let got = cards(&[task("t", 6, false)], &[]);
-        assert_eq!(got[0].entry, "20261006T120000Z");
+        assert_eq!(got[0].since, "20261006T120000Z");
         // 2026-10-06 12:00:00Z is 1_791_288_000 (Task 1's 12:09:29 less 569s).
         let later = 1_791_288_000 + 3 * 3_600;
         assert_eq!(got[0].age(later).as_deref(), Some("3h"));
@@ -691,7 +791,7 @@ mod tests {
     fn the_more_card_has_no_age() {
         let many: Vec<Task> = (0..CAP + 1).map(|i| task(&format!("t{i}"), i as u32 + 1, false)).collect();
         let more = cap(&cards(&many, &[]), CAP).pop().unwrap();
-        assert_eq!(more.entry, "");
+        assert_eq!(more.since, "");
         assert_eq!(more.age(i64::MAX / 2), None);
     }
 }

@@ -8,7 +8,8 @@
 //!
 //! No card has a border. The one the keyboard is on is filled a darker black
 //! than the rest. The active task is marked by colour alone: its ▶ and its
-//! text are green. An up next task's icon and text are yellow, unless it is active or waiting.
+//! text are green. An up next task's icon and text are yellow, unless it is
+//! active or waiting. Blocked, waiting and finished cards are dimmed.
 //!
 //! A card is a box holding a body button and, while the panel has the
 //! keyboard, a row of action buttons along its bottom edge. The theme's button
@@ -222,10 +223,11 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .task-card.active {{ color: {ACTIVE}; }}
 .task-panel .task-card.blocked,
 .task-panel .task-card.waiting,
+.task-panel .task-card.finished,
 .task-panel .task-card.more {{ color: alpha({TEXT}, 0.55); }}
 /* After the dimmed rule, which it outranks by coming later: an up next
-   blocked card is yellow, lock and all. Active and waiting cards never get
-   the class (Card::shows_up_next). */
+   blocked card is yellow, lock and all. Active, waiting and finished cards
+   never get the class (Card::shows_up_next). */
 .task-panel .task-card.up-next {{ color: {UP_NEXT}; }}
 "
     );
@@ -471,6 +473,14 @@ mod tests {
         assert!(at > dimmed, "the dimmed rule would win over the yellow on a blocked card");
         assert_eq!(UP_NEXT, "#f9e2af");
         assert_eq!(UP_NEXT, EDIT, "Edit's yellow");
+    }
+
+    /// A finished card is dimmed, as a waiting one is: done, not to do.
+    #[test]
+    fn a_finished_card_is_dimmed() {
+        assert!(css().contains(
+            ".task-panel .task-card.waiting,\n.task-panel .task-card.finished,\n.task-panel .task-card.more"
+        ));
     }
 
     /// The age is a caption to the description, dimmed like the action

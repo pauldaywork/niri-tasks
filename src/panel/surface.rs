@@ -822,10 +822,11 @@ impl Panel {
             Status::Planned => root.add_css_class("planned"),
             Status::More => root.add_css_class("more"),
             Status::Waiting => root.add_css_class("waiting"),
+            Status::Finished => root.add_css_class("finished"),
             Status::Pending => {}
         }
         // Its own class, beside the status's: an up next card is yellow
-        // whatever its icon, unless it is active or waiting.
+        // whatever its icon, unless it is active, waiting or finished.
         if card.shows_up_next() {
             root.add_css_class("up-next");
         }
@@ -863,7 +864,7 @@ impl Panel {
                 root.append(&row.row);
                 row
             });
-        let age = age.map(|label| (label, card.entry.clone()));
+        let age = age.map(|label| (label, card.since.clone()));
         CardWidgets { uuid: card.uuid.clone(), root, body, row, age }
     }
 
