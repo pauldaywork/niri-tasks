@@ -227,7 +227,6 @@ wrong.
 niritasks tag                      # the focused workspace's tag
 niritasks tag --session            # the tag of the workspace this terminal was opened on
                                    #   (its herdr session, else its ~/Projects folder)
-niritasks task active              # each active task's description, one per line, or nothing
 niritasks task panel               # hand the task panel the keyboard (Mod+Alt+Ctrl+T)
 niritasks task status <uuid> <state>  # what a card's Stop, Waiting, Complete and Remove run: active|stopped|waiting|completed|deleted
                                    #   (stopped also brings back a waiting task, and reopens a completed one)
@@ -257,7 +256,6 @@ niritasks task start <uuid>        # its own worktree (task/<slug>-<uuid8>), ope
 niritasks task start <uuid> --here --workspace <name>
                                    # internal: the setup step, run inside the tab `task start` opens
 niritasks task session <uuid>      # back to the Claude working on it (work-/task-<uuid8>) in the herdr session
-niritasks workspace default        # name workspace 1 "general" if it is unnamed (niri runs it at startup)
 niritasks project open             # the panel's project list: pick a ~/Projects folder or GitHub repo
                                    #   onto its own named workspace, or type a new name (Mod+Alt+W)
 niritasks project open <name>      # open that one, cloning or making it first: what a pick runs

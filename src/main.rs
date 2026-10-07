@@ -54,10 +54,6 @@ enum Command {
     #[command(subcommand)]
     Task(TaskCommand),
 
-    /// Name workspace 1 at startup; every other name comes from opening a project
-    #[command(subcommand)]
-    Workspace(WorkspaceCommand),
-
     /// Project folder operations
     #[command(subcommand)]
     Project(ProjectCommand),
@@ -71,8 +67,6 @@ enum Command {
 
 #[derive(Subcommand)]
 enum TaskCommand {
-    /// Print each active task's description, one per line, or nothing
-    Active,
     /// Slide out the task panel and work its tasks with the keyboard (Mod+Alt+Ctrl+T)
     Panel,
     /// Move a task to a state, as a card's Stop, Waiting, Complete and Remove do
@@ -218,12 +212,6 @@ enum TaskCommand {
 }
 
 #[derive(Subcommand)]
-enum WorkspaceCommand {
-    /// Name workspace 1 "general" if it is unnamed (run at startup)
-    Default,
-}
-
-#[derive(Subcommand)]
 enum ProjectCommand {
     /// Show the task panel's project list (Mod+Alt+W); with a name, put that project on its own named workspace
     Open {
@@ -259,7 +247,6 @@ fn dispatch(cli: Cli) -> Result<()> {
             print!("{tag}");
         }
         Command::Task(c) => return task_command(c),
-        Command::Workspace(c) => return workspace_command(c),
         Command::Project(ProjectCommand::Open { name }) => return project_open(name),
         Command::Terminal => return terminal(),
         Command::Daemon => return niri_tasks::daemon::run(),
@@ -282,22 +269,6 @@ fn edit_in_box(uuid: &str, mode: taskbox::Mode) -> Result<()> {
 
 fn task_command(cmd: TaskCommand) -> Result<()> {
     match cmd {
-        // "Nothing" covers every uninteresting case identically (unnamed
-        // workspace, no tasks, none started) because the caller's job is to
-        // disappear in all of them rather than explain which one it hit.
-        TaskCommand::Active => {
-            let Some(name) = niri::focused_workspace_name()? else {
-                return Ok(());
-            };
-            let t = niri_tasks::tag::workspace_tag(&name);
-            if t.is_empty() {
-                return Ok(());
-            }
-            for active in task::active_for_tag(&t)? {
-                println!("{}", active.description);
-            }
-        }
-
         // The daemon draws the panel. Without one there is no panel to
         // hand the keyboard to, and saying so beats doing nothing.
         TaskCommand::Panel => {
@@ -477,12 +448,6 @@ fn apply_status(uuid: &str, description: &str, status: task::Status) -> Result<(
     Ok(())
 }
 
-fn workspace_command(cmd: WorkspaceCommand) -> Result<()> {
-    match cmd {
-        WorkspaceCommand::Default => niri_tasks::workspace_default(),
-    }
-}
-
 /// `project open`: with no name, the daemon's project list, which runs this
 /// again with the row picked; with one, open that project.
 ///
@@ -597,12 +562,18 @@ mod tests {
     use clap::CommandFactory;
 
     /// A workspace gets its name by opening a project on it, so there is no
-    /// naming one freely; workspace 1's startup name stays.
+    /// naming one freely; workspace 1's startup name is the daemon's job.
     #[test]
     fn workspaces_are_named_only_by_opening_a_project() {
         assert!(Cli::try_parse_from(["niritasks", "workspace", "rename"]).is_err());
         assert!(Cli::try_parse_from(["niritasks", "workspace", "new"]).is_err());
-        assert!(Cli::try_parse_from(["niritasks", "workspace", "default"]).is_ok());
+        assert!(Cli::try_parse_from(["niritasks", "workspace", "default"]).is_err());
+    }
+
+    /// The panel shows active tasks; nothing reads them off the CLI.
+    #[test]
+    fn task_active_is_no_command() {
+        assert!(Cli::try_parse_from(["niritasks", "task", "active"]).is_err());
     }
 
     /// The old picker and menu are gone: the task panel does what they did.

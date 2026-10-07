@@ -11,11 +11,6 @@
 // A missing include target is fatal to niri, so anything that ships this
 // include must seed an empty stub when niri-tasks is not installed.
 
-// Name workspace 1 on startup if it has no name. Naming matters more than it
-// looks: the name is the tag the task shortcuts scope to, so an unnamed
-// workspace has no tasks.
-spawn-at-startup "niritasks" "workspace" "default"
-
 // How the blur behind the task panel's cards looks. The same settings as the
 // windows' background-effect, so a card reads like a terminal.
 //

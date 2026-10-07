@@ -147,7 +147,7 @@ pub fn caller_workspace_tag() -> Result<String> {
 ///
 /// Run once at startup. Naming matters more than it looks: the name is the tag
 /// the task shortcuts scope to, so an unnamed workspace silently has no tasks.
-/// Lives here rather than in the binary because the daemon runs it too.
+/// The daemon runs it once as it starts.
 pub fn workspace_default() -> Result<()> {
     let all = niri::workspaces()?;
     if let Some(ws) = all.iter().find(|w| w.idx == 1) {
