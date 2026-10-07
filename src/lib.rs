@@ -43,7 +43,7 @@ fn focused_workspace() -> Result<String> {
     let name = niri::focused_workspace_name()?.unwrap_or_default();
     anyhow::ensure!(
         !name.is_empty(),
-        "This workspace has no name — name it with Mod+Alt+Ctrl+W first."
+        "This workspace has no name — Mod+Alt+W opens a project on a named one."
     );
     usable_tag(&name)?;
     Ok(name)

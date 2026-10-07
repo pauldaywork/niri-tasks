@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
     actions::Action,
-    caller_workspace, caller_workspace_tag, github, ipc, link, niri, notify, picker::Picker, project, refine,
+    caller_workspace, caller_workspace_tag, github, ipc, link, niri, notify, project, refine,
     require_workspace_tag, session,
     speak, task, taskbox, text, work,
 };
@@ -54,7 +54,7 @@ enum Command {
     #[command(subcommand)]
     Task(TaskCommand),
 
-    /// Workspace naming
+    /// Name workspace 1 at startup; every other name comes from opening a project
     #[command(subcommand)]
     Workspace(WorkspaceCommand),
 
@@ -219,10 +219,6 @@ enum TaskCommand {
 
 #[derive(Subcommand)]
 enum WorkspaceCommand {
-    /// Create a new workspace and name it
-    New,
-    /// Rename the focused workspace
-    Rename,
     /// Name workspace 1 "general" if it is unnamed (run at startup)
     Default,
 }
@@ -483,45 +479,8 @@ fn apply_status(uuid: &str, description: &str, status: task::Status) -> Result<(
 
 fn workspace_command(cmd: WorkspaceCommand) -> Result<()> {
     match cmd {
-        WorkspaceCommand::New => {
-            let Some(name) = prompt_for_name("Name the new workspace", "")? else {
-                return Ok(());
-            };
-            // focus-workspace-down only creates a workspace when you are
-            // already on the last one; jump straight to the last workspace on
-            // this output — niri always keeps an empty one there — then name it.
-            let all = niri::workspaces()?;
-            let focused = all.iter().find(|w| w.is_focused).context("no focused workspace")?;
-            let output = focused.output.clone().unwrap_or_default();
-            let last = niri::last_workspace_idx(&all, &output).context("no workspaces on output")?;
-
-            niri::focus_workspace(WorkspaceReferenceArg::Index(last))?;
-            niri::set_workspace_name(&name, None)?;
-        }
-        WorkspaceCommand::Rename => {
-            let current = niri::focused_workspace_name()?.unwrap_or_default();
-            let Some(name) = prompt_for_name("Rename this workspace", &current)? else {
-                return Ok(());
-            };
-            niri::set_workspace_name(&name, None)?;
-        }
-        WorkspaceCommand::Default => niri_tasks::workspace_default()?,
+        WorkspaceCommand::Default => niri_tasks::workspace_default(),
     }
-    Ok(())
-}
-
-/// Ask for a workspace name.
-///
-/// Stage 2 replaces this with the GTK box; until then it is fuzzel rather than
-/// zenity, so there is one prompt style rather than two.
-fn prompt_for_name(prompt: &str, prefill: &str) -> Result<Option<String>> {
-    let mut p = Picker::new().lines(0).width(40).prompt(&format!("{prompt}: "));
-    if !prefill.is_empty() {
-        p = p.arg(format!("--search={prefill}"));
-    }
-    let typed = p.run(&[])?.unwrap_or_default();
-    let name = text::collapse_whitespace(&typed);
-    Ok((!name.is_empty()).then_some(name))
 }
 
 /// `project open`: with no name, the daemon's project list, which runs this
@@ -636,6 +595,15 @@ fn terminal() -> Result<()> {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    /// A workspace gets its name by opening a project on it, so there is no
+    /// naming one freely; workspace 1's startup name stays.
+    #[test]
+    fn workspaces_are_named_only_by_opening_a_project() {
+        assert!(Cli::try_parse_from(["niritasks", "workspace", "rename"]).is_err());
+        assert!(Cli::try_parse_from(["niritasks", "workspace", "new"]).is_err());
+        assert!(Cli::try_parse_from(["niritasks", "workspace", "default"]).is_ok());
+    }
 
     /// The fuzzel picker and menu are gone: the task panel does what they did.
     #[test]

@@ -393,8 +393,8 @@ mod tests {
     fn no_cards_says_why() {
         assert_eq!(no_cards_text(Ok("web".into())), NO_TASKS);
         assert_eq!(
-            no_cards_text(Err(anyhow::anyhow!("This workspace has no name — name it with Mod+Alt+Ctrl+W first."))),
-            "This workspace has no name — name it with Mod+Alt+Ctrl+W first."
+            no_cards_text(Err(anyhow::anyhow!("This workspace has no name — Mod+Alt+W opens a project on a named one."))),
+            "This workspace has no name — Mod+Alt+W opens a project on a named one."
         );
     }
 

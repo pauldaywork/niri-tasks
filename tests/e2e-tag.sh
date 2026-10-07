@@ -137,7 +137,7 @@ sys.exit(0 if mine and mine.get('active_window_id') is None
 fi
 
 if [ -z "$FOCUSED" ]; then
-    echo "the focused workspace has no name — name it with Mod+Alt+Ctrl+W first" >&2
+    echo "the focused workspace has no name — Mod+Alt+W opens a project on a named one" >&2
     exit 1
 fi
 if [ -z "$OTHER" ]; then

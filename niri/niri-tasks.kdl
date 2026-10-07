@@ -37,39 +37,29 @@ layer-rule {
 // One of the binds below is guarded against opening twice, and only one needs
 // to be.
 //
-// The pickers are fuzzel, and fuzzel already refuses to run twice: it flocks
-// $XDG_RUNTIME_DIR/fuzzel-$WAYLAND_DISPLAY.lock and a second instance exits with
-// "failed to acquire lock", in --dmenu mode as much as as a launcher. Wrapping
-// those in a lock of our own was worse than useless — `flock` holds its lock
-// through a file descriptor, and everything a picker goes on to launch inherits
-// it, so `niritasks project open` would have kept the lock alive for as long as the
-// terminal and the editor it spawns stayed open.
-//
-// The task box is the exception, and the reason any of this exists: it is the
-// GTK window in src/taskbox.rs, it has no lock, and fuzzel's lock does not know
-// it exists, so pressing Mod+Alt+T twice stacked two boxes. It spawns nothing
-// that outlives it — Add & refine's refine goes through niri's spawn, not as
-// its child — which is what makes holding a lock across it safe where the
-// same trick was not safe for the pickers.
+// The task panel and its project list are the daemon's own surfaces, one per
+// monitor, so pressing their keys again shows the same one again rather than a
+// second. The task box is the exception: it is the GTK window in
+// src/taskbox.rs, a new one each time, so pressing Mod+Alt+T twice stacked two
+// boxes. It spawns nothing that outlives it — Add & refine's refine goes
+// through niri's spawn, not as its child — so a flock held across it is
+// released when it closes.
 binds {
-    // Rename the current workspace — and with it, which tag its tasks carry.
-    // It is also how to get a named workspace with no project folder: go to
-    // the empty workspace at the end and name it here.
-    Mod+Alt+Ctrl+W hotkey-overlay-title="Rename Workspace" { spawn "niritasks" "workspace" "rename"; }
-
     // A terminal in the focused workspace's project folder, ~/Projects/<name>
     // (or ~/Projects when there is no such folder). This replaces the plain
     // `spawn "ghostty"` a config.kdl without niri-tasks falls back on: includes
     // are positional, so this later bind of the same key wins.
     Mod+Return hotkey-overlay-title="Open Terminal" { spawn "niritasks" "terminal"; }
 
-    // Pick a folder from ~/Projects (or type a new name to make one), put it on
-    // its own named workspace, and open a terminal on that workspace's herdr
-    // session (`herdr --session <workspace>`) and VS Code in it. herdr
-    // reattaches the session if it exists and creates it in the project folder
-    // if not. The editor is skipped when `code` is not on $PATH — it is a
-    // nicety here, not a requirement. W for workspace; its Ctrl companion,
-    // Mod+Alt+Ctrl+W, renames one.
+    // The task panel's project list, in the middle of the screen: the
+    // ~/Projects folders, then the GitHub repos not cloned yet. Picking one
+    // (or typing a new name to make one) puts it on its own named workspace,
+    // and opens a terminal on that workspace's herdr session
+    // (`herdr --session <workspace>`) and VS Code in it. herdr reattaches the
+    // session if it exists and creates it in the project folder if not. The
+    // editor is skipped when `code` is not on $PATH — it is a nicety here,
+    // not a requirement. Opening a project is the only way a workspace gets
+    // a name, bar workspace 1's at startup. W for workspace.
     Mod+Alt+W hotkey-overlay-title="Open Project Workspace" { spawn "niritasks" "project" "open"; }
 
     // Taskwarrior, scoped to the current workspace's name as a tag.
