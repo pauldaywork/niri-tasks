@@ -120,6 +120,14 @@ shot() {  # label
     return 1
 }
 
+# Wait out the project list's blinking text cursor. The focused field blinks
+# on every frame `shot` takes, so no two match and it gives up. GTK stops
+# blinking, cursor shown, after gtk-cursor-blink-timeout (10 seconds, from
+# the user's settings) with nothing typed. The setting itself cannot be
+# turned off for the nested daemon alone: the portal's value beats a
+# settings.ini, and GDK_DEBUG=no-portals changes the fonts along with it.
+let_cursor_rest() { sleep 12; }
+
 frame_size() {  # label
     python3 -c 'import sys; from PIL import Image; print(*Image.open(sys.argv[1]).size)' "$SB/shots/$1.png"
 }
@@ -590,7 +598,7 @@ if command -v wtype >/dev/null; then
     if find "$HOME/Projects" -mindepth 1 -maxdepth 1 -type d ! -name '.*' ! -name e2e 2>/dev/null | grep -q .; then
         shot move_before || { summary; exit 1; }
         "${NENV[@]}" wtype m
-        sleep 1
+        let_cursor_rest
         shot move_list || { summary; exit 1; }
         if same move_before move_list; then
             bad "m left the panel as it was — no project list"
@@ -637,7 +645,7 @@ fi
 # ~/Projects. Its own XDG_CACHE_HOME keeps its gh refresh off the real cache.
 if command -v wtype >/dev/null && [ -d "$HOME/Projects" ]; then
     "${NENV[@]}" XDG_CACHE_HOME="$SB/cache" "$NIRITASKS" project open >/dev/null 2>&1
-    sleep 1
+    let_cursor_rest
     shot open_list || { summary; exit 1; }
     if same baseline open_list; then
         bad "project open drew nothing on a workspace with no tasks"
