@@ -47,6 +47,39 @@ impl Action {
         }
     }
 
+    /// What the focused card's hint reads beside its buttons: the keys that
+    /// change from card to card and button to button. The focused button's
+    /// key and name ("g: Go to session", "Del: Remove", or just "Speak" for
+    /// a button only Enter presses), then what Ctrl+Enter does to this task,
+    /// when it presses a button `row` has. Empty on the body of a task
+    /// Ctrl+Enter leaves alone. Enter and Ctrl+Delete do the same on every
+    /// card, so they are the footer's, [`CARD_KEYS`]. Pure, so every card's
+    /// hint is tested without a window; `surface.rs` only sets the label.
+    pub fn hint(state: TaskState, row: &[Action], focused: Option<Action>) -> String {
+        let mut parts = Vec::new();
+        if let Some(action) = focused {
+            let name = action.label(state.up_next);
+            parts.push(match action.key() {
+                Some(key) => format!("{key}: {name}"),
+                None => name.to_string(),
+            });
+        }
+        if let Some(step) = Self::advance(state).filter(|a| row.contains(a)) {
+            let does = if step == Refine { "refine" } else { "start working" };
+            parts.push(format!("Ctrl+Enter: {does}"));
+        }
+        parts.join(" · ")
+    }
+
+    /// The key that presses the button, as the hint names it: its letter, or
+    /// Del for Remove. None for a button only Enter presses.
+    fn key(self) -> Option<String> {
+        match self {
+            Remove => Some("Del".to_string()),
+            _ => self.letter().map(String::from),
+        }
+    }
+
     /// Whether the panel keeps the keyboard after the button runs. Back to
     /// list, Up next, Waiting and Remove only change the task, and Speak
     /// plays in the background, so none opens anything that needs the
@@ -107,6 +140,11 @@ impl Action {
 /// press and its second, as Remove asks before it deletes.
 pub const CLEAR_ALL: &str = "Clear all";
 pub const CONFIRM_CLEAR_ALL: &str = "Confirm clear all";
+
+/// The footer under the keyboard's list: the keys that act on whichever card
+/// has the focus, the same on every one, so the card's own hint leaves them
+/// out.
+pub const CARD_KEYS: &str = "Enter: open the menu, or press the button · Ctrl+Del: delete the task";
 
 /// The command Clear all spawns: Remove's own `task status <uuid> deleted
 /// --yes` for each of `uuids`, one after another in one shell. So every task
@@ -341,5 +379,101 @@ mod tests {
         assert_eq!(command[3], "/opt/my tools/niritasks");
         assert_eq!(command[4], "u1");
         assert!(!command[2].contains("my tools"));
+    }
+
+    fn hint(state: TaskState, focused: Option<Action>) -> String {
+        Action::hint(state, &Action::row(state), focused)
+    }
+
+    /// Up and Down land on the body: what Ctrl+Enter does to this task.
+    #[test]
+    fn the_body_hints_what_ctrl_enter_does() {
+        assert_eq!(hint(on_list(false), None), "Ctrl+Enter: refine");
+        assert_eq!(hint(active(false), None), "Ctrl+Enter: refine");
+        assert_eq!(hint(on_list(true), None), "Ctrl+Enter: start working");
+    }
+
+    #[test]
+    fn the_body_of_a_task_ctrl_enter_leaves_alone_hints_nothing() {
+        assert_eq!(hint(active(true), None), "");
+        assert_eq!(hint(waiting(false), None), "");
+        assert_eq!(hint(with_claude(waiting(true)), None), "");
+    }
+
+    #[test]
+    fn a_lettered_button_hints_its_letter_and_name() {
+        assert_eq!(hint(with_claude(on_list(true)), Some(Session)), "g: Go to session · Ctrl+Enter: start working");
+        assert_eq!(hint(on_list(true), Some(Start)), "s: Start working · Ctrl+Enter: start working");
+        assert_eq!(hint(on_list(false), Some(Refine)), "r: Refine · Ctrl+Enter: refine");
+        assert_eq!(hint(active(false), Some(Edit)), "e: Edit · Ctrl+Enter: refine");
+        assert_eq!(hint(active(true), Some(Stop)), "t: Stop");
+        assert_eq!(hint(waiting(false), Some(Back)), "b: Back to list");
+    }
+
+    /// Remove's key is Delete, not a letter.
+    #[test]
+    fn remove_hints_del() {
+        assert_eq!(hint(on_list(false), Some(Remove)), "Del: Remove · Ctrl+Enter: refine");
+        assert_eq!(hint(waiting(true), Some(Remove)), "Del: Remove");
+    }
+
+    /// Only Enter presses Speak, Up next and Waiting, and Enter is the
+    /// footer's, so they hint their name alone. Up next reads as it does on
+    /// its tooltip.
+    #[test]
+    fn a_button_with_no_key_hints_its_name_alone() {
+        assert_eq!(hint(on_list(false), Some(Speak)), "Speak · Ctrl+Enter: refine");
+        assert_eq!(hint(on_list(true), Some(Wait)), "Waiting · Ctrl+Enter: start working");
+        let up_next = TaskState { up_next: true, ..on_list(true) };
+        assert_eq!(hint(up_next, Some(UpNext)), "Not up next · Ctrl+Enter: start working");
+    }
+
+    /// Ctrl+Enter is left out when what it would press is not on the card.
+    #[test]
+    fn ctrl_enter_is_left_out_when_the_card_lacks_its_button() {
+        assert_eq!(Action::hint(on_list(false), &[Edit, Remove], None), "");
+        assert_eq!(Action::hint(on_list(true), &[Edit, Remove], Some(Edit)), "e: Edit");
+    }
+
+    /// Every state, up next or not, with the body and with each of its
+    /// buttons focused.
+    fn every_hint() -> Vec<(TaskState, Option<Action>, String)> {
+        let mut all = Vec::new();
+        for state in every_state() {
+            for up_next in [false, true] {
+                let state = TaskState { up_next, ..state };
+                let row = Action::row(state);
+                for focused in std::iter::once(None).chain(row.iter().copied().map(Some)) {
+                    all.push((state, focused, Action::hint(state, &row, focused)));
+                }
+            }
+        }
+        all
+    }
+
+    /// Enter and Ctrl+Delete do the same on every card, so they are the
+    /// footer's, and the card's hint leaves them out.
+    #[test]
+    fn the_hint_leaves_enter_and_ctrl_delete_to_the_footer() {
+        for (state, focused, text) in every_hint() {
+            assert!(!text.contains("Ctrl+Del"), "{state:?} {focused:?}: {text}");
+            assert!(!text.split(" · ").any(|part| part.starts_with("Enter")), "{state:?} {focused:?}: {text}");
+        }
+        assert_eq!(CARD_KEYS, "Enter: open the menu, or press the button · Ctrl+Del: delete the task");
+    }
+
+    /// Room for the hint on the widest row, at the hint's 9pt, where
+    /// Iosevka Term Extended is 7px a character: the 760px card, less eight
+    /// buttons of one 8px glyph, 24px of padding and a 1px line between
+    /// (263px), less the hint's own 24px of padding, less "  Confirm remove"
+    /// (16 characters at the buttons' 10pt, 128px) while Remove is armed:
+    /// 345px, so 49 characters.
+    const HINT_ROOM: usize = 49;
+
+    #[test]
+    fn every_hint_fits_beside_the_widest_row() {
+        for (state, focused, text) in every_hint() {
+            assert!(text.chars().count() <= HINT_ROOM, "{state:?} {focused:?}: {text:?} is {} long", text.chars().count());
+        }
     }
 }
