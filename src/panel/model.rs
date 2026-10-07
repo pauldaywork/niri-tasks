@@ -270,6 +270,8 @@ mod tests {
             annotations: Vec::new(),
             tags: Vec::new(),
             status: "pending".into(),
+            entry: String::new(),
+            priority: None,
         }
     }
 

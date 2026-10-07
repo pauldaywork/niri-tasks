@@ -45,6 +45,16 @@ pub struct Task {
     /// on a pending task — `refine`, say — has to check this itself.
     #[serde(default)]
     pub status: String,
+    /// When the task was added, as taskwarrior stamps it
+    /// (`20261006T120929Z`). The task panel sorts newest first by it and shows
+    /// its [`age`]. Every task has one; the default only keeps a hand-built
+    /// task in a test parseable.
+    #[serde(default)]
+    pub entry: String,
+    /// Taskwarrior's `priority`: `H`, `M` or `L`, absent when unset. The task
+    /// panel sorts by it, above age.
+    #[serde(default)]
+    pub priority: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -70,6 +80,18 @@ impl Task {
     /// Marked as the one to do next, with Up next.
     pub fn is_up_next(&self) -> bool {
         self.tags.iter().any(|t| t == UP_NEXT_TAG)
+    }
+
+    /// The priority as a number to sort by, highest first: H over M over L
+    /// over none. Anything else counts as none, as taskwarrior allows no
+    /// other value.
+    pub fn priority_rank(&self) -> u8 {
+        match self.priority.as_deref() {
+            Some("H") => 3,
+            Some("M") => 2,
+            Some("L") => 1,
+            _ => 0,
+        }
     }
 }
 
@@ -100,6 +122,70 @@ impl Annotation {
         }
         format!("{}-{}-{}", &day[..4], &day[4..6], &day[6..8])
     }
+}
+
+const MINUTE: i64 = 60;
+const HOUR: i64 = 60 * MINUTE;
+const DAY: i64 = 24 * HOUR;
+const WEEK: i64 = 7 * DAY;
+
+/// How long ago a stamp was, as a task card shows it: `5m`, `3h`, `2d` or
+/// `4w`, rounded down, from `now` in Unix seconds.
+///
+/// Under a minute, or a stamp ahead of `now` (another machine's clock), is
+/// `0m`. A stamp not of taskwarrior's shape is `None`, so the card shows no
+/// age rather than a wrong one — the same reasoning as [`Annotation::date`].
+pub fn age(stamp: &str, now: i64) -> Option<String> {
+    let secs = (now - stamp_secs(stamp)?).max(0);
+    let (n, unit) = match secs {
+        s if s < HOUR => (s / MINUTE, 'm'),
+        s if s < DAY => (s / HOUR, 'h'),
+        s if s < WEEK => (s / DAY, 'd'),
+        s => (s / WEEK, 'w'),
+    };
+    Some(format!("{n}{unit}"))
+}
+
+/// The time now, in Unix seconds, for [`age`]. A clock before 1970 reads
+/// as 1970 rather than failing a panel draw.
+pub fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// A taskwarrior stamp, `20261006T120929Z`, as Unix seconds. Always UTC: the
+/// `Z` is part of the shape.
+fn stamp_secs(stamp: &str) -> Option<i64> {
+    let b = stamp.as_bytes();
+    if b.len() != 16 || b[8] != b'T' || b[15] != b'Z' {
+        return None;
+    }
+    // `get`, not indexing: a multi-byte character is None, not a panic.
+    let num = |r: std::ops::Range<usize>| -> Option<i64> {
+        let s = stamp.get(r)?;
+        s.bytes().all(|c| c.is_ascii_digit()).then(|| s.parse().ok())?
+    };
+    let (y, mo, d) = (num(0..4)?, num(4..6)?, num(6..8)?);
+    let (h, mi, s) = (num(9..11)?, num(11..13)?, num(13..15)?);
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || s > 60 {
+        return None;
+    }
+    Some(days_from_civil(y, mo, d) * DAY + h * HOUR + mi * MINUTE + s)
+}
+
+/// Days from 1970-01-01 to a date in the proleptic Gregorian calendar.
+/// Howard Hinnant's algorithm
+/// (<http://howardhinnant.github.io/date_algorithms.html#days_from_civil>):
+/// ten lines here rather than a date crate for one fixed stamp shape.
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * ((m + 9) % 12) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
 }
 
 fn base() -> Command {
@@ -743,6 +829,74 @@ mod tests {
         let t: Task =
             serde_json::from_str(r#"{"uuid":"u","description":"d","tags":["PLANNED","planned_x"]}"#).unwrap();
         assert!(!t.is_planned());
+    }
+
+    /// `entry` and `priority` are what the panel sorts by; a task with no
+    /// priority has the field absent rather than empty.
+    #[test]
+    fn parses_entry_and_priority() {
+        let json = r#"[{"uuid":"a","description":"d","entry":"20261006T120929Z","priority":"H"},
+                       {"uuid":"b","description":"d"}]"#;
+        let tasks: Vec<Task> = serde_json::from_str(json).unwrap();
+        assert_eq!(tasks[0].entry, "20261006T120929Z");
+        assert_eq!(tasks[0].priority_rank(), 3);
+        assert_eq!(tasks[1].entry, "");
+        assert_eq!(tasks[1].priority_rank(), 0);
+    }
+
+    #[test]
+    fn priority_ranks_h_over_m_over_l_over_none() {
+        let rank = |p: Option<&str>| {
+            let mut t: Task = serde_json::from_str(r#"{"uuid":"a","description":"d"}"#).unwrap();
+            t.priority = p.map(String::from);
+            t.priority_rank()
+        };
+        assert!(rank(Some("H")) > rank(Some("M")));
+        assert!(rank(Some("M")) > rank(Some("L")));
+        assert!(rank(Some("L")) > rank(None));
+        assert_eq!(rank(Some("X")), rank(None), "a priority taskwarrior does not have counts as none");
+    }
+
+    /// Checked against Python's `calendar.timegm`, a leap day included.
+    #[test]
+    fn a_stamp_reads_as_unix_seconds() {
+        assert_eq!(stamp_secs("19700101T000000Z"), Some(0));
+        assert_eq!(stamp_secs("20261006T120929Z"), Some(1_791_288_569));
+        assert_eq!(stamp_secs("20240229T000000Z"), Some(1_709_164_800));
+        assert_eq!(stamp_secs("20240301T000000Z"), Some(1_709_164_800 + 86_400));
+    }
+
+    /// Taskwarrior's to define, so any other shape is no age rather than a
+    /// wrong one, and a multi-byte character is no panic.
+    #[test]
+    fn a_stamp_of_another_shape_has_no_age() {
+        for bad in ["", "2026-10-06", "20261006T120929", "20261306T120929Z", "2026100éT12092Z", "20261006X120929Z"] {
+            assert_eq!(age(bad, 0), None, "{bad:?}");
+        }
+    }
+
+    /// Each unit from its first second to its last, rounded down.
+    #[test]
+    fn ages_cut_over_at_whole_units() {
+        let added = "20261006T120000Z";
+        let at = |secs: i64| age(added, stamp_secs(added).unwrap() + secs).unwrap();
+        assert_eq!(at(0), "0m");
+        assert_eq!(at(59), "0m");
+        assert_eq!(at(60), "1m");
+        assert_eq!(at(3_599), "59m");
+        assert_eq!(at(3_600), "1h");
+        assert_eq!(at(86_399), "23h");
+        assert_eq!(at(86_400), "1d");
+        assert_eq!(at(7 * 86_400 - 1), "6d");
+        assert_eq!(at(7 * 86_400), "1w");
+        assert_eq!(at(365 * 86_400), "52w");
+    }
+
+    /// A clock behind the one that stamped the task reads as just added.
+    #[test]
+    fn a_stamp_from_the_future_is_just_added() {
+        let added = "20261006T120000Z";
+        assert_eq!(age(added, stamp_secs(added).unwrap() - 30).as_deref(), Some("0m"));
     }
 
     fn exported() -> serde_json::Value {

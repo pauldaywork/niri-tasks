@@ -75,6 +75,8 @@ mod tests {
                 .collect(),
             tags: Vec::new(),
             status: "pending".into(),
+            entry: String::new(),
+            priority: None,
         }
     }
 
