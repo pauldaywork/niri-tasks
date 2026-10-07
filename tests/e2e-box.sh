@@ -20,7 +20,7 @@
 #
 # It covers the one box in all three modes: adding (with due:friday parsed and
 # notes typed as rows), editing an existing task's notes in place — changed,
-# deleted with Backspace, dates kept — and the menu's Note, which opens the same
+# deleted with Backspace, dates kept — and `task note`, which opens the same
 # box with the cursor in a new row. Driven the only way that proves anything
 # here: real keypresses. The ×, "+ Add note" and scrolling take a pointer or
 # eyes, which wtype has neither of — README.md lists them as the manual check.

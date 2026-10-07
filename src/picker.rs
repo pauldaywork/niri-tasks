@@ -14,7 +14,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-/// The stripped-down fuzzel theme shared by the project and task pickers.
+/// The stripped-down fuzzel theme the project picker and the workspace name prompt share.
 pub fn picker_config() -> Option<PathBuf> {
     let path = dirs_config()?.join("fuzzel/picker.ini");
     path.is_file().then_some(path)
@@ -30,11 +30,6 @@ fn dirs_config() -> Option<PathBuf> {
 /// 12, after which the list scrolls.
 pub fn clamp_lines(count: usize) -> usize {
     count.min(12)
-}
-
-/// Width for the task picker: longest entry + 6, clamped to 40..=52.
-pub fn clamp_task_width(longest: usize) -> usize {
-    (longest + 6).clamp(40, 52)
 }
 
 /// Width for the project picker: longest entry + 4, minimum 20, no upper clamp
@@ -77,8 +72,7 @@ impl Picker {
     ///
     /// Returns `None` when the picker was cancelled. Note fuzzel echoes typed
     /// text verbatim when it matches no entry — that is what lets the project
-    /// picker create folders, and why the task list validates the result
-    /// against its own rows before treating it as a uuid.
+    /// picker create folders.
     pub fn run(self, entries: &[String]) -> Result<Option<String>> {
         let mut child = Command::new("fuzzel")
             .args(&self.args)
@@ -118,18 +112,6 @@ mod tests {
         assert_eq!(clamp_lines(5), 5);
         assert_eq!(clamp_lines(12), 12);
         assert_eq!(clamp_lines(100), 12);
-    }
-
-    /// The 52 cap is what keeps the popup off the screen edge at 1080p.
-    #[test]
-    fn task_width_is_clamped_both_ends() {
-        assert_eq!(clamp_task_width(0), 40, "short lists still get a usable box");
-        // 30 + 6 is under the floor, so the floor wins. Written out rather than
-        // as `36.max(40)`, which reads like a calculation but is a constant the
-        // compiler folds — the assertion could not have failed.
-        assert_eq!(clamp_task_width(30), 40);
-        assert_eq!(clamp_task_width(40), 46);
-        assert_eq!(clamp_task_width(100), 52, "long descriptions elide, not widen");
     }
 
     #[test]

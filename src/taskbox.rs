@@ -11,7 +11,7 @@
 //!
 //! Its description is a wrapping text area and its notes are a list of rows,
 //! one per note, each editable in place with its date at its right end and an
-//! × to delete it. Add, Edit and the menu's Note all open this same window;
+//! × to delete it. Add, Edit and `task note` all open this same window;
 //! they differ only in what is filled in and where the cursor starts.
 //!
 //! Replaces `TaskBoxDaemon.qml` and `TaskBoxModal.qml`, and with them the
@@ -118,7 +118,7 @@ impl BoxConfig {
 
     /// The box for an existing task. It fetches the description and notes
     /// itself, rather than taking them as arguments: the ones you open the box
-    /// to fix are the long ones, which a picker row shows a fraction of.
+    /// to fix are the long ones, which a one-line row shows a fraction of.
     pub fn for_task(mode: Mode, task: Task) -> Self {
         Self {
             mode,
@@ -378,7 +378,7 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
     footer.append(&hint_label);
     footer.append(&cancel);
     footer.append(&submit);
-    // Add mode only: refining from Edit or Note is the menu's job.
+    // Add mode only: refining from Edit or Note is the card's Refine's job.
     let refine = (cfg.mode == Mode::Add).then(|| gtk4::Button::with_label("Add & refine"));
     if let Some(refine) = &refine {
         footer.append(refine);
@@ -796,7 +796,7 @@ mod tests {
         );
     }
 
-    /// One window for an existing task, whichever menu row opened it; only
+    /// One window for an existing task, whichever command opened it; only
     /// adding reads differently.
     #[test]
     fn titles_match_the_mode() {

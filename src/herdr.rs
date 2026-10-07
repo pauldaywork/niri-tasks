@@ -2,7 +2,7 @@
 //!
 //! Every call names its session with `--session`, which wins over the
 //! `HERDR_*` variables a pane inherits — so this behaves the same from a
-//! fuzzel pick as from a terminal inside some other herdr session. The argv
+//! task panel as from a terminal inside some other herdr session. The argv
 //! builders are pure so they can be tested without a herdr server; [`run`] is
 //! the only part that talks to one.
 
@@ -32,7 +32,7 @@ pub fn workspace_create(session: &str, dir: &Path, label: &str) -> Vec<String> {
 }
 
 /// Open a tab in the project folder. Takes `--focus` because the user just
-/// asked for this tab from a menu and should land in it.
+/// asked for this tab from the panel and should land in it.
 pub fn tab_create(session: &str, workspace_id: &str, dir: &Path, label: &str) -> Vec<String> {
     let dir = dir.display().to_string();
     cmd(
@@ -48,7 +48,7 @@ pub fn agent_get(session: &str, name: &str) -> Vec<String> {
 }
 
 /// Every live agent in the session — one call that answers whether a task
-/// has a Claude on it, for the menu that opens on every card click.
+/// has a Claude on it, for the panel's Go to session.
 pub fn agent_list(session: &str) -> Vec<String> {
     cmd(session, &["agent", "list"])
 }
@@ -59,7 +59,7 @@ pub fn agent_focus(session: &str, name: &str) -> Vec<String> {
 }
 
 /// Give the agent in a pane a name — how a Claude started by hand gets the
-/// `work-<uuid8>` name Start working would have given it, so the task's menu
+/// `work-<uuid8>` name Start working would have given it, so the task's card
 /// can find it. Targets the pane, since an unnamed agent has nothing else.
 pub fn agent_rename(session: &str, target: &str, name: &str) -> Vec<String> {
     cmd(session, &["agent", "rename", target, name])

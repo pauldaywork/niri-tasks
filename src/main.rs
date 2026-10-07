@@ -10,8 +10,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use niri_ipc::WorkspaceReferenceArg;
 use niri_tasks::{
-    actions::{Action, TaskState},
-    caller_workspace, caller_workspace_tag, github, ipc, link, menu, niri, notify, picker::Picker, project, refine,
+    actions::Action,
+    caller_workspace, caller_workspace_tag, github, ipc, link, niri, notify, picker::Picker, project, refine,
     require_workspace_tag, session,
     speak, task, taskbox, text, work,
 };
@@ -73,34 +73,21 @@ enum Command {
 enum TaskCommand {
     /// Print each active task's description, one per line, or nothing
     Active,
-    /// Pick a task from this workspace and act on it (opens fuzzel)
-    List {
-        /// Print the rows that would be shown, instead of opening the picker.
-        /// Exists so the list can be diffed against the shell original without
-        /// a GUI in the way.
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// Slide out the task panel and pick a task with the keyboard (Mod+Alt+Ctrl+T)
+    /// Slide out the task panel and work its tasks with the keyboard (Mod+Alt+Ctrl+T)
     Panel,
-    /// Open the action menu for one task, as clicking its task card does (opens fuzzel)
-    Menu {
-        /// The task's uuid, or its first 8 characters
-        uuid: String,
-    },
-    /// Move a task to a state, as the menu's "Update status" does
+    /// Move a task to a state, as a card's Stop, Waiting, Complete and Remove do
     ///
-    /// The same states, code and notification as the menu, for scripts and for
-    /// finishing a task's worktree. Use it rather than `task <uuid> done`,
-    /// `start` or `stop`: `active` also links the herdr pane it runs in to the
-    /// task, and every change sends the menu's notification.
+    /// The same states, code and notification as the card's buttons, for
+    /// scripts and for finishing a task's worktree. Use it rather than `task
+    /// <uuid> done`, `start` or `stop`: `active` also links the herdr pane it
+    /// runs in to the task, and every change sends the buttons' notification.
     Status {
         /// The task's uuid, or its first 8 characters, as in a
         /// `task/<slug>-<uuid8>` branch
         uuid: String,
         /// Where to move it; `stopped` also brings back a waiting task
         state: task::Status,
-        /// Confirm `deleted`, which the menu asks about and a script cannot be asked
+        /// Confirm `deleted`, which a card's Remove asks about and a script cannot be asked
         #[arg(long)]
         yes: bool,
     },
@@ -185,7 +172,7 @@ enum TaskCommand {
     ///
     /// Up next is Taskwarrior's own `+next` tag: the task's card turns yellow
     /// and sits under the active tasks, and its urgency rises by 15, which
-    /// lifts it in the picker. Nothing else about the task changes.
+    /// lifts it in `task next`. Nothing else about the task changes.
     UpNext {
         /// The task's uuid, or its first 8 characters
         uuid: String,
@@ -261,8 +248,7 @@ fn run() -> Result<()> {
     dispatch(Cli::parse())
 }
 
-/// Run one parsed command line: the shell's, or a picked task action's own
-/// words, so the menu runs what the same words run anywhere.
+/// Run one parsed command line.
 fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Tag { session } => {
@@ -313,29 +299,19 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             }
         }
 
-        TaskCommand::List { dry_run } => return task_list(dry_run),
-
-        // The daemon draws the panel; without one, the fuzzel list does the job.
+        // The daemon draws the panel. Without one there is no panel to
+        // hand the keyboard to, and saying so beats doing nothing.
         TaskCommand::Panel => {
-            if !delegate_to_daemon(ipc::Request::Panel) {
-                return task_list(false);
-            }
-        }
-
-        TaskCommand::Menu { uuid } => {
-            let tag = require_workspace_tag()?;
-            let t = task::get(&uuid)?.context("task not found")?;
-            // A waiting task's card opens this too, and its export says
-            // pending, so ask taskwarrior.
-            let waiting = task::is_waiting(&t.uuid)?;
-            let width = niri_tasks::picker::clamp_task_width(t.description.chars().count());
-            return task_menu(&tag, &t, waiting, width);
+            anyhow::ensure!(
+                delegate_to_daemon(ipc::Request::Panel),
+                "The niri-tasks daemon is not running, so there is no task panel. Start it with `systemctl --user start niri-tasks`."
+            );
         }
 
         TaskCommand::Status { uuid, state, yes } => {
             anyhow::ensure!(
                 yes || state != task::Status::Deleted,
-                "Deleting a task needs --yes, the menu's confirmation."
+                "Deleting a task needs --yes, Remove's confirmation."
             );
             let t = task::get(&uuid)?.context("task not found")?;
             apply_status(&t.uuid, &t.description, state)?;
@@ -484,130 +460,12 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
     Ok(())
 }
 
-/// The list is fed to fuzzel as "<uuid>\t<description>" and displayed with
-/// --with-nth=2: you read and filter the description, we get back the uuid. Ids
-/// would be shorter but they are renumbered as tasks complete, so a stale id
-/// can point at the wrong task.
-fn task_list(dry_run: bool) -> Result<()> {
-    let tag = require_workspace_tag()?;
-    let tasks = task::pending_for_tag(&tag)?;
-
-    let rows = niri_tasks::rows::build(&tasks);
-    let longest = niri_tasks::rows::longest(&rows);
-    let entries: Vec<String> = rows.iter().map(|(u, d)| format!("{u}\t{d}")).collect();
-
-    if dry_run {
-        for e in &entries {
-            println!("{e}");
-        }
-        eprintln!(
-            "lines={} width={}",
-            niri_tasks::picker::clamp_lines(rows.len()),
-            niri_tasks::picker::clamp_task_width(longest)
-        );
-        return Ok(());
-    }
-
-    let selected = Picker::new()
-        .arg("--with-nth=2")
-        .arg("--accept-nth=1")
-        .lines(niri_tasks::picker::clamp_lines(rows.len()))
-        .width(niri_tasks::picker::clamp_task_width(longest))
-        .prompt(&format!("+{tag} "))
-        .run(&entries)?;
-
-    let Some(selected) = selected else { return Ok(()) };
-
-    // Drop anything that is not one of our uuids — fuzzel echoes typed text
-    // when it matches no entry, which here would mean acting on a uuid that
-    // does not exist.
-    if !rows.iter().any(|(u, _)| *u == selected) {
-        return Ok(());
-    }
-
-    // Hand straight over to the add path rather than reimplementing it, so
-    // there is one definition of what "adding a task" means.
-    if selected == niri_tasks::rows::ADD_SENTINEL {
-        return task_command(TaskCommand::Add { text: vec![], refine: false });
-    }
-
-    let Some(picked) = tasks.iter().find(|t| t.uuid == selected) else { return Ok(()) };
-    // pending_for_tag leaves waiting tasks out, so none picked here is one.
-    task_menu(&tag, picked, false, niri_tasks::picker::clamp_task_width(longest))
-}
-
-/// The menu for one task, and doing the entry picked. `t` is the task as
-/// found, so its uuid is the full one even when a prefix was typed: the link
-/// to its Claude is derived from it. `waiting` is whether it is parked, which
-/// its export cannot say. `width` is the delete confirmation's, matched to
-/// the list it was reached from.
-fn task_menu(tag: &str, t: &task::Task, waiting: bool, width: usize) -> Result<()> {
-    // Asked of herdr on every open; a session that is not running answers
-    // at once, and no answer just means no Go to session.
-    let workspace = niri::focused_workspace_name()?.unwrap_or_default();
-    let has_session = link::live_agent(&workspace, &t.uuid).is_some();
-    let state = TaskState::of(t, waiting, has_session);
-    let labels: Vec<String> = menu::entries(state).iter().map(|e| e.label(state.up_next).to_string()).collect();
-    let picked = Picker::new()
-        .lines(labels.len())
-        .width(20)
-        .prompt("")
-        .run(&labels)?;
-
-    match picked.as_deref().and_then(|label| menu::picked(label, state)) {
-        // The action's own words, through the same parser as a shell's, so
-        // the menu runs exactly what the action row's button runs.
-        Some(menu::Entry::Run(action)) => {
-            let argv = std::iter::once("niritasks".to_string()).chain(action.args(&t.uuid));
-            dispatch(Cli::try_parse_from(argv)?)
-        }
-        Some(menu::Entry::Status) => task_status(&t.uuid, &t.description, width),
-        Some(menu::Entry::Move) => task_move(tag, &t.uuid, &t.description),
-        None => Ok(()),
-    }
-}
-
-/// Move one task to a picked state.
-///
-/// Active and Stopped drive taskwarrior's start/stop flag; Waiting, Completed
-/// and Deleted are its real statuses. One list rather than that distinction,
-/// because from the menu they are all just "where is this task now". Deleted
-/// is the one destructive pick, so it alone keeps a confirmation.
-fn task_status(uuid: &str, description: &str, width: usize) -> Result<()> {
-    let rows: Vec<String> = task::Status::ALL
-        .iter()
-        .map(|s| s.label().to_string())
-        .collect();
-    let picked = Picker::new()
-        .arg("--no-sort")
-        .lines(5)
-        .width(20)
-        .prompt("status ")
-        .run(&rows)?;
-    let Some(status) = picked.as_deref().and_then(task::Status::from_label) else {
-        return Ok(());
-    };
-
-    if status == task::Status::Deleted {
-        let confirm = Picker::new()
-            .lines(2)
-            .width(width)
-            .prompt("delete? ")
-            .run(&["No".into(), "Yes, delete".into()])?;
-        if confirm.as_deref() != Some("Yes, delete") {
-            return Ok(());
-        }
-    }
-    apply_status(uuid, description, status)
-}
-
-/// Move a task and say so. The one place both the menu and `task status` do
-/// it, so a task marked done from a script looks exactly like one marked done
-/// from its card.
+/// Move a task and say so. The one place it is done, so a task completed from
+/// a script looks exactly like one completed from its card.
 ///
 /// Marking a task active from inside a herdr pane also names that pane's
 /// agent after it (see `link::link_current_pane`): that is how a Claude
-/// started by hand becomes findable from the task's menu. Best effort — the
+/// started by hand becomes findable from the task's card. Best effort — the
 /// task is active either way, so a refused rename is only reported.
 fn apply_status(uuid: &str, description: &str, status: task::Status) -> Result<()> {
     task::set_status(uuid, status)?;
@@ -617,50 +475,6 @@ fn apply_status(uuid: &str, description: &str, status: task::Status) -> Result<(
         }
     }
     notify::tasks(&format!("{}: {description}", status.label()));
-    Ok(())
-}
-
-/// Move a task to another workspace by retagging it.
-///
-/// The destinations are the `~/Projects` folders, listed by folder name and
-/// folded to a tag only once one is picked — so the list reads the way the
-/// project picker does, and picking `niri-tasks` here puts the task on the same
-/// `+niri_tasks` that opening that project would give it.
-fn task_move(tag: &str, uuid: &str, description: &str) -> Result<()> {
-    let (_, names) = project::list()?;
-    let destinations = project::move_destinations(&names, tag);
-    if destinations.is_empty() {
-        notify::tasks("No other project to move this to.");
-        return Ok(());
-    }
-
-    let longest = destinations.iter().map(|n| n.chars().count()).max().unwrap_or(0);
-    let selected = Picker::new()
-        .arg("--no-sort")
-        .lines(niri_tasks::picker::clamp_lines(destinations.len()))
-        .width(niri_tasks::picker::clamp_project_width(longest))
-        .prompt("move to ")
-        .run(&destinations)?;
-
-    let Some(selected) = selected else { return Ok(()) };
-
-    // fuzzel echoes typed text verbatim when it matches no entry. For the
-    // project picker that is a feature — it is how a folder gets created — but
-    // here it would invent a tag for a project that does not exist, and a task
-    // on a tag no workspace ever produces is invisible to every list. Only an
-    // entry off the list counts.
-    if !destinations.contains(&selected) {
-        return Ok(());
-    }
-
-    let destination = niri_tasks::tag::workspace_tag(&selected);
-    anyhow::ensure!(
-        !destination.is_empty(),
-        "'{selected}' has no usable tag characters."
-    );
-
-    task::move_to_tag(uuid, tag, &destination)?;
-    notify::tasks(&format!("Moved to +{destination}: {description}"));
     Ok(())
 }
 
@@ -817,6 +631,14 @@ fn terminal() -> Result<()> {
 mod tests {
     use super::*;
 
+    /// The fuzzel picker and menu are gone: the task panel does what they did.
+    #[test]
+    fn the_picker_and_the_menu_are_no_commands() {
+        assert!(Cli::try_parse_from(["niritasks", "task", "list"]).is_err());
+        assert!(Cli::try_parse_from(["niritasks", "task", "list", "--dry-run"]).is_err());
+        assert!(Cli::try_parse_from(["niritasks", "task", "menu", "c53b6e3d"]).is_err());
+    }
+
     /// A card's Move to workspace runs this, with the folder picked on the
     /// project list; a folder is required.
     #[test]
@@ -826,9 +648,9 @@ mod tests {
     }
     use clap::CommandFactory;
 
-    /// The menu and the action row both run a task action as its own
-    /// `niritasks` words, so each has to be a command the real CLI accepts.
-    /// Otherwise a typo shows up as a pick or a click that does nothing.
+    /// The action row runs a task action as its own `niritasks` words, so each
+    /// has to be a command the real CLI accepts. Otherwise a typo shows up as
+    /// a click that does nothing.
     #[test]
     fn every_task_action_is_a_command_the_cli_accepts() {
         for action in Action::ALL {
@@ -840,13 +662,13 @@ mod tests {
         }
     }
 
-    /// The menu's Go to session runs this; a script can too.
+    /// A card's Go to session runs this; a script can too.
     #[test]
     fn going_to_a_tasks_session_is_a_command() {
         assert!(Cli::try_parse_from(["niritasks", "task", "session", "c53b6e3d"]).is_ok());
     }
 
-    /// The menu's Speak runs this, and so does the panel's button.
+    /// A card's Speak runs this.
     #[test]
     fn speaking_a_task_is_a_command() {
         assert!(Cli::try_parse_from(["niritasks", "task", "speak", "c53b6e3d"]).is_ok());

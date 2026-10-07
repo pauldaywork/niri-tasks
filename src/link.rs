@@ -1,6 +1,6 @@
 //! The link between a task and the herdr agent working on it: the agent's
 //! name. Refine names its agent `task-<uuid8>` and Start working names its
-//! `work-<uuid8>`, so nothing is stored on the task — the menu finds a task's
+//! `work-<uuid8>`, so nothing is stored on the task — the panel finds a task's
 //! agent by asking herdr for those names. A Claude started by hand gets the
 //! same `work-` name when it marks the task active.
 
@@ -24,7 +24,7 @@ pub fn pane_link_name(current: Option<&str>, uuid: &str) -> Option<String> {
 
 /// Name the agent in the herdr pane this process runs in after `uuid`, as
 /// [`pane_link_name`] decides — so a Claude started by hand, marking its task
-/// active, can be found from the task's menu like one Start working made.
+/// active, can be found from the task's card like one Start working made.
 ///
 /// Outside a herdr pane, in a pane with no agent (a script in a plain shell),
 /// or without herdr at all, there is nothing to link and this does nothing.
@@ -61,7 +61,7 @@ pub fn session_agent(names: &[String], uuid: &str) -> Option<String> {
 
 /// Every named live agent in `workspace`'s herdr session, from one
 /// `agent list` — what the panel asks once for all its cards. A session that
-/// is not running, or no herdr at all, has none: the menu and the panel ask
+/// is not running, or no herdr at all, has none: the panel asks
 /// this on every open and must not fail for it.
 pub fn live_agent_names(workspace: &str) -> Vec<String> {
     let s = session::herdr_session_name(workspace);
@@ -78,7 +78,7 @@ pub fn live_agent(workspace: &str, uuid: &str) -> Option<String> {
 
 /// Bring the terminal showing `workspace`'s herdr session forward and focus
 /// the agent working on `uuid` in it. Never starts anything: with no live
-/// agent — it exited since the menu opened, say — this is an error, not a
+/// agent — it exited since the panel slid out, say — this is an error, not a
 /// new session.
 pub fn go_to(workspace: &str, uuid: &str) -> Result<()> {
     let name = live_agent(workspace, uuid)

@@ -32,8 +32,8 @@
 //!
 //! Mod+Alt+Ctrl+T hands the panel the keyboard in the middle of the screen,
 //! and every card lays itself out again: its whole description, wrapped, and,
-//! on the focused card alone, a row of buttons for the menu's most-used
-//! actions under it, so the list stays short enough to scan. A card is a box
+//! on the focused card alone, a row of buttons for the task's actions
+//! under it, so the list stays short enough to scan. A card is a box
 //! holding a body button and that row; every card has its row, shown and
 //! hidden as the focus moves rather than built again, since a render would
 //! lose the focused button. Up and Down move between cards, Down onto "+N
@@ -46,7 +46,7 @@
 //! (`Action::hint`); a footer under the scroller names Enter and Ctrl+Delete,
 //! which act alike on every card. The controller runs in the capture phase,
 //! ahead of GTK's own focus chain, which would otherwise walk every button on
-//! the panel. The focused card is darkened. The body opens the whole menu.
+//! the panel. The focused card is darkened. Enter or a click on its body does nothing.
 //! Escape, or anything that runs, hands the keyboard back, folds the cards to
 //! one line again, and puts the panel back on the right edge as a peek.
 //!
@@ -76,8 +76,9 @@
 //! included, disarms it. It is out of the focus chain with the tabs, so
 //! Ctrl+Shift+Delete presses it; Ctrl+Delete and Delete are still the focused
 //! card's. Armed, it takes the focus off the cards and every key with it: Enter
-//! confirms rather than opening the card it was on, Escape and the keys that
-//! move put it back with the focus where it was, and a card's keys do nothing.
+//! confirms rather than pressing a button on the card it was on, Escape and the
+//! keys that move put it back with the focus where it was, and a card's keys do
+//! nothing.
 //!
 //! After the filter tabs, Ideas is always shown: not a filter but the
 //! workspace's notepad, `notepad.rs`'s text area in the column in place of the
@@ -623,7 +624,7 @@ impl Panel {
                     self.window.set_keyboard_mode(KeyboardMode::None);
                     self.jump_to(TUCKED_X, 0);
                 }
-                Effect::Spawn(args) => open_menu(&self.output, &args),
+                Effect::Spawn(args) => run_niritasks(&self.output, &args),
                 Effect::DeleteAll(uuids) => delete_all(&self.output, &uuids),
                 Effect::Notify(text) => crate::notify::tasks(&text),
                 Effect::SaveIdeas => self.notepad.flush(),
@@ -843,8 +844,8 @@ impl Panel {
 
     /// One card: a box holding the body, a button so the keyboard can focus
     /// and press it, and, while the panel has the keyboard, its action row
-    /// along the bottom, hidden until the card has focus. The body opens the
-    /// task's whole menu, or shows the rest in place of "+N more".
+    /// along the bottom, hidden until the card has focus. The body does nothing
+    /// on a task's card, and shows the rest in place of "+N more".
     fn card_widget(self: &Rc<Self>, shown: &Shown, keyboard: bool) -> CardWidgets {
         let card = &shown.card;
         let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -870,7 +871,7 @@ impl Panel {
         let (label, age) = card_label(card, keyboard);
         let body = gtk4::Button::builder().child(&label).build();
         body.add_css_class("card-body");
-        // A mouse click opens the menu without leaving the card darkened.
+        // A click leaves the card as it was, not darkened.
         body.set_focus_on_click(false);
         {
             let weak = Rc::downgrade(self);
@@ -1423,9 +1424,9 @@ fn set_class(widget: &impl IsA<gtk4::Widget>, class: &str, on: bool) {
     }
 }
 
-/// Run a `niritasks` command on this monitor: a task's action menu, the
-/// fuzzel list, or one of a card's buttons. See `spawn_on`.
-pub fn open_menu(output: &str, args: &[String]) {
+/// Run a `niritasks` command on this monitor: one of a card's buttons. See
+/// `spawn_on`.
+fn run_niritasks(output: &str, args: &[String]) {
     spawn_on(output, |exe| {
         let mut command = vec![exe.to_string()];
         command.extend_from_slice(args);
@@ -1441,10 +1442,10 @@ fn delete_all(output: &str, uuids: &[String]) {
 
 /// Have niri spawn the command `build` makes from this program's own path.
 ///
-/// This monitor is focused first. The menu then files under the workspace the
-/// panel shows, rather than whichever monitor had focus, and fuzzel opens on
-/// the screen that was clicked. It runs as its own process, spawned by niri:
-/// fuzzel blocks until it closes, and the daemon must not.
+/// This monitor is focused first, so the command files under the workspace
+/// the panel shows rather than whichever monitor had focus, and a box it
+/// opens comes up on the screen that was clicked. It runs as its own process,
+/// spawned by niri, so the daemon never waits on it.
 fn spawn_on(output: &str, build: impl FnOnce(&str) -> Vec<String>) {
     let result = std::env::current_exe()
         .map_err(anyhow::Error::from)

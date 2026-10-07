@@ -222,13 +222,10 @@ niritasks tag                      # the focused workspace's tag
 niritasks tag --session            # the tag of the workspace this terminal was opened on
                                    #   (its herdr session, else its ~/Projects folder)
 niritasks task active              # each active task's description, one per line, or nothing
-niritasks task list                # the picker
-niritasks task list --dry-run      # the picker's rows (marker, description, ¶ for notes, then the Add row), for testing
 niritasks task panel               # hand the task panel the keyboard (Mod+Alt+Ctrl+T)
-niritasks task menu <uuid>         # one task's actions, as a task card click opens them
-niritasks task status <uuid> <state>  # the menu's Update status: active|stopped|waiting|completed|deleted
+niritasks task status <uuid> <state>  # what a card's Stop, Waiting, Complete and Remove run: active|stopped|waiting|completed|deleted
                                    #   (stopped also brings back a waiting task, and reopens a completed one)
-niritasks task status <uuid> deleted --yes  # deleted needs --yes, the menu's confirmation
+niritasks task status <uuid> deleted --yes  # deleted needs --yes, Remove's confirmation
 niritasks task move <uuid> <folder>  # to another ~/Projects folder's workspace, as a card's Move to workspace does
 niritasks task add <text>          # honours taskwarrior attributes: due:friday, priority:H
                                    #   to the herdr session's workspace in herdr, else the focused one

@@ -205,7 +205,7 @@ fn start_claude(s: &str, name: &str, pane: &str, uuid: &str) -> Result<()> {
     task::set_active(uuid)
 }
 
-/// Start working on a task from its menu: back to its worktree if it has one,
+/// Start working on a task from its card: back to its worktree if it has one,
 /// otherwise a short-lived tab in the project's session that makes one.
 ///
 /// Making it happens in that tab rather than here because worktrunk asks the

@@ -1,8 +1,7 @@
 //! What the task panel shows, as plain data.
 //!
-//! Split from the drawing for the same reason `rows.rs` is split from the
-//! picker: the ordering, icons and cap are the parts worth testing, and none of
-//! them needs a compositor.
+//! Split from the drawing: the ordering, icons and cap are the parts worth
+//! testing, and none of them needs a compositor.
 
 use crate::actions::TaskState;
 use crate::task::Task;
@@ -231,7 +230,7 @@ impl Tab {
 /// that cannot be started yet goes under every one that can. Newest first,
 /// not urgency: taskwarrior's age coefficient lifts old tasks, and a task
 /// just added is the one most likely to matter. Due dates count for nothing
-/// here; the picker keeps the urgency order.
+/// here.
 pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
     // Only below up next: an active or up next task stays on top blocked.
     let sinks = |t: &Task| !t.is_active() && !t.is_up_next() && blocked.contains(&t.uuid);

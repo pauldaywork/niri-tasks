@@ -3,7 +3,7 @@
 //!
 //! Only the task's uuid crosses over: the skill reads the task itself, so
 //! nothing needs quoting through two CLIs and it always sees the current
-//! version rather than the one the menu was opened on.
+//! version rather than the one the panel showed.
 
 use crate::{herdr, niri, notify, project, session, task, text};
 use anyhow::{bail, Context, Result};
@@ -11,7 +11,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// Which of the menu's two entries opened Claude. The two differ only in the
+/// Which of a card's two buttons, Refine or Grill me, opened Claude. The two differ only in the
 /// prompt [`prompt`] sends — the skill on the other end reads it to decide
 /// whether to interview before drafting or draft straight away.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -399,7 +399,7 @@ fn wait_for_session(s: &str) -> Result<Value> {
 
 /// Refine's own command on `uuid`, with `exe` as the `niritasks` binary:
 /// built from the task action's arguments, so Add & refine runs what the
-/// menu's Refine and the panel's button run.
+/// panel's Refine button runs.
 pub fn quick_command(exe: &str, uuid: &str) -> Vec<String> {
     let mut command = vec![exe.to_string()];
     command.extend(crate::actions::Action::Refine.args(uuid));

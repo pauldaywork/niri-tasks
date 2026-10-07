@@ -429,7 +429,7 @@ fn write_path_lifecycle() {
     );
 
     // The export says pending, so whether the task is waiting is
-    // taskwarrior's +WAITING: what the menu asks before it offers Start
+    // taskwarrior's +WAITING: what the panel asks before it offers Start
     // working.
     assert!(task::is_waiting(&parked).expect("is_waiting"), "a parked task is waiting");
 
@@ -467,7 +467,7 @@ fn write_path_lifecycle() {
     task::delete(&second).expect("delete");
     assert_eq!(task::pending_for_tag(TAG).expect("list").len(), before - 2);
 
-    // ---- set_status: the menu's states, by uuid or its 8-char prefix -----
+    // ---- set_status: task status's states, by uuid or its 8-char prefix -----
     // A finished worktree marks its task done from the branch's uuid8, so the
     // prefix has to work as well as the full uuid.
     use task::Status;
@@ -563,7 +563,7 @@ fn write_path_lifecycle() {
     assert_eq!(marked.description, "do me next");
     assert!(
         marked.urgency >= before.urgency + 15.0,
-        "taskwarrior's next coefficient is what lifts it in the picker: {} -> {}",
+        "taskwarrior's next coefficient is what lifts it in `task next`: {} -> {}",
         before.urgency,
         marked.urgency
     );

@@ -24,10 +24,7 @@
 | `niritasks tag` | Print the focused workspace's tag; exit 1 if it has none | scriptable, follows focus |
 | `niritasks tag --session` | Print the tag of the workspace this terminal belongs to | scriptable |
 | `niritasks task active` | Print each active task's description on the focused workspace, one per line, or nothing | scriptable, follows focus |
-| `niritasks task list` | The picker: pick one of the focused workspace's tasks, then an action | GUI (fuzzel) |
-| `niritasks task list --dry-run` | Print the picker's rows, `<uuid>\t<marker><description>`, and its size on stderr; the marker is `▶ ` active, `● ` planned or two spaces, ` ¶` follows a description with notes, rows are most urgent first, and the last is always `__add__\t＋ Add a task…`. To list tasks for a script, use `task … export` (see Reading tasks) | scriptable, follows focus |
-| `niritasks task panel` | Hand the task panel the keyboard (Mod+Alt+Ctrl+T); with no daemon, the picker | GUI |
-| `niritasks task menu <uuid>` | One task's action menu, as clicking its task card opens it | GUI (fuzzel), follows focus |
+| `niritasks task panel` | Hand the task panel the keyboard (Mod+Alt+Ctrl+T); a notification instead on a workspace with no tasks or no name, and exit 1 with no daemon | GUI |
 | `niritasks task status <uuid> <state>` | Move it to `active`, `stopped` (also reopens a completed task), `waiting` or `completed` | scriptable |
 | `niritasks task status <uuid> deleted --yes` | Delete it | scriptable |
 | `niritasks task move <uuid> <folder>` | Move it to another `~/Projects` folder's workspace: it trades this workspace's tag for the folder's. Refused for a folder not in `~/Projects`, this workspace's own, or a task not on this workspace | scriptable, follows the herdr session, else focus |

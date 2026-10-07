@@ -188,6 +188,20 @@ fn debug(msg: &str) {
     }
 }
 
+/// What Mod+Alt+Ctrl+T says on a workspace with no task to show.
+pub const NO_TASKS: &str = "No tasks here — Mod+Alt+T adds one.";
+
+/// What Mod+Alt+Ctrl+T says when there is no card to hand the keyboard to:
+/// the tag's own refusal on an unnamed workspace, which says how to name it,
+/// else that the workspace has no tasks. `tag` is
+/// `crate::require_workspace_tag()`'s answer.
+fn no_cards_text(tag: anyhow::Result<String>) -> String {
+    match tag {
+        Err(e) => e.to_string(),
+        Ok(_) => NO_TASKS.to_string(),
+    }
+}
+
 /// Open the box for a request from the CLI, and do the taskwarrior work when it
 /// is submitted — the CLI has already exited by then, so this side owns it. Or
 /// hand the focused monitor's panel the keyboard.
@@ -203,8 +217,8 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
                 .and_then(|o| PANELS.with(|p| p.borrow().get(o).cloned()));
             if !panel.is_some_and(|p| {
                 // One `herdr agent list` per slide-out, for every card at
-                // once, and none when the fuzzel list takes over; a session
-                // that is not running answers at once with none.
+                // once; a session that is not running answers at once with
+                // none.
                 let agents = focused
                     .as_ref()
                     .and_then(|w| w.name.as_deref())
@@ -212,12 +226,7 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
                     .unwrap_or_default();
                 p.take_keyboard(agents)
             }) {
-                // No cards to pick from: the fuzzel list instead, with its
-                // "Add task" row, or its "name this workspace" error.
-                crate::panel::surface::open_menu(
-                    output.as_deref().unwrap_or_default(),
-                    &["task".into(), "list".into()],
-                );
+                notify::tasks(&no_cards_text(crate::require_workspace_tag()));
             }
         }
 
@@ -362,6 +371,17 @@ fn sync_monitors(app: &Application, display: &gdk::Display, panels: &Panels, sta
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Mod+Alt+Ctrl+T with no card to take the keyboard for: an unnamed
+    /// workspace says what the tag refusal says, a named one that it is empty.
+    #[test]
+    fn no_cards_says_why() {
+        assert_eq!(no_cards_text(Ok("web".into())), NO_TASKS);
+        assert_eq!(
+            no_cards_text(Err(anyhow::anyhow!("This workspace has no name — name it with Mod+Alt+Ctrl+W first."))),
+            "This workspace has no name — name it with Mod+Alt+Ctrl+W first."
+        );
+    }
 
     /// Both files the tick watches follow TASKDATA, so a sandboxed run
     /// watches its own.

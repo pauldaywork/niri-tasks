@@ -21,7 +21,7 @@ pub const PLANNED_TAG: &str = "planned";
 
 /// The tag that marks a task as the one to do next. Taskwarrior's own: its
 /// `urgency.next.coefficient` adds 15 urgency to a `+next` task, so the
-/// picker and `task next`, which sort by urgency, lift it with no code here.
+/// `task next`, which sorts by urgency, lifts it with no code here.
 pub const UP_NEXT_TAG: &str = "next";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -233,7 +233,7 @@ fn export_values(filter: &[&str]) -> Result<Vec<Value>> {
 
 /// Pending tasks carrying `tag`, most urgent first.
 ///
-/// The same order `task next` uses, so the picker agrees with the terminal.
+/// The same order `task next` uses, so the daemon's list agrees with the terminal.
 pub fn pending_for_tag(tag: &str) -> Result<Vec<Task>> {
     let mut tasks = export(&[&format!("+{tag}"), "status:pending"])?;
     tasks.sort_by(|a, b| b.urgency.partial_cmp(&a.urgency).unwrap_or(std::cmp::Ordering::Equal));
@@ -371,8 +371,7 @@ fn parse_new_uuid(stdout: &str) -> Option<String> {
 ///
 /// The notes are the add box's rows, in order, empty ones already dropped.
 /// They are attached one at a time rather than joined, because separate
-/// annotations are what the picker's `¶` marker and the box's rows are
-/// counting.
+/// annotations are what the box's rows are counting.
 ///
 /// A note that cannot be attached fails the whole call: the task is already
 /// added by then, so the caller is told rather than left believing the notes
@@ -678,13 +677,12 @@ pub fn set_up_next(uuid: &str, on: bool) -> Result<()> {
     Ok(())
 }
 
-/// Where a task can be moved to: the menu's "Update status" list, and
-/// `niritasks task status`'s argument. One list for both, so a script and the
-/// menu can never offer different states.
+/// Where a task can be moved to: `niritasks task status`'s argument, which a
+/// card's Back to list, Stop, Waiting, Complete and Remove run.
 ///
 /// Active and Stopped drive taskwarrior's start/stop flag; Waiting, Completed
-/// and Deleted are its real statuses. From the menu they are all just "where
-/// is this task now".
+/// and Deleted are its real statuses. From a card they are all just "where is
+/// this task now".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Status {
     Active,
@@ -695,7 +693,7 @@ pub enum Status {
 }
 
 impl Status {
-    /// In the order the menu lists them.
+    /// Every state, in the order `task status --help` lists them.
     pub const ALL: [Status; 5] = [
         Status::Active,
         Status::Stopped,
@@ -704,7 +702,7 @@ impl Status {
         Status::Deleted,
     ];
 
-    /// The word the menu shows, and the one its notification starts with.
+    /// The word its notification starts with.
     pub fn label(self) -> &'static str {
         match self {
             Status::Active => "Active",
@@ -713,10 +711,6 @@ impl Status {
             Status::Completed => "Completed",
             Status::Deleted => "Deleted",
         }
-    }
-
-    pub fn from_label(label: &str) -> Option<Status> {
-        Status::ALL.into_iter().find(|s| s.label() == label)
     }
 }
 
@@ -789,19 +783,16 @@ mod tests {
         assert_eq!(uuids, vec!["new", "mid", "old"]);
     }
 
-    /// The CLI takes the menu's words, lower-cased, and the menu's rows read
-    /// back to the same state — so `task status <uuid> completed` and picking
-    /// "Completed" are the same thing.
+    /// The CLI takes each state's label lower-cased, so `task status <uuid>
+    /// completed` notifies "Completed".
     #[test]
-    fn a_status_is_the_same_word_in_the_menu_and_on_the_command_line() {
+    fn a_status_is_its_label_lower_cased_on_the_command_line() {
         use clap::ValueEnum;
         for s in Status::ALL {
             let cli = s.to_possible_value().unwrap();
             assert_eq!(cli.get_name(), s.label().to_lowercase());
-            assert_eq!(Status::from_label(s.label()), Some(s));
         }
         assert_eq!(Status::value_variants().len(), Status::ALL.len());
-        assert_eq!(Status::from_label("Done"), None);
     }
 
     #[test]

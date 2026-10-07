@@ -341,20 +341,16 @@ impl PanelState {
         })
     }
 
-    /// A press on a task's card: its body, which opens the whole menu, or a
-    /// button. Remove only arms itself the first time, as the menu's delete
-    /// asks first; the second press runs it. Everything that opens something
-    /// gives the keyboard back first, so the box or terminal it opens can
-    /// take it. Back, Waiting and Remove take the card off the list, so the
+    /// A press on a task's card: a button, as a click or a key presses it.
+    /// The body does nothing: the buttons are the card's actions. Remove
+    /// only arms itself the first time; the second press runs it.
+    /// Everything that opens something gives the keyboard back first, so the
+    /// box or terminal it opens can take it. Back, Waiting and Remove take the card off the list, so the
     /// focus moves to the next card (the one above, from the last) to still be
     /// there when the next tick drops this one. Speak and Up next keep the
     /// card and the focus, so a second press undoes them.
     pub fn on_press(&mut self, uuid: &str, slot: Slot) -> Vec<Effect> {
-        let Slot::Button(action) = slot else {
-            let mut effects = self.release();
-            effects.push(Effect::Spawn(vec!["task".into(), "menu".into(), uuid.into()]));
-            return effects;
-        };
+        let Slot::Button(action) = slot else { return Vec::new() };
         if action == Action::Remove && self.armed != Armed::Remove(uuid.into()) {
             // Focus first: the move disarms whatever was armed before, and
             // this one is armed only after it.
@@ -375,8 +371,8 @@ impl PanelState {
     }
 
     /// Clear all, by its button or Ctrl+Shift+Delete. The first press arms it and
-    /// takes the focus off the cards, so Enter confirms rather than opening a
-    /// card's menu. The second deletes every task the Waiting tab lists,
+    /// takes the focus off the cards, so Enter confirms rather than pressing a
+    /// card's button. The second deletes every task the Waiting tab lists,
     /// those past "+N more" too, and puts the panel on All at once rather
     /// than as each delete lands, keeping the keyboard. Nothing off the
     /// Waiting tab, where Clear all is hidden.
@@ -979,14 +975,14 @@ mod tests {
 
     // ─── presses ─────────────────────────────────────────────────────────
 
+    /// Enter or a click on a card's body does nothing: its actions are its
+    /// buttons. The keyboard and the focus stay where they were.
     #[test]
-    fn the_body_gives_the_keyboard_back_and_opens_the_menu() {
+    fn a_press_on_the_body_does_nothing() {
         let mut state = keyboard(pending(&["a"]));
-        assert_eq!(
-            state.on_press("a", Slot::Body),
-            vec![Effect::Render, Effect::Release, Effect::Spawn(vec!["task".into(), "menu".into(), "a".into()])],
-        );
-        assert!(!state.keyboard());
+        assert_eq!(state.on_press("a", Slot::Body), Vec::new());
+        assert!(state.keyboard());
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
     }
 
     #[test]
