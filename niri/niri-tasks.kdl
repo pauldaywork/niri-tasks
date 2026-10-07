@@ -29,10 +29,11 @@ layer-rule {
     }
 }
 
-// None of these binds is guarded against a double press. Each spawns a
-// niritasks process that asks the daemon over its socket and exits at once,
-// so a lock here would be held for milliseconds and guard nothing; keeping
-// the daemon to one task box at a time is the daemon's job.
+// None of these binds is guarded against a double press. The task binds
+// each spawn a niritasks process that asks the daemon over its socket and
+// exits at once, so a lock here would be held for milliseconds and guard
+// nothing. The daemon does not yet stop a second task box opening; that
+// is a task for the daemon, not a bind.
 binds {
     // A terminal in the focused workspace's project folder, ~/Projects/<name>
     // (or ~/Projects when there is no such folder). This replaces the plain
