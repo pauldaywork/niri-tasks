@@ -605,7 +605,7 @@ mod tests {
         assert!(Cli::try_parse_from(["niritasks", "workspace", "default"]).is_ok());
     }
 
-    /// The fuzzel picker and menu are gone: the task panel does what they did.
+    /// The old picker and menu are gone: the task panel does what they did.
     #[test]
     fn the_picker_and_the_menu_are_no_commands() {
         assert!(Cli::try_parse_from(["niritasks", "task", "list"]).is_err());

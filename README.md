@@ -154,7 +154,7 @@ Then add the include to `~/.config/niri/config.kdl`:
 include "niri-tasks.kdl"
 ```
 
-`install.sh` builds `niritasks`, symlinks the niri include, the fuzzel picker theme and
+`install.sh` builds `niritasks`, symlinks the niri include and
 the Claude skills (`workspace-tasks`, `refine-task`, `finish-worktree`) into `~/.claude/skills`,
 the refine mod (`claude/refine-mod`, which Refine's session writes the task with) into
 `~/.local/share/niri-tasks/refine-mod`, a Claude rule into `~/.claude/rules` (use `finish-worktree` to land a worktree branch), restarts the daemon
@@ -165,7 +165,7 @@ copy to keep in sync.
 
 ### Requirements
 
-`niri`, `taskwarrior`, `fuzzel`, `ghostty` 1.2 or later (for `+new-window`),
+`niri`, `taskwarrior`, `ghostty` 1.2 or later (for `+new-window`),
 and a Rust toolchain to build with. `notify-send` is used for feedback and
 degrades to stderr without it. `fzf` ranks what you type on the
 project list; without it the list matches plain text instead,
@@ -366,8 +366,7 @@ parked floating and unfocused on the last workspace of that monitor. Keep off
 that workspace while it runs: going there focuses the window, and the run
 fails, saying so, rather than measuring frames your typing could have reached.
 Run it with `NIRITASKS=$PWD/target/debug/niritasks`: without that it runs the
-installed `niritasks`, which may be an older build whose `project open` still
-runs fuzzel.
+installed `niritasks`, which may be an older build.
 `NIRITASKS_E2E_KEEP=1` leaves the frames on disk when you need to see what a
 failure actually looked like.
 

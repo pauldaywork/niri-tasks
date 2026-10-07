@@ -61,11 +61,7 @@ if [ -f "$CONFIG/niri/config.kdl" ] && ! grep -q 'include "niri-tasks.kdl"' "$CO
     warn '    include "niri-tasks.kdl"'
 fi
 
-# ─── 3. the picker theme ──────────────────────────────────────────────────────
-# Passed to fuzzel with --config=, so fuzzel.ini itself is left alone.
-link "$REPO/fuzzel/picker.ini" "$CONFIG/fuzzel/picker.ini"
-
-# ─── 4. the Claude Code skills ────────────────────────────────────────────────
+# ─── 3. the Claude Code skills ────────────────────────────────────────────────
 # The skill Claude Code loads to work this list. It is carried in the repo
 # because it is part of the tool, and linked for the same reason as everything
 # else here: a copy is a thing to keep in sync, and this one was being synced by
@@ -100,7 +96,7 @@ link "$REPO/claude/refine-mod" "$DATA/niri-tasks/refine-mod"
 # repo's own .claude/ so a session in niri-tasks does not load it twice.
 link "$REPO/claude/rules/niri-tasks.md" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/rules/niri-tasks.md"
 
-# ─── 5. the daemon ───────────────────────────────────────────────────────────
+# ─── 4. the daemon ───────────────────────────────────────────────────────────
 # A copy rather than a symlink: systemd reads unit files as root-ish early in
 # session startup and does not follow links out of its search path reliably.
 UNIT_DIR="$CONFIG/systemd/user"
@@ -124,14 +120,14 @@ else
     warn "Could not start niri-tasks.service — start it with: systemctl --user start niri-tasks"
 fi
 
-# ─── 6. reload niri ───────────────────────────────────────────────────────────
+# ─── 5. reload niri ───────────────────────────────────────────────────────────
 if command -v niri >/dev/null && [ -n "${NIRI_SOCKET:-}" ]; then
     niri msg action load-config-file >/dev/null 2>&1 && info "Reloaded niri config" || true
 fi
 
-# ─── 7. dependencies ──────────────────────────────────────────────────────────
+# ─── 6. dependencies ──────────────────────────────────────────────────────────
 missing=()
-for dep in niri task fuzzel ghostty; do
+for dep in niri task ghostty; do
     command -v "$dep" >/dev/null || missing+=("$dep")
 done
 if [ "${#missing[@]}" -gt 0 ]; then

@@ -1,24 +1,16 @@
 //! The task box: one window for adding a task and for editing one.
 //!
-//! This is the one surface fuzzel cannot be: fuzzel is a single-line picker,
-//! and the box exists so a task description can be seen and edited whole. Every
-//! other prompt in this tool stays fuzzel.
-//!
 //! It is a plain fixed-size window, not layer-shell. niri auto-floats windows
 //! whose minimum and maximum sizes are equal, so setting both is all it takes
-//! to get a floating box — no window rule needed. (The QML modal this replaces
-//! relied on exactly the same behaviour.)
+//! to get a floating box — no window rule needed.
 //!
 //! Its description is a wrapping text area and its notes are a list of rows,
 //! one per note, each editable in place with its date at its right end and an
 //! × to delete it. Add, Edit and `task note` all open this same window;
 //! they differ only in what is filled in and where the cursor starts.
 //!
-//! Replaces `TaskBoxDaemon.qml` and `TaskBoxModal.qml`, and with them the
-//! `dms ipc call taskBox` boundary: no DMS and no IPC are involved. The daemon
-//! serves the box when it is running, and the CLI builds its own when it is
-//! not, so the box works either way. That is what retired the one-line fuzzel
-//! fallback the shell version kept for when DMS was not running.
+//! The daemon serves the box when it is running, and the CLI builds its own
+//! when it is not, so the box works either way.
 
 pub mod form;
 pub mod keys;

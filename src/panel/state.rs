@@ -125,10 +125,10 @@ impl ProjectList {
 
     /// What Enter opens on the open list when no row is highlighted: the
     /// text typed, normalised as `project open` will, once nothing shows. A
-    /// new name makes a folder, as fuzzel echoed text that matched no row,
-    /// and a name already a folder opens it, which the plain-text ranking
-    /// without fzf can miss ("my project" for "my-project"). None on Move's
-    /// list, while anything shows, and for text no folder can be named.
+    /// new name makes a folder, and a name already a folder opens it, which
+    /// the plain-text ranking without fzf can miss ("my project" for
+    /// "my-project"). None on Move's list, while anything shows, and for text
+    /// no folder can be named.
     pub fn typed_pick(&self) -> Option<String> {
         match self.typed()? {
             crate::project::Resolved::Create(name) | crate::project::Resolved::Existing(name) => Some(name),
@@ -2045,8 +2045,8 @@ mod tests {
     }
 
     /// Without fzf the ranking is plain text, so "my project" shows no row
-    /// for the folder "my-project". Enter still opens it, as fuzzel did, and
-    /// the line says so rather than leaving a dead key.
+    /// for the folder "my-project". Enter still opens it, and the line says so
+    /// rather than leaving a dead key.
     #[test]
     fn typed_text_naming_an_existing_folder_opens_it_with_no_row() {
         let mut state = PanelState::default();
@@ -2089,7 +2089,7 @@ mod tests {
         assert_eq!(key(&mut state, KeyAction::Enter), vec![Effect::Render, Effect::Release, open("my-thing")]);
     }
 
-    /// While anything matches, Enter takes the match, as fuzzel did.
+    /// While anything matches, Enter takes the match.
     #[test]
     fn a_match_wins_over_a_new_name() {
         let mut state = opening(&[]);

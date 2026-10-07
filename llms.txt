@@ -2,7 +2,7 @@
 
 > Workspace-scoped Taskwarrior for the niri Wayland compositor. The name of a niri workspace is the task tag: a task added on workspace `website` is tagged `+website`, and the list, the task panel and every `niritasks` command show that workspace's tasks and nothing else. This file is the whole command reference for the `niritasks` binary, plus the rules agents most often get wrong.
 
-`niritasks` wraps Taskwarrior (`task`), niri, fuzzel and ghostty, and optionally herdr, Claude Code and worktrunk (`wt`). A workspace's tag is its name lowercased, with every run of other characters folded to `_` and leading and trailing `_` trimmed, so workspace `niri-tasks` has tag `niri_tasks`. An unnamed workspace has no tag, and every command that needs one refuses on it. A failing command prints its error to stderr, shows it as a desktop notification and exits 1.
+`niritasks` wraps Taskwarrior (`task`), niri and ghostty, and optionally fzf, herdr, Claude Code and worktrunk (`wt`). A workspace's tag is its name lowercased, with every run of other characters folded to `_` and leading and trailing `_` trimmed, so workspace `niri-tasks` has tag `niri_tasks`. An unnamed workspace has no tag, and every command that needs one refuses on it. A failing command prints its error to stderr, shows it as a desktop notification and exits 1.
 
 **Rules agents get wrong**
 

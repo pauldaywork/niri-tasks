@@ -310,7 +310,7 @@ pub(crate) fn open_session(dir: &Path, s: &str) -> Result<Value> {
         Err(_) => {
             anyhow::ensure!(project::on_path(project::SESSION_MANAGER), "herdr is not installed.");
             // Through niri, so the window lands on the focused workspace —
-            // the one the task belongs to — as the project picker's does.
+            // the one the task belongs to — as the project list's does.
             niri::spawn(project::project_terminal_command(dir, s, true))?;
             wait_for_session(s)
         }

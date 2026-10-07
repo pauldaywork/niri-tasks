@@ -1,19 +1,17 @@
-//! Project folders: the `~/Projects` picker's name normalisation, the list a task can move to, and moving it.
+//! Project folders: the `~/Projects` list, its name normalisation, the list a
+//! task can move to, and moving it.
 //!
-//! fuzzel echoes typed text verbatim when it matches no entry, which is what
-//! turns the picker into a "new project" box. That text becomes a directory
-//! name, so it is normalised and then guarded.
-//!
-//! Ported from `open_project_workspace.sh:70-91`. The re-check after
+//! A name typed on the project list that matches no folder becomes a
+//! directory name, so it is normalised and then guarded. The re-check after
 //! normalisation matters: typing "my project" may well have just become an
-//! existing "my-project", in which case the picker should open that rather than
+//! existing "my-project", in which case the list should open that rather than
 //! fail to create it.
 //!
 //! Also here: which programs a freshly-opened project workspace starts with.
 
 use anyhow::{Context, Result};
 
-/// What the picker decided to do with the text the user accepted.
+/// What to do with a name typed on the project list.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Resolved {
     /// Matches a folder that already exists — open it.
@@ -32,7 +30,7 @@ pub fn normalize(name: &str) -> String {
     name.split_whitespace().collect::<Vec<_>>().join("-")
 }
 
-/// Resolve accepted picker text against the list of existing project folders.
+/// Resolve a typed name against the list of existing project folders.
 pub fn resolve(typed: &str, existing: &[String]) -> Resolved {
     let trimmed = typed.trim();
     if trimmed.is_empty() {
@@ -56,7 +54,7 @@ pub fn resolve(typed: &str, existing: &[String]) -> Resolved {
     }
 
     // Guard the cases that would write outside ~/Projects, or make a folder the
-    // picker can never show again (it filters dotfiles from its list).
+    // list can never show again (it leaves dotfiles out).
     if normalized.contains('/') {
         return Resolved::Rejected(format!("Project name can't contain '/': {normalized}"));
     }
@@ -134,7 +132,7 @@ pub fn substring_matches(folders: &[String], query: &str) -> Vec<String> {
 
 /// `~/Projects` and the folders in it, sorted, dotfiles left out.
 ///
-/// Shared by the project picker and a card's Move to workspace, so the two
+/// Shared by the project list and a card's Move to workspace, so the two
 /// always offer the same set: a project you can open is a project you can
 /// move a task to.
 pub fn list() -> Result<(std::path::PathBuf, Vec<String>)> {

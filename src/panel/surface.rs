@@ -132,9 +132,9 @@
 //! surface means no peek on the right edge while it is centred, and the
 //! pointer coming over the centred cards does not slide them.
 //!
-//! It is held with exclusive keyboard mode throughout, as fuzzel does. niri
-//! gives an on-demand layer surface focus only after a click on it, so
-//! switching to on-demand once focused would drop the focus at once.
+//! It is held with exclusive keyboard mode throughout. niri gives an on-demand
+//! layer surface focus only after a click on it, so switching to on-demand
+//! once focused would drop the focus at once.
 
 use super::actions;
 use crate::actions::{Action, TaskState};

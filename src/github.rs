@@ -102,7 +102,7 @@ pub fn read_cache(path: &Path) -> Vec<String> {
         .collect()
 }
 
-/// Fire-and-forget refresh of the cache for the *next* picker open.
+/// Fire-and-forget refresh of the cache for the *next* project list.
 ///
 /// `gh` writes to a sibling temp file that is moved over the cache only on
 /// success, so a flaky network truncates nothing. Failure is silent by
