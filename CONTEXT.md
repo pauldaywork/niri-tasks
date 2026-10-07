@@ -29,7 +29,7 @@ The herdr session a workspace's project terminal attaches to: one per
 workspace, where that workspace's agents and terminals run. Refine, Start
 working and Go to session each open a task's tab or agent in it, and a pane
 inside one knows which session it is in without asking what is focused.
-_Avoid_: project (the picker's word), terminal (the window showing it), herdr
+_Avoid_: project (the project picker's word), terminal (the window showing it), herdr
 workspace (a session has several of those)
 
 **Active task**:
@@ -41,15 +41,14 @@ _Avoid_: current task, in-progress task
 **Planned task**:
 A pending task the `refine-task` skill has worked up into a plan — a sharper
 description and a consolidated set of notes — marked with the `+planned` tag
-and a clipboard-check icon on its task card and picker row.
+and a clipboard-check icon on its task card.
 _Avoid_: ready (Taskwarrior's `+READY` means something else), refined, groomed
 
 **Up next task**:
 A pending task marked as the one to do next, with Taskwarrior's own `+next`
-tag, from Up next in its action menu or on its action row. Its task card is
+tag, from Up next on its action row. Its task card is
 yellow and sits directly under the active tasks, above any priority, unless
-it is active itself (green) or waiting; the tag adds urgency, so the picker
-lifts it too. Up next again takes the mark off.
+it is active itself (green) or waiting; the tag adds urgency, so `task next` lifts it too. Up next again takes the mark off.
 _Avoid_: priority, starred, pinned
 
 ### On screen
@@ -69,25 +68,27 @@ description wrapped, above its action row while it has focus. The cards run
 active, then up next, then by Taskwarrior priority, newest first, with blocked
 tasks under the rest. A finished task's card, on the Finished tab alone, is
 dimmed, carries a check, and counts its age from when the task was finished.
-_Avoid_: row (that is the picker's word), item, block
+_Avoid_: row (the action row is part of a card), item, block
 
 **Task action**:
 One thing that can be done to a task — Go to session, Back to list, Start
-working, Refine, Grill me, Edit, Note, Speak, Up next, Stop, Waiting or Remove
-— with its words, its icon and the `niritasks` command it runs. Which ones a
-task gets goes by its state: a waiting or finished task gets only Back to list,
-Edit, Note, Speak and Remove, and Back to list reopens a finished one. The
-action row and the action menu each show their own share of them, in their own
-order.
-_Avoid_: command (the CLI's word), button, menu entry, verb
+working, Refine, Grill me, Edit, Speak, Up next, Complete, Move to workspace,
+Stop, Waiting or Remove — with its words, its icon and the `niritasks` command
+it runs. Which ones a task gets goes by its state: a waiting task gets only
+Back to list, Edit, Speak, Complete, Move to workspace and Remove, a finished
+one only Back to list, Edit, Speak and Remove, and Back to list reopens a
+finished one. The action row shows them.
+_Avoid_: command (the CLI's word), button, verb
 
 **Action row**:
 The buttons along the focused task card's bottom edge while the task panel has
 the keyboard; the other cards hide theirs — Go to session, Start working,
-Refine, Edit, Speak, Up next, Stop, Waiting and Remove, an active task getting
-Stop in place of Start working, only a task with a live Claude getting Go to
-session, and a waiting or finished task getting just Back to list, Edit, Speak
-and Remove — each running what the same entry in the task's action menu runs.
+Refine, Grill me, Edit, Speak, Up next, Complete, Move to workspace, Stop,
+Waiting and Remove, an active task getting Stop in place of Start working, only
+a task with a live Claude getting Go to session, a waiting task getting just
+Back to list, Edit, Speak, Complete, Move to workspace and Remove, and a
+finished one just Back to list, Edit, Speak and Remove — each running its task
+action's `niritasks` command. Enter or a click on the card's body does nothing.
 After the buttons, dimmed, the hint names the keys that change from card to
 card: the focused button's, and what Ctrl+Enter does to the task. The keys
 every card shares, Enter and Ctrl+Delete, are on a line under the list instead.
@@ -122,20 +123,13 @@ _Avoid_: notes (a note row is a task's), scratchpad, memo
 The strip of each task card left showing when the task panel is tucked away.
 _Avoid_: sliver, handle, tab
 
-**Picker**:
-The fuzzel list of a workspace's tasks, opened from a keybind, for acting on
-one. Picking a task, or clicking its task card, opens its action menu.
-_Avoid_: menu, launcher
-
-**Action menu**:
-The fuzzel menu of what can be done to one task, opened by picking it in the
-picker, clicking its task card, or Enter on the card: Go to session while a
-Claude is working on it, then Edit, Note, Speak, Up next (Not up next on a task
-already up next), Refine, Grill me, Start working, Update status and Move to
-workspace. A waiting task's is just Edit, Note, Speak, Update status and Move
-to workspace. So is a finished task's, from Enter on its card. Speak reads the
-task aloud in the background; picked again, on any task, it stops.
-_Avoid_: context menu, actions list
+**Project list**:
+What Move to workspace shows in the task panel in place of the task cards:
+the `~/Projects` folders the task can move to, every one but its own
+workspace's, drawn like task cards under a line naming the task. Up and
+Down walk it, Enter or a click moves the task to that folder's workspace,
+and Escape goes back to the task cards on the same card.
+_Avoid_: picker (the fuzzel list Mod+Alt+W opens), menu, folder list
 
 **Task box**:
 The GTK window for adding a task or editing one — its description and its

@@ -17,7 +17,7 @@ from — opening one, or moving a task to another workspace.
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
 | `Mod+Alt+Shift+T` | The same, with Add & refine as the default: once added, the task opens in a "Refine: …" tab of the workspace's herdr session, where Claude works it up into a plan |
-| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude, edit it, read it aloud, stop it, park it as waiting, or remove it. Enter opens the full menu (note, grill me, update status, move to another workspace). Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up. Tabs above the cards, each labelled with the key that picks it, as To refine (4), and picked with 1–6 or [ and ], narrow them to All, Active, Planned, To refine, Waiting or Finished, and the Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task. Finished lists the last 12 finished tasks, and Back to list (`b`) reopens one. Ctrl+Delete deletes the focused task at once. A hint beside the focused card's buttons, and a line under the list, name the keys. The last tab, Ideas (7), is a notepad for the workspace's ideas that are not tasks yet. With no tasks at all, finished ones included, or no daemon, the fuzzel list instead |
+| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude (or be grilled about it first), edit it, read it aloud, complete it, move it to another project's workspace, stop it, park it as waiting, or remove it. Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up. Tabs above the cards, each labelled with the key that picks it, as To refine (4), and picked with 1–6 or [ and ], narrow them to All, Active, Planned, To refine, Waiting or Finished, and the Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task. Finished lists the last 12 finished tasks, and Back to list (`b`) reopens one. Ctrl+Delete deletes the focused task at once. A hint beside the focused card's buttons, and a line under the list, name the keys. The last tab, Ideas (7), is a notepad for the workspace's ideas that are not tasks yet. With no tasks at all, finished ones included, or no name, a notification says so instead |
 | `Mod+Alt+W` | Pick a folder from `~/Projects` (or type a new name to make one), put it on its own named workspace, open a terminal and an editor in it |
 | `Mod+Alt+Ctrl+W` | Rename this workspace (and with it, which tag its tasks carry) |
 
@@ -29,7 +29,7 @@ several, one per worktree being worked), each ▶ and text in green, then any
 up next, then the rest by priority (H, M, L, none) and newest first, the
 blocked ones last: ○, a dimmed lock for one blocked on
 another task, or ● for one already worked up into a plan with
-Claude from the menu's **Refine** or **Grill me**. Up to eight, then a "+N
+Claude from a card's **Refine** or **Grill me**. Up to eight, then a "+N
 more" card. Each card ends in how long ago its task was added: 5m, 3h, 2d, 4w.
 
 The panel sits tucked away with only a 30px peek of each card showing. Move the
@@ -38,9 +38,7 @@ back. The space around the cards is click-through, so the panel never gets in
 the way of the windows beneath, and a fullscreen window covers it. An unnamed
 workspace, or one with nothing pending, shows no panel at all.
 
-Click a card to open that task's actions in fuzzel — the same menu the picker
-shows once you pick a task — on the monitor you clicked. The "+N more" card
-shows the rest of the tasks in the panel.
+Clicking a card does nothing: its actions are the buttons the keyboard shows (below). The "+N more" card shows the rest of the tasks in the panel.
 
 `Mod+Alt+Ctrl+T` hands the panel the keyboard and moves it to the middle of the
 screen, leaving no peek on the right edge while it is there. Every card opens up
@@ -49,15 +47,18 @@ under it:
 
 | Button | Key | Does |
 |---|---|---|
-| **Go to session** (blue) | `g` | The menu's Go to session: back to the Claude working on the task — only while one is, checked as the panel slides out |
-| **Start working** (green) | `s` | The menu's Start working: the task's own worktree, herdr tab and Claude — not on an active task, which is already being worked |
+| **Go to session** (blue) | `g` | Back to the Claude working on the task — only while one is, checked as the panel slides out |
+| **Start working** (green) | `s` | The task's own worktree, herdr tab and Claude — not on an active task, which is already being worked |
 | **Refine** (mauve) | `r` | Work it up into a plan with Claude |
+| **Grill me** (mauve) | `i` | Refine, with Claude interviewing you about it first |
 | **Edit** (yellow) | `e` | Open it in the task box |
 | **Speak** (pink) | | Read its description and notes aloud, rewritten by Claude for listening; its speaker turns into a spinner until the audio starts, and a second press stops it — on every task, waiting and finished ones too |
 | **Up next** (yellow) | | Mark it as the one to do next: its card turns yellow and moves up under the active tasks. On a task already up next it reads **Not up next**, and clears it — not on a waiting or finished task |
+| **Complete** (green) | `c` | Mark it done: it leaves the panel, which keeps the keyboard — not on a finished task |
+| **Move to workspace** (sapphire) | `m` | Pick another `~/Projects` folder from a list in the panel, and move the task to that folder's workspace — not on a finished task |
 | **Stop** (peach) | `t` | Stop it — only on an active task |
 | **Waiting** (teal) | | Park it as waiting: off the panel, and on the Waiting tab instead |
-| **Back to list** (lavender) | `b` | Off waiting, or reopened from finished, and back on the list — only on a waiting or finished task, which gets just this, Edit, Speak and Remove |
+| **Back to list** (lavender) | `b` | Off waiting, or reopened from finished, and back on the list — only on a waiting or finished task. A waiting task gets just this, Edit, Speak, Complete, Move to workspace and Remove; a finished one just this, Edit, Speak and Remove |
 | **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back. `Ctrl+Delete` deletes the focused task at once, whichever of its buttons is focused, and moves on to the next card |
 | **Clear all** (red) | `Ctrl+Shift+Delete` | On the Waiting tab, on a strip under the tabs, not a card: turns into **Confirm clear all** and takes the focus off the cards; a second press, or `Enter`, deletes every waiting task on the workspace and goes back to All, while `Escape` or moving away puts it back |
 
@@ -68,15 +69,18 @@ focused one. Beside the buttons, in smaller dimmed text, the focused card names
 its own keys: the focused button's letter and name (`g: Go to session`,
 `Del: Remove`), and what Ctrl+Enter would do to this task. A line under the list
 names the keys that act the same on every card: Enter, and Ctrl+Delete (not on
-Ideas, where the notepad takes those keys as typing). Enter
-on the card itself opens its full menu, which also has Note, Grill me, Update
-status and Move to workspace — led by Go to session while a Claude is
-working on the task, and on a waiting or finished task just Edit, Note, Speak, Update
-status and Move to workspace. Every
-button that opens something gives the keyboard back as it runs; Speak, Up next, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
+Ideas, where the notepad takes those keys as typing). Enter on the card's description itself does nothing. Every button that opens something gives the keyboard back as it runs; Speak, Up next, Complete, Move to workspace, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
 right edge, tucked away with the cards folded back to one line. A list taller
 than the screen scrolls, keeping the focused card in view. Hovering never shows
 the buttons — only the keyboard does.
+
+**Move to workspace** swaps the cards for a list of your `~/Projects`
+folders, drawn like cards under a line naming the task: every folder but
+this workspace's own. Up and Down walk it, and Enter or a click moves the
+task there, retagging it to that folder's workspace, and goes back to the
+cards with the next one focused. Escape goes back to the cards on the same
+one without moving it.
+
 
 Ctrl+Enter and Ctrl+Delete act on the focused card, whichever of its buttons is
 focused, without giving the keyboard back. Ctrl+Enter refines the task, or
@@ -86,7 +90,7 @@ is already being worked, or on a waiting or finished task. Ctrl+Delete deletes
 the task at once, with no Confirm remove, and moves the focus to the next card
 (the one above, from the last) with the list kept up; Delete alone still asks
 first. Ctrl still held from the `Mod+Alt+Ctrl+T` chord counts, so let go of Ctrl
-before pressing Enter if you only want the card's menu, or Delete if you want
+before pressing Enter if you only want the focused button, or Delete if you want
 Remove to ask. Apart from Ctrl+Shift+Delete, the Waiting tab's Clear all
 (below), every other Ctrl chord passes through untouched.
 
@@ -165,8 +169,7 @@ degrades to stderr without it.
 
 [herdr](https://herdr.dev) is optional. With it on `$PATH`, `niritasks project
 open` runs the workspace's herdr session in the project terminal; without it the
-terminal is a plain shell in the project folder. The menu's **Refine** and
-**Grill me** need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod) on `$PATH` — they open
+terminal is a plain shell in the project folder. A card's **Refine** and **Grill me** need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod) on `$PATH` — they open
 Claude inside that session — plus `bubblewrap` and `socat` for the Bash
 sandbox that keeps that Claude to reading the project and writing only the
 task (`sudo apt install bubblewrap socat`). Without them Claude refuses to
@@ -187,8 +190,7 @@ uses, so the two share one server.
 
 A Claude you start by hand in a herdr pane is linked to a task when it marks
 that task active (`niritasks task status <uuid> active`): its agent is named
-`work-<uuid8>`, the name Start working gives its own, so the task's menu can
-find it. An agent already named by Refine or Start working keeps its name.
+`work-<uuid8>`, the name Start working gives its own, so the task's card can offer Go to session. An agent already named by Refine or Start working keeps its name.
 
 When the work is done, `/finish-worktree` in that worktree's Claude lands it:
 it syncs `main` with origin, rebases the branch and tests the result, then
@@ -283,12 +285,12 @@ literal.
 ### The task box
 
 One window adds a task and edits one. Edit opens it on the task's description
-and every note, and the menu's Note opens it the same way with the cursor in a
+and every note, and `niritasks task note <uuid>` opens it the same way with the cursor in a
 new empty row at the end. Each note is a row: it wraps, you edit it in place,
 its date sits small at its right end, and × deletes it. "+ Add note" appends a
 row. Adding has a second button, **Add & refine**: it adds the task and hands it
 straight to Claude's refine-task skill, in a new tab of the workspace's herdr
-session, as the menu's Refine does. If the refine fails, the task stays added
+session, as a card's Refine does. If the refine fails, the task stays added
 and a notification says why.
 
 | Key | Does |
@@ -311,8 +313,8 @@ old ones moves to the end once saved. Empty rows are dropped.
 `~/.taskrc` is not managed here. The only requirement is that
 `data.location` points somewhere `task` can read and write.
 
-The pickers use a stripped-down fuzzel theme (`fuzzel/picker.ini`) passed with
-`--config=`, so your own `fuzzel.ini` is untouched. Its half-transparent
+The project picker (Mod+Alt+W) uses a stripped-down fuzzel theme
+(`fuzzel/picker.ini`) passed with `--config=`, so your own `fuzzel.ini` is untouched. Its half-transparent
 background expects a compositor blur behind it; on niri that is a layer rule
 matching the `launcher` namespace. That one is yours to add — `launcher` is
 fuzzel's namespace, not this tool's, so shipping a rule for it would be
@@ -330,7 +332,7 @@ layer-rule {
 }
 ```
 
-Without it the picker still works, it is just flatter.
+Without it the project picker still works, it is just flatter.
 
 The task panel's rule, also in `niri-tasks.kdl`, works differently: it matches
 the panel's own namespace, `niri-tasks-panel`, and sets how the blur looks but
@@ -386,16 +388,15 @@ failure actually looked like.
 It cannot move the pointer, so the hover is checked by hand after a change to
 `src/panel/surface.rs`: the peek slides out when the pointer reaches it and back
 about 0.4s after it leaves, the slide is smooth, and a click just left of the
-peek, or between two cards, lands on the window beneath, while a click on a
-card opens its actions on that monitor, and a click on "+N more" shows the
+peek, or between two cards, lands on the window beneath, while a click on a card does nothing, and a click on "+N more" shows the
 rest. And the keyboard, past what the
 script measures: `Mod+Alt+Ctrl+T` slides the panel from the right edge to the
 middle of the screen, smoothly, with every card wrapped and the first
 darkened. The pointer passing over it does not move it. Check also active tasks with Stop and no
 Start working; Up and Down move the darkening between cards, Left, Right and
-Tab along the buttons; `s` starts working exactly as the menu does, `r`
+Tab along the buttons; `s` starts working, `r`
 refines, `e` opens the box, `t` stops; Delete arms Remove and only a second
-Delete deletes, while moving away disarms it; Enter on a card opens the menu,
+Delete deletes, while moving away disarms it; Enter on a card's description does nothing, `c` completes the task, `m` shows the project list and Escape comes back from it while Enter on a folder moves the task there,
 Down reaching "+N more" shows the rest, focused on the first card it hid, and a
 list taller than the screen scrolls with the focus; a click on a filter tab switches the cards and does not take the focus (the focus still falls back to the first card when the focused one is not under the new tab), a started planned task shows under Active but not Planned, and Back to list on a waiting task brings it back to All; a click on Clear all arms it, darkening no card, a second click deletes the waiting tasks, and Up or Down in between puts it back with the focus on the card it was on; arming Clear all puts an armed Remove back, and arming Remove puts Clear all back; Escape tucks it away to the one-line peek.
 

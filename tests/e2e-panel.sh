@@ -34,8 +34,8 @@
 # (README, "Testing"). The keyboard it can: `task panel` moves the panel to the
 # middle of the screen, and with wtype, Down (which moves the action row, and
 # shows the rest on reaching "+N more"), the filter tabs' keys, Ctrl+Enter,
-# Ctrl+Shift+Delete and Enter for the Waiting tab's Clear all, and Escape are
-# pressed in the nested niri, never on your desktop.
+# Ctrl+Shift+Delete and Enter for the Waiting tab's Clear all, c and m on a card,
+# and Escape are pressed in the nested niri, never on your desktop.
 #
 # What a key does to the panel's state (which tab, which card has the focus,
 # what is armed) is src/panel/state.rs's, and its unit tests check every rule
@@ -563,6 +563,56 @@ if command -v wtype >/dev/null; then
     fi
 else
     skip "the panel's cards in the middle of the screen, their buttons, the filter tabs, Clear all, the Ideas tab, and Escape back (needs wtype)"
+fi
+
+# ─── a card's Complete and Move to workspace ─────────────────────────────────
+# c completes the focused task and keeps the list up. m swaps the cards for
+# the ~/Projects folders the task could move to, and Escape puts the cards
+# back as they were. Enter on a folder is not pressed: the move would run in
+# the nested niri's spawn, with the real HOME and ~/Projects. write_path.rs
+# checks the retagging, against its sandbox.
+if command -v wtype >/dev/null; then
+    add "complete me"
+    add "move me"
+    settle
+    completed() { task rc.verbose=nothing "+$TAG" status:completed count 2>/dev/null; }
+    before=$(completed)
+    "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
+    settle
+    "${NENV[@]}" wtype c
+    for _ in $(seq 1 50); do [ "$(completed)" -gt "$before" ] && break; sleep 0.1; done
+    if [ "$(completed)" -eq $((before + 1)) ]; then
+        ok "c completes the focused task"
+    else
+        bad "c completed $(($(completed) - before)) tasks, expected 1"
+    fi
+    settle
+    if find "$HOME/Projects" -mindepth 1 -maxdepth 1 -type d ! -name '.*' ! -name e2e 2>/dev/null | grep -q .; then
+        shot move_before || { summary; exit 1; }
+        "${NENV[@]}" wtype m
+        sleep 1
+        shot move_list || { summary; exit 1; }
+        if same move_before move_list; then
+            bad "m left the panel as it was — no project list"
+        else
+            ok "m swaps the cards for the project list"
+        fi
+        "${NENV[@]}" wtype -k Escape
+        sleep 1
+        shot move_back || { summary; exit 1; }
+        if same move_before move_back; then
+            ok "Escape from the project list puts the cards back as they were"
+        else
+            read -r x0 x1 y0 y1 < <(measure move_back move_before)
+            bad "after Escape from the project list the panel differs in columns ${x0}-${x1}, rows ${y0}-${y1}"
+        fi
+    else
+        skip "the project list (no ~/Projects folder to move a task to)"
+    fi
+    "${NENV[@]}" wtype -k Escape
+    settle
+else
+    skip "a card's Complete and Move to workspace (needs wtype)"
 fi
 
 # ─── nothing pending shows nothing ───────────────────────────────────────────

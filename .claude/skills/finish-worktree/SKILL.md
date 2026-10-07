@@ -122,7 +122,7 @@ niritasks task status <uuid8> completed
 ```
 Confirm with `task rc.json.array=on <uuid8> export` that its status is now
 `completed`. Always go through `niritasks`, never `task done`: niritasks is the
-one path the task menu also uses, and it sends the same notification.
+one path a task card's Complete also uses, and it sends the same notification.
 
 **9. Clean up.** This deletes the worktree the shell is standing in, so from
 here on run everything with `-C M`.
