@@ -143,10 +143,11 @@ impl PanelState {
 
     /// Nothing to show, so the panel hides. The hover and the peek show no
     /// waiting task, so they hide with nothing else; the keyboard's panel
-    /// still has the Waiting tab, and hides only with no task at all.
+    /// still has the Waiting tab, and hides only with no task at all. On
+    /// Ideas it never hides: the notepad is there with no task too.
     pub fn hidden(&self) -> bool {
         if self.keyboard {
-            self.all.is_empty()
+            self.all.is_empty() && !self.ideas
         } else {
             Filter::All.pick(&self.all).is_empty()
         }
@@ -208,12 +209,14 @@ impl PanelState {
     /// otherwise a re-render, which disarms and keeps the focus where it can.
     /// The last task going while the panel has the keyboard gives it back, so
     /// the next card shows as a peek and the next Mod+Alt+Ctrl+T opens on All.
+    /// Not on Ideas, where it could be mid-typing: giving the keyboard back
+    /// there would send the next keystrokes to another window.
     pub fn set_cards(&mut self, cards: &[Card]) -> Vec<Effect> {
         if self.all == cards {
             return Vec::new();
         }
         self.all = cards.to_vec();
-        if self.keyboard && self.all.is_empty() {
+        if self.keyboard && self.all.is_empty() && !self.ideas {
             return self.release();
         }
         self.rerender()
@@ -416,10 +419,15 @@ impl PanelState {
 
     /// Show this tab: a filter tab's cards, or Ideas. Nothing without the
     /// keyboard, for a filter tab hidden for having no tasks, or for the tab
-    /// already picked.
+    /// already picked. Leaving Ideas for a filter tab once the last task has
+    /// gone gives the keyboard back, as the last task going does off Ideas:
+    /// with no cards the panel hides, and must not hide holding the keyboard.
     fn pick(&mut self, tab: Tab) -> Vec<Effect> {
         if !self.keyboard || self.tab() == tab {
             return Vec::new();
+        }
+        if matches!(tab, Tab::Filter(_)) && self.all.is_empty() {
+            return self.release();
         }
         match tab {
             Tab::Filter(filter) if !Filter::shown(&self.all).contains(&filter) => return Vec::new(),
@@ -1146,6 +1154,41 @@ mod tests {
         assert_eq!(state.set_cards(&pending(&["a", "b"])), vec![Effect::Render]);
         assert!(state.on_ideas());
         assert_eq!(state.focus(), None);
+    }
+
+    /// The last task going mid-typing keeps the keyboard on Ideas: giving it
+    /// back would send the next keystrokes to whatever window is under it.
+    #[test]
+    fn the_last_task_going_on_ideas_keeps_the_keyboard() {
+        let mut state = keyboard(pending(&["a"]));
+        key(&mut state, KeyAction::Ideas);
+        assert_eq!(state.set_cards(&[]), vec![Effect::Render]);
+        assert!(state.keyboard());
+        assert!(state.on_ideas());
+        assert!(!state.hidden(), "the notepad still shows");
+    }
+
+    /// With no cards left, leaving Ideas for a filter tab gives the keyboard
+    /// back rather than hide the panel while it holds it.
+    #[test]
+    fn leaving_ideas_with_no_cards_gives_the_keyboard_back() {
+        for k in [KeyAction::Filter(Filter::All), KeyAction::PrevFilter] {
+            let mut state = keyboard(pending(&["a"]));
+            key(&mut state, KeyAction::Ideas);
+            state.set_cards(&[]);
+            assert_eq!(key(&mut state, k), vec![Effect::Render, Effect::Release], "{k:?}");
+            assert!(!state.keyboard());
+            assert!(state.hidden());
+        }
+    }
+
+    #[test]
+    fn clicking_a_filter_tab_from_ideas_with_no_cards_gives_the_keyboard_back() {
+        let mut state = keyboard(pending(&["a"]));
+        key(&mut state, KeyAction::Ideas);
+        state.set_cards(&[]);
+        assert_eq!(state.on_tab(Tab::Filter(Filter::All)), vec![Effect::Render, Effect::Release]);
+        assert!(!state.keyboard());
     }
 
     #[test]
