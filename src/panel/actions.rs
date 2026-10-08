@@ -51,13 +51,14 @@ impl Action {
     /// change from card to card and button to button. The focused button's
     /// key and name ("g: Go to session", "Del: Remove", or just "Speak" for
     /// a button only Enter presses), or, on the body of a card with notes,
-    /// what Space does to them; then what Ctrl+Enter does to this task, when
-    /// it presses a button `row` has. `notes` is whether the card's notes
-    /// show, None on a card with none. Empty on the body of a task with no
-    /// notes that Ctrl+Enter leaves alone. Enter and Ctrl+Delete do the same
-    /// on every card, so they are the footer's, [`CARD_KEYS`]. Pure, so every
-    /// card's hint is tested without a window; `surface.rs` only sets the
-    /// label.
+    /// what Space does to them; then what Ctrl+Enter does to this task, in
+    /// the words of the button it presses ("Ctrl+Enter: Refine"), when `row`
+    /// has that button. `notes` is whether the card's notes show, None on a
+    /// card with none. Empty on the body of a task with no notes that
+    /// Ctrl+Enter leaves alone. Enter and Ctrl+Delete do the same on every
+    /// card, so they are the footer's, [`CARD_KEYS`]. Pure, so every card's
+    /// hint is tested without a window; `PanelState::card_hint` picks the
+    /// card and `surface.rs` only sets the label.
     pub fn hint(state: TaskState, row: &[Action], focused: Option<Action>, notes: Option<bool>) -> String {
         let mut parts = Vec::new();
         match (focused, notes) {
@@ -74,8 +75,7 @@ impl Action {
             (None, None) => {}
         }
         if let Some(step) = Self::advance(state).filter(|a| row.contains(a)) {
-            let does = if step == Refine { "refine" } else { "start working" };
-            parts.push(format!("Ctrl+Enter: {does}"));
+            parts.push(format!("Ctrl+Enter: {}", step.label(false)));
         }
         parts.join(" · ")
     }
@@ -446,18 +446,18 @@ mod tests {
     #[test]
     fn the_body_of_a_card_with_notes_hints_space() {
         let row = Action::row(on_list(false));
-        assert_eq!(Action::hint(on_list(false), &row, None, Some(false)), "Space: view notes · Ctrl+Enter: refine");
-        assert_eq!(Action::hint(on_list(false), &row, None, Some(true)), "Space: hide notes · Ctrl+Enter: refine");
+        assert_eq!(Action::hint(on_list(false), &row, None, Some(false)), "Space: view notes · Ctrl+Enter: Refine");
+        assert_eq!(Action::hint(on_list(false), &row, None, Some(true)), "Space: hide notes · Ctrl+Enter: Refine");
         assert_eq!(Action::hint(active(true), &Action::row(active(true)), None, Some(false)), "Space: view notes");
-        assert_eq!(Action::hint(on_list(false), &row, Some(Edit), Some(true)), "e: Edit · Ctrl+Enter: refine");
+        assert_eq!(Action::hint(on_list(false), &row, Some(Edit), Some(true)), "e: Edit · Ctrl+Enter: Refine");
     }
 
     /// Up and Down land on the body: what Ctrl+Enter does to this task.
     #[test]
     fn the_body_hints_what_ctrl_enter_does() {
-        assert_eq!(hint(on_list(false), None), "Ctrl+Enter: refine");
-        assert_eq!(hint(active(false), None), "Ctrl+Enter: refine");
-        assert_eq!(hint(on_list(true), None), "Ctrl+Enter: start working");
+        assert_eq!(hint(on_list(false), None), "Ctrl+Enter: Refine");
+        assert_eq!(hint(active(false), None), "Ctrl+Enter: Refine");
+        assert_eq!(hint(on_list(true), None), "Ctrl+Enter: Start working");
     }
 
     #[test]
@@ -469,13 +469,13 @@ mod tests {
 
     #[test]
     fn a_lettered_button_hints_its_letter_and_name() {
-        assert_eq!(hint(with_claude(on_list(true)), Some(Session)), "g: Go to session · Ctrl+Enter: start working");
-        assert_eq!(hint(on_list(true), Some(Start)), "s: Start working · Ctrl+Enter: start working");
-        assert_eq!(hint(on_list(false), Some(Refine)), "r: Refine · Ctrl+Enter: refine");
-        assert_eq!(hint(active(false), Some(Edit)), "e: Edit · Ctrl+Enter: refine");
-        assert_eq!(hint(on_list(false), Some(Grill)), "i: Grill me · Ctrl+Enter: refine");
-        assert_eq!(hint(on_list(true), Some(Complete)), "c: Complete · Ctrl+Enter: start working");
-        assert_eq!(hint(on_list(true), Some(Move)), "m: Move to workspace · Ctrl+Enter: start working");
+        assert_eq!(hint(with_claude(on_list(true)), Some(Session)), "g: Go to session · Ctrl+Enter: Start working");
+        assert_eq!(hint(on_list(true), Some(Start)), "s: Start working · Ctrl+Enter: Start working");
+        assert_eq!(hint(on_list(false), Some(Refine)), "r: Refine · Ctrl+Enter: Refine");
+        assert_eq!(hint(active(false), Some(Edit)), "e: Edit · Ctrl+Enter: Refine");
+        assert_eq!(hint(on_list(false), Some(Grill)), "i: Grill me · Ctrl+Enter: Refine");
+        assert_eq!(hint(on_list(true), Some(Complete)), "c: Complete · Ctrl+Enter: Start working");
+        assert_eq!(hint(on_list(true), Some(Move)), "m: Move to workspace · Ctrl+Enter: Start working");
         assert_eq!(hint(active(true), Some(Stop)), "t: Stop");
         assert_eq!(hint(waiting(false), Some(Back)), "b: Back to list");
     }
@@ -483,7 +483,7 @@ mod tests {
     /// Remove's key is Delete, not a letter.
     #[test]
     fn remove_hints_del() {
-        assert_eq!(hint(on_list(false), Some(Remove)), "Del: Remove · Ctrl+Enter: refine");
+        assert_eq!(hint(on_list(false), Some(Remove)), "Del: Remove · Ctrl+Enter: Refine");
         assert_eq!(hint(waiting(true), Some(Remove)), "Del: Remove");
     }
 
@@ -492,10 +492,10 @@ mod tests {
     /// its tooltip.
     #[test]
     fn a_button_with_no_key_hints_its_name_alone() {
-        assert_eq!(hint(on_list(false), Some(Speak)), "Speak · Ctrl+Enter: refine");
-        assert_eq!(hint(on_list(true), Some(Wait)), "Waiting · Ctrl+Enter: start working");
+        assert_eq!(hint(on_list(false), Some(Speak)), "Speak · Ctrl+Enter: Refine");
+        assert_eq!(hint(on_list(true), Some(Wait)), "Waiting · Ctrl+Enter: Start working");
         let up_next = TaskState { up_next: true, ..on_list(true) };
-        assert_eq!(hint(up_next, Some(UpNext)), "Not up next · Ctrl+Enter: start working");
+        assert_eq!(hint(up_next, Some(UpNext)), "Not up next · Ctrl+Enter: Start working");
     }
 
     /// Ctrl+Enter is left out when what it would press is not on the card.

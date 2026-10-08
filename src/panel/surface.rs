@@ -46,7 +46,8 @@
 //! (`Action::hint`); a footer under the scroller names Enter and Ctrl+Delete,
 //! which act alike on every card. The controller runs in the capture phase,
 //! ahead of GTK's own focus chain, which would otherwise walk every button on
-//! the panel. The focused card is darkened. Enter or a click on its body does nothing.
+//! the panel. The focused card is darkened. Enter, Space or a click on its
+//! body shows the task's notes, or hides them.
 //! Escape, or anything that runs, hands the keyboard back, folds the cards to
 //! one line again, and puts the panel back on the right edge as a peek.
 //!
@@ -284,8 +285,6 @@ struct ActionRow {
     /// button's, and what Ctrl+Enter does to this task.
     hint: gtk4::Label,
     buttons: Vec<(Action, gtk4::Button)>,
-    /// The task's state, for the hint and for Up next reading Not up next.
-    state: TaskState,
 }
 
 impl CardWidgets {
@@ -930,8 +929,11 @@ impl Panel {
         // The footer names the cards' keys, so not on Ideas, where the
         // text area takes Enter and Delete as typing; on the project list,
         // its own.
-        self.footer.set_visible(keyboard && !ideas);
-        self.footer.set_label(list.map_or(actions::CARD_KEYS, |l| l.keys()));
+        let footer = self.state.borrow().footer();
+        self.footer.set_visible(footer.is_some());
+        if let Some(text) = footer {
+            self.footer.set_label(text);
+        }
         self.update_tabs();
         self.fit();
 
@@ -1110,7 +1112,7 @@ impl Panel {
         separator.add_css_class("card-separator");
         separator.set_visible(false);
         row.set_visible(false);
-        ActionRow { separator, row, hint, buttons, state }
+        ActionRow { separator, row, hint, buttons }
     }
 
     /// One row on the project list, a folder or a repo, drawn as a task card
@@ -1207,21 +1209,7 @@ impl Panel {
                 set_label(remove, &remove_label(removing));
                 set_class(remove, "confirm", removing);
             }
-            let hint = match &focus {
-                // Armed, Remove reads Confirm remove, which says what Enter
-                // does; on the widest row the hint would not fit beside it.
-                _ if removing => String::new(),
-                Some(Focus { uuid, slot }) if Some(uuid) == card.uuid.as_ref() => {
-                    let buttons: Vec<Action> = row.buttons.iter().map(|(a, _)| *a).collect();
-                    let focused = match slot {
-                        Slot::Button(action) => Some(*action),
-                        Slot::Body => None,
-                    };
-                    let notes = card.notes.as_ref().map(|n| n.is_visible());
-                    Action::hint(row.state, &buttons, focused, notes)
-                }
-                _ => String::new(),
-            };
+            let hint = card.uuid.as_deref().map_or(String::new(), |u| self.state.borrow().card_hint(u));
             // Only when it changed: every sync passes every card, and an
             // unchanged label should not cost a relayout.
             if row.hint.label().as_str() != hint.as_str() {

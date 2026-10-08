@@ -2,17 +2,18 @@
 //! plain data.
 //!
 //! The cards, the filter tab, "+N more" opened or not, which card and button
-//! has the keyboard's focus, what a first press has armed, and the [`Mode`]:
-//! which of the task cards, the Ideas notepad or the project list Move to
-//! workspace and Mod+Alt+W swap in is up, all live here, keyed by task uuid
-//! and slot rather than by widget. The mode picks which key map a raw key
+//! has the keyboard's focus, what a first press has armed, which cards show
+//! their notes, and the [`Mode`]: which of the task cards, the Ideas notepad
+//! or the project list Move to workspace and Mod+Alt+W swap in is up, all
+//! live here, keyed by task uuid and slot rather than by widget. The mode picks which key map a raw key
 //! goes through. Every change comes back as a list of [`Effect`]s for
 //! `surface.rs` to run: draw again, move the focus, spawn a command. So the
 //! rules between them (one arming at a time, any re-render disarming, where
 //! the focus lands) are tested without a window, and `surface.rs` only draws
 //! what this says and runs what it asks.
 
-use crate::actions::Action;
+use crate::actions::{Action, TaskState};
+use super::actions;
 use super::keys::{self, KeyAction};
 use super::model::{self, Card, Filter, Tab};
 use super::projects::{Escaped, Matcher, Picked, ProjectList, Purpose, NO_DESTINATIONS};
@@ -61,6 +62,8 @@ pub enum Armed {
 pub struct Shown {
     pub card: Card,
     pub actions: Vec<Action>,
+    /// The task's state, for its hint; None on "+N more".
+    pub state: Option<TaskState>,
 }
 
 impl Shown {
@@ -265,16 +268,52 @@ impl PanelState {
         cards
             .into_iter()
             .map(|card| {
-                let actions = match card.uuid.as_deref().filter(|_| self.keyboard) {
-                    Some(uuid) => {
-                        let has_session = crate::link::session_agent(&self.agents, uuid).is_some();
-                        card.state(has_session).map(Action::row).unwrap_or_default()
-                    }
-                    None => Vec::new(),
-                };
-                Shown { card, actions }
+                let state = card.uuid.as_deref().filter(|_| self.keyboard).and_then(|uuid| {
+                    let has_session = crate::link::session_agent(&self.agents, uuid).is_some();
+                    card.state(has_session)
+                });
+                let actions = state.map(Action::row).unwrap_or_default();
+                Shown { card, actions, state }
             })
             .collect()
+    }
+
+    /// The footer under the list: the keys that act alike on every card, or
+    /// the project list's own. None on Ideas, where the text area has every
+    /// key, and none without the keyboard.
+    pub fn footer(&self) -> Option<&'static str> {
+        if !self.keyboard {
+            return None;
+        }
+        match &self.mode {
+            Mode::Ideas => None,
+            Mode::Projects { list, .. } => Some(list.keys()),
+            Mode::Tasks => Some(actions::CARD_KEYS),
+        }
+    }
+
+    /// The hint beside this card's buttons: the focused button's key and
+    /// name, or what Space does to its notes, then what Ctrl+Enter does to
+    /// the task. Empty on every card but the focused one, and on the focused
+    /// one while its Remove is armed: Confirm remove says what Enter does,
+    /// and the hint would not fit beside it.
+    pub fn card_hint(&self, uuid: &str) -> String {
+        if !self.keyboard || !self.on_tasks() {
+            return String::new();
+        }
+        let Some(focus) = self.focus.as_ref().filter(|f| f.uuid == uuid) else { return String::new() };
+        if self.armed == Armed::Remove(uuid.to_string()) {
+            return String::new();
+        }
+        let shown = self.visible();
+        let Some(card) = shown.iter().find(|s| s.card.uuid.as_deref() == Some(uuid)) else { return String::new() };
+        let Some(state) = card.state else { return String::new() };
+        let focused = match focus.slot {
+            Slot::Button(action) => Some(action),
+            Slot::Body => None,
+        };
+        let notes = (!card.card.notes.is_empty()).then(|| self.shows_notes(uuid));
+        Action::hint(state, &card.actions, focused, notes)
     }
 
     /// The line shown in place of cards when the tab has none: only All, on
@@ -316,7 +355,7 @@ impl PanelState {
             .is_some_and(|uuid| !self.all.iter().any(|c| c.uuid.as_deref() == Some(uuid)));
         if gone {
             self.mode = Mode::Tasks;
-            }
+        }
         if self.keyboard && self.all.is_empty() && self.on_tasks() {
             return self.release();
         }
@@ -853,8 +892,7 @@ impl PanelState {
         if !card.actions.contains(&action) {
             return Vec::new();
         }
-        let verb = if action == Action::Refine { "Refining" } else { "Starting" };
-        vec![Effect::Notify(format!("{verb}: {}", card.card.text)), Effect::Spawn(action.args(uuid))]
+        vec![Effect::Notify(format!("{}: {}", action.label(false), card.card.text)), Effect::Spawn(action.args(uuid))]
     }
 
     /// Put Clear all back and the focus where it was before it armed, or on
@@ -918,6 +956,41 @@ mod tests {
 
     fn focused(uuid: &str, slot: Slot) -> Option<Focus> {
         Some(Focus { uuid: uuid.into(), slot })
+    }
+
+    #[test]
+    fn the_footer_follows_the_mode() {
+        let mut state = PanelState::default();
+        state.set_cards(&pending(&["a"]));
+        assert_eq!(state.footer(), None, "no footer without the keyboard");
+        assert!(state.take_keyboard(Vec::new()));
+        assert_eq!(state.footer(), Some(actions::CARD_KEYS));
+        key(&mut state, KeyAction::Ideas);
+        assert_eq!(state.footer(), None, "the text area has every key");
+        key(&mut state, KeyAction::Release);
+        state.show_projects("a", folders(&["x"]), projects(&["a", "x"], &[]));
+        assert_eq!(state.footer(), Some(crate::panel::projects::MOVE_KEYS));
+    }
+
+    #[test]
+    fn only_the_focused_card_has_a_hint_and_an_armed_remove_blanks_it() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        assert!(!state.card_hint("a").is_empty());
+        assert_eq!(state.card_hint("b"), "");
+        key(&mut state, KeyAction::NextSlot);
+        assert!(state.card_hint("a").starts_with("s: Start working"), "{}", state.card_hint("a"));
+        state.on_press("a", Slot::Button(Action::Remove));
+        assert_eq!(state.card_hint("a"), "", "Confirm remove says what Enter does");
+    }
+
+    #[test]
+    fn the_body_hint_follows_the_notes_toggle() {
+        let mut with_notes = card("a", Status::Pending);
+        with_notes.notes = vec!["a note".into()];
+        let mut state = keyboard(vec![with_notes]);
+        assert!(state.card_hint("a").starts_with("Space: view notes"), "{}", state.card_hint("a"));
+        state.on_press("a", Slot::Body);
+        assert!(state.card_hint("a").starts_with("Space: hide notes"), "{}", state.card_hint("a"));
     }
 
     /// The lists a project list was built from travel with it: leaving the
@@ -1412,12 +1485,12 @@ mod tests {
         let mut state = keyboard(vec![card("p", Status::Pending), card("q", Status::Planned)]);
         assert_eq!(
             key(&mut state, KeyAction::Advance),
-            vec![Effect::Notify("Refining: p".into()), Effect::Spawn(Action::Refine.args("p"))],
+            vec![Effect::Notify("Refine: p".into()), Effect::Spawn(Action::Refine.args("p"))],
         );
         key(&mut state, KeyAction::NextCard);
         assert_eq!(
             key(&mut state, KeyAction::Advance),
-            vec![Effect::Notify("Starting: q".into()), Effect::Spawn(Action::Start.args("q"))],
+            vec![Effect::Notify("Start working: q".into()), Effect::Spawn(Action::Start.args("q"))],
         );
         assert!(state.keyboard());
         assert_eq!(state.focus(), focused("q", Slot::Body).as_ref());
