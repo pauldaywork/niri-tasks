@@ -91,8 +91,8 @@ Waiting and Remove, an active task getting Stop in place of Start working, only
 a task with a live Claude getting Go to session, a waiting task getting just
 Back to list, Edit, Speak, Complete, Move to workspace and Remove, and a
 finished one just Back to list, Edit, Speak and Remove — each running its task
-action's `niritasks` command. Enter or a click on the card's body shows or hides the task's notes instead
-(see Task card).
+action's `niritasks` command. Enter or a click on the card's body shows or
+hides the task's notes instead (see Task card).
 After the buttons, dimmed, the hint names the keys that change from card to
 card: the focused button's, and what Ctrl+Enter does to the task. The keys
 every card shares, Enter and Ctrl+Delete, are on a line under the list instead.

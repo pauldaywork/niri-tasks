@@ -1010,7 +1010,8 @@ impl Panel {
     /// One card: a box holding the body, a button so the keyboard can focus
     /// and press it, and, while the panel has the keyboard, its action row
     /// along the bottom, hidden until the card has focus. The body shows or
-    /// hides the task's notes on a task's card, and shows the rest in place of "+N more".
+    /// hides the task's notes on a task's card, and shows the rest in place
+    /// of "+N more".
     fn card_widget(self: &Rc<Self>, shown: &Shown, keyboard: bool) -> CardWidgets {
         let card = &shown.card;
         let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);

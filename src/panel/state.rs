@@ -294,6 +294,14 @@ impl PanelState {
             return Vec::new();
         }
         self.all = cards.to_vec();
+        // Notes stay shown only for a card that is still there with notes:
+        // otherwise a stale uuid would reopen the card unasked when notes
+        // came back, with the toggle unable to reach it meanwhile.
+        let all = &self.all;
+        self.notes.retain(|uuid| {
+            all.iter()
+                .any(|c| c.uuid.as_deref() == Some(uuid.as_str()) && !c.notes.is_empty())
+        });
         // The task being moved has gone (done elsewhere, say): its project
         // list goes with it.
         let gone = self
@@ -478,11 +486,11 @@ impl PanelState {
     /// or the body, which shows the task's notes on the card or hides them
     /// again. Remove only arms itself the first time; the second press runs it.
     /// Everything that opens something gives the keyboard back first, so the
-    /// box or terminal it opens can take it. Back, Waiting and Remove take the card off the list, so the
-    /// focus moves to the next card (the one above, from the last) to still be
-    /// there when the next tick drops this one. Speak and Up next keep the
-    /// card and the focus, so a second press undoes them. Move to workspace
-    /// disarms and asks for the project list.
+    /// box or terminal it opens can take it. Back, Waiting and Remove take
+    /// the card off the list, so the focus moves to the next card (the one
+    /// above, from the last) to still be there when the next tick drops this
+    /// one. Speak and Up next keep the card and the focus, so a second press
+    /// undoes them. Move to workspace disarms and asks for the project list.
     pub fn on_press(&mut self, uuid: &str, slot: Slot) -> Vec<Effect> {
         if self.projects().is_some() {
             return Vec::new();
@@ -622,8 +630,9 @@ impl PanelState {
         }
     }
 
-    /// Give the keyboard back: every card to one line again, its notes hidden, All for the next
-    /// time, and nothing expanded, armed or focused.
+    /// Give the keyboard back: every card to one line again, its notes
+    /// hidden, All for the next time, and nothing expanded, armed or
+    /// focused.
     fn release(&mut self) -> Vec<Effect> {
         if !self.keyboard {
             return Vec::new();
@@ -1339,6 +1348,22 @@ mod tests {
         assert!(state.shows_notes("a"));
         assert_eq!(state.set_cards(&[noted("a"), noted("b"), noted("c")]), vec![Effect::Render]);
         assert!(state.shows_notes("a"));
+    }
+
+    /// A card whose notes have gone, or which has left the list, stops
+    /// being shown: when notes come back later it does not reopen by itself.
+    #[test]
+    fn a_card_that_loses_its_notes_does_not_reopen() {
+        let mut state = keyboard(vec![noted("a"), noted("b")]);
+        state.on_press("a", Slot::Body);
+        state.on_press("b", Slot::Body);
+        state.set_cards(&[card("a", Status::Pending), noted("b")]);
+        assert!(!state.shows_notes("a"));
+        state.set_cards(&[noted("a"), noted("b")]);
+        assert!(!state.shows_notes("a"));
+        state.set_cards(&[noted("a")]);
+        state.set_cards(&[noted("a"), noted("b")]);
+        assert!(!state.shows_notes("b"));
     }
 
     /// Giving the keyboard back folds every card to one line again, notes

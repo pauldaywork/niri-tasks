@@ -35,7 +35,8 @@
 # middle of the screen, and with wtype, Down (which moves the action row, and
 # shows the rest on reaching "+N more"), the filter tabs' keys, Ctrl+Enter,
 # Enter on a card's body (its notes), Ctrl+Shift+Delete and Enter for the
-# Waiting tab's Clear all, c and m on a card, and Escape are pressed in the nested niri, never on your desktop.
+# Waiting tab's Clear all, c and m on a card, and Escape are pressed in the
+# nested niri, never on your desktop.
 #
 # What a key does to the panel's state (which tab, which card has the focus,
 # what is armed) is src/panel/state.rs's, and its unit tests check every rule
