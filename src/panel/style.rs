@@ -192,6 +192,10 @@ window.task-panel {{ background-color: transparent; }}
 /* How long ago the task was added, at the card's right end: a caption, so
    dimmed like the hint, on a green or yellow card too. */
 .task-panel .card-age {{ color: alpha({TEXT}, 0.55); padding-left: {PADDING_PX}px; }}
+/* A card's notes, once its body is pressed: captions to the description,
+   so dimmed like its age, a padding's gap below it. */
+.task-panel .card-notes {{ padding-top: {PADDING_PX}px; }}
+.task-panel .card-note {{ color: alpha({TEXT}, 0.55); }}
 .task-panel .card-separator {{
     background-color: {SEPARATOR};
     background-image: none;
@@ -513,6 +517,15 @@ mod tests {
         assert!(css().contains(&format!(
             ".task-panel .card-age {{ color: alpha({TEXT}, 0.55); padding-left: {PADDING_PX}px; }}"
         )));
+    }
+
+    /// A card's notes are dimmed like its age, and stand a card's padding
+    /// below the description.
+    #[test]
+    fn the_notes_are_dimmed_under_the_description() {
+        let css = css();
+        assert!(css.contains(&format!(".task-panel .card-notes {{ padding-top: {PADDING_PX}px; }}")));
+        assert!(css.contains(&format!(".task-panel .card-note {{ color: alpha({TEXT}, 0.55); }}")));
     }
 
     /// The project list's highlighted folder is darkened as the focused card

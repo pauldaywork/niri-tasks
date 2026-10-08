@@ -266,6 +266,10 @@ struct CardWidgets {
     body: gtk4::Button,
     /// None on "+N more", and on every card off the keyboard.
     row: Option<ActionRow>,
+    /// The task's notes under the description, shown while the state says.
+    /// None on "+N more", on a task with no notes, and on every card off
+    /// the keyboard.
+    notes: Option<gtk4::Box>,
     /// The age at the right end, and the stamp it counts from, for the
     /// minute timer. None on "+N more".
     age: Option<(gtk4::Label, String)>,
@@ -698,6 +702,12 @@ impl Panel {
                 Effect::ShowFolder => self.follow_focus(),
                 // Its changed handler finds the state already cleared.
                 Effect::ClearQuery => self.query.set_text(""),
+                // The card grew or shrank: keep the whole of the focused one
+                // in view, as a move of the focus does.
+                Effect::Notes => {
+                    self.show_notes();
+                    self.follow_focus();
+                }
             }
         }
         self.sync();
@@ -999,8 +1009,8 @@ impl Panel {
 
     /// One card: a box holding the body, a button so the keyboard can focus
     /// and press it, and, while the panel has the keyboard, its action row
-    /// along the bottom, hidden until the card has focus. The body does nothing
-    /// on a task's card, and shows the rest in place of "+N more".
+    /// along the bottom, hidden until the card has focus. The body shows or
+    /// hides the task's notes on a task's card, and shows the rest in place of "+N more".
     fn card_widget(self: &Rc<Self>, shown: &Shown, keyboard: bool) -> CardWidgets {
         let card = &shown.card;
         let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -1024,7 +1034,17 @@ impl Panel {
         root.set_overflow(gtk4::Overflow::Hidden);
 
         let (label, age) = card_label(card, keyboard);
-        let body = gtk4::Button::builder().child(&label).build();
+        // The notes go inside the body, under the description, so a click
+        // on them hides them as a click on the description does.
+        let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        content.append(&label);
+        let notes = card.uuid.as_deref().filter(|_| keyboard && !card.notes.is_empty()).map(|uuid| {
+            let notes = notes_box(&card.notes);
+            notes.set_visible(self.state.borrow().shows_notes(uuid));
+            content.append(&notes);
+            notes
+        });
+        let body = gtk4::Button::builder().child(&content).build();
         body.add_css_class("card-body");
         // A click leaves the card as it was, not darkened.
         body.set_focus_on_click(false);
@@ -1054,7 +1074,7 @@ impl Panel {
                 row
             });
         let age = age.map(|label| (label, card.since.clone()));
-        CardWidgets { uuid: card.uuid.clone(), root, body, row, age }
+        CardWidgets { uuid: card.uuid.clone(), root, body, row, notes, age }
     }
 
     /// A card's buttons, left-aligned and only as wide as their icons, then
@@ -1263,6 +1283,30 @@ impl Panel {
         }
     }
 
+    /// Show the notes of the cards the state says and hide the rest. Like
+    /// the action row, they change a card's height without a render, so the
+    /// surface, the input region and the blur are fitted to the cards again,
+    /// but only when some card's notes actually showed or hid.
+    fn show_notes(&self) {
+        let mut changed = false;
+        {
+            let state = self.state.borrow();
+            for card in self.cards.borrow().iter() {
+                let (Some(uuid), Some(notes)) = (&card.uuid, &card.notes) else { continue };
+                let show = state.shows_notes(uuid);
+                if notes.is_visible() != show {
+                    notes.set_visible(show);
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.fit();
+            self.set_region(self.slide.x.get().min(self.slide.to.get()));
+            self.update_blur(self.slide.x.get());
+        }
+    }
+
     pub fn close(&self) {
         self.notepad.flush();
         self.cancel_grace();
@@ -1402,6 +1446,24 @@ impl Panel {
             glib::ControlFlow::Continue
         });
     }
+}
+
+/// A task's notes, for under its card's description: one dimmed label per
+/// note, wrapped, text only. The panel shows the box once the card's body is
+/// pressed.
+fn notes_box(notes: &[String]) -> gtk4::Box {
+    let column = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    column.add_css_class("card-notes");
+    for note in notes {
+        let label = gtk4::Label::new(Some(note));
+        label.add_css_class("card-note");
+        label.set_xalign(0.0);
+        label.set_wrap(true);
+        // WordChar: a long path or URL with no spaces still breaks.
+        label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+        column.append(&label);
+    }
+    column
 }
 
 /// The card's icon, description and age: one line cut off with "…" for the

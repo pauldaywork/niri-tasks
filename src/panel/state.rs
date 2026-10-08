@@ -18,6 +18,7 @@ use super::model::{self, Card, Filter, Tab};
 use super::projects::{Escaped, Matcher, Picked, ProjectList, Purpose, NO_DESTINATIONS};
 use crate::project::{Projects, Row};
 use gtk4::gdk;
+use std::collections::HashSet;
 
 /// Where on a card the keyboard's focus is: its body, or one of the buttons
 /// on its action row.
@@ -98,6 +99,9 @@ pub enum Effect {
     ShowFolder,
     /// Empty the project list's text field: Escape with text typed.
     ClearQuery,
+    /// Show or hide each card's notes as [`PanelState::shows_notes`] says,
+    /// and fit the panel to the cards' new heights.
+    Notes,
 }
 
 /// Which of the three screens the panel shows while it has the keyboard.
@@ -136,6 +140,10 @@ pub struct PanelState {
     /// Where the keyboard's focus is. None without the keyboard, and while
     /// Clear all is armed.
     focus: Option<Focus>,
+    /// The tasks whose cards show their notes, by uuid: a press on a card's
+    /// body adds it, a second takes it out. Kept across a re-render, so a
+    /// tick leaves them open; emptied as the keyboard is given back.
+    notes: HashSet<String>,
     armed: Armed,
     /// The folders and repos the project list was built from, for its hint
     /// and its pick to mean what `project open` will. Some only while the
@@ -184,6 +192,12 @@ impl PanelState {
 
     pub fn armed(&self) -> &Armed {
         &self.armed
+    }
+
+    /// This task's card shows its notes: only ever while the panel has the
+    /// keyboard, the peek's cards being one line.
+    pub fn shows_notes(&self, uuid: &str) -> bool {
+        self.keyboard && self.notes.contains(uuid)
     }
 
     /// The project list, while it is up.
@@ -460,9 +474,9 @@ impl PanelState {
         }
     }
 
-    /// A press on a task's card: a button, as a click or a key presses it.
-    /// The body does nothing: the buttons are the card's actions. Remove
-    /// only arms itself the first time; the second press runs it.
+    /// A press on a task's card: a button, as a click or a key presses it,
+    /// or the body, which shows the task's notes on the card or hides them
+    /// again. Remove only arms itself the first time; the second press runs it.
     /// Everything that opens something gives the keyboard back first, so the
     /// box or terminal it opens can take it. Back, Waiting and Remove take the card off the list, so the
     /// focus moves to the next card (the one above, from the last) to still be
@@ -473,7 +487,10 @@ impl PanelState {
         if self.projects().is_some() {
             return Vec::new();
         }
-        let Slot::Button(action) = slot else { return Vec::new() };
+        let action = match slot {
+            Slot::Body => return self.toggle_notes(uuid),
+            Slot::Button(action) => action,
+        };
         // The folders are on disk, which the surface reads: it answers
         // with show_projects. The keyboard and the focus stay put.
         if action == Action::Move {
@@ -497,6 +514,21 @@ impl PanelState {
         }
         effects.push(Effect::Spawn(action.args(uuid)));
         effects
+    }
+
+    /// Show this task's notes on its card, or hide them again. Only while
+    /// the panel has the keyboard, and only on a card with notes to show:
+    /// anywhere else the body still does nothing. The keyboard, the focus
+    /// and anything armed stay as they are.
+    fn toggle_notes(&mut self, uuid: &str) -> Vec<Effect> {
+        let has_notes = self.all.iter().any(|c| c.uuid.as_deref() == Some(uuid) && !c.notes.is_empty());
+        if !self.keyboard || !has_notes {
+            return Vec::new();
+        }
+        if !self.notes.remove(uuid) {
+            self.notes.insert(uuid.to_string());
+        }
+        vec![Effect::Notes]
     }
 
     /// Clear all, by its button or Ctrl+Shift+Delete. The first press arms it and
@@ -590,7 +622,7 @@ impl PanelState {
         }
     }
 
-    /// Give the keyboard back: every card to one line again, All for the next
+    /// Give the keyboard back: every card to one line again, its notes hidden, All for the next
     /// time, and nothing expanded, armed or focused.
     fn release(&mut self) -> Vec<Effect> {
         if !self.keyboard {
@@ -604,6 +636,7 @@ impl PanelState {
         self.loaded = None;
         self.armed = Armed::None;
         self.focus = None;
+        self.notes.clear();
         vec![Effect::Render, Effect::Release]
     }
 
@@ -844,6 +877,11 @@ mod tests {
 
     fn card(uuid: &str, status: Status) -> Card {
         Card { status, text: uuid.into(), uuid: Some(uuid.into()), planned: status == Status::Planned, up_next: false, since: String::new(), notes: Vec::new() }
+    }
+
+    /// A pending card whose task has one note.
+    fn noted(uuid: &str) -> Card {
+        Card { notes: vec![format!("a note on {uuid}")], ..card(uuid, Status::Pending) }
     }
 
     fn pending(uuids: &[&str]) -> Vec<Card> {
@@ -1257,14 +1295,62 @@ mod tests {
 
     // ─── presses ─────────────────────────────────────────────────────────
 
-    /// Enter or a click on a card's body does nothing: its actions are its
-    /// buttons. The keyboard and the focus stay where they were.
+    /// A press on a card's body, Enter or a click, shows its task's notes
+    /// and a second hides them, keeping the keyboard and the focus.
     #[test]
-    fn a_press_on_the_body_does_nothing() {
-        let mut state = keyboard(pending(&["a"]));
-        assert_eq!(state.on_press("a", Slot::Body), Vec::new());
+    fn a_press_on_the_body_toggles_its_notes() {
+        let mut state = keyboard(vec![noted("a"), noted("b")]);
+        assert_eq!(state.on_press("a", Slot::Body), vec![Effect::Notes]);
+        assert!(state.shows_notes("a"));
+        assert!(!state.shows_notes("b"), "only the card pressed");
         assert!(state.keyboard());
         assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+        assert_eq!(state.on_press("a", Slot::Body), vec![Effect::Notes]);
+        assert!(!state.shows_notes("a"));
+    }
+
+    /// A card with no notes has nothing to show, so its body still does
+    /// nothing.
+    #[test]
+    fn a_card_with_no_notes_ignores_the_press() {
+        let mut state = keyboard(pending(&["a"]));
+        assert_eq!(state.on_press("a", Slot::Body), Vec::new());
+        assert!(!state.shows_notes("a"));
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+    }
+
+    /// The peek's cards are one line each: a click on one shows nothing.
+    #[test]
+    fn the_peek_shows_no_notes() {
+        let mut state = PanelState::default();
+        state.set_cards(&[noted("a")]);
+        assert_eq!(state.on_press("a", Slot::Body), Vec::new());
+        assert!(!state.shows_notes("a"));
+    }
+
+    /// Shown notes are the panel's, not the widgets', so the daemon's tick
+    /// keeps them: unchanged cards draw nothing, and changed ones re-render
+    /// with the notes still shown.
+    #[test]
+    fn a_tick_keeps_the_notes_shown() {
+        let mut state = keyboard(vec![noted("a"), noted("b")]);
+        state.on_press("a", Slot::Body);
+        assert_eq!(state.set_cards(&[noted("a"), noted("b")]), Vec::new());
+        assert!(state.shows_notes("a"));
+        assert_eq!(state.set_cards(&[noted("a"), noted("b"), noted("c")]), vec![Effect::Render]);
+        assert!(state.shows_notes("a"));
+    }
+
+    /// Giving the keyboard back folds every card to one line again, notes
+    /// and all, and the next time the keyboard is taken they start hidden.
+    #[test]
+    fn giving_the_keyboard_back_hides_the_notes() {
+        let mut state = keyboard(vec![noted("a")]);
+        state.on_press("a", Slot::Body);
+        assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render, Effect::Release]);
+        assert!(!state.shows_notes("a"));
+        assert!(state.take_keyboard(Vec::new()));
+        assert!(!state.shows_notes("a"));
     }
 
     #[test]
