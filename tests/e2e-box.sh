@@ -148,6 +148,22 @@ close_any_box() {
     for id in $(box_id); do nested niri msg action close-window --id "$id" >/dev/null 2>&1; done
     sleep 0.5
 }
+# How many task boxes niri has.
+box_count() {
+    nested niri msg -j windows 2>/dev/null | python3 -c "
+import json,sys
+print(sum(1 for w in json.load(sys.stdin) if (w.get('app_id') or '')=='dev.niri-tasks.box'))
+" 2>/dev/null || echo 0
+}
+# Ask for a box while one is already open. Unlike open_box this waits for no
+# window — none should come — only for the CLI to hand the request over and
+# the daemon to act on it.
+ask_again() {
+    "${NENV[@]}" "$NIRITASKS" task "$@" >/dev/null 2>&1
+    sleep 1
+}
+# How many times the daemon has said a task box is already open.
+already_open_notices() { cat "$SB/notifications" 2>/dev/null | grep -c "already open"; }
 
 run_suite() {
     local label="$1"
@@ -421,11 +437,75 @@ run_refine_suite() {
     guard
 }
 
+run_one_box_suite() {
+    local label="$1" mark other uuid notices
+    echo
+    echo "=== $label: one box ==="
+
+    # A task to ask for a note box on, made from the CLI before any box is up
+    # so no keys are in flight.
+    other="other-$RANDOM"
+    nested "$NIRITASKS" task add "$other" >/dev/null 2>&1
+    uuid=$(uuid_of "$other")
+    [ -n "$uuid" ] || { bad "could not seed a task for the note request"; return; }
+
+    mark="one-$RANDOM"
+    if open_box add; then
+        settle_keys
+        nested wtype "$mark"; sleep 0.3
+        notices=$(already_open_notices)
+
+        # Mod+Alt+T again: the same box, brought forward, and nothing said.
+        ask_again add
+        [ "$(box_count)" -eq 1 ] && ok "a second Mod+Alt+T left one box" \
+            || bad "a second Mod+Alt+T left $(box_count) boxes"
+        [ "$(already_open_notices)" -eq "$notices" ] && ok "and said nothing, being the same box" \
+            || bad "the same box asked for twice sent a notice"
+
+        # Note on a card: a different box, so it is dropped with a notice.
+        ask_again note "$uuid"
+        [ "$(box_count)" -eq 1 ] && ok "a note request left one box" \
+            || bad "a note request left $(box_count) boxes"
+        [ "$(box_title)" = "Add Task" ] && ok "and the add box stayed in front" \
+            || bad "focused box was \"$(box_title)\""
+        [ "$(already_open_notices)" -gt "$notices" ] && ok "and said a task box is already open" \
+            || bad "no notice (notifications: $(tail -n 3 "$SB/notifications" 2>/dev/null | tr '\n' '|'))"
+
+        # What was typed before both requests is still there to save.
+        nested wtype -M ctrl -k Return -m ctrl
+        sleep 1.5
+        [ -n "$(uuid_of "$mark")" ] && ok "the text typed before them was saved" \
+            || bad "the text typed before the second request was lost"
+        [ "$(box_count)" -eq 0 ] && ok "and the save closed the only box" \
+            || bad "$(box_count) boxes open after the save"
+    else
+        bad "add box never opened"; return
+    fi
+
+    # After a save, and after Esc, the next press opens a box again.
+    if open_box add; then
+        ok "after a save the next Mod+Alt+T opens a box"
+        nested wtype -k Escape; sleep 1.2
+        [ "$(box_count)" -eq 0 ] || bad "Escape left a box open"
+        if open_box add; then
+            ok "after Esc the next Mod+Alt+T opens a box"
+        else
+            bad "no box opened after Esc"
+        fi
+    else
+        bad "no box opened after a save"
+    fi
+
+    close_any_box
+    guard
+}
+
 nested_start
 
 nested_daemon_start "$SB/daemon.err"
 run_suite "served by the daemon"
 run_refine_suite "served by the daemon"
+run_one_box_suite "served by the daemon"
 nested_daemon_stop
 sleep 1
 

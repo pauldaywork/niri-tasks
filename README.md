@@ -295,6 +295,11 @@ straight to Claude's refine-task skill, in a new tab of the workspace's herdr
 session, as a card's Refine does. If the refine fails, the task stays added
 and a notification says why.
 
+There is only ever one box. Mod+Alt+T, or Edit or Note on a card, while a box
+is open brings that box forward and opens nothing, so nothing typed into it is
+lost; if you asked for a different box, a notification says one is already
+open. Save or discard it, then ask again.
+
 | Key | Does |
 |---|---|
 | Enter in the description | Moves to the first note (making one if there are none) |

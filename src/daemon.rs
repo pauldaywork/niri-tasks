@@ -197,6 +197,16 @@ pub const NO_TASKS: &str = "No tasks here — Mod+Alt+T adds one.";
 /// project list on: a monitor GTK has not named yet (see `sync_monitors`).
 pub const NO_PANEL: &str = "No task panel on this monitor yet to show the project list on.";
 
+/// What asking for a task box says while a different one is open. That box is
+/// brought forward instead and the request dropped, so this says why the box
+/// asked for did not appear.
+pub const BOX_ALREADY_OPEN: &str = "A task box is already open — save or discard it first.";
+
+/// The notice for what `taskbox::open_in` did, if it needs one.
+fn already_open_notice(opened: crate::taskbox::Opened) -> Option<&'static str> {
+    (opened == crate::taskbox::Opened::Other).then_some(BOX_ALREADY_OPEN)
+}
+
 /// What Mod+Alt+Ctrl+T says when there is no card to hand the keyboard to:
 /// the tag's own refusal on an unnamed workspace, which says how to name it,
 /// else that the workspace has no tasks. `tag` is
@@ -256,7 +266,7 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
                 }
             };
             let tag_for_submit = tag.clone();
-            taskbox::open_in(
+            let opened = taskbox::open_in(
                 app,
                 taskbox::BoxConfig::add(&tag, refine),
                 move |sub: taskbox::Submission| {
@@ -277,6 +287,9 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
                     }
                 },
             );
+            if let Some(notice) = already_open_notice(opened) {
+                notify::tasks(notice);
+            }
         }
 
         Request::Edit(uuid) => open_task_box(app, uuid, taskbox::Mode::Edit),
@@ -295,7 +308,7 @@ fn open_task_box(app: &Application, uuid: String, mode: crate::taskbox::Mode) {
     };
     // The full uuid, not the one asked for, which may be a prefix.
     let uuid = t.uuid.clone();
-    taskbox::open_in(
+    let opened = taskbox::open_in(
         app,
         taskbox::BoxConfig::for_task(mode, t),
         move |sub: taskbox::Submission| {
@@ -304,6 +317,9 @@ fn open_task_box(app: &Application, uuid: String, mode: crate::taskbox::Mode) {
             }
         },
     );
+    if let Some(notice) = already_open_notice(opened) {
+        notify::tasks(notice);
+    }
 }
 
 fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {
@@ -422,5 +438,15 @@ mod tests {
     fn an_unnamed_workspace_has_no_cards() {
         assert!(cards_for_workspace(None).is_empty());
         assert!(cards_for_workspace(Some("日本")).is_empty(), "no usable tag characters");
+    }
+
+    /// Only a request for a different box hears that one is already open: the
+    /// same box asked for twice is simply brought forward, which says enough.
+    #[test]
+    fn only_another_box_says_one_is_open() {
+        use crate::taskbox::Opened;
+        assert_eq!(already_open_notice(Opened::New), None);
+        assert_eq!(already_open_notice(Opened::Same), None);
+        assert_eq!(already_open_notice(Opened::Other), Some(BOX_ALREADY_OPEN));
     }
 }

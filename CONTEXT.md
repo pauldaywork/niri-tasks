@@ -159,6 +159,7 @@ The GTK window for adding a task or editing one — its description and its
 note rows. Edit and Note open the same box. When adding, a second button,
 Add & refine (Ctrl+Shift+Enter), adds the task and refines it straight away;
 Mod+Alt+Shift+T opens the box with that as the default.
+Only one is ever open: asking for another brings the open one forward.
 _Avoid_: dialog, prompt
 
 **Note row**:
