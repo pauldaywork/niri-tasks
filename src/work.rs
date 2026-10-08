@@ -4,7 +4,8 @@
 //! The worktree is found again by the task's uuid, never its description, so
 //! a description reworded since (by Refine, say) cannot fork a second one.
 
-use crate::{herdr, notify, project, refine, session, task, text};
+use crate::session::herdr;
+use crate::{notify, project, refine, session, task, text};
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::{Path, PathBuf};

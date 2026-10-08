@@ -4,7 +4,8 @@
 //! agent by asking herdr for those names. A Claude started by hand gets the
 //! same `work-` name when it marks the task active.
 
-use crate::{herdr, refine, session, work};
+use crate::session::herdr;
+use crate::{refine, session, work};
 use anyhow::{Context, Result};
 use std::path::Path;
 

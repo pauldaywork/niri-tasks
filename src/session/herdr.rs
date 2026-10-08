@@ -1,14 +1,20 @@
-//! The herdr CLI, driven from outside any herdr pane.
+//! The process adapter behind [`super::Port`]: the herdr CLI, driven from
+//! outside any herdr pane, along with niri, sleeping and notifications for
+//! real.
 //!
-//! Every call names its session with `--session`, which wins over the
+//! Every herdr call names its session with `--session`, which wins over the
 //! `HERDR_*` variables a pane inherits — so this behaves the same from a
 //! task panel as from a terminal inside some other herdr session. The argv
-//! builders are pure so they can be tested without a herdr server; [`run`] is
-//! the only part that talks to one.
+//! builders and JSON readers are pure so they can be tested without a herdr
+//! server; [`run_coded`] is the one runner that talks to one, and
+//! [`Process`] puts the two together into the port's typed operations.
 
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::path::Path;
+use std::time::Duration;
+
+use super::{Agent, Claude, Created, HerdrError, HerdrResult, Opened, Port, WindowInfo, Workspace};
 
 fn cmd(session: &str, rest: &[&str]) -> Vec<String> {
     ["herdr", "--session", session]
@@ -280,6 +286,119 @@ pub fn tab_close(session: &str, tab_id: &str) -> Vec<String> {
     cmd(session, &["tab", "close", tab_id])
 }
 
+/// Every workspace in a `workspace list` response, id and label, in herdr's
+/// order. A workspace missing either is left out: neither half is any use
+/// without the other.
+// Nothing calls through the port until the session module's steps do, so
+// the adapter is dead code until then; this goes when they arrive.
+#[allow(dead_code)]
+pub fn workspaces(list: &Value) -> Vec<Workspace> {
+    list["result"]["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|w| {
+            Some(Workspace { id: w["workspace_id"].as_str()?.to_string(), label: w["label"].as_str()?.to_string() })
+        })
+        .collect()
+}
+
+/// The adapter that runs herdr, asks niri, sleeps and notifies for real.
+#[allow(dead_code)]
+pub(crate) struct Process;
+
+#[allow(dead_code)]
+impl Process {
+    /// Run `argv` and read its JSON with `read`; herdr's refusal comes back as
+    /// the inner `Err`, and only failing to run herdr is the outer one.
+    fn call<T>(&self, argv: &[String], read: impl FnOnce(&Value) -> Result<T>) -> HerdrResult<T> {
+        match run_coded(argv)? {
+            Ok(value) => Ok(Ok(read(&value)?)),
+            Err((code, message)) => Ok(Err(HerdrError { code, message })),
+        }
+    }
+}
+
+impl Port for Process {
+    fn workspace_list(&self, s: &str) -> HerdrResult<Vec<Workspace>> {
+        self.call(&workspace_list(s), |v| Ok(workspaces(v)))
+    }
+    fn workspace_create(&self, s: &str, dir: &Path, label: &str) -> HerdrResult<Created> {
+        self.call(&workspace_create(s, dir, label), created)
+    }
+    fn tab_create(&self, s: &str, workspace: &str, dir: &Path, label: &str) -> HerdrResult<Created> {
+        self.call(&tab_create(s, workspace, dir, label), created)
+    }
+    fn tab_close(&self, s: &str, tab: &str) -> HerdrResult<()> {
+        self.call(&tab_close(s, tab), |_| Ok(()))
+    }
+    fn worktree_open(&self, s: &str, repo: &Path, path: &Path, label: &str) -> HerdrResult<Opened> {
+        self.call(&worktree_open(s, repo, path, label), |v| {
+            Ok(Opened {
+                workspace: opened_workspace_id(v).context("herdr did not say which workspace it opened")?,
+                pane: root_pane_id(v).context("herdr did not say which pane it opened")?,
+            })
+        })
+    }
+    fn pane_run(&self, s: &str, pane: &str, command: &str) -> HerdrResult<()> {
+        self.call(&pane_run(s, pane, command), |_| Ok(()))
+    }
+    fn agent_get(&self, s: &str, target: &str) -> HerdrResult<Agent> {
+        self.call(&agent_get(s, target), |v| Ok(Agent { name: agent_name_of(v), status: agent_status(v) }))
+    }
+    fn agent_list(&self, s: &str) -> HerdrResult<Vec<String>> {
+        self.call(&agent_list(s), |v| Ok(agent_names(v)))
+    }
+    fn agent_focus(&self, s: &str, name: &str) -> HerdrResult<()> {
+        self.call(&agent_focus(s, name), |_| Ok(()))
+    }
+    fn agent_rename(&self, s: &str, target: &str, name: &str) -> HerdrResult<()> {
+        self.call(&agent_rename(s, target, name), |_| Ok(()))
+    }
+    fn agent_start(&self, s: &str, name: &str, pane: &str, claude: &Claude) -> HerdrResult<()> {
+        let argv = match claude {
+            Claude::Refiner { settings, mod_dir } => agent_start_claude_refiner(s, name, pane, settings, mod_dir),
+            Claude::Worker => agent_start_claude(s, name, pane),
+        };
+        self.call(&argv, |_| Ok(()))
+    }
+    fn agent_wait_ready(&self, s: &str, name: &str) -> HerdrResult<()> {
+        self.call(&agent_wait_ready(s, name), |_| Ok(()))
+    }
+    fn agent_prompt(&self, s: &str, name: &str, text: &str, confirm: bool) -> HerdrResult<()> {
+        let argv = if confirm { agent_prompt_confirmed(s, name, text) } else { agent_prompt(s, name, text) };
+        self.call(&argv, |_| Ok(()))
+    }
+    fn windows(&self) -> Result<Vec<WindowInfo>> {
+        Ok(crate::niri::windows()?
+            .into_iter()
+            .map(|w| WindowInfo { id: w.id, app_id: w.app_id, title: w.title })
+            .collect())
+    }
+    fn focus_window(&self, id: u64) -> Result<()> {
+        crate::niri::focus_window(id)
+    }
+    fn spawn(&self, command: Vec<String>) -> Result<()> {
+        crate::niri::spawn(command)
+    }
+    fn sleep(&self, d: Duration) {
+        std::thread::sleep(d)
+    }
+    fn notify(&self, text: &str) {
+        crate::notify::tasks(text)
+    }
+    fn herdr_installed(&self) -> bool {
+        crate::project::on_path(crate::project::SESSION_MANAGER)
+    }
+}
+
+/// `tab create` and `workspace create` both answer with the pane they made
+/// and the tab it is in.
+#[allow(dead_code)]
+fn created(v: &Value) -> Result<Created> {
+    Ok(Created { pane: root_pane_id(v).context("herdr did not say which pane it made")?, tab: created_tab_id(v) })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -518,5 +637,21 @@ mod tests {
         .unwrap();
         assert_eq!(agent_names(&list), vec!["task-6b57114f", "work-c53b6e3d"]);
         assert!(agent_names(&Value::Null).is_empty());
+    }
+
+    #[test]
+    fn workspaces_read_id_and_label_in_order() {
+        let list: Value = serde_json::from_str(
+            r#"{"result":{"workspaces":[{"workspace_id":"w1","label":"alpha"},{"workspace_id":"w2","label":"task/x"}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            workspaces(&list),
+            vec![
+                Workspace { id: "w1".into(), label: "alpha".into() },
+                Workspace { id: "w2".into(), label: "task/x".into() },
+            ]
+        );
+        assert!(workspaces(&Value::Null).is_empty());
     }
 }

@@ -5,7 +5,8 @@
 //! nothing needs quoting through two CLIs and it always sees the current
 //! version rather than the one the panel showed.
 
-use crate::{herdr, niri, notify, project, session, task, text};
+use crate::session::herdr;
+use crate::{niri, notify, project, session, task, text};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::path::{Path, PathBuf};

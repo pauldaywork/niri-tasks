@@ -1,5 +1,6 @@
-//! Which folder a workspace's terminals start in, and which herdr session a
-//! workspace's project terminal attaches to.
+//! Which folder a workspace's terminals start in, which herdr session a
+//! workspace's project terminal attaches to, and opening that session and
+//! its agents.
 //!
 //! Two rules, and the inverse of each, because `niritasks tag --session` has
 //! to get from a terminal back to the workspace it was opened for:
@@ -13,8 +14,16 @@
 //! The folder uses the *raw* workspace name and the session the sanitised one.
 //! A workspace called "my project" looks in `~/Projects/my project` while
 //! running in session `my_project`.
+//!
+//! Opening a session and its agents goes through [`Port`], everything the
+//! module does outside itself, so the steps can be tested against a fake as
+//! well as run for real through [`herdr::Process`].
 
+pub(crate) mod herdr;
+
+use anyhow::Result;
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 
 /// herdr refuses session names longer than this (herdr `src/session.rs`,
 /// `MAX_SESSION_NAME_LEN`).
@@ -105,6 +114,127 @@ pub fn project_from_cwd(home: &Path, cwd: &Path) -> Option<String> {
         Component::Normal(name) => name.to_str().map(str::to_string),
         _ => None,
     }
+}
+
+/// A failure herdr itself reported: its JSON error's code and message. The
+/// message is what the user sees; the code is what a caller acts on
+/// (`agent_not_found`, `agent_prompt_stalled`, `timeout`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HerdrError {
+    /// herdr's error code, when its stderr was its JSON and carried one.
+    pub code: Option<String>,
+    /// herdr's own message, or its raw stderr when that was not its JSON.
+    pub message: String,
+}
+
+impl std::fmt::Display for HerdrError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for HerdrError {}
+
+/// What a herdr call comes back with: herdr's own refusal as `Err(HerdrError)`
+/// inside an `Ok`, and "could not run herdr at all" as the outer `Err`, so a
+/// missing herdr is never mistaken for "no".
+pub type HerdrResult<T> = Result<std::result::Result<T, HerdrError>>;
+
+/// One of a session's herdr workspaces, as `workspace list` reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Workspace {
+    /// The id other herdr calls take, such as `tab create --workspace`.
+    pub id: String,
+    /// The label the user sees, which a terminal's window title shows.
+    pub label: String,
+}
+
+/// What `tab create` or `workspace create` made: the pane to start Claude in,
+/// and the tab, when herdr said which, to close again if that fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Created {
+    /// The new tab's root pane.
+    pub pane: String,
+    /// The new tab, when herdr's answer named it.
+    pub tab: Option<String>,
+}
+
+/// What `worktree open` opened, or found open: the workspace, and its root pane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Opened {
+    /// The worktree's herdr workspace.
+    pub workspace: String,
+    /// That workspace's root pane.
+    pub pane: String,
+}
+
+/// An agent as `agent get` reports it: its name, None for one nobody named,
+/// and its status (`idle`, `working`, `blocked`, `done`, `unknown`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Agent {
+    /// The agent's name, None for a Claude started by hand.
+    pub name: Option<String>,
+    /// The agent's lifecycle state, as herdr words it.
+    pub status: Option<String>,
+}
+
+/// A niri window's id, app id and title: what finding the session's terminal
+/// window needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowInfo {
+    /// niri's id for the window, which focusing it takes.
+    pub id: u64,
+    /// The window's app id, when it set one.
+    pub app_id: Option<String>,
+    /// The window's title, when it set one.
+    pub title: Option<String>,
+}
+
+/// Which Claude `agent start` runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Claude {
+    /// Refine's: fenced by the settings JSON and the refine mod it loads.
+    Refiner {
+        /// The settings JSON passed to `claude --settings`.
+        settings: String,
+        /// The folder of the refine mod Claude loads.
+        mod_dir: PathBuf,
+    },
+    /// Start working's: the user's own defaults, since it is meant to do the work.
+    Worker,
+}
+
+/// Everything the session module does outside itself: herdr, every call
+/// naming the session; niri's window list, focus and spawn; time; and the
+/// user's notifications. Two adapters make the seam real: [`herdr::Process`]
+/// and, in tests, the fake.
+// Nothing calls through the port until the session module's steps do, so
+// the adapter is dead code until then; this goes when they arrive.
+#[allow(dead_code)]
+pub(crate) trait Port {
+    fn workspace_list(&self, session: &str) -> HerdrResult<Vec<Workspace>>;
+    fn workspace_create(&self, session: &str, dir: &Path, label: &str) -> HerdrResult<Created>;
+    fn tab_create(&self, session: &str, workspace: &str, dir: &Path, label: &str) -> HerdrResult<Created>;
+    fn tab_close(&self, session: &str, tab: &str) -> HerdrResult<()>;
+    fn worktree_open(&self, session: &str, repo: &Path, path: &Path, label: &str) -> HerdrResult<Opened>;
+    fn pane_run(&self, session: &str, pane: &str, command: &str) -> HerdrResult<()>;
+    fn agent_get(&self, session: &str, target: &str) -> HerdrResult<Agent>;
+    fn agent_list(&self, session: &str) -> HerdrResult<Vec<String>>;
+    fn agent_focus(&self, session: &str, name: &str) -> HerdrResult<()>;
+    fn agent_rename(&self, session: &str, target: &str, name: &str) -> HerdrResult<()>;
+    fn agent_start(&self, session: &str, name: &str, pane: &str, claude: &Claude) -> HerdrResult<()>;
+    fn agent_wait_ready(&self, session: &str, name: &str) -> HerdrResult<()>;
+    /// `confirm` waits for herdr to see Claude start on the prompt, failing
+    /// with `agent_prompt_stalled` when it does not.
+    fn agent_prompt(&self, session: &str, name: &str, text: &str, confirm: bool) -> HerdrResult<()>;
+    fn windows(&self) -> Result<Vec<WindowInfo>>;
+    fn focus_window(&self, id: u64) -> Result<()>;
+    fn spawn(&self, command: Vec<String>) -> Result<()>;
+    fn sleep(&self, d: Duration);
+    fn notify(&self, text: &str);
+    /// Whether herdr is on `$PATH` at all, for the one place that starts a
+    /// terminal to run it.
+    fn herdr_installed(&self) -> bool;
 }
 
 #[cfg(test)]
