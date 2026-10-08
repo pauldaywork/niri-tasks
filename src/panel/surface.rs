@@ -1217,7 +1217,8 @@ impl Panel {
                         Slot::Button(action) => Some(*action),
                         Slot::Body => None,
                     };
-                    Action::hint(row.state, &buttons, focused)
+                    let notes = card.notes.as_ref().map(|n| n.is_visible());
+                    Action::hint(row.state, &buttons, focused, notes)
                 }
                 _ => String::new(),
             };

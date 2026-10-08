@@ -67,7 +67,8 @@ Up and Down move a darker fill and the buttons between cards, and Down onto
 Right and Tab move along the focused card's buttons, and Enter presses the
 focused one. Beside the buttons, in smaller dimmed text, the focused card names
 its own keys: the focused button's letter and name (`g: Go to session`,
-`Del: Remove`), and what Ctrl+Enter would do to this task. A line under the list
+`Del: Remove`), or on the description of a card with notes `Space: view notes`
+or `Space: hide notes`, and what Ctrl+Enter would do to this task. A line under the list
 names the keys that act the same on every card: Enter, and Ctrl+Delete (not on
 Ideas, where the notepad takes those keys as typing). Enter or a click on the card's description shows the task's notes under it, dimmed, one per note, and a second press hides them; a card with no notes ignores it, and giving the keyboard back hides them all. Every button that opens something gives the keyboard back as it runs; Speak, Up next, Complete, Move to workspace, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
 right edge, tucked away with the cards folded back to one line. A list taller

@@ -94,7 +94,8 @@ finished one just Back to list, Edit, Speak and Remove — each running its task
 action's `niritasks` command. Enter or a click on the card's body shows or
 hides the task's notes instead (see Task card).
 After the buttons, dimmed, the hint names the keys that change from card to
-card: the focused button's, and what Ctrl+Enter does to the task. The keys
+card: the focused button's, or on the body of a card with notes, `Space: view
+notes` or `Space: hide notes`; and what Ctrl+Enter does to the task. The keys
 every card shares, Enter and Ctrl+Delete, are on a line under the list instead.
 _Avoid_: toolbar, button bar, quick actions
 
