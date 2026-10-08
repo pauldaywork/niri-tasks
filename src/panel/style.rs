@@ -87,20 +87,7 @@ pub const ON_FILL: &str = "#1e1e2e";
 /// button. Grill me wears Refine's mauve, being a refine that interviews
 /// first.
 pub fn colour(action: Action) -> &'static str {
-    match action {
-        Action::Session => SESSION,
-        Action::Back => BACK,
-        Action::Start => ACTIVE,
-        Action::Refine | Action::Grill => REFINE,
-        Action::Edit => EDIT,
-        Action::Speak => SPEAK,
-        Action::UpNext => UP_NEXT,
-        Action::Complete => COMPLETE,
-        Action::Move => MOVE,
-        Action::Stop => STOP,
-        Action::Wait => WAIT,
-        Action::Remove => REMOVE,
-    }
+    action.facts().colour
 }
 /// mako `border-radius`.
 pub const RADIUS_PX: i32 = 8;
@@ -258,7 +245,7 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .task-card.up-next {{ color: {UP_NEXT}; }}
 "
     );
-    for action in Action::ROW {
+    for action in Action::ALL {
         let (name, colour) = (action.class(), colour(action));
         css.push_str(&format!(
             ".task-panel .card-actions .{name} {{ color: {colour}; }}\n\
@@ -311,7 +298,7 @@ mod tests {
     #[test]
     fn every_action_button_has_its_colour() {
         let css = css();
-        for action in Action::ROW {
+        for action in Action::ALL {
             let rule = format!(".card-actions .{} {{ color: {}; }}", action.class(), colour(action));
             assert!(css.contains(&rule), "missing `{rule}`");
         }

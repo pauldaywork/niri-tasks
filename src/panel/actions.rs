@@ -1,8 +1,7 @@
-//! The action row: the buttons on a task card while the panel has the
-//! keyboard. A view of the task actions (`crate::actions`): which of them
-//! the row shows and in what order, their keys, their CSS classes, and what
-//! pressing one does to the panel. Also the Waiting tab's Clear all, which
-//! is Remove on every waiting card.
+//! The action row: which of the task actions a card shows and in what
+//! order, the key hints beside them, and the Waiting tab's Clear all. The
+//! facts about each action it draws by (glyph, class, key, colour, what a
+//! press does to the panel) are `Action::facts`' in `crate::actions`.
 //!
 //! Plain data, like `model.rs`, so which card gets which buttons and what
 //! they spawn is testable without a compositor.
@@ -11,10 +10,6 @@ use crate::actions::{Action, TaskState};
 use Action::*;
 
 impl Action {
-    /// The row's buttons, left to right: every task action, the row being
-    /// the only view of them.
-    pub const ROW: [Action; 13] = Self::ALL;
-
     /// What Remove reads between its first press and its second.
     pub const CONFIRM_REMOVE: &'static str = "Confirm remove";
 
@@ -28,7 +23,7 @@ impl Action {
     /// which would only go back to its worktree; Go to session goes back to
     /// its Claude.
     pub fn row(state: TaskState) -> Vec<Action> {
-        Self::ROW
+        Self::ALL
             .into_iter()
             .filter(|a| a.applies(state) && !(*a == Start && state.active))
             .collect()
@@ -64,7 +59,7 @@ impl Action {
         match (focused, notes) {
             (Some(action), _) => {
                 let name = action.label(state.up_next);
-                parts.push(match action.key() {
+                parts.push(match action.facts().key {
                     Some(key) => format!("{key}: {name}"),
                     None => name.to_string(),
                 });
@@ -80,73 +75,9 @@ impl Action {
         parts.join(" · ")
     }
 
-    /// The key that presses the button, as the hint names it: its letter, or
-    /// Del for Remove. None for a button only Enter presses.
-    fn key(self) -> Option<String> {
-        match self {
-            Remove => Some("Del".to_string()),
-            _ => self.letter().map(String::from),
-        }
-    }
-
-    /// Whether the panel keeps the keyboard after the button runs. Back to
-    /// list, Up next, Complete, Waiting and Remove only change the task, and
-    /// Speak plays in the background, so none opens anything that needs the
-    /// keyboard and the list stays up. Move opens the project list in the
-    /// panel itself. The rest open a box, a terminal or a herdr tab, which
-    /// takes it.
-    pub fn keeps_keyboard(self) -> bool {
-        matches!(self, Back | Speak | UpNext | Complete | Move | Wait | Remove)
-    }
-
-    /// Whether the button takes its card off the list, so the focus has to
-    /// move to a neighbour first. Speak's card stays where it is, and so does
-    /// Up next's, which only moves up or down the list; the focus stays on the
-    /// button, so a second press undoes it.
-    pub fn leaves_the_list(self) -> bool {
-        matches!(self, Back | Complete | Wait | Remove)
-    }
-
-    /// The button's CSS class, which `style::colour` gives its colour.
-    pub fn class(self) -> &'static str {
-        match self {
-            Session => "session",
-            Back => "back",
-            Start => "start",
-            Refine => "refine",
-            Grill => "grill",
-            Edit => "edit",
-            Speak => "speak",
-            UpNext => "up-next",
-            Complete => "complete",
-            Move => "move",
-            Stop => "stop",
-            Wait => "wait",
-            Remove => "remove",
-        }
-    }
-
-    /// The letter that presses the button while the panel has the keyboard.
-    /// Not every button has one; Remove's key is Delete, which is not a
-    /// letter and is `keys.rs`'s.
-    pub fn letter(self) -> Option<char> {
-        match self {
-            Session => Some('g'),
-            Back => Some('b'),
-            Start => Some('s'),
-            Refine => Some('r'),
-            Grill => Some('i'),
-            Edit => Some('e'),
-            Complete => Some('c'),
-            Move => Some('m'),
-            Stop => Some('t'),
-            Speak | UpNext | Wait | Remove => None,
-        }
-    }
-
     /// The row's button `c` presses, if any.
     pub fn for_letter(c: char) -> Option<Action> {
-        Self::ROW.into_iter().find(|a| a.letter() == Some(c))
+        Self::ALL.into_iter().find(|a| a.letter() == Some(c))
     }
 }
 
@@ -342,7 +273,7 @@ mod tests {
     /// change the task.
     #[test]
     fn the_buttons_that_open_nothing_keep_the_list_open() {
-        let kept: Vec<Action> = Action::ROW.into_iter().filter(|a| a.keeps_keyboard()).collect();
+        let kept: Vec<Action> = Action::ALL.into_iter().filter(|a| a.keeps_keyboard()).collect();
         assert_eq!(kept, vec![Back, Speak, UpNext, Complete, Move, Wait, Remove]);
     }
 
@@ -357,19 +288,9 @@ mod tests {
     /// Speak's card stays, and so does the focus, on the button that stops it.
     #[test]
     fn back_complete_wait_and_remove_take_their_card_off_the_list() {
-        let leaving: Vec<Action> = Action::ROW.into_iter().filter(|a| a.leaves_the_list()).collect();
+        let leaving: Vec<Action> = Action::ALL.into_iter().filter(|a| a.leaves_the_list()).collect();
         assert_eq!(leaving, vec![Back, Complete, Wait, Remove]);
         assert!(leaving.iter().all(|a| a.keeps_keyboard()), "a button that releases the keyboard moves no focus");
-    }
-
-    /// The class is what gives a button its colour, so no two may share one.
-    #[test]
-    fn every_button_has_its_own_class() {
-        let mut classes: Vec<&str> = Action::ROW.iter().map(|a| a.class()).collect();
-        assert!(classes.iter().all(|c| !c.is_empty()));
-        classes.sort();
-        classes.dedup();
-        assert_eq!(classes.len(), Action::ROW.len());
     }
 
     /// g b s r i e c m t press Go to session, Back to list, Start working,
@@ -378,7 +299,7 @@ mod tests {
     #[test]
     fn letters_press_their_own_buttons() {
         let lettered: Vec<(char, Action)> =
-            Action::ROW.into_iter().filter_map(|a| a.letter().map(|c| (c, a))).collect();
+            Action::ALL.into_iter().filter_map(|a| a.letter().map(|c| (c, a))).collect();
         assert_eq!(
             lettered,
             vec![

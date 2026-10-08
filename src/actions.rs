@@ -1,10 +1,11 @@
 //! The task actions: everything that can be done to one task, each with its
-//! words, its icon and the `niritasks` command it runs, and which of them a
-//! task gets in each state.
+//! words, the `niritasks` command it runs, which of them a task gets in each
+//! state, and the facts the panel draws and keys it by (`Action::facts`):
+//! glyph, CSS class, key, colour, and what a press does to the panel.
 //!
 //! The task panel's action row (`panel/actions.rs`) is the view of them:
-//! which it shows, in what order, and their keys. A new action is a variant
-//! here and a place on the row.
+//! which it shows and the hints beside them. A new action is a variant here,
+//! a row of `Action::facts` and a CLI subcommand.
 
 use crate::task::Task;
 
@@ -92,6 +93,116 @@ impl TaskState {
     }
 }
 
+/// What the panel draws and keys an action by: its glyph, its CSS class, the
+/// key that presses it, its colour, and what pressing it does to the panel.
+/// One row per action, so a new action is one arm of [`Action::facts`] and
+/// a CLI subcommand, nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Facts {
+    /// The glyph on the action row, from the Nerd Font the cards use.
+    pub icon: &'static str,
+    /// The button's CSS class, which the stylesheet colours.
+    pub class: &'static str,
+    /// The key that presses the button while the panel has the keyboard, as
+    /// the hint names it: a letter, or "Del" for Remove. None for a button
+    /// only Enter presses.
+    pub key: Option<&'static str>,
+    /// The button's colour, from `panel::style`'s palette.
+    pub colour: &'static str,
+    /// The panel keeps the keyboard after the button runs: nothing opens that
+    /// would need it, and the list stays up.
+    pub keeps_keyboard: bool,
+    /// The button takes its card off the list, so the focus moves to a
+    /// neighbour first.
+    pub leaves_the_list: bool,
+}
+
+impl Action {
+    /// The row of the table for this action.
+    ///
+    /// The glyphs keep the row narrow. Font Awesome's, from the same Nerd
+    /// Font as the cards' lock: terminal, undo arrow, play, magic wand,
+    /// comments, pencil, bookmark, check, open folder, stop, pause and trash
+    /// can. Speak's speaker is Material Design's, from the same font.
+    ///
+    /// The colours are Catppuccin mocha's, one per button (see
+    /// `panel::style`); Grill me wears Refine's mauve, being a refine that
+    /// interviews first, and Start shares the active task's green.
+    ///
+    /// Back to list, Up next, Complete, Waiting and Remove only change the
+    /// task, and Speak plays in the background, so none opens anything that
+    /// needs the keyboard and the list stays up. Move opens the project list
+    /// in the panel itself. The rest open a box, a terminal or a herdr tab,
+    /// which takes it. Speak's card stays where it is, and so does Up next's,
+    /// which only moves up or down the list; the focus stays on the button,
+    /// so a second press undoes it.
+    pub const fn facts(self) -> Facts {
+        use crate::panel::style as c;
+        match self {
+            Session => Facts { icon: "\u{f120}", class: "session", key: Some("g"), colour: c::SESSION, keeps_keyboard: false, leaves_the_list: false },
+            Back => Facts { icon: "\u{f0e2}", class: "back", key: Some("b"), colour: c::BACK, keeps_keyboard: true, leaves_the_list: true },
+            Start => Facts { icon: "\u{f04b}", class: "start", key: Some("s"), colour: c::ACTIVE, keeps_keyboard: false, leaves_the_list: false },
+            Refine => Facts { icon: "\u{f0d0}", class: "refine", key: Some("r"), colour: c::REFINE, keeps_keyboard: false, leaves_the_list: false },
+            Grill => Facts { icon: "\u{f086}", class: "grill", key: Some("i"), colour: c::REFINE, keeps_keyboard: false, leaves_the_list: false },
+            Edit => Facts { icon: "\u{f040}", class: "edit", key: Some("e"), colour: c::EDIT, keeps_keyboard: false, leaves_the_list: false },
+            // Material Design's volume-medium, not Font Awesome's volume-up,
+            // which is drawn nearly twice as wide as its cell and sat off
+            // centre; this one fits its cell exactly.
+            Speak => Facts { icon: "\u{f0580}", class: "speak", key: None, colour: c::SPEAK, keeps_keyboard: true, leaves_the_list: false },
+            // Font Awesome's bookmark: marked as the one to do next.
+            UpNext => Facts { icon: "\u{f02e}", class: "up-next", key: None, colour: c::UP_NEXT, keeps_keyboard: true, leaves_the_list: false },
+            // Font Awesome's check: done.
+            Complete => Facts { icon: "\u{f00c}", class: "complete", key: Some("c"), colour: c::COMPLETE, keeps_keyboard: true, leaves_the_list: true },
+            // Font Awesome's open folder: off to another project.
+            Move => Facts { icon: "\u{f07c}", class: "move", key: Some("m"), colour: c::MOVE, keeps_keyboard: true, leaves_the_list: false },
+            Stop => Facts { icon: "\u{f04d}", class: "stop", key: Some("t"), colour: c::STOP, keeps_keyboard: false, leaves_the_list: false },
+            Wait => Facts { icon: "\u{f04c}", class: "wait", key: None, colour: c::WAIT, keeps_keyboard: true, leaves_the_list: true },
+            Remove => Facts { icon: "\u{f1f8}", class: "remove", key: Some("Del"), colour: c::REMOVE, keeps_keyboard: true, leaves_the_list: true },
+        }
+    }
+
+    /// The action's glyph on the action row, so the row stays narrow; the
+    /// glyphs are named on [`Action::facts`].
+    pub fn icon(self) -> &'static str {
+        self.facts().icon
+    }
+
+    /// The button's CSS class, which `style::colour` gives its colour.
+    pub fn class(self) -> &'static str {
+        self.facts().class
+    }
+
+    /// The letter that presses the button while the panel has the keyboard.
+    /// Not every button has one; Remove's key is Delete, which is not a
+    /// letter and is `keys.rs`'s, and some buttons only Enter presses.
+    pub fn letter(self) -> Option<char> {
+        let key = self.facts().key?;
+        let mut chars = key.chars();
+        match (chars.next(), chars.next()) {
+            (Some(c), None) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// Whether the panel keeps the keyboard after the button runs. Back to
+    /// list, Up next, Complete, Waiting and Remove only change the task, and
+    /// Speak plays in the background, so none opens anything that needs the
+    /// keyboard and the list stays up. Move opens the project list in the
+    /// panel itself. The rest open a box, a terminal or a herdr tab, which
+    /// takes it.
+    pub fn keeps_keyboard(self) -> bool {
+        self.facts().keeps_keyboard
+    }
+
+    /// Whether the button takes its card off the list, so the focus has to
+    /// move to a neighbour first. Speak's card stays where it is, and so does
+    /// Up next's, which only moves up or down the list; the focus stays on the
+    /// button, so a second press undoes it.
+    pub fn leaves_the_list(self) -> bool {
+        self.facts().leaves_the_list
+    }
+}
+
 impl Action {
     /// Every task action, in the order the action row puts the ones it has.
     pub const ALL: [Action; 13] =
@@ -136,35 +247,6 @@ impl Action {
             Stop => "Stop",
             Wait => "Waiting",
             Remove => "Remove",
-        }
-    }
-
-    /// The action's glyph on the action row, so the row stays narrow. Font
-    /// Awesome's, from the same Nerd Font as the cards' lock: terminal, undo
-    /// arrow, play, magic wand, comments, pencil, bookmark, check, open
-    /// folder, stop, pause and trash can. Speak's speaker is Material Design's, from
-    /// the same font.
-    pub fn icon(self) -> &'static str {
-        match self {
-            Session => "\u{f120}",
-            Back => "\u{f0e2}",
-            Start => "\u{f04b}",
-            Refine => "\u{f0d0}",
-            Grill => "\u{f086}",
-            Edit => "\u{f040}",
-            // Material Design's volume-medium, not Font Awesome's volume-up,
-            // which is drawn nearly twice as wide as its cell and sat off
-            // centre; this one fits its cell exactly.
-            Speak => "\u{f0580}",
-            // Font Awesome's bookmark: marked as the one to do next.
-            UpNext => "\u{f02e}",
-            // Font Awesome's check: done.
-            Complete => "\u{f00c}",
-            // Font Awesome's open folder: off to another project.
-            Move => "\u{f07c}",
-            Stop => "\u{f04d}",
-            Wait => "\u{f04c}",
-            Remove => "\u{f1f8}",
         }
     }
 
@@ -341,5 +423,31 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// One row per action, and no two rows alike where the panel tells
+    /// buttons apart: by glyph, by class, and by key.
+    #[test]
+    fn every_action_has_its_own_glyph_class_and_key() {
+        let mut icons: Vec<&str> = Action::ALL.iter().map(|a| a.facts().icon).collect();
+        let mut classes: Vec<&str> = Action::ALL.iter().map(|a| a.facts().class).collect();
+        let mut keys: Vec<&str> = Action::ALL.iter().filter_map(|a| a.facts().key).collect();
+        for list in [&mut icons, &mut classes, &mut keys] {
+            let before = list.len();
+            list.sort();
+            list.dedup();
+            assert_eq!(list.len(), before);
+        }
+        assert_eq!(Action::Remove.facts().key, Some("Del"));
+        assert_eq!(Action::Speak.facts().key, None);
+    }
+
+    /// What a press does to the panel, read off the table.
+    #[test]
+    fn the_table_says_what_a_press_does_to_the_panel() {
+        let keeps: Vec<Action> = Action::ALL.into_iter().filter(|a| a.keeps_keyboard()).collect();
+        assert_eq!(keeps, vec![Back, Speak, UpNext, Complete, Move, Wait, Remove]);
+        let leaves: Vec<Action> = Action::ALL.into_iter().filter(|a| a.leaves_the_list()).collect();
+        assert_eq!(leaves, vec![Back, Complete, Wait, Remove]);
     }
 }
