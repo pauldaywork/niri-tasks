@@ -289,9 +289,6 @@ pub fn tab_close(session: &str, tab_id: &str) -> Vec<String> {
 /// Every workspace in a `workspace list` response, id and label, in herdr's
 /// order. A workspace missing either is left out: neither half is any use
 /// without the other.
-// Nothing calls through the port until the session module's steps do, so
-// the adapter is dead code until then; this goes when they arrive.
-#[allow(dead_code)]
 pub fn workspaces(list: &Value) -> Vec<Workspace> {
     list["result"]["workspaces"]
         .as_array()
@@ -304,13 +301,12 @@ pub fn workspaces(list: &Value) -> Vec<Workspace> {
 }
 
 /// The adapter that runs herdr, asks niri, sleeps and notifies for real.
-#[allow(dead_code)]
 pub(crate) struct Process;
 
-#[allow(dead_code)]
 impl Process {
     /// Run `argv` and read its JSON with `read`; herdr's refusal comes back as
-    /// the inner `Err`, and only failing to run herdr is the outer one.
+    /// the inner `Err`. The outer one is failing to run herdr, or `read`
+    /// finding the answer lacks an id the caller needs.
     fn call<T>(&self, argv: &[String], read: impl FnOnce(&Value) -> Result<T>) -> HerdrResult<T> {
         match run_coded(argv)? {
             Ok(value) => Ok(Ok(read(&value)?)),
@@ -336,7 +332,7 @@ impl Port for Process {
         self.call(&worktree_open(s, repo, path, label), |v| {
             Ok(Opened {
                 workspace: opened_workspace_id(v).context("herdr did not say which workspace it opened")?,
-                pane: root_pane_id(v).context("herdr did not say which pane it opened")?,
+                pane: root_pane_id(v),
             })
         })
     }
@@ -394,7 +390,6 @@ impl Port for Process {
 
 /// `tab create` and `workspace create` both answer with the pane they made
 /// and the tab it is in.
-#[allow(dead_code)]
 fn created(v: &Value) -> Result<Created> {
     Ok(Created { pane: root_pane_id(v).context("herdr did not say which pane it made")?, tab: created_tab_id(v) })
 }

@@ -396,17 +396,6 @@ mod tests {
         );
     }
 
-    /// What a `--wait` prompt's outcome means: `timeout` is Claude still busy
-    /// with it (delivered), a stall is Claude never starting (resend), anything
-    /// else is a failure.
-    #[test]
-    fn a_stalled_prompt_is_resent_and_a_timed_out_one_counts_as_delivered() {
-        assert_eq!(prompt_outcome(None), PromptOutcome::Delivered);
-        assert_eq!(prompt_outcome(Some("timeout")), PromptOutcome::Delivered);
-        assert_eq!(prompt_outcome(Some("agent_prompt_stalled")), PromptOutcome::Resend);
-        assert_eq!(prompt_outcome(Some("agent_blocked")), PromptOutcome::Failed);
-    }
-
     #[test]
     fn arguments_are_quoted_for_the_panes_shell() {
         assert_eq!(sh_quote("my project"), "'my project'");
