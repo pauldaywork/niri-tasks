@@ -20,7 +20,7 @@
 //! can be tested against a fake as well as run for real through
 //! `herdr::Process`.
 
-pub(crate) mod herdr;
+mod herdr;
 #[cfg(test)]
 pub(crate) mod fake;
 
@@ -313,6 +313,14 @@ impl Session {
             dir: start_dir(Path::new(&home), workspace),
             port: Box::new(herdr::Process),
         })
+    }
+
+    /// A session known by name alone, through the process adapter: as a pane
+    /// knows its own, or as the panel asks about a workspace's agents. Its
+    /// folder is unknown, and no HOME is read, so `open` must not be called
+    /// on it.
+    pub fn named(session: &str) -> Session {
+        Session { name: session.to_string(), dir: PathBuf::new(), port: Box::new(herdr::Process) }
     }
 
     /// The same session over any adapter: the tests' way in.
@@ -892,6 +900,15 @@ mod tests {
         let (s, _) = session(Fake::running(&[]));
         assert_eq!(s.name(), "alpha");
         assert_eq!(s.dir(), Path::new("/home/x/Projects/alpha"));
+    }
+
+    /// A session known by name only has no folder, and finding it reads no
+    /// HOME: the pane link and the panel's agent list need neither.
+    #[test]
+    fn a_session_by_name_alone_has_no_folder() {
+        let s = Session::named("alpha");
+        assert_eq!(s.name(), "alpha");
+        assert_eq!(s.dir(), Path::new(""));
     }
 
     /// What a `--wait` prompt's outcome means: `timeout` is Claude still busy

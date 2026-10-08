@@ -4,10 +4,9 @@
 //! agent by asking herdr for those names. A Claude started by hand gets the
 //! same `work-` name when it marks the task active.
 
-use crate::session::herdr;
-use crate::{refine, session, work};
+use crate::session::{current_pane, herdr_session_name, CurrentPane, Session};
+use crate::{refine, work};
 use anyhow::{Context, Result};
-use std::path::Path;
 
 /// What to rename the agent in this pane to when it marks `uuid` active, or
 /// `None` to leave it as it is.
@@ -32,22 +31,19 @@ pub fn pane_link_name(current: Option<&str>, uuid: &str) -> Option<String> {
 /// Only a rename herdr refuses — the name held by another live agent, say —
 /// is an error.
 pub fn link_current_pane(uuid: &str) -> Result<()> {
-    let Some(pane) = std::env::var("HERDR_PANE_ID").ok().filter(|p| !p.is_empty()) else {
+    let Some(CurrentPane { session, pane: Some(pane), .. }) = current_pane() else {
         return Ok(());
     };
-    let Some(s) = session::session_from_env(
-        std::env::var("HERDR_SESSION").ok().as_deref(),
-        std::env::var("HERDR_SOCKET_PATH").ok().as_deref(),
-    ) else {
+    let session = Session::named(&session);
+    // Any failure to ask, herdr not installed included, is nothing to link.
+    let Ok(Some(agent)) = session.agent(&pane) else {
         return Ok(());
     };
-    let Ok(got) = herdr::run(&herdr::agent_get(&s, &pane)) else {
+    let Some(name) = pane_link_name(agent.name.as_deref(), uuid) else {
         return Ok(());
     };
-    let Some(name) = pane_link_name(herdr::agent_name_of(&got).as_deref(), uuid) else {
-        return Ok(());
-    };
-    herdr::run(&herdr::agent_rename(&s, &pane, &name))
+    session
+        .rename_agent(&pane, &name)
         .with_context(|| format!("The task is active, but this pane's agent could not be named {name}"))?;
     Ok(())
 }
@@ -65,10 +61,7 @@ pub fn session_agent(names: &[String], uuid: &str) -> Option<String> {
 /// is not running, or no herdr at all, has none: the panel asks
 /// this on every open and must not fail for it.
 pub fn live_agent_names(workspace: &str) -> Vec<String> {
-    let s = session::herdr_session_name(workspace);
-    herdr::run(&herdr::agent_list(&s))
-        .map(|list| herdr::agent_names(&list))
-        .unwrap_or_default()
+    Session::named(&herdr_session_name(workspace)).agent_names()
 }
 
 /// The live agent working on `uuid` in `workspace`'s herdr session, if there
@@ -84,11 +77,10 @@ pub fn live_agent(workspace: &str, uuid: &str) -> Option<String> {
 pub fn go_to(workspace: &str, uuid: &str) -> Result<()> {
     let name = live_agent(workspace, uuid)
         .context("No Claude is working on this task in this workspace's herdr session.")?;
-    let home = std::env::var("HOME").context("HOME is unset")?;
-    let dir = session::start_dir(Path::new(&home), workspace);
-    let s = session::herdr_session_name(workspace);
-    refine::open_session(&dir, &s)?;
-    herdr::run(&herdr::agent_focus(&s, &name))?;
+    let session = Session::for_workspace(workspace)?;
+    session.open()?;
+    // It can still exit between the panel's list and this focus.
+    anyhow::ensure!(session.focus_agent(&name)?, "The Claude working on this task has gone.");
     Ok(())
 }
 

@@ -59,10 +59,7 @@ fn usable_tag(workspace: &str) -> Result<String> {
 /// The named herdr session this process runs in, from what herdr hands its
 /// panes; none outside herdr, or in its unnamed default session.
 fn herdr_session() -> Option<String> {
-    session::session_from_env(
-        std::env::var("HERDR_SESSION").ok().as_deref(),
-        std::env::var("HERDR_SOCKET_PATH").ok().as_deref(),
-    )
+    session::current_pane().map(|p| p.session)
 }
 
 /// The task tag for the workspace *this terminal* belongs to, rather than

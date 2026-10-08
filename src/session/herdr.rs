@@ -9,7 +9,7 @@
 //! server; [`run_coded`] is the one runner that talks to one, and
 //! [`Process`] puts the two together into the port's typed operations.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::Path;
 use std::time::Duration;
@@ -148,9 +148,14 @@ pub fn error_code(stderr: &[u8]) -> Option<String> {
         .and_then(|v| v["error"]["code"].as_str().map(str::to_string))
 }
 
-/// Like [`run`], but a herdr failure comes back with its code rather than as
-/// an error: `Ok(Err((code, message)))`. Only failing to run herdr at all is
-/// an `Err`.
+/// Run one herdr command and return its JSON, or herdr's failure with its
+/// code and message: `Ok(Err((code, message)))`. Only failing to run herdr at
+/// all is an `Err`.
+///
+/// herdr writes server errors as JSON on stderr with exit status 1, so a
+/// failure carries herdr's own message rather than a bare status. A success
+/// with no JSON on stdout is `Null`, not an error: only the callers that read
+/// ids need a body, and they say so when it is missing.
 pub fn run_coded(argv: &[String]) -> Result<std::result::Result<Value, (Option<String>, String)>> {
     let out = std::process::Command::new(&argv[0])
         .args(&argv[1..])
@@ -208,23 +213,6 @@ pub fn agent_prompt(session: &str, name: &str, text: &str) -> Vec<String> {
     cmd(session, &["agent", "prompt", name, text])
 }
 
-/// Run one herdr command and return its JSON.
-///
-/// herdr writes server errors as JSON on stderr with exit status 1, so a
-/// failure carries herdr's own message rather than a bare status. A success
-/// with no JSON on stdout is `Null`, not an error: only the callers that read
-/// ids need a body, and they say so when it is missing.
-pub fn run(argv: &[String]) -> Result<Value> {
-    let out = std::process::Command::new(&argv[0])
-        .args(&argv[1..])
-        .output()
-        .with_context(|| format!("could not run `{}` — is herdr installed?", argv[0]))?;
-    if !out.status.success() {
-        bail!("{}", error_message(&out.stderr));
-    }
-    Ok(serde_json::from_slice(&out.stdout).unwrap_or(Value::Null))
-}
-
 /// herdr's error message out of its stderr, or the stderr itself when it is
 /// not herdr's JSON (a usage error, say).
 pub fn error_message(stderr: &[u8]) -> String {
@@ -232,14 +220,6 @@ pub fn error_message(stderr: &[u8]) -> String {
         .ok()
         .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
         .unwrap_or_else(|| String::from_utf8_lossy(stderr).trim().to_string())
-}
-
-/// The first herdr workspace in a `workspace list` response. A project's
-/// session has one, named after the project.
-pub fn first_workspace_id(list: &Value) -> Option<String> {
-    list["result"]["workspaces"].get(0)?["workspace_id"]
-        .as_str()
-        .map(str::to_string)
 }
 
 /// The new pane in a `tab create` or `workspace create` response.
@@ -261,22 +241,6 @@ pub fn opened_workspace_id(opened: &Value) -> Option<String> {
 /// can be closed again if starting Claude in it fails.
 pub fn created_tab_id(created: &Value) -> Option<String> {
     created["result"]["tab"]["tab_id"].as_str().map(str::to_string)
-}
-
-/// Every herdr workspace's label in the session, in herdr's order.
-///
-/// herdr's default `window_title` is `"{hostname}: {workspace}"`, where
-/// `{workspace}` is the label of the herdr workspace that client has focused:
-/// the project's own workspace, or a task's worktree after Start working.
-/// `refine` looks for the outer terminal by any of these labels, because
-/// which one the title shows depends on what the user last focused.
-pub fn workspace_labels(list: &Value) -> Vec<String> {
-    list["result"]["workspaces"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|w| w["label"].as_str().map(str::to_string))
-        .collect()
 }
 
 /// Close a tab. Used, best-effort, to clean up a bare-shell tab left behind
@@ -545,12 +509,12 @@ mod tests {
         let list: Value = serde_json::from_str(
             r#"{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w1","label":"hansard"}]}}"#,
         ).unwrap();
-        assert_eq!(first_workspace_id(&list).as_deref(), Some("w1"));
+        assert_eq!(workspaces(&list), vec![Workspace { id: "w1".into(), label: "hansard".into() }]);
 
         let empty: Value = serde_json::from_str(
             r#"{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[]}}"#,
         ).unwrap();
-        assert_eq!(first_workspace_id(&empty), None);
+        assert!(workspaces(&empty).is_empty());
 
         let created: Value = serde_json::from_str(
             r#"{"id":"cli:tab:create","result":{"root_pane":{"pane_id":"w1:p2","tab_id":"w1:t2"},"tab":{"tab_id":"w1:t2"},"type":"tab_created"}}"#,
@@ -568,16 +532,12 @@ mod tests {
 
     /// Shapes copied from herdr 0.9.1's real responses, like `ids_are_read_…` above.
     #[test]
-    fn workspace_labels_and_tab_id_are_read_from_herdr_responses() {
+    fn workspaces_and_tab_id_are_read_from_herdr_responses() {
         let list: Value = serde_json::from_str(
             r#"{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w1","label":"niri-tasks","focused":false},{"workspace_id":"wF","label":"task/fix-it-6a970973","focused":true}]}}"#,
         ).unwrap();
-        assert_eq!(workspace_labels(&list), vec!["niri-tasks", "task/fix-it-6a970973"]);
-
-        let empty: Value = serde_json::from_str(
-            r#"{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[]}}"#,
-        ).unwrap();
-        assert!(workspace_labels(&empty).is_empty());
+        let labels: Vec<String> = workspaces(&list).into_iter().map(|w| w.label).collect();
+        assert_eq!(labels, vec!["niri-tasks", "task/fix-it-6a970973"]);
 
         let created: Value = serde_json::from_str(
             r#"{"id":"cli:tab:create","result":{"root_pane":{"pane_id":"w1:p2","tab_id":"w1:t2"},"tab":{"tab_id":"w1:t2"},"type":"tab_created"}}"#,

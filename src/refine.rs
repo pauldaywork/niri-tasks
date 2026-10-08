@@ -5,12 +5,10 @@
 //! nothing needs quoting through two CLIs and it always sees the current
 //! version rather than the one the panel showed.
 
-use crate::session::herdr;
-use crate::{niri, notify, project, session, task, text};
+use crate::session::{Claude, Session};
+use crate::{niri, notify, task, text};
 use anyhow::{bail, Context, Result};
-use serde_json::Value;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 /// Which of a card's two buttons, Refine or Grill me, opened Claude. The two differ only in the
 /// prompt [`prompt`] sends — the skill on the other end reads it to decide
@@ -22,10 +20,6 @@ pub enum Mode {
     /// A full interview, via the `grilling` skill, before the draft.
     Grill,
 }
-
-/// How long a just-opened project terminal gets to bring its herdr session up.
-const SESSION_WAIT: Duration = Duration::from_secs(10);
-const SESSION_POLL: Duration = Duration::from_millis(250);
 
 /// Longest description, in characters, a tab label carries before eliding.
 const LABEL_DESCRIPTION_MAX: usize = 30;
@@ -242,94 +236,20 @@ fn ensure_no_exposed_sockets(hidden: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
-/// A niri window's id, app_id and title — the columns [`find_session_window`]
-/// needs, kept as a tuple rather than `niri_ipc::Window` so a test can build
-/// one without niri_ipc's layout fields.
-type WindowInfo<'a> = (u64, Option<&'a str>, Option<&'a str>);
-
-/// The ghostty window already showing session `labels` belongs to, if niri
-/// has one open.
-///
-/// herdr sets the outer terminal's title to its `window_title`, default
-/// `"{hostname}: {workspace}"`, where `{workspace}` is the label of whichever
-/// herdr workspace that client has focused: the project's, or a task's
-/// worktree after Start working. So a session's ghostty window's title ends
-/// with `": <label>"` for one of `labels`, the session's workspace labels.
-/// The process tree can't say which window a client is in, because ghostty
-/// runs every window from one process. This depends on herdr's default title:
-/// a user who changes `window_title` just costs themselves an extra attached
-/// terminal window rather than a focus, which is harmless.
-fn find_session_window(windows: &[WindowInfo], labels: &[String]) -> Option<u64> {
-    let suffixes: Vec<String> = labels.iter().map(|l| format!(": {l}")).collect();
-    windows
-        .iter()
-        .find(|(_, app_id, title)| {
-            *app_id == Some("com.mitchellh.ghostty")
-                && title.is_some_and(|t| suffixes.iter().any(|s| t.ends_with(s)))
-        })
-        .map(|(id, _, _)| *id)
-}
-
-/// Bring the window showing `s`'s session into view: focus it if niri still
-/// has one open, or attach another client to the running session if the user
-/// closed it — herdr allows more than one client on a session, so a second
-/// attach is harmless. Without this, closing the project terminal window
-/// leaves the herdr server running and any refine opened afterwards invisible.
-///
-/// A session that answers `workspace list` but has no herdr workspace yet has
-/// no title to look for; `launch` creates one right after this call, and that
-/// create takes `--focus` itself.
-fn show_session_window(dir: &Path, s: &str, list: &Value) -> Result<()> {
-    let labels = herdr::workspace_labels(list);
-    if labels.is_empty() {
-        return Ok(());
-    }
-    let windows = niri::windows()?;
-    let info: Vec<WindowInfo> = windows
-        .iter()
-        .map(|w| (w.id, w.app_id.as_deref(), w.title.as_deref()))
-        .collect();
-    match find_session_window(&info, &labels) {
-        Some(id) => niri::focus_window(id)?,
-        None => niri::spawn(project::project_terminal_command(dir, s, true))?,
-    }
-    Ok(())
-}
-
-/// Make `s`'s herdr session running and in front of the user, and return its
-/// workspace list: start the project terminal if the session is stopped (a
-/// window then comes with it), otherwise focus the window showing it or attach
-/// another — a running session may have had its window closed while its herdr
-/// server kept going. Shared by every launcher that opens something in a
-/// project's session.
-pub(crate) fn open_session(dir: &Path, s: &str) -> Result<Value> {
-    match herdr::run(&herdr::workspace_list(s)) {
-        Ok(list) => {
-            show_session_window(dir, s, &list)?;
-            Ok(list)
-        }
-        Err(_) => {
-            anyhow::ensure!(project::on_path(project::SESSION_MANAGER), "herdr is not installed.");
-            // Through niri, so the window lands on the focused workspace —
-            // the one the task belongs to — as the project list's does.
-            niri::spawn(project::project_terminal_command(dir, s, true))?;
-            wait_for_session(s)
-        }
-    }
-}
-
 /// Open Claude on a task in `workspace`'s herdr session.
 ///
 /// Opens the project terminal first if the session is not running, and goes
 /// back to the task's existing tab if it is already being refined.
+///
+/// The prompt is confirmed, and resent if Claude was still starting, as
+/// Start working's is; a start Claude blocks on a question is waited out the
+/// same way.
 ///
 /// The task as found, not a uuid as typed: the session is found again by the
 /// uuid's first eight characters, and a typed task number has none of them.
 pub fn launch(workspace: &str, t: &task::Task, mode: Mode) -> Result<()> {
     let home = std::env::var("HOME").context("HOME is unset")?;
     let home = Path::new(&home);
-    let dir = session::start_dir(home, workspace);
-    let s = session::herdr_session_name(workspace);
     let name = agent_name(&t.uuid);
 
     // Before anything opens: a refused refine should leave nothing behind.
@@ -344,58 +264,26 @@ pub fn launch(workspace: &str, t: &task::Task, mode: Mode) -> Result<()> {
         "The refine mod is missing, or its link is broken, at {}. Run install.sh from the niri-tasks repo.",
         mod_dir.display()
     );
-    let settings = session_settings(&dir, &task::data_location()?, &hidden, &t.uuid);
+    let session = Session::for_workspace(workspace)?;
+    let settings = session_settings(session.dir(), &task::data_location()?, &hidden, &t.uuid);
 
-    let list = open_session(&dir, &s)?;
-
-    if herdr::run(&herdr::agent_get(&s, &name)).is_ok() {
-        herdr::run(&herdr::agent_focus(&s, &name))?;
+    let workspaces = session.open()?;
+    if session.focus_agent(&name)? {
         notify::tasks("Already being refined — switched to its tab.");
         return Ok(());
     }
 
-    let label = tab_label(mode, &t.description);
-    let created = match herdr::first_workspace_id(&list) {
-        Some(id) => herdr::run(&herdr::tab_create(&s, &id, &dir, &label))?,
-        // The workspace itself is named after the project, not this tab.
-        None => herdr::run(&herdr::workspace_create(&s, &dir, workspace))?,
-    };
-    let pane = herdr::root_pane_id(&created).context("herdr did not say which pane it made")?;
-
-    if let Err(e) = herdr::run(&herdr::agent_start_claude_refiner(&s, &name, &pane, &settings, &mod_dir)) {
-        // Best-effort: a retry should not find a pile of bare-shell tabs from
-        // every failed attempt, but a failure here must not hide the real error.
-        if let Some(tab_id) = herdr::created_tab_id(&created) {
-            let _ = herdr::run(&herdr::tab_close(&s, &tab_id));
+    let tab = session.new_tab(&workspaces, session.dir(), &tab_label(mode, &t.description), workspace)?;
+    let claude = Claude::Refiner { settings, mod_dir };
+    if let Err(e) = session.start_claude(&name, &tab.pane, &claude) {
+        // A retry should not find a pile of bare-shell tabs from every
+        // failed attempt; closing is best effort, so the real error stands.
+        if let Some(tab) = &tab.tab {
+            session.close_tab(tab);
         }
         return Err(e);
     }
-    herdr::run(&herdr::agent_prompt(&s, &name, &prompt(&t.uuid, mode)))
-        .context("Claude started, but the prompt was not delivered.")?;
-    Ok(())
-}
-
-/// Poll until the session answers with a workspace in it. A server that
-/// answers but never gets one is returned as it is at the deadline — `launch`
-/// then creates the workspace itself.
-fn wait_for_session(s: &str) -> Result<Value> {
-    let deadline = Instant::now() + SESSION_WAIT;
-    let mut answered = None;
-    loop {
-        if let Ok(list) = herdr::run(&herdr::workspace_list(s)) {
-            if herdr::first_workspace_id(&list).is_some() {
-                return Ok(list);
-            }
-            answered = Some(list);
-        }
-        if Instant::now() >= deadline {
-            return match answered {
-                Some(list) => Ok(list),
-                None => bail!("herdr session {s} did not start within {}s.", SESSION_WAIT.as_secs()),
-            };
-        }
-        std::thread::sleep(SESSION_POLL);
-    }
+    session.prompt(&name, &prompt(&t.uuid, mode))
 }
 
 /// Refine's own command on `uuid`, with `exe` as the `niritasks` binary:
@@ -425,6 +313,7 @@ pub fn spawn_quick(uuid: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     /// Add & refine runs exactly what the panel's Refine button runs, so the
     /// two cannot drift apart.

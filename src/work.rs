@@ -4,8 +4,8 @@
 //! The worktree is found again by the task's uuid, never its description, so
 //! a description reworded since (by Refine, say) cannot fork a second one.
 
-use crate::session::herdr;
-use crate::{notify, project, refine, session, task, text};
+use crate::session::{current_pane, Claude, Session, Workspace};
+use crate::{notify, project, session, task, text};
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -139,73 +139,6 @@ fn wt_list(repo: &Path) -> Result<Value> {
     serde_json::from_slice(&out.stdout).context("could not parse `wt list` output as JSON")
 }
 
-/// How many times a stalled prompt is sent before giving up.
-const PROMPT_TRIES: u32 = 4;
-
-/// What a confirmed prompt's result means for sending it again.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PromptOutcome {
-    Delivered,
-    Resend,
-    Failed,
-}
-
-/// Read a `--wait` prompt's outcome from herdr's error code (`None` when it
-/// succeeded): still working past the timeout means it arrived; a stall means
-/// Claude never started on it, which is safe to resend; anything else fails.
-pub fn prompt_outcome(code: Option<&str>) -> PromptOutcome {
-    match code {
-        None | Some("timeout") => PromptOutcome::Delivered,
-        Some("agent_prompt_stalled") => PromptOutcome::Resend,
-        Some(_) => PromptOutcome::Failed,
-    }
-}
-
-/// Send the prompt until herdr sees Claude start on it. Right after a
-/// start-up question is answered, herdr can report Claude idle a moment
-/// before it takes input, and a prompt sent then vanishes without an error —
-/// so it is confirmed, and resent on a stall.
-fn deliver_prompt(s: &str, name: &str, text: &str) -> Result<()> {
-    for attempt in 1..=PROMPT_TRIES {
-        let (code, message) = match herdr::run_coded(&herdr::agent_prompt_confirmed(s, name, text))? {
-            Ok(_) => (None, String::new()),
-            Err(failure) => failure,
-        };
-        match prompt_outcome(code.as_deref()) {
-            PromptOutcome::Delivered => return Ok(()),
-            PromptOutcome::Resend if attempt < PROMPT_TRIES => {
-                std::thread::sleep(std::time::Duration::from_secs(2));
-            }
-            _ => anyhow::bail!("Claude started, but the prompt was not delivered: {message}"),
-        }
-    }
-    unreachable!("the last attempt returns or bails")
-}
-
-/// Start the working Claude in `pane`, hand it the task to plan, and mark the
-/// task active, as Update status → Active would. Other active tasks on the
-/// workspace stay active: they are other worktrees' agents at work.
-fn start_claude(s: &str, name: &str, pane: &str, uuid: &str) -> Result<()> {
-    if let Err(e) = herdr::run(&herdr::agent_start_claude(s, name, pane)) {
-        // Blocked while starting is Claude asking something first — on a new
-        // worktree, whether to trust the folder. That answer is the user's, so
-        // wait for it rather than give up; any other failure is a failure. A
-        // "No" exits Claude, and the wait then fails with herdr's reason.
-        let status = herdr::run(&herdr::agent_get(s, name)).ok().and_then(|v| herdr::agent_status(&v));
-        if status.as_deref() != Some("blocked") {
-            return Err(e);
-        }
-        eprintln!(
-            "Claude is asking something before it starts — most likely whether to trust this \
-             new worktree. Answer it in the worktree's tab; this carries on once Claude is ready."
-        );
-        notify::tasks("Claude needs an answer before it can start — see the task's worktree.");
-        herdr::run(&herdr::agent_wait_ready(s, name)).context("Claude did not become ready")?;
-    }
-    deliver_prompt(s, name, &plan_prompt(uuid))?;
-    task::set_active(uuid)
-}
-
 /// Start working on a task from its card: back to its worktree if it has one,
 /// otherwise a short-lived tab in the project's session that makes one.
 ///
@@ -220,32 +153,27 @@ fn start_claude(s: &str, name: &str, pane: &str, uuid: &str) -> Result<()> {
 pub fn launch(workspace: &str, t: &task::Task) -> Result<()> {
     let repo = repo_for(workspace)?;
     anyhow::ensure!(project::on_path("wt"), "worktrunk (wt) is not installed.");
-    let s = session::herdr_session_name(workspace);
+    let session = Session::for_workspace(workspace)?;
     let name = work_agent_name(&t.uuid);
 
-    let list = refine::open_session(&repo, &s)?;
+    let workspaces = session.open()?;
 
     if let Some(wt) = find_task_worktree(&wt_list(&repo)?, &t.uuid) {
-        let opened = herdr::run(&herdr::worktree_open(&s, &repo, &wt.path, &wt.branch))?;
-        if herdr::run(&herdr::agent_get(&s, &name)).is_ok() {
-            herdr::run(&herdr::agent_focus(&s, &name))?;
+        let opened = session.open_worktree(&repo, &wt.path, &wt.branch)?;
+        if session.focus_agent(&name)? {
             notify::tasks("Back to its worktree.");
             return Ok(());
         }
         // The worktree outlived its Claude: a fresh one, in a tab of its own
-        // so whatever the workspace's first pane is doing is left alone.
-        let ws = herdr::opened_workspace_id(&opened).context("herdr did not say which workspace it opened")?;
-        let created = herdr::run(&herdr::tab_create(&s, &ws, &wt.path, "Claude"))?;
-        let pane = herdr::root_pane_id(&created).context("herdr did not say which pane it made")?;
-        return start_claude(&s, &name, &pane, &t.uuid);
+        // so whatever the workspace's first pane is doing is left alone. The
+        // worktree's workspace, alone in the list, is where the tab opens.
+        let worktree = [Workspace { id: opened.workspace, label: wt.branch.clone() }];
+        let tab = session.new_tab(&worktree, &wt.path, "Claude", workspace)?;
+        return start_working(&session, &name, &tab.pane, &t.uuid);
     }
 
     let label = format!("Start: {}", short(&t.description));
-    let created = match herdr::first_workspace_id(&list) {
-        Some(id) => herdr::run(&herdr::tab_create(&s, &id, &repo, &label))?,
-        None => herdr::run(&herdr::workspace_create(&s, &repo, workspace))?,
-    };
-    let pane = herdr::root_pane_id(&created).context("herdr did not say which pane it made")?;
+    let tab = session.new_tab(&workspaces, &repo, &label, workspace)?;
     let exe = std::env::current_exe().context("could not find the niritasks binary")?;
     let command = format!(
         "{} task start --here --workspace {} {}",
@@ -253,8 +181,16 @@ pub fn launch(workspace: &str, t: &task::Task) -> Result<()> {
         sh_quote(workspace),
         sh_quote(&t.uuid)
     );
-    herdr::run(&herdr::pane_run(&s, &pane, &command))?;
-    Ok(())
+    session.run_in_pane(&tab.pane, &command)
+}
+
+/// Start the working Claude in `pane`, hand it the task to plan, and mark the
+/// task active, as Update status → Active would. Other active tasks on the
+/// workspace stay active: they are other worktrees' agents at work.
+fn start_working(session: &Session, name: &str, pane: &str, uuid: &str) -> Result<()> {
+    session.start_claude(name, pane, &Claude::Worker)?;
+    session.prompt(name, &plan_prompt(uuid))?;
+    task::set_active(uuid)
 }
 
 /// The setup step, run inside the tab [`launch`] opened: make the worktree
@@ -265,10 +201,12 @@ pub fn set_up_here(workspace: &str, uuid: &str) -> Result<()> {
     match set_up(workspace, uuid) {
         Ok(()) => {
             // Best effort: closing our own tab ends this process, and a tab
-            // left open is only untidy.
-            if let Ok(tab) = std::env::var("HERDR_TAB_ID") {
-                let s = session::herdr_session_name(workspace);
-                let _ = herdr::run(&herdr::tab_close(&s, &tab));
+            // left open is only untidy. It is closed through the workspace's
+            // session, the one launch opened it in.
+            if let Some(tab) = current_pane().and_then(|p| p.tab) {
+                if let Ok(session) = Session::for_workspace(workspace) {
+                    session.close_tab(&tab);
+                }
             }
             Ok(())
         }
@@ -287,7 +225,7 @@ fn set_up(workspace: &str, uuid: &str) -> Result<()> {
     // has none of them.
     let uuid = t.uuid.as_str();
     let repo = repo_for(workspace)?;
-    let s = session::herdr_session_name(workspace);
+    let session = Session::for_workspace(workspace)?;
 
     // Found again first: a retry after a run that made the worktree but
     // failed later must not try to make it twice.
@@ -296,9 +234,9 @@ fn set_up(workspace: &str, uuid: &str) -> Result<()> {
         None => create_worktree(&repo, &branch_name(&t.description, uuid))?,
     };
 
-    let opened = herdr::run(&herdr::worktree_open(&s, &repo, &wt.path, &wt.branch))?;
-    let pane = herdr::root_pane_id(&opened).context("herdr did not say which pane it opened")?;
-    start_claude(&s, &work_agent_name(uuid), &pane, uuid)
+    let opened = session.open_worktree(&repo, &wt.path, &wt.branch)?;
+    let pane = opened.pane.context("herdr did not say which pane it opened")?;
+    start_working(&session, &work_agent_name(uuid), &pane, uuid)
 }
 
 /// `wt switch --create`, with this tab's terminal on stdin and stderr so
