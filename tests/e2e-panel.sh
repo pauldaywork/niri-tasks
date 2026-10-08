@@ -169,6 +169,19 @@ else:
 PY
 }
 
+# Where a frame differs from another, in words for a bad line. A change of a
+# few pixels in each line, such as a label's words, is too small for measure
+# to place, and it prints "0 0 0 0" as if nothing changed; this says so.
+whereabouts() {  # label against
+    local x0 x1 y0 y1
+    read -r x0 x1 y0 y1 < <(measure "$1" "$2")
+    if [ "$x0 $x1 $y0 $y1" = "0 0 0 0" ]; then
+        echo "a change too small for measure to place: fewer than 20 changed pixels in any line, such as a label's words"
+    else
+        echo "columns ${x0}-${x1}, rows ${y0}-${y1}"
+    fi
+}
+
 nested_start
 
 # The Ideas tab saves under XDG_DATA_HOME: the sandbox's, never the real
@@ -310,17 +323,21 @@ if command -v wtype >/dev/null; then
     # description, and the panel grows to fit them; a second Enter hides
     # them. Every task gets a note first, so whichever card Down left the
     # focus on has one. Notes show only once pressed, so the re-render
-    # the notes bring changes nothing on screen.
+    # the notes bring changes only the focused card's hint, which now offers
+    # Space, and leaves the panel's size and place alone. The frames after
+    # the notes are added are compared among themselves.
     for uuid in $(task "+$TAG" _uuids 2>/dev/null); do
         task rc.verbose=nothing rc.confirmation=no "$uuid" annotate -- "a note on this task" >/dev/null 2>&1
     done
     settle
     shot noted || { summary; exit 1; }
-    if same keyboard_down noted; then
-        ok "a task's notes stay hidden until its card is pressed"
+    keyed_at=$(measure keyboard_down)
+    noted_at=$(measure noted)
+    if [ "$noted_at" = "$keyed_at" ]; then
+        ok "adding notes leaves the panel as it was; only the focused card's hint changes"
     else
-        read -r x0 x1 y0 y1 < <(measure noted keyboard_down)
-        bad "adding notes changed columns ${x0}-${x1}, rows ${y0}-${y1} before any press"
+        bad "adding notes moved or resized the panel before any press: against the
+      baseline it measured '${keyed_at}' before the notes and '${noted_at}' after"
     fi
     "${NENV[@]}" wtype -k Return
     sleep 1
@@ -342,11 +359,10 @@ if command -v wtype >/dev/null; then
     "${NENV[@]}" wtype -k Return
     sleep 1
     shot notes_hidden || { summary; exit 1; }
-    if same keyboard_down notes_hidden; then
-        ok "and a second Enter hides them, the panel back as it was"
+    if same noted notes_hidden; then
+        ok "and a second Enter hides them, the panel back as it was before the press"
     else
-        read -r x0 x1 y0 y1 < <(measure notes_hidden keyboard_down)
-        bad "after a second Enter the screen differs in columns ${x0}-${x1}, rows ${y0}-${y1}"
+        bad "after a second Enter the screen differs from before the press: $(whereabouts notes_hidden noted)"
     fi
     # Space on the card's body is meant to do what Enter does there: show the
     # notes, and hide them again on a second press, leaving the panel where
@@ -359,8 +375,7 @@ if command -v wtype >/dev/null; then
     if same notes_shown notes_space; then
         ok "Space on the body shows the notes as Enter does"
     else
-        read -r x0 x1 y0 y1 < <(measure notes_space notes_shown)
-        bad "after Space the screen differs from Enter's in columns ${x0}-${x1}, rows ${y0}-${y1}"
+        bad "after Space the screen differs from Enter's: $(whereabouts notes_space notes_shown)"
     fi
     "${NENV[@]}" wtype -k space
     sleep 1
@@ -368,8 +383,7 @@ if command -v wtype >/dev/null; then
     if same notes_hidden notes_space_hidden; then
         ok "and a second Space hides them, the panel back as it was"
     else
-        read -r x0 x1 y0 y1 < <(measure notes_space_hidden notes_hidden)
-        bad "after a second Space the screen differs in columns ${x0}-${x1}, rows ${y0}-${y1}"
+        bad "after a second Space the screen differs: $(whereabouts notes_space_hidden notes_hidden)"
     fi
 
     # Escape from a tab other than All: the hover panel has no tabs, so it
