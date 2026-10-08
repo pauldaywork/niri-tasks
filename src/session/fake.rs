@@ -94,6 +94,13 @@ impl Fake {
         fake
     }
 
+    /// A session whose server comes up with no workspace in it: a fresh
+    /// server answering before its client has made one.
+    pub fn without_workspaces(self) -> Fake {
+        self.state.borrow_mut().workspaces.clear();
+        self
+    }
+
     /// No herdr on the machine: every herdr call fails to run at all.
     pub fn not_installed(self) -> Fake {
         self.state.borrow_mut().installed = false;

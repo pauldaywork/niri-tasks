@@ -445,8 +445,8 @@ impl Session {
     }
 
     /// Start Claude as `name` in `pane`. A start that fails while the agent
-    /// is `blocked` is Claude asking something first, on a new worktree
-    /// whether to trust the folder; that answer is the user's, so they are
+    /// is `blocked` is Claude asking something first, such as whether to
+    /// trust a folder it has not seen; that answer is the user's, so they are
     /// told and the start waits for it. Any other failure is a failure, and
     /// a "No" exits Claude, so the wait then fails with herdr's reason.
     pub fn start_claude(&self, name: &str, pane: &str, claude: &Claude) -> Result<()> {
@@ -462,11 +462,14 @@ impl Session {
             }
             eprintln!(
                 "Claude is asking something before it starts — most likely whether to trust this \
-                 new worktree. Answer it in its tab; this carries on once Claude is ready."
+                 folder. Answer it in its tab; this carries on once Claude is ready."
             );
             self.port.notify("Claude needs an answer before it can start — see its tab.");
+            // The context goes on both layers, herdr failing to run as well as
+            // herdr refusing, so either says what was being waited for.
             self.port
-                .agent_wait_ready(&self.name, name)?
+                .agent_wait_ready(&self.name, name)
+                .and_then(|answer| Ok(answer?))
                 .context("Claude did not become ready")?;
         }
         Ok(())
@@ -711,6 +714,19 @@ mod tests {
         assert_eq!(f.log().iter().filter(|l| *l == "sleep 250ms").count(), 40);
     }
 
+    /// Refine's fresh server: it answers, but its client has made no
+    /// workspace by the deadline. The empty list comes back, not an error,
+    /// and the caller makes the workspace itself.
+    #[test]
+    fn a_session_that_answers_with_no_workspace_is_returned_empty_at_the_deadline() {
+        let (s, f) = session(Fake::stopped(1, "alpha").without_workspaces());
+        assert_eq!(s.open().unwrap(), vec![]);
+        let log = f.log();
+        assert_eq!(log.iter().filter(|l| *l == "sleep 250ms").count(), 40, "{log:?}");
+        assert_eq!(log.iter().filter(|l| l.starts_with("spawn")).count(), 1, "{log:?}");
+        assert!(!log.contains(&"windows".to_string()), "{log:?}");
+    }
+
     #[test]
     fn a_stopped_session_without_herdr_says_so() {
         let (s, f) = session(Fake::stopped(3, "alpha").not_installed());
@@ -772,8 +788,11 @@ mod tests {
         let (s, f) = session(Fake::running(&[]));
         s.close_tab("t3");
         assert!(logged(&f, "tab_close alpha t3"));
-        let (s, _) = session(Fake::running(&[]).not_installed());
+        // No herdr at all: still tried, and the failure swallowed rather
+        // than raised over the error that led here.
+        let (s, f) = session(Fake::running(&[]).not_installed());
         s.close_tab("t3");
+        assert!(logged(&f, "tab_close alpha t3"));
     }
 
     #[test]
@@ -784,6 +803,8 @@ mod tests {
         assert!(logged(&f, "worktree_open alpha /p /w/x task/x"));
         let fresh = s.open_worktree(Path::new("/p"), Path::new("/w/y"), "task/y").unwrap();
         assert_ne!(fresh.workspace, "w5");
+        assert!(fresh.pane.is_some());
+        assert!(logged(&f, "worktree_open alpha /p /w/y task/y"));
     }
 
     #[test]
