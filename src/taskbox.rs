@@ -17,9 +17,11 @@ pub mod style;
 
 pub use form::Submission;
 
+use crate::niri;
 use crate::task::{Annotation, Task};
 use gtk4::gdk;
 use gtk4::prelude::*;
+use gtk4::glib::WeakRef;
 use gtk4::{Application, ApplicationWindow, CssProvider};
 use keys::{KeyAction, Place};
 use std::cell::{OnceCell, RefCell};
@@ -171,8 +173,11 @@ pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission)
             .as_ref()
             .and_then(|(window, subject)| Some((window.upgrade()?, subject.clone())))
     });
+    // A box that is closing but not yet destroyed is hidden: it is no box.
+    let open = open.filter(|(window, _)| window.is_visible());
     if let Some((window, subject)) = open {
         window.present();
+        focus_through_niri();
         return opened(Some(&subject), &cfg.subject);
     }
     let window = build_window(app, &cfg, Rc::new(on_submit));
@@ -185,6 +190,32 @@ pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission)
     });
     OPEN.with(|o| *o.borrow_mut() = Some((window.downgrade(), cfg.subject)));
     Opened::New
+}
+
+/// Focus the open box through niri, which `present()` alone may not do.
+///
+/// The daemon has no xdg-activation token, since the keypress that asked for
+/// the box went to another process, so niri may only mark the box urgent when
+/// the focus is elsewhere. Asking niri directly is what raises it. Only this
+/// process's own box is focused, and a niri that cannot be reached is logged
+/// and ignored: the box is still shown by `present()`.
+fn focus_through_niri() {
+    let pid = std::process::id() as i32;
+    let id = niri::windows().map(|windows| {
+        windows
+            .iter()
+            .find(|w| w.app_id.as_deref() == Some(APP_ID) && w.pid == Some(pid))
+            .map(|w| w.id)
+    });
+    match id {
+        Ok(Some(id)) => {
+            if let Err(e) = niri::focus_window(id) {
+                eprintln!("could not focus the open task box: {e:#}");
+            }
+        }
+        Ok(None) => {}
+        Err(e) => eprintln!("could not look for the open task box: {e:#}"),
+    }
 }
 
 thread_local! {
@@ -200,7 +231,7 @@ thread_local! {
     /// keeps a closed box alive; the window's destroy handler empties it, and
     /// a reference that no longer upgrades counts as no box either. Only ever
     /// touched on the GTK main thread.
-    static OPEN: RefCell<Option<(gtk4::glib::WeakRef<ApplicationWindow>, Subject)>> =
+    static OPEN: RefCell<Option<(WeakRef<ApplicationWindow>, Subject)>> =
         const { RefCell::new(None) };
 }
 

@@ -160,7 +160,8 @@ print(sum(1 for w in json.load(sys.stdin) if (w.get('app_id') or '')=='dev.niri-
 # the daemon to act on it.
 ask_again() {
     "${NENV[@]}" "$NIRITASKS" task "$@" >/dev/null 2>&1
-    sleep 1
+    # Long enough for the daemon to act, and for niri to move the focus.
+    sleep 1.5
 }
 # How many times the daemon has said a task box is already open.
 already_open_notices() { cat "$SB/notifications" 2>/dev/null | grep -c "already open"; }
@@ -462,6 +463,31 @@ run_one_box_suite() {
         [ "$(already_open_notices)" -eq "$notices" ] && ok "and said nothing, being the same box" \
             || bad "the same box asked for twice sent a notice"
 
+        # With the focus on another window of the same workspace, the same
+        # request must bring the box back: the daemon holds no activation
+        # token, so present() alone may only mark the box urgent. It stays on
+        # the named workspace, since an unnamed one cannot file an Add.
+        if command -v alacritty >/dev/null; then
+            "${NENV[@]}" alacritty --class e2e-other >/dev/null 2>&1 &
+            other_pid=$!
+            for _ in $(seq 1 50); do
+                [ "$(focused_is_box)" = no ] && [ -n "$(nested niri msg -j focused-window 2>/dev/null | grep -v '^null')" ] && break
+                sleep 0.2
+            done
+            if [ "$(focused_is_box)" = no ]; then
+                ask_again add
+                [ "$(focused_is_box)" = yes ] && ok "a second Mod+Alt+T brought the open box back into focus" \
+                    || bad "a second Mod+Alt+T left the focus off the open box"
+                [ "$(box_count)" -eq 1 ] || bad "refocusing left $(box_count) boxes"
+            else
+                skip "no other window took the focus off the box"
+            fi
+            kill "$other_pid" 2>/dev/null; wait "$other_pid" 2>/dev/null
+            sleep 0.5
+        else
+            skip "alacritty is needed to take the focus off the box"
+        fi
+
         # Note on a card: a different box, so it is dropped with a notice.
         ask_again note "$uuid"
         [ "$(box_count)" -eq 1 ] && ok "a note request left one box" \
@@ -486,7 +512,8 @@ run_one_box_suite() {
     if open_box add; then
         ok "after a save the next Mod+Alt+T opens a box"
         nested wtype -k Escape; sleep 1.2
-        [ "$(box_count)" -eq 0 ] || bad "Escape left a box open"
+        [ "$(box_count)" -eq 0 ] && ok "Escape closed the box" \
+            || bad "Escape left a box open"
         if open_box add; then
             ok "after Esc the next Mod+Alt+T opens a box"
         else
