@@ -159,7 +159,7 @@ pub const CONFIRM_CLEAR_ALL: &str = "Confirm clear all";
 /// has the focus, the same on every one, so the card's own hint leaves them
 /// out. Enter or Space on a button presses it; on the card's body it shows
 /// the task's notes, or hides them.
-pub const CARD_KEYS: &str = "Enter/Space: selected action or show notes · Ctrl+Del: delete the task";
+pub const CARD_KEYS: &str = "Enter/Space: focused action or show notes · Ctrl+Del: delete the task";
 
 /// The command Clear all spawns: Remove's own `task status <uuid> deleted
 /// --yes` for each of `uuids`, one after another in one shell. So every task
@@ -531,7 +531,7 @@ mod tests {
             assert!(!text.contains("Ctrl+Del"), "{state:?} {focused:?}: {text}");
             assert!(!text.split(" · ").any(|part| part.starts_with("Enter")), "{state:?} {focused:?}: {text}");
         }
-        assert_eq!(CARD_KEYS, "Enter/Space: selected action or show notes · Ctrl+Del: delete the task");
+        assert_eq!(CARD_KEYS, "Enter/Space: focused action or show notes · Ctrl+Del: delete the task");
     }
 
     /// Room for the hint beside a row of `buttons`, in characters at the
