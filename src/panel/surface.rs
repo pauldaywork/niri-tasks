@@ -120,7 +120,10 @@
 //! a scroller under the tabs, capped at the screen's height less its margins,
 //! the tabs and the footer. Moving the focus measures the cards again, its row
 //! having moved, and scrolls the focused card wholly into view, and the blur
-//! region moves with the scroll and stops at the view's edges.
+//! region moves with the scroll and stops at the view's edges. Where all of
+//! that sits, the surface's size, the input region and the blur, is
+//! `layout.rs`'s arithmetic: this file measures the widgets into its
+//! `Measured` and applies the `Layout` it makes.
 //!
 //! To sit in the middle, the surface keeps its right anchor, which centres it
 //! vertically, and grows its right margin to half the room it leaves on the
@@ -139,17 +142,17 @@
 
 use super::actions;
 use crate::actions::{Action, TaskState};
-use super::blur::{self, Blur};
+use super::blur::Blur;
 use super::keys;
 use super::layout::{
-    centre_margin, clear_strip_rect, region_width, scroll_to_show, shown_height, CENTRED_X, EXPANDED_X, RING_PX,
-    SHADOW_PX, SURFACE_WIDTH, TUCKED_X,
+    centre_margin, scroll_to_show, Layout, Measured, CENTRED_X, EXPANDED_X, RING_PX, SHADOW_PX, SURFACE_WIDTH,
+    TUCKED_X,
 };
 use super::notepad::Notepad;
 use super::model::{Card, Filter, Status, Tab};
 use super::projects::ProjectList;
 use super::state::{Armed, Effect, Focus, Mode, PanelState, Shown, Slot};
-use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX};
+use super::style::{CARD_WIDTH_PX, GAP_PX};
 use crate::project::{Projects, Row};
 use gtk4::prelude::*;
 use gtk4::{cairo, gdk, glib, Application, ApplicationWindow};
@@ -224,8 +227,8 @@ pub struct Panel {
     spinning: Cell<bool>,
     /// The spinner frame it is on.
     frame: Cell<usize>,
-    /// Each card's height, top to bottom, for the blur region.
-    heights: RefCell<Vec<i32>>,
+    /// Where the cards are, from the last fit.
+    layout: RefCell<Layout>,
     blur: RefCell<Option<Blur>>,
     /// The Ideas tab's text area, shown in the column in place of the cards.
     notepad: Rc<Notepad>,
@@ -276,21 +279,6 @@ struct Slide {
     start_us: Cell<i64>,
     ticking: Cell<bool>,
     grace: Cell<Option<glib::SourceId>>,
-    /// The cards' height on screen: all of them, or the scroller's when they
-    /// run past the screen. The input region needs it.
-    cards_h: Cell<i32>,
-    /// The filter tabs' height, Clear all's strip included when it shows,
-    /// with the gap under them: what the cards sit below. 0 without the
-    /// keyboard, which has no tabs.
-    tabs_h: Cell<i32>,
-    /// The tab bar's own height, without the strip or the gaps: the blur's.
-    bar_h: Cell<i32>,
-    /// Clear all's strip's width and height, (0, 0) while it is hidden: the
-    /// blur's.
-    clear: Cell<(i32, i32)>,
-    /// The footer's height, with the gap over it: what sits under the cards.
-    /// 0 without the keyboard, which has no footer.
-    footer_h: Cell<i32>,
     /// The surface's right margin, which slides it off the screen edge into
     /// the middle while the panel has the keyboard, and where it is going.
     margin: Cell<i32>,
@@ -307,11 +295,6 @@ impl Slide {
             start_us: Cell::new(0),
             ticking: Cell::new(false),
             grace: Cell::new(None),
-            cards_h: Cell::new(0),
-            tabs_h: Cell::new(0),
-            bar_h: Cell::new(0),
-            clear: Cell::new((0, 0)),
-            footer_h: Cell::new(0),
             margin: Cell::new(0),
             margin_from: Cell::new(0),
             margin_to: Cell::new(0),
@@ -378,20 +361,22 @@ impl Panel {
             drawing: Cell::new(false),
             spinning: Cell::new(false),
             frame: Cell::new(0),
-            heights: RefCell::new(Vec::new()),
+            layout: RefCell::new(Layout::default()),
             blur: RefCell::new(None),
             notepad: Notepad::new(),
             tag: RefCell::new(String::new()),
         });
 
         {
-            let slide = panel.slide.clone();
+            let weak = Rc::downgrade(&panel);
             overlay.connect_get_child_position(move |_, _| {
+                let p = weak.upgrade()?;
+                let height = p.layout.borrow().visible_height();
                 Some(gdk::Rectangle::new(
-                    slide.x.get().round() as i32 - RING_PX,
+                    p.slide.x.get().round() as i32 - RING_PX,
                     SHADOW_PX - RING_PX,
                     CARD_WIDTH_PX + 2 * RING_PX,
-                    slide.tabs_h.get() + slide.cards_h.get() + slide.footer_h.get() + 2 * RING_PX,
+                    height + 2 * RING_PX,
                 ))
             });
         }
@@ -775,10 +760,10 @@ impl Panel {
         }
     }
 
-    /// Measure the cards, the tabs and the footer, and size the surface to them: the
-    /// heights the blur region and the input region work from. Run by every
-    /// render, and again whenever a card's action row shows or hides, which
-    /// changes its height without a render.
+    /// Measure the cards, the tabs and the footer into the `Layout` the blur
+    /// region and the input region work from, and size the surface to it.
+    /// Run by every render, and through `refit` whenever a card's height
+    /// changes without one.
     fn fit(&self) {
         // Measured only once they are in the window: a label outside it has no
         // stylesheet, so it measures without its padding, and GTK keeps that
@@ -789,7 +774,6 @@ impl Panel {
             heights.push(c.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX).1);
             child = c.next_sibling();
         }
-        *self.heights.borrow_mut() = heights;
 
         // Measured, like the cards, once in the window; margins included,
         // so this is the bar and the gap under it.
@@ -824,19 +808,32 @@ impl Panel {
         // is measured for; the cards' height is without them.
         let (_, with_ring, _, _) =
             self.column.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX);
-        let cards_h = with_ring - 2 * RING_PX;
-        let shown = shown_height(cards_h, tabs_h + footer_h, self.monitor.geometry().height());
-        self.slide.tabs_h.set(tabs_h);
-        self.slide.bar_h.set(bar_h);
-        self.slide.clear.set(clear);
-        self.slide.footer_h.set(footer_h);
-        self.slide.cards_h.set(shown);
-        let height = tabs_h + shown + footer_h + 2 * SHADOW_PX;
+        let layout = Layout::new(Measured {
+            card_heights: heights,
+            column_h: with_ring - 2 * RING_PX,
+            tabs_h,
+            bar_h,
+            clear,
+            footer_h,
+            screen_h: self.monitor.geometry().height(),
+        });
+        let height = layout.surface_height();
+        *self.layout.borrow_mut() = layout;
         // Both calls: the size request lets the surface grow, the default size
         // lets it shrink back when the list gets shorter.
         self.base.set_size_request(SURFACE_WIDTH, height);
         self.window.set_size_request(SURFACE_WIDTH, height);
         self.window.set_default_size(SURFACE_WIDTH, height);
+    }
+
+    /// Fit the surface to the cards again and put the input region and the
+    /// blur where they now are: after anything that changes a card's height
+    /// without a render (an action row showing, notes unfolding, an age
+    /// gaining a line) and after every render.
+    fn refit(&self) {
+        self.fit();
+        self.set_region(self.slide.x.get().min(self.slide.to.get()));
+        self.update_blur(self.slide.x.get());
     }
 
     /// Rewrite each card's age where it stands. Not a render: the cards are
@@ -857,9 +854,7 @@ impl Panel {
             }
         }
         if changed {
-            self.fit();
-            self.set_region(self.slide.x.get().min(self.slide.to.get()));
-            self.update_blur(self.slide.x.get());
+            self.refit();
         }
     }
 
@@ -910,6 +905,11 @@ impl Panel {
             self.footer.set_label(text);
         }
         self.update_tabs();
+        // refit()'s three steps, split around present(): the size goes in
+        // before it, so the surface maps at the size it needs rather than
+        // the last one and then resizes. The region and the blur go after,
+        // since a hidden panel's present() maps it, and mapping makes the
+        // blur object afresh; set before, they would land on the old one.
         self.fit();
 
         // present(), not set_visible(true): see new().
@@ -1193,8 +1193,7 @@ impl Panel {
         }
         self.show_row(focus.as_ref().map(|f| f.uuid.as_str()));
         if relabelled && self.clear_strip.is_visible() {
-            self.fit();
-            self.update_blur(self.slide.x.get());
+            self.refit();
         }
     }
 
@@ -1242,9 +1241,7 @@ impl Panel {
             }
         }
         if changed {
-            self.fit();
-            self.set_region(self.slide.x.get().min(self.slide.to.get()));
-            self.update_blur(self.slide.x.get());
+            self.refit();
         }
     }
 
@@ -1266,9 +1263,7 @@ impl Panel {
             }
         }
         if changed {
-            self.fit();
-            self.set_region(self.slide.x.get().min(self.slide.to.get()));
-            self.update_blur(self.slide.x.get());
+            self.refit();
         }
     }
 
@@ -1290,12 +1285,8 @@ impl Panel {
     /// middle of the screen does not swallow clicks.
     fn set_region(&self, x: f64) {
         let Some(surface) = self.window.surface() else { return };
-        let x = x.round() as i32;
-        let width = region_width(x, self.state.borrow().keyboard());
-        // From the top of the tabs, when there are any, to the bottom of the
-        // footer under the cards on screen.
-        let height = self.slide.tabs_h.get() + self.slide.cards_h.get() + self.slide.footer_h.get();
-        let rect = cairo::RectangleInt::new(x, SHADOW_PX, width, height);
+        let (x, y, w, h) = self.layout.borrow().input_rect(x.round() as i32, self.state.borrow().keyboard());
+        let rect = cairo::RectangleInt::new(x, y, w, h);
         surface.set_input_region(Some(&cairo::Region::create_rectangle(&rect)));
     }
 
@@ -1303,45 +1294,8 @@ impl Panel {
     fn update_blur(&self, x: f64) {
         let mut blur = self.blur.borrow_mut();
         let Some(blur) = blur.as_mut() else { return };
-        let x = x.round() as i32;
-        let width = CARD_WIDTH_PX.min(SURFACE_WIDTH - x);
-        let on_screen = x + CARD_WIDTH_PX <= SURFACE_WIDTH;
-        let tabs_h = self.slide.tabs_h.get();
-        let mut rects = Vec::new();
-        if tabs_h > 0 {
-            // The tab bar, which does not scroll; not the card gap under it.
-            let bar_h = self.slide.bar_h.get();
-            rects.extend(blur::card_region((x, SHADOW_PX, width, bar_h), RADIUS_PX, on_screen));
-            // Clear all's strip under it, when it shows; not the gap over it
-            // or the room to its left.
-            let clear = self.slide.clear.get();
-            if clear.1 > 0 {
-                let strip = clear_strip_rect(x, bar_h, clear);
-                if strip.2 > 0 {
-                    rects.extend(blur::card_region(strip, RADIUS_PX, on_screen));
-                }
-            }
-        }
-        // The cards as laid out in the column under the tabs, moved up by
-        // however far it is scrolled, and cut to the part of the column on
-        // screen.
         let scrolled = self.scroller.vadjustment().value().round() as i32;
-        let top = SHADOW_PX + tabs_h;
-        let mut y = top - scrolled;
-        let mut cards = Vec::new();
-        for &h in self.heights.borrow().iter() {
-            cards.extend(blur::card_region((x, y, width, h), RADIUS_PX, on_screen));
-            y += h + GAP_PX;
-        }
-        rects.extend(blur::clip_rows(&cards, top, top + self.slide.cards_h.get()));
-        let footer_h = self.slide.footer_h.get();
-        if footer_h > 0 {
-            // The footer, which does not scroll: under the cards on screen
-            // and the card gap, not the gap itself.
-            let y = top + self.slide.cards_h.get() + GAP_PX;
-            rects.extend(blur::card_region((x, y, width, footer_h - GAP_PX), RADIUS_PX, on_screen));
-        }
-        blur.set(&rects);
+        blur.set(&self.layout.borrow().blur_rects(x.round() as i32, scrolled));
     }
 
     /// Put the cards at `x` and the surface at `margin` from the screen edge

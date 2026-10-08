@@ -45,7 +45,6 @@ pub(crate) const TUCKED_X: f64 = (SURFACE_WIDTH - PEEK_PX) as f64;
 /// leaves 12px each side, enough for the ring.
 pub(crate) const CENTRED_X: f64 = ((SURFACE_WIDTH - CARD_WIDTH_PX) / 2) as f64;
 
-
 /// What the surface measured, once the widgets are in the window: the
 /// heights the geometry works from. Filled by `surface::fit`, read by
 /// [`Layout`].
@@ -165,8 +164,7 @@ pub(crate) fn centre_margin(monitor_w: i32) -> i32 {
 
 /// How wide the input region is from `x`: to the surface's edge, or, with the
 /// panel centred, just the cards.
-// Crate-visible only while surface.rs still calls it; Task 2 folds these callers into Layout and makes it private again.
-pub(crate) fn region_width(x: i32, centred: bool) -> i32 {
+fn region_width(x: i32, centred: bool) -> i32 {
     if centred { CARD_WIDTH_PX } else { SURFACE_WIDTH - x }
 }
 
@@ -175,8 +173,7 @@ pub(crate) fn region_width(x: i32, centred: bool) -> i32 {
 /// the keys footer under them take, with the rest scrolled. Only the
 /// keyboard's wrapped cards, or "+N more" opened onto a long list, get that
 /// tall.
-// Crate-visible only while surface.rs still calls it; Task 2 folds these callers into Layout and makes it private again.
-pub(crate) fn shown_height(cards_h: i32, bars_h: i32, screen_h: i32) -> i32 {
+fn shown_height(cards_h: i32, bars_h: i32, screen_h: i32) -> i32 {
     cards_h.min(screen_h - 2 * (SHADOW_PX + EDGE_GAP_PX) - bars_h).max(0)
 }
 
@@ -196,8 +193,7 @@ pub(crate) fn scroll_to_show(value: f64, page: f64, top: f64, bottom: f64) -> f6
 /// Where Clear all's strip is, for the blur behind it: a card gap under the
 /// bar, its right edge on the cards', and cut at the surface's edge as the
 /// cards are, to no width at all once it is wholly past it.
-// Crate-visible only while surface.rs still calls it; Task 2 folds these callers into Layout and makes it private again.
-pub(crate) fn clear_strip_rect(x: i32, bar_h: i32, (w, h): (i32, i32)) -> blur::Rect {
+fn clear_strip_rect(x: i32, bar_h: i32, (w, h): (i32, i32)) -> blur::Rect {
     let left = x + CARD_WIDTH_PX - w;
     (left, SHADOW_PX + bar_h + GAP_PX, w.min(SURFACE_WIDTH - left).max(0), h)
 }
@@ -379,7 +375,7 @@ mod tests {
         let x = EXPANDED_X as i32;
         let unscrolled: Vec<Rect> = layout.blur_rects(x, 0).into_iter().filter(|r| r.1 >= top && r.1 < top + 100).collect();
         let scrolled: Vec<Rect> = layout.blur_rects(x, 30).into_iter().filter(|r| r.1 >= top && r.1 < top + 100).collect();
-        assert!(bounds(&unscrolled).1 == top);
+        assert_eq!(bounds(&unscrolled).1, top);
         assert!(scrolled.iter().all(|r| r.1 >= top && r.1 + r.3 <= top + 100), "cards are cut to the band: {scrolled:?}");
         assert_ne!(unscrolled, scrolled, "scrolling by 30 moves the cards' strips");
     }
@@ -391,8 +387,15 @@ mod tests {
         let rects = layout.blur_rects(x, 0);
         let (left, _, right, _) = bounds(&rects);
         assert_eq!((left, right), (x, SURFACE_WIDTH), "only the peek is on the surface");
-        // Unrounded on the right: some strip reaches the surface's edge at every row of the bar.
-        assert!(rects.iter().any(|r| r.0 + r.2 == SURFACE_WIDTH));
+        // Unrounded on the right: the bar's top row, which a rounded right
+        // corner would stop short of the edge, still reaches it.
+        let top_row: Vec<&Rect> = rects.iter().filter(|r| r.1 == SHADOW_PX).collect();
+        assert!(!top_row.is_empty());
+        assert!(top_row.iter().all(|r| r.0 + r.2 == SURFACE_WIDTH), "{top_row:?}");
+        // Out in full, the same row is rounded and stops short of the cards' right edge.
+        let x = EXPANDED_X as i32;
+        let out = layout.blur_rects(x, 0);
+        assert!(out.iter().filter(|r| r.1 == SHADOW_PX).all(|r| r.0 + r.2 < x + CARD_WIDTH_PX), "{out:?}");
     }
 
     #[test]
