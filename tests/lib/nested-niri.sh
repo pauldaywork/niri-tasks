@@ -257,8 +257,10 @@ STUB
     # Started from a herdr pane, the run must behave as from a plain
     # terminal: an inherited HERDR_SESSION names a session the nested niri
     # has no workspace for, and HERDR_PANE_ID points at your real pane.
-    if grep -q '^HERDR_' "$SB/nested.env" || nested env | grep -q '^HERDR_'; then
-        bad "HERDR_* reached the nested niri: $( { grep -o '^HERDR_[A-Z_]*' "$SB/nested.env"; nested env | grep -o '^HERDR_[A-Z_]*'; } | sort -u | tr '\n' ' ')"
+    local leaked
+    leaked=$( { grep -o '^HERDR_[^=]*' "$SB/nested.env"; nested env | grep -o '^HERDR_[^=]*'; } | sort -u | tr '\n' ' ')
+    if [ -n "$leaked" ]; then
+        bad "HERDR_* reached the nested niri: $leaked"
     else
         ok "no HERDR_* reaches the nested niri or what runs in it"
     fi
