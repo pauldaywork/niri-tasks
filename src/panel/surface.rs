@@ -1068,7 +1068,7 @@ impl Panel {
         let row = card
             .uuid
             .as_ref()
-            .zip(card.state(false))
+            .zip(shown.state)
             .filter(|_| !shown.actions.is_empty())
             .map(|(uuid, state)| {
                 let row = self.action_row(uuid, state, &shown.actions);

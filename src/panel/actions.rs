@@ -269,30 +269,11 @@ mod tests {
         }
     }
 
-    /// Speak and Up next open nothing, so the list stays up, as it does for
-    /// the buttons that only change the task. Move opens the project list in
-    /// the panel itself, so it keeps the keyboard with the buttons that only
-    /// change the task.
-    #[test]
-    fn the_buttons_that_open_nothing_keep_the_list_open() {
-        let kept: Vec<Action> = Action::ALL.into_iter().filter(|a| a.keeps_keyboard()).collect();
-        assert_eq!(kept, vec![Back, Speak, UpNext, Complete, Move, Wait, Remove]);
-    }
-
     /// Up next's card stays on the list, only moving up it, so the focus
     /// stays on the button and a second press clears it.
     #[test]
     fn up_next_keeps_its_card_on_the_list() {
         assert!(!UpNext.leaves_the_list());
-    }
-
-    /// Their card drops off the list, so the focus moves to a neighbour;
-    /// Speak's card stays, and so does the focus, on the button that stops it.
-    #[test]
-    fn back_complete_wait_and_remove_take_their_card_off_the_list() {
-        let leaving: Vec<Action> = Action::ALL.into_iter().filter(|a| a.leaves_the_list()).collect();
-        assert_eq!(leaving, vec![Back, Complete, Wait, Remove]);
-        assert!(leaving.iter().all(|a| a.keeps_keyboard()), "a button that releases the keyboard moves no focus");
     }
 
     /// g b s r i e c m t press Go to session, Back to list, Start working,

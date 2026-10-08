@@ -5,12 +5,12 @@
 //! has the keyboard's focus, what a first press has armed, which cards show
 //! their notes, and the [`Mode`]: which of the task cards, the Ideas notepad
 //! or the project list Move to workspace and Mod+Alt+W swap in is up, all
-//! live here, keyed by task uuid and slot rather than by widget. The mode picks which key map a raw key
-//! goes through. Every change comes back as a list of [`Effect`]s for
-//! `surface.rs` to run: draw again, move the focus, spawn a command. So the
-//! rules between them (one arming at a time, any re-render disarming, where
-//! the focus lands) are tested without a window, and `surface.rs` only draws
-//! what this says and runs what it asks.
+//! live here, keyed by task uuid and slot rather than by widget. The mode
+//! picks which key map a raw key goes through. Every change comes back as a
+//! list of [`Effect`]s for `surface.rs` to run: draw again, move the focus,
+//! spawn a command. So the rules between them (one arming at a time, any
+//! re-render disarming, where the focus lands) are tested without a window,
+//! and `surface.rs` only draws what this says and runs what it asks.
 
 use crate::actions::{Action, TaskState};
 use super::actions;
@@ -888,7 +888,7 @@ impl PanelState {
         let shown = self.visible();
         let Some(card) = self.current(&shown).map(|at| &shown[at]) else { return Vec::new() };
         let Some(uuid) = &card.card.uuid else { return Vec::new() };
-        let Some(action) = card.card.state(false).and_then(Action::advance) else { return Vec::new() };
+        let Some(action) = card.state.and_then(Action::advance) else { return Vec::new() };
         if !card.actions.contains(&action) {
             return Vec::new();
         }

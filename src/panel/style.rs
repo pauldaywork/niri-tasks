@@ -83,9 +83,7 @@ pub const MOVE: &str = "#74c7ec";
 /// Text on a solid colour fill, the armed Remove: mocha's `base`, so it reads
 /// as dark on red.
 pub const ON_FILL: &str = "#1e1e2e";
-/// Each task action's colour. Exhaustive, so a new action cannot be a grey
-/// button. Grill me wears Refine's mauve, being a refine that interviews
-/// first.
+/// Each task action's colour, from its row of [`Action::facts`].
 pub fn colour(action: Action) -> &'static str {
     action.facts().colour
 }
