@@ -24,6 +24,11 @@
 # Your own niri-tasks daemon keeps running throughout, and never sees these
 # tasks: the daemon socket a nested program looks for is under the nested
 # runtime dir. nested_service_untouched proves it at the end of a run.
+#
+# Started from a herdr pane, a run behaves as from a plain terminal: no
+# HERDR_* you have reaches the nested niri, its spawns or anything run
+# through `nested`, so a task added in it is never filed under your herdr
+# session or linked to your pane.
 
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
 command -v task >/dev/null || { echo "taskwarrior is required" >&2; exit 1; }
@@ -185,6 +190,13 @@ nested_start() {
     # unless a test asks: by default the nested niri's children see your PATH,
     # as before. When set, PATH is this and notifications go to the stub's log
     # rather than your desktop.
+    # Every HERDR_* you have, as env -u options: a herdr pane's session,
+    # socket and pane are yours, not the nested niri's. By prefix, not a
+    # list, so a variable herdr adds later is dropped too.
+    local herdr_unset=() var
+    while read -r var; do
+        herdr_unset+=(-u "$var")
+    done < <(compgen -e | grep '^HERDR_')
     local spawn_env=""
     if [ -n "${NESTED_SPAWN_PATH:-}" ]; then
         spawn_env="environment { PATH \"$NESTED_SPAWN_PATH\"; NOTIFY_LOG \"$SB/notifications\"; }"
@@ -208,7 +220,7 @@ EOF
     # vblank stalls it for a second or more, and every key and `niri msg` with
     # it. Mesa's vblank_mode=0 is what was measured to fix that here;
     # __GL_SYNC_TO_VBLANK=0 is set in case it helps on NVIDIA, unverified.
-    env -u NIRI_SOCKET XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$PARENT_WAYLAND" \
+    env -u NIRI_SOCKET "${herdr_unset[@]}" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$PARENT_WAYLAND" \
         vblank_mode=0 __GL_SYNC_TO_VBLANK=0 niri -c "$SB/niri.kdl" >"$SB/niri.log" 2>&1 &
     NESTED=$!
 
@@ -236,10 +248,20 @@ exit 0
 STUB
     chmod +x "$SB/bin/notify-send"
     # -u DISPLAY and GDK_BACKEND: if the nested niri dies, GTK must not fall
-    # back to X11 and open a box on the real desktop. env -u comes first.
-    NENV=(env -u DISPLAY XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$n_wayland"
+    # back to X11 and open a box on the real desktop. -u HERDR_*: as for the
+    # nested niri. env -u comes first.
+    NENV=(env -u DISPLAY "${herdr_unset[@]}" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$n_wayland"
           NIRI_SOCKET="$n_socket" GDK_BACKEND=wayland
           NOTIFY_LOG="$SB/notifications" PATH="$SB/bin:$PATH")
+
+    # Started from a herdr pane, the run must behave as from a plain
+    # terminal: an inherited HERDR_SESSION names a session the nested niri
+    # has no workspace for, and HERDR_PANE_ID points at your real pane.
+    if grep -q '^HERDR_' "$SB/nested.env" || nested env | grep -q '^HERDR_'; then
+        bad "HERDR_* reached the nested niri: $( { grep -o '^HERDR_[A-Z_]*' "$SB/nested.env"; nested env | grep -o '^HERDR_[A-Z_]*'; } | sort -u | tr '\n' ' ')"
+    else
+        ok "no HERDR_* reaches the nested niri or what runs in it"
+    fi
 
     for _ in $(seq 1 25); do
         WIN=$(nested_window 2>/dev/null)
