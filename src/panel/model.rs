@@ -48,6 +48,10 @@ pub struct Card {
     /// re-renders the panel, disarming a half-pressed Remove. Empty on
     /// "+N more".
     pub since: String,
+    /// The task's notes, oldest first, text only: what the keyboard's panel
+    /// shows under the description once the card's body is pressed. Empty on
+    /// "+N more" and on a task with none.
+    pub notes: Vec<String>,
 }
 
 impl Card {
@@ -276,6 +280,7 @@ pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
             planned: t.is_planned(),
             up_next: t.is_up_next(),
             since: if finished(t) { t.end.clone() } else { t.entry.clone() },
+            notes: t.annotations.iter().map(|a| a.description.clone()).collect(),
         })
         .collect()
 }
@@ -294,6 +299,7 @@ pub fn cap(cards: &[Card], n: usize) -> Vec<Card> {
             planned: false,
             up_next: false,
             since: String::new(),
+            notes: Vec::new(),
         });
     }
     shown
@@ -397,6 +403,22 @@ mod tests {
         let mut t = task("x", 1, false);
         t.description = "two\nlines".into();
         assert_eq!(cards(&[t], &[])[0].text, "two lines");
+    }
+
+    /// A card carries its task's notes, in order and text only, for the
+    /// keyboard's panel to show under the description; "+N more" has none.
+    #[test]
+    fn a_card_carries_its_tasks_notes() {
+        let mut noted = task("n", 2, false);
+        noted.annotations = vec![
+            crate::task::Annotation { entry: "20261001T120000Z".into(), description: "first note".into() },
+            crate::task::Annotation { entry: "20261002T120000Z".into(), description: "second note".into() },
+        ];
+        let cards = cards(&[noted, task("plain", 1, false)], &[]);
+        assert_eq!(cards[0].notes, vec!["first note".to_string(), "second note".to_string()]);
+        assert!(cards[1].notes.is_empty());
+        let capped = cap(&cards, 1);
+        assert!(capped[1].notes.is_empty(), "+N more stands for no one task");
     }
 
     #[test]
@@ -670,7 +692,7 @@ mod tests {
     /// A card's status and tags are its task's state; "+N more" has none.
     #[test]
     fn a_cards_state_is_its_tasks() {
-        let card = |status, planned, up_next| Card { status, text: "t".into(), uuid: Some("u".into()), planned, up_next, since: String::new() };
+        let card = |status, planned, up_next| Card { status, text: "t".into(), uuid: Some("u".into()), planned, up_next, since: String::new(), notes: Vec::new() };
         assert_eq!(
             card(Status::Active, true, true).state(true),
             Some(TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true })
