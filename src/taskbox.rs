@@ -52,6 +52,40 @@ impl Mode {
     }
 }
 
+/// What a box is open on, so a second request can tell the box it asked for
+/// from another one. Edit and Note on one task are the same box, as are the
+/// two add boxes: only where the cursor starts, or the default button, differs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Subject {
+    /// A new task.
+    Add,
+    /// An existing task, by its full uuid.
+    Task(String),
+}
+
+/// What `open_in` did with a request. There is only ever one box, so a
+/// request while one is open brings that box forward and is dropped: opening
+/// a second over it, or replacing it, would lose whatever was typed there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Opened {
+    /// No box was open, so this one is now.
+    New,
+    /// The box asked for was the one already open.
+    Same,
+    /// Another box was open; it is the one brought forward.
+    Other,
+}
+
+/// What a request for a box on `asked` does while `open` is the box on
+/// screen, if any.
+fn opened(open: Option<&Subject>, asked: &Subject) -> Opened {
+    match open {
+        None => Opened::New,
+        Some(open) if open == asked => Opened::Same,
+        Some(_) => Opened::Other,
+    }
+}
+
 /// The line of keys beside the buttons. It names what Ctrl+Enter presses in
 /// this box, and offers Ctrl+Shift+Enter only where that is a different
 /// button — in a box opened to refine, both refine.
@@ -82,6 +116,8 @@ pub const APP_ID: &str = "dev.niri-tasks.box";
 /// so the daemon and the CLI open identical windows.
 pub struct BoxConfig {
     pub mode: Mode,
+    /// What the box is open on, which is how a second request finds it.
+    pub subject: Subject,
     /// A dim line above the description — the tag a new task goes to. Hidden
     /// when empty.
     pub subtitle: String,
@@ -100,6 +136,7 @@ impl BoxConfig {
     pub fn add(tag: &str, refine: bool) -> Self {
         Self {
             mode: Mode::Add,
+            subject: Subject::Add,
             subtitle: format!("+{tag}"),
             description: String::new(),
             notes: Vec::new(),
@@ -113,6 +150,7 @@ impl BoxConfig {
     pub fn for_task(mode: Mode, task: Task) -> Self {
         Self {
             mode,
+            subject: Subject::Task(task.uuid),
             subtitle: String::new(),
             description: task.description,
             notes: task.annotations,
@@ -123,8 +161,30 @@ impl BoxConfig {
 
 /// Open the box inside the daemon's running Application, calling `on_submit`
 /// with what was saved. The window is built once, in `build_window`.
-pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission) + 'static) {
-    build_window(app, &cfg, Rc::new(on_submit));
+///
+/// While a box is open this opens nothing: it brings the open box forward and
+/// drops the request, saying whether that box was the one asked for, so the
+/// daemon can tell you when it was not.
+pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission) + 'static) -> Opened {
+    let open = OPEN.with(|o| {
+        o.borrow()
+            .as_ref()
+            .and_then(|(window, subject)| Some((window.upgrade()?, subject.clone())))
+    });
+    if let Some((window, subject)) = open {
+        window.present();
+        return opened(Some(&subject), &cfg.subject);
+    }
+    let window = build_window(app, &cfg, Rc::new(on_submit));
+    // Destroy, not close-request: every way out — Esc, Cancel, a save, niri's
+    // close-window — ends in it, and it comes after the window is gone.
+    window.connect_destroy(|_| {
+        OPEN.with(|o| {
+            o.borrow_mut().take();
+        });
+    });
+    OPEN.with(|o| *o.borrow_mut() = Some((window.downgrade(), cfg.subject)));
+    Opened::New
 }
 
 thread_local! {
@@ -134,6 +194,14 @@ thread_local! {
     /// lookup, the panels' included, would walk one more each time. Only ever
     /// touched on the GTK main thread.
     static STYLE: OnceCell<CssProvider> = const { OnceCell::new() };
+
+    /// The box on screen and what it is open on, so a second request brings it
+    /// forward rather than opening another box over it. Weak, so this never
+    /// keeps a closed box alive; the window's destroy handler empties it, and
+    /// a reference that no longer upgrades counts as no box either. Only ever
+    /// touched on the GTK main thread.
+    static OPEN: RefCell<Option<(gtk4::glib::WeakRef<ApplicationWindow>, Subject)>> =
+        const { RefCell::new(None) };
 }
 
 /// Put the box's stylesheet on the display, unless it is already there.
@@ -166,7 +234,7 @@ fn install_style() {
 /// Build and show the window. `on_submit` fires only with something worth
 /// saving: never on Esc, and never with an empty description, which keeps the
 /// window open instead.
-fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submission)>) {
+fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submission)>) -> ApplicationWindow {
     let window = ApplicationWindow::builder()
         .application(app)
         .title(cfg.mode.title())
@@ -374,6 +442,7 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
         Mode::Note => focus_end(&notes.insert(notes.len(), None)),
         Mode::Add | Mode::Edit => focus_end(&description),
     }
+    window
 }
 
 /// Have every note row measure itself again once the window has been drawn.
@@ -698,5 +767,29 @@ mod tests {
         for mode in [Mode::Edit, Mode::Note] {
             assert_eq!(hint(mode, false), "Enter: next note · Ctrl+Enter: save · Esc: discard");
         }
+    }
+
+    /// A box remembers what it is open on: adding, in either add box, or one
+    /// task by its uuid, in either Edit or Note.
+    #[test]
+    fn a_box_knows_what_it_is_open_on() {
+        assert_eq!(BoxConfig::add("proj", false).subject, Subject::Add);
+        assert_eq!(BoxConfig::add("proj", true).subject, Subject::Add);
+        let t: crate::task::Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
+        assert_eq!(BoxConfig::for_task(Mode::Note, t).subject, Subject::Task("u".into()));
+    }
+
+    /// With no box open a request opens one. With one open, it is the same box
+    /// only when it is open on the same thing; anything else is another box.
+    #[test]
+    fn a_second_request_finds_the_open_box() {
+        let task = |uuid: &str| Subject::Task(uuid.into());
+        assert_eq!(opened(None, &Subject::Add), Opened::New);
+        assert_eq!(opened(None, &task("a")), Opened::New);
+        assert_eq!(opened(Some(&Subject::Add), &Subject::Add), Opened::Same);
+        assert_eq!(opened(Some(&task("a")), &task("a")), Opened::Same);
+        assert_eq!(opened(Some(&Subject::Add), &task("a")), Opened::Other);
+        assert_eq!(opened(Some(&task("a")), &Subject::Add), Opened::Other);
+        assert_eq!(opened(Some(&task("a")), &task("b")), Opened::Other);
     }
 }
