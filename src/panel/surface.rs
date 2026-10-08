@@ -915,13 +915,13 @@ impl Panel {
         };
         let ideas = matches!(mode, Mode::Ideas);
         let list = match &mode {
-            Mode::Projects(list) => Some(list),
+            Mode::Projects { list, .. } => Some(list),
             _ => None,
         };
 
         self.while_drawing(|| match &mode {
             Mode::Ideas => self.draw_ideas(),
-            Mode::Projects(list) => self.draw_projects(list, hint.as_deref()),
+            Mode::Projects { list, .. } => self.draw_projects(list, hint.as_deref()),
             Mode::Tasks => self.draw_tasks(&shown, keyboard, empty),
         });
         // On the project list the bar holds its text field instead of the

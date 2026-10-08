@@ -114,8 +114,10 @@ pub enum Mode {
     Tasks,
     /// The Ideas tab: the workspace's notepad in place of the cards.
     Ideas,
-    /// The project list, for Move to workspace or Mod+Alt+W.
-    Projects(ProjectList),
+    /// The project list, for Move to workspace or Mod+Alt+W, with the
+    /// folders and repos it was built from, so its hint and its pick mean
+    /// what `project open` will.
+    Projects { list: ProjectList, loaded: Projects },
 }
 
 #[derive(Debug, Default)]
@@ -145,10 +147,6 @@ pub struct PanelState {
     /// tick leaves them open; emptied as the keyboard is given back.
     notes: HashSet<String>,
     armed: Armed,
-    /// The folders and repos the project list was built from, for its hint
-    /// and its pick to mean what `project open` will. Some only while the
-    /// list is up.
-    loaded: Option<Projects>,
 }
 
 impl PanelState {
@@ -203,7 +201,7 @@ impl PanelState {
     /// The project list, while it is up.
     pub fn projects(&self) -> Option<&ProjectList> {
         match &self.mode {
-            Mode::Projects(list) => Some(list),
+            Mode::Projects { list, .. } => Some(list),
             _ => None,
         }
     }
@@ -211,7 +209,15 @@ impl PanelState {
     /// The project list to narrow or step, while it is up.
     fn projects_mut(&mut self) -> Option<&mut ProjectList> {
         match &mut self.mode {
-            Mode::Projects(list) => Some(list),
+            Mode::Projects { list, .. } => Some(list),
+            _ => None,
+        }
+    }
+
+    /// The project list and the lists it was built from, while it is up.
+    fn listing(&self) -> Option<(&ProjectList, &Projects)> {
+        match &self.mode {
+            Mode::Projects { list, loaded } => Some((list, loaded)),
             _ => None,
         }
     }
@@ -310,8 +316,7 @@ impl PanelState {
             .is_some_and(|uuid| !self.all.iter().any(|c| c.uuid.as_deref() == Some(uuid)));
         if gone {
             self.mode = Mode::Tasks;
-            self.loaded = None;
-        }
+            }
         if self.keyboard && self.all.is_empty() && self.on_tasks() {
             return self.release();
         }
@@ -329,7 +334,6 @@ impl PanelState {
         self.agents = agents;
         self.filter = Filter::All;
         self.mode = Mode::Tasks;
-        self.loaded = None;
         self.armed = Armed::None;
         self.focus = first_task(&self.visible());
         true
@@ -346,8 +350,8 @@ impl PanelState {
         self.expanded = false;
         self.armed = Armed::None;
         self.focus = None;
-        self.mode = Mode::Projects(ProjectList::new(Purpose::Open, projects.rows()));
-        self.loaded = Some(projects);
+        let list = ProjectList::new(Purpose::Open, projects.rows());
+        self.mode = Mode::Projects { list, loaded: projects };
         vec![Effect::Render]
     }
 
@@ -412,7 +416,7 @@ impl PanelState {
         }
         let action = match &self.mode {
             Mode::Ideas => keys::ideas_key_action(key, ctrl),
-            Mode::Projects(_) => keys::project_key_action(key),
+            Mode::Projects { .. } => keys::project_key_action(key),
             Mode::Tasks => keys::key_action(key, ctrl, shift),
         };
         self.on_action(action)
@@ -445,7 +449,7 @@ impl PanelState {
             // The project list's: Up and Down walk it, Enter picks the folder,
             // Escape clears the text, then goes back to the cards. Every
             // other key is typing, for the text field.
-            Mode::Projects(_) => match action {
+            Mode::Projects { .. } => match action {
                 KeyAction::Release => Some(self.escape_projects()),
                 KeyAction::PrevCard | KeyAction::NextCard => Some(self.move_folder(action == KeyAction::NextCard)),
                 KeyAction::Enter => {
@@ -577,8 +581,10 @@ impl PanelState {
             return vec![Effect::Notify(NO_DESTINATIONS.into())];
         }
         self.armed = Armed::None;
-        self.mode = Mode::Projects(ProjectList::new(Purpose::Move { uuid: uuid.into(), text }, rows));
-        self.loaded = Some(projects);
+        self.mode = Mode::Projects {
+            list: ProjectList::new(Purpose::Move { uuid: uuid.into(), text }, rows),
+            loaded: projects,
+        };
         vec![Effect::Render]
     }
 
@@ -596,7 +602,8 @@ impl PanelState {
     /// The project list's line under its title, when it has one: what Enter
     /// will do with the text typed.
     pub fn hint(&self) -> Option<String> {
-        self.projects()?.hint(self.loaded.as_ref()?)
+        let (list, loaded) = self.listing()?;
+        list.hint(loaded)
     }
 
     /// A folder on the project list, by Enter or a click. Moving, `task
@@ -606,13 +613,10 @@ impl PanelState {
     /// with nothing matching, and the keyboard goes back first: the user is
     /// off to that workspace. Nothing with no row and no new name.
     pub fn on_folder(&mut self, at: usize) -> Vec<Effect> {
-        let (Some(list), Some(loaded)) = (self.projects(), self.loaded.as_ref()) else {
-            return Vec::new();
-        };
+        let Some((list, loaded)) = self.listing() else { return Vec::new() };
         let Picked::Spawn(args) = list.pick(at, loaded) else { return Vec::new() };
         let purpose = list.purpose().clone();
         self.mode = Mode::Tasks;
-        self.loaded = None;
         match purpose {
             Purpose::Open => {
                 let mut effects = self.release();
@@ -642,7 +646,6 @@ impl PanelState {
         self.expanded = false;
         self.filter = Filter::All;
         self.mode = Mode::Tasks;
-        self.loaded = None;
         self.armed = Armed::None;
         self.focus = None;
         self.notes.clear();
@@ -705,11 +708,11 @@ impl PanelState {
             Escaped::Closed => {
                 // The open list was asked for from anywhere, not from the
                 // cards, which there may be none of: it closes the panel.
-                if list.purpose() == &Purpose::Open {
+                let open = list.purpose() == &Purpose::Open;
+                if open {
                     return self.release();
                 }
                 self.mode = Mode::Tasks;
-                self.loaded = None;
                 self.rerender()
             }
         }
@@ -917,6 +920,21 @@ mod tests {
         Some(Focus { uuid: uuid.into(), slot })
     }
 
+    /// The lists a project list was built from travel with it: leaving the
+    /// list, however it is left, leaves no loaded projects behind.
+    #[test]
+    fn the_loaded_projects_live_and_die_with_the_list() {
+        let mut state = keyboard(pending(&["a", "b"]));
+        state.show_projects("a", folders(&["x"]), projects(&["a", "x"], &[]));
+        assert!(matches!(state.mode(), Mode::Projects { loaded, .. } if loaded.local == vec!["a", "x"]));
+        key(&mut state, KeyAction::Release);
+        assert!(matches!(state.mode(), Mode::Tasks));
+        state.open_projects(projects(&["x"], &["y"]));
+        assert!(matches!(state.mode(), Mode::Projects { loaded, .. } if loaded.remote == vec!["y"]));
+        state.on_folder(0);
+        assert!(matches!(state.mode(), Mode::Tasks));
+    }
+
     /// The three screens, and the way between them.
     #[test]
     fn the_mode_follows_the_keyboard_the_tabs_and_the_lists() {
@@ -927,13 +945,13 @@ mod tests {
         key(&mut state, KeyAction::Release);
         assert!(matches!(state.mode(), Mode::Tasks), "Escape on Ideas is back to the list");
         state.show_projects("a", folders(&["x"]), projects(&["a", "x"], &[]));
-        assert!(matches!(state.mode(), Mode::Projects(_)));
+        assert!(matches!(state.mode(), Mode::Projects { .. }));
         key(&mut state, KeyAction::Release);
         assert!(matches!(state.mode(), Mode::Tasks), "Escape with nothing typed closes Move's list");
         assert!(state.keyboard());
         assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
         state.open_projects(projects(&["x"], &[]));
-        assert!(matches!(state.mode(), Mode::Projects(_)));
+        assert!(matches!(state.mode(), Mode::Projects { .. }));
         key(&mut state, KeyAction::Release);
         assert!(!state.keyboard(), "Escape on the open list gives the keyboard back");
         assert!(matches!(state.mode(), Mode::Tasks));
