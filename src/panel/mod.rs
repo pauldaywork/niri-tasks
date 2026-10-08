@@ -4,6 +4,7 @@
 pub mod actions;
 pub mod blur;
 pub mod keys;
+pub mod layout;
 pub mod model;
 pub mod notepad;
 pub mod projects;
