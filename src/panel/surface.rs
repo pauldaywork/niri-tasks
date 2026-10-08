@@ -145,7 +145,7 @@ use crate::actions::{Action, TaskState};
 use super::blur::Blur;
 use super::keys;
 use super::layout::{
-    centre_margin, scroll_to_show, Layout, Measured, CENTRED_X, EXPANDED_X, RING_PX, SHADOW_PX, SURFACE_WIDTH,
+    centre_margin, scroll_to_show, Layout, Measured, CENTRED_X, EXPANDED_X, RING_PX, SURFACE_WIDTH,
     TUCKED_X,
 };
 use super::notepad::Notepad;
@@ -371,13 +371,8 @@ impl Panel {
             let weak = Rc::downgrade(&panel);
             overlay.connect_get_child_position(move |_, _| {
                 let p = weak.upgrade()?;
-                let height = p.layout.borrow().visible_height();
-                Some(gdk::Rectangle::new(
-                    p.slide.x.get().round() as i32 - RING_PX,
-                    SHADOW_PX - RING_PX,
-                    CARD_WIDTH_PX + 2 * RING_PX,
-                    height + 2 * RING_PX,
-                ))
+                let (x, y, w, h) = p.layout.borrow().column_rect(p.slide.x.get().round() as i32);
+                Some(gdk::Rectangle::new(x, y, w, h))
             });
         }
         panel.connect_tab_bar();
@@ -829,7 +824,8 @@ impl Panel {
     /// Fit the surface to the cards again and put the input region and the
     /// blur where they now are: after anything that changes a card's height
     /// without a render (an action row showing, notes unfolding, an age
-    /// gaining a line) and after every render.
+    /// gaining a line). `render` does the same three steps itself, split
+    /// around `present()`.
     fn refit(&self) {
         self.fit();
         self.set_region(self.slide.x.get().min(self.slide.to.get()));
@@ -907,9 +903,9 @@ impl Panel {
         self.update_tabs();
         // refit()'s three steps, split around present(): the size goes in
         // before it, so the surface maps at the size it needs rather than
-        // the last one and then resizes. The region and the blur go after,
-        // since a hidden panel's present() maps it, and mapping makes the
-        // blur object afresh; set before, they would land on the old one.
+        // the last one and then resizes. A hidden panel's present() maps
+        // it; mapping makes the blur object afresh, and GTK may reset the
+        // input region, so both are set after it.
         self.fit();
 
         // present(), not set_visible(true): see new().

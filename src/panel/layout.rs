@@ -106,6 +106,12 @@ impl Layout {
         self.visible_height() + 2 * SHADOW_PX
     }
 
+    /// Where the card column sits in the surface with the cards at `x`,
+    /// ring included: what the overlay allocates to it.
+    pub fn column_rect(&self, x: i32) -> Rect {
+        (x - RING_PX, SHADOW_PX - RING_PX, CARD_WIDTH_PX + 2 * RING_PX, self.visible_height() + 2 * RING_PX)
+    }
+
     /// Where the pointer is accepted with the cards at `x`: to the surface's
     /// edge when tucked away or sliding, so the hover stays alive there, or
     /// just the cards when centred, so the strip beside them in the middle
@@ -340,6 +346,17 @@ mod tests {
         assert_eq!(layout.cards_h(), 60 + 80 + 40 + 2 * GAP_PX, "a short column shows whole");
         assert_eq!(layout.visible_height(), 48 + layout.cards_h() + 32);
         assert_eq!(layout.surface_height(), layout.visible_height() + 2 * SHADOW_PX);
+    }
+
+    #[test]
+    fn the_column_rect_takes_in_the_ring() {
+        let layout = Layout::new(measured());
+        let x = EXPANDED_X as i32;
+        let h = 48 + layout.cards_h() + 32;
+        assert_eq!(
+            layout.column_rect(x),
+            (x - RING_PX, SHADOW_PX - RING_PX, CARD_WIDTH_PX + 2 * RING_PX, h + 2 * RING_PX)
+        );
     }
 
     #[test]
