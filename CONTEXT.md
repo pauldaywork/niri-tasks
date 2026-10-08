@@ -29,6 +29,10 @@ The herdr session a workspace's project terminal attaches to: one per
 workspace, where that workspace's agents and terminals run. Refine, Start
 working and Go to session each open a task's tab or agent in it, and a pane
 inside one knows which session it is in without asking what is focused.
+In the code, `session::Session` opens a workspace's session and finds or
+starts the Claude in it, and `Session::named` knows a session by name alone,
+for the pane link and the panel's agent list. Nothing outside the `session`
+module talks to herdr.
 _Avoid_: project (the project list's word), terminal (the window showing it), herdr
 workspace (a session has several of those)
 

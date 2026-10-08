@@ -2,6 +2,10 @@
 
 Date: 2026-10-03
 
+Q19 is settled, and parts (a) and (b) are done by
+`2026-10-09-session-module-design.md` (task `0cb3900d`). Parts (c) and (d)
+are still to do.
+
 Decisions from the architecture review of 2026-10-03 (candidate 1) and the
 grilling that followed. Everything here is settled except Q19, the shape of
 the Session interface, which has its own comparison report.
