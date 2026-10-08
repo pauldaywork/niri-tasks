@@ -320,13 +320,10 @@ impl Port for Fake {
         }
         Ok(Ok(()))
     }
-    fn agent_prompt(&self, session: &str, name: &str, text: &str, confirm: bool) -> HerdrResult<()> {
-        self.note(format!("agent_prompt {session} {name} {text} confirm={confirm}"));
+    fn agent_prompt(&self, session: &str, name: &str, text: &str) -> HerdrResult<()> {
+        self.note(format!("agent_prompt {session} {name} {text}"));
         if let Err(e) = self.check()? {
             return Ok(Err(e));
-        }
-        if !confirm {
-            return Ok(Ok(()));
         }
         let code = {
             let mut s = self.state.borrow_mut();

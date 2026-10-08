@@ -1,5 +1,9 @@
 # Refine keeps its fence; a mod takes the write
 
+*2026-10-09:* the herdr and niri orchestration this record places in
+`refine.rs`, and the refiner flags it places in `herdr.rs`, now live in
+`src/session.rs` and `src/session/herdr.rs`; the decision is unchanged.
+
 Refine starts Claude in a herdr tab fenced in from outside: `refine.rs` and
 `herdr.rs` hand it a Bash sandbox, hidden sockets and credentials, a list of
 removed tools and a standing instruction, all before Claude exists, and the

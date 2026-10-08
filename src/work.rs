@@ -4,7 +4,7 @@
 //! The worktree is found again by the task's uuid, never its description, so
 //! a description reworded since (by Refine, say) cannot fork a second one.
 
-use crate::session::{current_pane, Claude, Session, Workspace};
+use crate::session::{current_pane, Claude, Session};
 use crate::{notify, project, session, task, text};
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -165,10 +165,8 @@ pub fn launch(workspace: &str, t: &task::Task) -> Result<()> {
             return Ok(());
         }
         // The worktree outlived its Claude: a fresh one, in a tab of its own
-        // so whatever the workspace's first pane is doing is left alone. The
-        // worktree's workspace, alone in the list, is where the tab opens.
-        let worktree = [Workspace { id: opened.workspace, label: wt.branch.clone() }];
-        let tab = session.new_tab(&worktree, &wt.path, "Claude", workspace)?;
+        // so whatever the workspace's first pane is doing is left alone.
+        let tab = session.tab_in(&opened.workspace, &wt.path, "Claude")?;
         return start_working(&session, &name, &tab.pane, &t.uuid);
     }
 

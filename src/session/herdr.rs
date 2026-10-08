@@ -47,8 +47,9 @@ pub fn tab_create(session: &str, workspace_id: &str, dir: &Path, label: &str) ->
     )
 }
 
-/// Check if an agent is already running. Used as the "already being refined?"
-/// check — an error means no agent by that name.
+/// The agent a name or pane id points at, with its name and status. An error
+/// means no agent there: how a launcher finds whether its task's Claude is
+/// already running before it starts another.
 pub fn agent_get(session: &str, name: &str) -> Vec<String> {
     cmd(session, &["agent", "get", name])
 }
@@ -59,7 +60,8 @@ pub fn agent_list(session: &str) -> Vec<String> {
     cmd(session, &["agent", "list"])
 }
 
-/// Return the user to an existing refine tab instead of opening a duplicate.
+/// Bring the user to an agent's pane, by name: how a launcher returns to a
+/// task's running Claude instead of opening a duplicate.
 pub fn agent_focus(session: &str, name: &str) -> Vec<String> {
     cmd(session, &["agent", "focus", name])
 }
@@ -126,8 +128,9 @@ pub fn agent_start_claude(session: &str, name: &str, pane: &str) -> Vec<String> 
 }
 
 /// Wait for an agent to be ready for a prompt — for the user to answer what
-/// it asked while starting, such as Claude's folder-trust question on a new
-/// worktree. Ten minutes, since a person is the one being waited on.
+/// it asked while starting, such as Claude's question whether to trust a
+/// folder it has not seen. Ten minutes, since a person is the one being
+/// waited on.
 pub fn agent_wait_ready(session: &str, name: &str) -> Vec<String> {
     cmd(session, &["agent", "wait", name, "--until", "idle", "--timeout", "600000"])
 }
@@ -205,12 +208,6 @@ pub fn worktree_open(session: &str, repo: &Path, path: &Path, label: &str) -> Ve
 /// terminal — worktrunk asking to approve a repo's hooks — gets one.
 pub fn pane_run(session: &str, pane: &str, command: &str) -> Vec<String> {
     cmd(session, &["pane", "run", pane, command])
-}
-
-/// Send a prompt to the agent. Goes by agent name, which herdr validates, so
-/// the prompt can't land in the wrong pane.
-pub fn agent_prompt(session: &str, name: &str, text: &str) -> Vec<String> {
-    cmd(session, &["agent", "prompt", name, text])
 }
 
 /// herdr's error message out of its stderr, or the stderr itself when it is
@@ -325,9 +322,8 @@ impl Port for Process {
     fn agent_wait_ready(&self, s: &str, name: &str) -> HerdrResult<()> {
         self.call(&agent_wait_ready(s, name), |_| Ok(()))
     }
-    fn agent_prompt(&self, s: &str, name: &str, text: &str, confirm: bool) -> HerdrResult<()> {
-        let argv = if confirm { agent_prompt_confirmed(s, name, text) } else { agent_prompt(s, name, text) };
-        self.call(&argv, |_| Ok(()))
+    fn agent_prompt(&self, s: &str, name: &str, text: &str) -> HerdrResult<()> {
+        self.call(&agent_prompt_confirmed(s, name, text), |_| Ok(()))
     }
     fn windows(&self) -> Result<Vec<WindowInfo>> {
         Ok(crate::niri::windows()?
@@ -494,13 +490,9 @@ mod tests {
     }
 
     #[test]
-    fn agent_lookups_and_prompts_go_by_name() {
+    fn agent_lookups_go_by_name() {
         assert_eq!(agent_get("a", "task-1"), vec!["herdr", "--session", "a", "agent", "get", "task-1"]);
         assert_eq!(agent_focus("a", "task-1"), vec!["herdr", "--session", "a", "agent", "focus", "task-1"]);
-        assert_eq!(
-            agent_prompt("a", "task-1", "/refine-task u"),
-            vec!["herdr", "--session", "a", "agent", "prompt", "task-1", "/refine-task u"]
-        );
     }
 
     /// Shapes copied from herdr 0.9.1's real responses.

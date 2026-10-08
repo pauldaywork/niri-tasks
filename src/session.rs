@@ -123,7 +123,7 @@ pub fn project_from_cwd(home: &Path, cwd: &Path) -> Option<String> {
 /// message is what the user sees; the code is what a caller acts on
 /// (`agent_not_found`, `agent_prompt_stalled`, `timeout`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HerdrError {
+pub(crate) struct HerdrError {
     /// herdr's error code, when its stderr was its JSON and carried one.
     pub code: Option<String>,
     /// herdr's own message, or its raw stderr when that was not its JSON.
@@ -142,7 +142,7 @@ impl std::error::Error for HerdrError {}
 /// inside an `Ok`, and "could not run herdr at all", or a herdr answer that
 /// lacks an id the caller needs, as the outer `Err`, so neither is ever
 /// mistaken for herdr saying "no".
-pub type HerdrResult<T> = Result<std::result::Result<T, HerdrError>>;
+pub(crate) type HerdrResult<T> = Result<std::result::Result<T, HerdrError>>;
 
 /// One of a session's herdr workspaces, as `workspace list` reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -228,9 +228,9 @@ pub(crate) trait Port {
     fn agent_rename(&self, session: &str, target: &str, name: &str) -> HerdrResult<()>;
     fn agent_start(&self, session: &str, name: &str, pane: &str, claude: &Claude) -> HerdrResult<()>;
     fn agent_wait_ready(&self, session: &str, name: &str) -> HerdrResult<()>;
-    /// `confirm` waits for herdr to see Claude start on the prompt, failing
+    /// Send a prompt and wait for herdr to see Claude start on it, failing
     /// with `agent_prompt_stalled` when it does not.
-    fn agent_prompt(&self, session: &str, name: &str, text: &str, confirm: bool) -> HerdrResult<()>;
+    fn agent_prompt(&self, session: &str, name: &str, text: &str) -> HerdrResult<()>;
     fn windows(&self) -> Result<Vec<WindowInfo>>;
     fn focus_window(&self, id: u64) -> Result<()>;
     fn spawn(&self, command: Vec<String>) -> Result<()>;
@@ -252,7 +252,7 @@ const PROMPT_RETRY: Duration = Duration::from_secs(2);
 
 /// What a confirmed prompt's result means for sending it again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PromptOutcome {
+enum PromptOutcome {
     /// Claude took it.
     Delivered,
     /// Claude never started on it, so sending it again is safe.
@@ -264,7 +264,7 @@ pub enum PromptOutcome {
 /// Read a `--wait` prompt's outcome from herdr's error code (`None` when it
 /// succeeded): still working past the timeout means it arrived; a stall means
 /// Claude never started on it, which is safe to resend; anything else fails.
-pub fn prompt_outcome(code: Option<&str>) -> PromptOutcome {
+fn prompt_outcome(code: Option<&str>) -> PromptOutcome {
     match code {
         None | Some("timeout") => PromptOutcome::Delivered,
         Some("agent_prompt_stalled") => PromptOutcome::Resend,
@@ -426,11 +426,17 @@ impl Session {
     /// workspace is named after the project, not after this tab. The pane to
     /// start Claude in, and the tab to close if that fails.
     pub fn new_tab(&self, workspaces: &[Workspace], dir: &Path, label: &str, workspace_label: &str) -> Result<Created> {
-        let created = match workspaces.first() {
-            Some(w) => self.port.tab_create(&self.name, &w.id, dir, label)?,
-            None => self.port.workspace_create(&self.name, dir, workspace_label)?,
-        };
-        Ok(created?)
+        match workspaces.first() {
+            Some(w) => self.tab_in(&w.id, dir, label),
+            None => Ok(self.port.workspace_create(&self.name, dir, workspace_label)??),
+        }
+    }
+
+    /// A new tab in the herdr workspace `workspace`, in `dir`: for a caller
+    /// that already knows which workspace, such as a worktree's. The pane to
+    /// start Claude in, and the tab to close if that fails.
+    pub fn tab_in(&self, workspace: &str, dir: &Path, label: &str) -> Result<Created> {
+        Ok(self.port.tab_create(&self.name, workspace, dir, label)??)
     }
 
     /// Close a tab left bare by a failed start, so a retry does not pile
@@ -489,7 +495,7 @@ impl Session {
     /// confirmed, and resent on a stall.
     pub fn prompt(&self, name: &str, text: &str) -> Result<()> {
         for attempt in 1..=PROMPT_TRIES {
-            let (code, message) = match self.port.agent_prompt(&self.name, name, text, true)? {
+            let (code, message) = match self.port.agent_prompt(&self.name, name, text)? {
                 Ok(()) => (None, String::new()),
                 Err(e) => (e.code, e.message),
             };
@@ -792,6 +798,14 @@ mod tests {
     }
 
     #[test]
+    fn a_tab_opens_in_the_workspace_named() {
+        let (s, f) = session(Fake::running(&[("w1", "alpha"), ("w2", "task/x")]));
+        let tab = s.tab_in("w2", Path::new("/w/x"), "Claude").unwrap();
+        assert_eq!(f.log(), vec!["tab_create alpha w2 /w/x Claude"]);
+        assert!(tab.tab.is_some());
+    }
+
+    #[test]
     fn closing_a_tab_is_best_effort() {
         let (s, f) = session(Fake::running(&[]));
         s.close_tab("t3");
@@ -848,7 +862,7 @@ mod tests {
     fn a_prompt_is_resent_on_a_stall_and_given_up_after_four() {
         let (s, f) = session(Fake::running(&[("w1", "alpha")]));
         s.prompt("work-abc", "/plan").unwrap();
-        assert_eq!(f.log(), vec!["agent_prompt alpha work-abc /plan confirm=true"]);
+        assert_eq!(f.log(), vec!["agent_prompt alpha work-abc /plan"]);
 
         let (s, f) = session(Fake::running(&[("w1", "alpha")]).with_prompt_codes(&[Some("agent_prompt_stalled"), None]));
         s.prompt("work-abc", "/plan").unwrap();
@@ -902,7 +916,7 @@ mod tests {
         assert_eq!(s.dir(), Path::new("/home/x/Projects/alpha"));
     }
 
-    /// A session known by name only has no folder, and finding it reads no
+    /// A session known by name only has no folder, and finding it needs no
     /// HOME: the pane link and the panel's agent list need neither.
     #[test]
     fn a_session_by_name_alone_has_no_folder() {
