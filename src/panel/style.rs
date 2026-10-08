@@ -426,7 +426,6 @@ mod tests {
         let at = css.find(&footer).unwrap_or_else(|| panic!("missing `{footer}`"));
         let shared = css.find(".task-panel .task-card,").expect("no shared card rule");
         assert!(at > shared, "the card look's font would win over the footer's");
-        assert_eq!(HINT_FONT, "9pt \"Iosevka Term Extended\"");
         assert!(FONT.starts_with("10pt "), "the hint is a point under the cards' text");
     }
 

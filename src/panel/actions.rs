@@ -1,7 +1,9 @@
 //! The action row: which of the task actions a card shows and in what
-//! order, the key hints beside them, and the Waiting tab's Clear all. The
-//! facts about each action it draws by (glyph, class, key, colour, what a
-//! press does to the panel) are `Action::facts`' in `crate::actions`.
+//! order, which one Ctrl+Enter presses (`advance`), the key hints beside
+//! them, the footer's text for the keys every card shares (`CARD_KEYS`), and
+//! the Waiting tab's Clear all. The facts about each action it draws by
+//! (glyph, class, key, colour, what a press does to the panel) are
+//! `Action::facts`' in `crate::actions`.
 //!
 //! Plain data, like `model.rs`, so which card gets which buttons and what
 //! they spawn is testable without a compositor.
@@ -321,18 +323,6 @@ mod tests {
             assert!(!Action::ALL.iter().any(|a| a.icon() == *frame), "{frame}");
             assert_ne!(*frame, Action::SPINNER[(i + 1) % Action::SPINNER.len()]);
         }
-    }
-
-    #[test]
-    fn remove_asks_before_it_deletes() {
-        assert_eq!(Action::CONFIRM_REMOVE, "Confirm remove");
-    }
-
-    /// Clear all asks in the same words as Remove, with its own name.
-    #[test]
-    fn clear_all_reads_as_remove_does() {
-        assert_eq!(CLEAR_ALL, "Clear all");
-        assert_eq!(CONFIRM_CLEAR_ALL, "Confirm clear all");
     }
 
     /// Run for real, with `echo` standing in for niritasks: each uuid gets

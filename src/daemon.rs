@@ -172,7 +172,7 @@ fn build(app: &Application) {
                 return;
             };
             if let Ok(app) = app.downcast::<Application>() {
-                serve_box_request(&app, req);
+                serve_request(&app, req);
             }
         });
     }) {
@@ -202,9 +202,23 @@ pub const NO_PANEL: &str = "No task panel on this monitor yet to show the projec
 /// asked for did not appear.
 pub const BOX_ALREADY_OPEN: &str = "A task box is already open — save or discard it first.";
 
-/// The notice for what `taskbox::open_in` did, if it needs one.
-fn already_open_notice(opened: crate::taskbox::Opened) -> Option<&'static str> {
-    (opened == crate::taskbox::Opened::Other).then_some(BOX_ALREADY_OPEN)
+/// Say a different box is already open, when `taskbox::open_in` found one.
+/// Only a request for a different box hears it: the same box asked for twice
+/// is simply brought forward, which says enough.
+fn notice_if_other_open(opened: crate::taskbox::Opened) {
+    if opened == crate::taskbox::Opened::Other {
+        crate::notify::tasks(BOX_ALREADY_OPEN);
+    }
+}
+
+/// The panel on the monitor showing the focused workspace, and that
+/// workspace, for a request that acts on what the user is looking at. None
+/// before GTK has named the monitor (see `sync_monitors`).
+fn focused_panel() -> Option<(Rc<Panel>, niri_ipc::Workspace)> {
+    let focused = niri::focused_workspace().ok().flatten()?;
+    let output = focused.output.clone()?;
+    let panel = PANELS.with(|p| p.borrow().get(&output).cloned())?;
+    Some((panel, focused))
 }
 
 /// What Mod+Alt+Ctrl+T says when there is no card to hand the keyboard to:
@@ -218,16 +232,15 @@ fn no_cards_text(tag: anyhow::Result<String>) -> String {
     }
 }
 
-/// Open the box for a request from the CLI, and do the taskwarrior work when it
-/// is submitted — the CLI has already exited by then, so this side owns it. Or
-/// hand the focused monitor's panel the keyboard, on its cards or on the project list.
-fn serve_box_request(app: &Application, req: crate::ipc::Request) {
+/// Serve one request from the CLI: a task box, the panel's keyboard, or the
+/// project list. A task box's taskwarrior work is done here when it is
+/// submitted, because the CLI has already exited by then.
+fn serve_request(app: &Application, req: crate::ipc::Request) {
     use crate::{ipc::Request, notify, task, taskbox, text};
 
     match req {
         Request::Projects => {
-            let output = niri::focused_workspace().ok().flatten().and_then(|w| w.output);
-            let Some(panel) = output.and_then(|o| PANELS.with(|p| p.borrow().get(&o).cloned())) else {
+            let Some((panel, _)) = focused_panel() else {
                 notify::tasks(NO_PANEL);
                 return;
             };
@@ -237,21 +250,18 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
             }
         }
         Request::Panel => {
-            let focused = niri::focused_workspace().ok().flatten();
-            let output = focused.as_ref().and_then(|w| w.output.clone());
-            let panel = output
-                .as_ref()
-                .and_then(|o| PANELS.with(|p| p.borrow().get(o).cloned()));
-            if !panel.is_some_and(|p| {
+            // No panel reads as no cards: either way there is nothing to
+            // hand the keyboard to, and the tag says why.
+            if !focused_panel().is_some_and(|(panel, focused)| {
                 // One `herdr agent list` per slide-out, for every card at
                 // once; a session that is not running answers at once with
                 // none.
                 let agents = focused
-                    .as_ref()
-                    .and_then(|w| w.name.as_deref())
+                    .name
+                    .as_deref()
                     .map(crate::link::live_agent_names)
                     .unwrap_or_default();
-                p.take_keyboard(agents)
+                panel.take_keyboard(agents)
             }) {
                 notify::tasks(&no_cards_text(crate::require_workspace_tag()));
             }
@@ -287,9 +297,7 @@ fn serve_box_request(app: &Application, req: crate::ipc::Request) {
                     }
                 },
             );
-            if let Some(notice) = already_open_notice(opened) {
-                notify::tasks(notice);
-            }
+            notice_if_other_open(opened);
         }
 
         Request::Edit(uuid) => open_task_box(app, uuid, taskbox::Mode::Edit),
@@ -317,9 +325,7 @@ fn open_task_box(app: &Application, uuid: String, mode: crate::taskbox::Mode) {
             }
         },
     );
-    if let Some(notice) = already_open_notice(opened) {
-        notify::tasks(notice);
-    }
+    notice_if_other_open(opened);
 }
 
 fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {
@@ -438,15 +444,5 @@ mod tests {
     fn an_unnamed_workspace_has_no_cards() {
         assert!(cards_for_workspace(None).is_empty());
         assert!(cards_for_workspace(Some("日本")).is_empty(), "no usable tag characters");
-    }
-
-    /// Only a request for a different box hears that one is already open: the
-    /// same box asked for twice is simply brought forward, which says enough.
-    #[test]
-    fn only_another_box_says_one_is_open() {
-        use crate::taskbox::Opened;
-        assert_eq!(already_open_notice(Opened::New), None);
-        assert_eq!(already_open_notice(Opened::Same), None);
-        assert_eq!(already_open_notice(Opened::Other), Some(BOX_ALREADY_OPEN));
     }
 }

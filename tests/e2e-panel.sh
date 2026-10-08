@@ -348,6 +348,29 @@ if command -v wtype >/dev/null; then
         read -r x0 x1 y0 y1 < <(measure notes_hidden keyboard_down)
         bad "after a second Enter the screen differs in columns ${x0}-${x1}, rows ${y0}-${y1}"
     fi
+    # Space on the card's body is meant to do what Enter does there: show the
+    # notes, and hide them again on a second press, leaving the panel where
+    # the checks after this expect it. The second press is held against
+    # notes_hidden, not keyboard_down: a card with notes says Space in its
+    # hint, so nothing after the notes were added matches keyboard_down.
+    "${NENV[@]}" wtype -k space
+    sleep 1
+    shot notes_space || { summary; exit 1; }
+    if same notes_shown notes_space; then
+        ok "Space on the body shows the notes as Enter does"
+    else
+        read -r x0 x1 y0 y1 < <(measure notes_space notes_shown)
+        bad "after Space the screen differs from Enter's in columns ${x0}-${x1}, rows ${y0}-${y1}"
+    fi
+    "${NENV[@]}" wtype -k space
+    sleep 1
+    shot notes_space_hidden || { summary; exit 1; }
+    if same notes_hidden notes_space_hidden; then
+        ok "and a second Space hides them, the panel back as it was"
+    else
+        read -r x0 x1 y0 y1 < <(measure notes_space_hidden notes_hidden)
+        bad "after a second Space the screen differs in columns ${x0}-${x1}, rows ${y0}-${y1}"
+    fi
 
     # Escape from a tab other than All: the hover panel has no tabs, so it
     # comes back exactly as before, and the next keyboard opens on All.

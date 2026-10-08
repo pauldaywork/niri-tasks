@@ -184,20 +184,13 @@ impl Action {
         }
     }
 
-    /// Whether the panel keeps the keyboard after the button runs. Back to
-    /// list, Up next, Complete, Waiting and Remove only change the task, and
-    /// Speak plays in the background, so none opens anything that needs the
-    /// keyboard and the list stays up. Move opens the project list in the
-    /// panel itself. The rest open a box, a terminal or a herdr tab, which
-    /// takes it.
+    /// Whether the panel keeps the keyboard after the button runs. See
+    /// [`Action::facts`].
     pub fn keeps_keyboard(self) -> bool {
         self.facts().keeps_keyboard
     }
 
-    /// Whether the button takes its card off the list, so the focus has to
-    /// move to a neighbour first. Speak's card stays where it is, and so does
-    /// Up next's, which only moves up or down the list; the focus stays on the
-    /// button, so a second press undoes it.
+    /// Whether the button takes its card off the list. See [`Action::facts`].
     pub fn leaves_the_list(self) -> bool {
         self.facts().leaves_the_list
     }
@@ -432,6 +425,8 @@ mod tests {
         let mut icons: Vec<&str> = Action::ALL.iter().map(|a| a.facts().icon).collect();
         let mut classes: Vec<&str> = Action::ALL.iter().map(|a| a.facts().class).collect();
         let mut keys: Vec<&str> = Action::ALL.iter().filter_map(|a| a.facts().key).collect();
+        assert!(icons.iter().all(|i| !i.is_empty()));
+        assert!(classes.iter().all(|c| !c.is_empty()));
         for list in [&mut icons, &mut classes, &mut keys] {
             let before = list.len();
             list.sort();

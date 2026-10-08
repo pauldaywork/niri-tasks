@@ -63,11 +63,11 @@ pub const TYPE_A_NAME: &str = "Type a name to make a new project";
 
 /// A folder row's icon: Font Awesome's folder, Move to workspace's open one
 /// shut.
-pub const FOLDER_ICON: &str = "\u{f07b}";
+const FOLDER_ICON: &str = "\u{f07b}";
 
 /// A GitHub repo's icon: Font Awesome's GitHub mark, so a repo not cloned
 /// yet reads apart from a folder.
-pub const GITHUB_ICON: &str = "\u{f09b}";
+const GITHUB_ICON: &str = "\u{f09b}";
 
 /// The project list: every row, what is typed, the rows that match it and
 /// the one the highlight is on.
