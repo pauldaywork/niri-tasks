@@ -68,6 +68,9 @@ description wrapped, above its action row while it has focus. The cards run
 active, then up next, then by Taskwarrior priority, newest first, with blocked
 tasks under the rest. A finished task's card, on the Finished tab alone, is
 dimmed, carries a check, and counts its age from when the task was finished.
+While the task panel has the keyboard, Enter or a click on a card's body shows
+the task's notes under its description, dimmed, one per note, until a second
+press or the keyboard is given back; a card with no notes ignores the press.
 _Avoid_: row (the action row is part of a card), item, block
 
 **Task action**:
@@ -88,7 +91,8 @@ Waiting and Remove, an active task getting Stop in place of Start working, only
 a task with a live Claude getting Go to session, a waiting task getting just
 Back to list, Edit, Speak, Complete, Move to workspace and Remove, and a
 finished one just Back to list, Edit, Speak and Remove — each running its task
-action's `niritasks` command. Enter or a click on the card's body does nothing.
+action's `niritasks` command. Enter or a click on the card's body shows or hides the task's notes instead
+(see Task card).
 After the buttons, dimmed, the hint names the keys that change from card to
 card: the focused button's, and what Ctrl+Enter does to the task. The keys
 every card shares, Enter and Ctrl+Delete, are on a line under the list instead.

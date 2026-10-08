@@ -34,8 +34,8 @@
 # (README, "Testing"). The keyboard it can: `task panel` moves the panel to the
 # middle of the screen, and with wtype, Down (which moves the action row, and
 # shows the rest on reaching "+N more"), the filter tabs' keys, Ctrl+Enter,
-# Ctrl+Shift+Delete and Enter for the Waiting tab's Clear all, c and m on a card,
-# and Escape are pressed in the nested niri, never on your desktop.
+# Enter on a card's body (its notes), Ctrl+Shift+Delete and Enter for the
+# Waiting tab's Clear all, c and m on a card, and Escape are pressed in the nested niri, never on your desktop.
 #
 # What a key does to the panel's state (which tab, which card has the focus,
 # what is armed) is src/panel/state.rs's, and its unit tests check every rule
@@ -303,6 +303,49 @@ if command -v wtype >/dev/null; then
     else
         bad "the two cards Down touched are ${key_h}px tall, against $((three_h - one_h))px for
       two one-line cards and their gaps — no card shows its action row"
+    fi
+
+    # Enter on the focused card's body shows its task's notes under the
+    # description, and the panel grows to fit them; a second Enter hides
+    # them. Every task gets a note first, so whichever card Down left the
+    # focus on has one. Notes show only once pressed, so the re-render
+    # the notes bring changes nothing on screen.
+    for uuid in $(task "+$TAG" _uuids 2>/dev/null); do
+        task rc.verbose=nothing rc.confirmation=no "$uuid" annotate -- "a note on this task" >/dev/null 2>&1
+    done
+    settle
+    shot noted || { summary; exit 1; }
+    if same keyboard_down noted; then
+        ok "a task's notes stay hidden until its card is pressed"
+    else
+        read -r x0 x1 y0 y1 < <(measure noted keyboard_down)
+        bad "adding notes changed columns ${x0}-${x1}, rows ${y0}-${y1} before any press"
+    fi
+    "${NENV[@]}" wtype -k Return
+    sleep 1
+    shot notes_shown || { summary; exit 1; }
+    read -r x0 x1 y0 y1 < <(measure notes_shown)
+    if [ "$((y1 - y0))" -gt "$keyboard_h" ]; then
+        ok "Enter on the card's body shows its notes, the panel grown to fit (${keyboard_h}px to $((y1 - y0))px)"
+    else
+        bad "after Enter the panel is $((y1 - y0))px tall against ${keyboard_h}px before —
+      the focused card's notes should show and the panel grow to fit"
+    fi
+    settle
+    shot notes_ticked || { summary; exit 1; }
+    if same notes_shown notes_ticked; then
+        ok "and the daemon's ticks keep them shown"
+    else
+        bad "the notes' frame changed over a tick with nothing changed"
+    fi
+    "${NENV[@]}" wtype -k Return
+    sleep 1
+    shot notes_hidden || { summary; exit 1; }
+    if same keyboard_down notes_hidden; then
+        ok "and a second Enter hides them, the panel back as it was"
+    else
+        read -r x0 x1 y0 y1 < <(measure notes_hidden keyboard_down)
+        bad "after a second Enter the screen differs in columns ${x0}-${x1}, rows ${y0}-${y1}"
     fi
 
     # Escape from a tab other than All: the hover panel has no tabs, so it

@@ -148,8 +148,9 @@ pub const CONFIRM_CLEAR_ALL: &str = "Confirm clear all";
 
 /// The footer under the keyboard's list: the keys that act on whichever card
 /// has the focus, the same on every one, so the card's own hint leaves them
-/// out.
-pub const CARD_KEYS: &str = "Enter: press the button · Ctrl+Del: delete the task";
+/// out. Enter on a button presses it; on the card's body it shows the task's
+/// notes, or hides them.
+pub const CARD_KEYS: &str = "Enter: press the button or show notes · Ctrl+Del: delete the task";
 
 /// The command Clear all spawns: Remove's own `task status <uuid> deleted
 /// --yes` for each of `uuids`, one after another in one shell. So every task
@@ -508,7 +509,7 @@ mod tests {
             assert!(!text.contains("Ctrl+Del"), "{state:?} {focused:?}: {text}");
             assert!(!text.split(" · ").any(|part| part.starts_with("Enter")), "{state:?} {focused:?}: {text}");
         }
-        assert_eq!(CARD_KEYS, "Enter: press the button · Ctrl+Del: delete the task");
+        assert_eq!(CARD_KEYS, "Enter: press the button or show notes · Ctrl+Del: delete the task");
     }
 
     /// Room for the hint beside a row of `buttons`, in characters at the
