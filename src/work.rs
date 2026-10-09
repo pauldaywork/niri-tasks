@@ -7,14 +7,11 @@
 use crate::dirs::Dirs;
 use crate::session::{current_pane, Claude, Session};
 use crate::workspace::Workspace;
-use crate::{notify, programs, task, text};
+use crate::{names, notify, programs, task};
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-
-/// Longest description, in characters, the setup tab's label carries.
-const LABEL_DESCRIPTION_MAX: usize = 30;
 
 /// A task's branch and the worktree it is checked out in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,22 +53,10 @@ pub fn slug(description: &str) -> String {
     }
 }
 
-/// The first eight characters of a uuid, lowercased — enough to tell one
-/// task's branch and agent from another's.
-fn uuid8(uuid: &str) -> String {
-    uuid.chars().take(8).collect::<String>().to_ascii_lowercase()
-}
-
 /// The branch a task is worked on: `task/<slug>-<uuid8>`, readable in git and
 /// herdr, unique by the uuid.
 pub fn branch_name(description: &str, uuid: &str) -> String {
-    format!("task/{}-{}", slug(description), uuid8(uuid))
-}
-
-/// The herdr agent name for a task's working Claude. `work-`, not Refine's
-/// `task-`, so a refine still open on the task is never mistaken for it.
-pub fn work_agent_name(uuid: &str) -> String {
-    format!("work-{}", uuid8(uuid))
+    format!("task/{}-{}", slug(description), names::uuid8(uuid))
 }
 
 /// What the working Claude is asked first: plan the task, reading the task
@@ -88,7 +73,7 @@ pub fn plan_prompt(uuid: &str) -> String {
 /// `task/…-<uuid8>` branch checked out somewhere. Matched by uuid alone, so a
 /// branch named after an older description still counts.
 pub fn find_task_worktree(list: &Value, uuid: &str) -> Option<TaskWorktree> {
-    let suffix = format!("-{}", uuid8(uuid));
+    let suffix = format!("-{}", names::uuid8(uuid));
     list["items"].as_array()?.iter().find_map(|item| {
         let branch = item["branch"].as_str()?;
         if !(branch.starts_with("task/") && branch.ends_with(&suffix)) {
@@ -155,7 +140,7 @@ pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
     let repo = repo_for(ws)?;
     anyhow::ensure!(programs::on_path("wt"), "worktrunk (wt) is not installed.");
     let session = ws.session()?;
-    let name = work_agent_name(&t.uuid);
+    let name = names::work_agent(&t.uuid);
 
     let workspaces = session.open()?;
 
@@ -171,7 +156,7 @@ pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
         return start_working(&session, &name, &tab.pane, &t.uuid);
     }
 
-    let label = format!("Start: {}", short(&t.description));
+    let label = format!("Start: {}", names::elide(&t.description));
     let tab = session.new_tab(&workspaces, &repo, &label, ws.name())?;
     let exe = std::env::current_exe().context("could not find the niritasks binary")?;
     let command = format!(
@@ -239,7 +224,7 @@ fn set_up(ws: &Workspace, uuid: &str) -> Result<()> {
 
     let opened = session.open_worktree(&repo, &wt.path, &wt.branch)?;
     let pane = opened.pane.context("herdr did not say which pane it opened")?;
-    start_working(&session, &work_agent_name(uuid), &pane, uuid)
+    start_working(&session, &names::work_agent(uuid), &pane, uuid)
 }
 
 /// `wt switch --create`, with this tab's terminal on stdin and stderr so
@@ -258,17 +243,6 @@ fn create_worktree(repo: &Path, branch: &str) -> Result<TaskWorktree> {
     anyhow::ensure!(out.status.success(), "`wt switch --create {branch}` failed (see above).");
     let result: Value = serde_json::from_slice(&out.stdout).context("could not parse `wt switch` output as JSON")?;
     switch_result(&result).context("worktrunk did not say which worktree it made")
-}
-
-/// A description cut to fit a tab label, by characters, with an ellipsis.
-fn short(description: &str) -> String {
-    let d = text::collapse_whitespace(description);
-    if d.chars().count() > LABEL_DESCRIPTION_MAX {
-        let cut: String = d.chars().take(LABEL_DESCRIPTION_MAX - 1).collect();
-        format!("{cut}…")
-    } else {
-        d
-    }
 }
 
 #[cfg(test)]
@@ -294,10 +268,9 @@ mod tests {
     }
 
     #[test]
-    fn the_branch_and_agent_are_named_after_the_task() {
+    fn the_branch_is_named_after_the_task() {
         let u = "7CD9FD3A-d27b-4387-8249-aaf0d6785f90";
         assert_eq!(branch_name("Fix the peek", u), "task/fix-the-peek-7cd9fd3a");
-        assert_eq!(work_agent_name(u), "work-7cd9fd3a");
         assert_eq!(
             plan_prompt("u-1"),
             "/superpowers:writing-plans Plan Taskwarrior task u-1. Read it with `task rc.json.array=on u-1 export`; its description and notes are the spec."

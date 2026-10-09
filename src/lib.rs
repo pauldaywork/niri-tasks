@@ -10,6 +10,7 @@ pub mod github;
 pub mod ideas;
 pub mod ipc;
 pub mod link;
+pub mod names;
 pub mod niri;
 pub mod notify;
 pub mod panel;

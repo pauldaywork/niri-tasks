@@ -8,7 +8,7 @@
 use crate::dirs::Dirs;
 use crate::session::Claude;
 use crate::workspace::Workspace;
-use crate::{niri, notify, task, text};
+use crate::{names, niri, notify, task};
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
@@ -21,16 +21,6 @@ pub enum Mode {
     Quick,
     /// A full interview, via the `grilling` skill, before the draft.
     Grill,
-}
-
-/// Longest description, in characters, a tab label carries before eliding.
-const LABEL_DESCRIPTION_MAX: usize = 30;
-
-/// The herdr agent name for a task's refine session. One name per task is
-/// what lets a second Refine find the first instead of opening another.
-pub fn agent_name(uuid: &str) -> String {
-    let short: String = uuid.chars().take(8).collect();
-    format!("task-{}", short.to_ascii_lowercase())
 }
 
 /// Only the uuid crosses to the skill — the description and everything else
@@ -50,14 +40,7 @@ pub fn tab_label(mode: Mode, description: &str) -> String {
         Mode::Quick => "Refine",
         Mode::Grill => "Grill",
     };
-    let d = text::collapse_whitespace(description);
-    let short = if d.chars().count() > LABEL_DESCRIPTION_MAX {
-        let cut: String = d.chars().take(LABEL_DESCRIPTION_MAX - 1).collect();
-        format!("{cut}…")
-    } else {
-        d
-    };
-    format!("{verb}: {short}")
+    format!("{verb}: {}", names::elide(description))
 }
 
 /// Credential files and folders, as `Read` rule patterns relative to home.
@@ -248,7 +231,7 @@ fn ensure_no_exposed_sockets(hidden: &[PathBuf]) -> Result<()> {
 pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
     let dirs = Dirs::from_env()?;
     let home = dirs.home();
-    let name = agent_name(&t.uuid);
+    let name = names::refine_agent(&t.uuid);
 
     // Before anything opens: a refused refine should leave nothing behind.
     let hidden = hidden_paths(home);
@@ -454,13 +437,6 @@ Num       RefCount Protocol Flags    Type St Inode Path
         std::fs::remove_dir_all(&home).ok();
     }
 
-    /// herdr names must match `[a-z][a-z0-9_-]{0,31}`; a uuid's first eight
-    /// characters are hex, and enough to tell one task's session from another.
-    #[test]
-    fn the_agent_is_named_after_its_task() {
-        assert_eq!(agent_name("00DEEEE1-3cbd-465d-8c85-c4c4d643b1d0"), "task-00deeee1");
-    }
-
     #[test]
     fn the_prompt_invokes_the_skill_with_the_uuid() {
         assert_eq!(prompt("u-1", Mode::Quick), "/refine-task u-1");
@@ -471,14 +447,5 @@ Num       RefCount Protocol Flags    Type St Inode Path
     fn the_tab_says_what_it_is_for() {
         assert_eq!(tab_label(Mode::Quick, "fix the peek"), "Refine: fix the peek");
         assert_eq!(tab_label(Mode::Grill, "fix the peek"), "Grill: fix the peek");
-    }
-
-    /// A tab label shares herdr's sidebar with every other tab; a long
-    /// description is cut, by characters, with an ellipsis.
-    #[test]
-    fn long_descriptions_are_elided_in_the_label() {
-        let label = tab_label(Mode::Quick, &"é".repeat(40));
-        assert_eq!(label, format!("Refine: {}…", "é".repeat(29)));
-        assert_eq!(tab_label(Mode::Quick, "two\n lines"), "Refine: two lines");
     }
 }

@@ -2,11 +2,12 @@
 //! name. Refine names its agent `task-<uuid8>` and Start working names its
 //! `work-<uuid8>`, so nothing is stored on the task — the panel finds a task's
 //! agent by asking herdr for those names. A Claude started by hand gets the
-//! same `work-` name when it marks the task active.
+//! same `work-` name when it marks the task active. The names are spelled in
+//! [`names`].
 
 use crate::session::{current_pane, CurrentPane, Session};
 use crate::workspace::Workspace;
-use crate::{refine, work};
+use crate::names;
 use anyhow::{Context, Result};
 
 /// What to rename the agent in this pane to when it marks `uuid` active, or
@@ -17,10 +18,10 @@ use anyhow::{Context, Result};
 /// it was named for — a refine marking its task active is still that task's
 /// refine. Any other agent, named or not, takes the task's `work-` name.
 pub fn pane_link_name(current: Option<&str>, uuid: &str) -> Option<String> {
-    if current.is_some_and(|n| n.starts_with("task-") || n.starts_with("work-")) {
+    if current.is_some_and(names::is_task_agent) {
         return None;
     }
-    Some(work::work_agent_name(uuid))
+    Some(names::work_agent(uuid))
 }
 
 /// Name the agent in the herdr pane this process runs in after `uuid`, as
@@ -52,7 +53,7 @@ pub fn link_current_pane(uuid: &str) -> Result<()> {
 /// Which of `names` is `uuid`'s agent: its working Claude (`work-`) if it
 /// has one, else its refine (`task-`).
 pub fn session_agent(names: &[String], uuid: &str) -> Option<String> {
-    [work::work_agent_name(uuid), refine::agent_name(uuid)]
+    crate::names::both_agents(uuid)
         .into_iter()
         .find(|want| names.iter().any(|n| n == want))
 }

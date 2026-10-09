@@ -1130,7 +1130,7 @@ mod tests {
     fn go_to_session_only_on_a_card_with_a_live_agent() {
         let mut state = PanelState::default();
         state.set_cards(&pending(&["a", "b"]));
-        state.take_keyboard(vec![crate::work::work_agent_name("b")]);
+        state.take_keyboard(vec![crate::names::work_agent("b")]);
         let shown = state.visible();
         assert!(!shown[0].actions.contains(&Action::Session));
         assert_eq!(shown[1].actions[0], Action::Session);
