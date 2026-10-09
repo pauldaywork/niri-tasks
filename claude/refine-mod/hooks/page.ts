@@ -216,7 +216,9 @@ const part = (s: Section, n: number, of: number): string =>
 // what they read here.
 const written = (plan: Plan): string => {
   const notes =
-    plan.notes.length === 0 ? '<p>No notes.</p>' : `<ol>${plan.notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ol>`
+    plan.notes.length === 0
+      ? '<p>No notes.</p>'
+      : `<ol>${plan.notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ol>`
   return (
     '<section id="plan"><h2>Exactly what will be written</h2><details>' +
     '<summary>The description and notes you approve in the terminal</summary>' +
