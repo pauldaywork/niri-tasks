@@ -6,6 +6,11 @@ const TOOL = 'mcp__niri-tasks-refine__write_task_plan'
 const SANDBOX = { sandbox: { enabled: true, failIfUnavailable: true } }
 const START = { cwd: '/tmp', surface: null, isInteractive: false } as const
 const WRITE = 'Write it to the task'
+const REPORT = 'Show me a report first'
+const REPORT_TOOL = 'mcp__niri-tasks-refine__show_task_report'
+const REPORTS = { uuid: UUID, reports: '/r' }
+const REPORT_PATH = '/r/refine-0b8f6a52-20261006-010203.html'
+const BODY = '<h1>feat: New words</h1><pre class="mermaid">flowchart LR\n a --> b</pre>'
 
 const TASK = {
   uuid: UUID,
@@ -26,8 +31,12 @@ const CALL = {
 type Run = { argv: readonly string[]; init?: ProcessRunInit }
 
 // How the person answers the question: the label chosen or the words typed
-// under Other, or `{ deny }` for a dialog no one answered.
+// under Other, or `{ deny }` for a dialog no one answered. A list answers
+// one question each, in order, the last one after that.
 type Answer = string | { deny: string }
+type Answers = Answer | readonly Answer[]
+
+type Write = { path: string; text: string }
 
 const ran = (stdout = '', exitCode = 0) => ({
   value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
@@ -37,9 +46,12 @@ const ran = (stdout = '', exitCode = 0) => ({
 // session's start, the tool registry, the clock, the settings, the
 // transcript's log lines and the AskUserQuestion dialog. `seen` records the
 // log lines and the questions in the order they reached the engine.
-const engine = (on: On, settings: Record<string, unknown>, answer: Answer = WRITE) => {
+// `writeFails`, when given, is what `$.fs.write` is refused with.
+const engine = (on: On, settings: Record<string, unknown>, answer: Answers = WRITE, writeFails?: string) => {
   const registered: string[] = []
   const seen: string[] = []
+  const writes: Write[] = []
+  let asked = 0
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('tool.register', ($, e) => {
     const tool = `mcp__niri-tasks-refine__${e.name}`
@@ -51,16 +63,23 @@ const engine = (on: On, settings: Record<string, unknown>, answer: Answer = WRIT
     seen.push(`log: ${e.text}`)
     return { value: undefined }
   })
+  on('fs.write', ($, e) => {
+    if (writeFails !== undefined) return { deny: writeFails }
+    writes.push({ path: e.path, text: e.text })
+    return { value: undefined }
+  })
   // `$.ui.ask` is a tool.call of AskUserQuestion; the dialog's answer is
   // `answers`, keyed by the question.
   on('tool.call', { tool: 'AskUserQuestion' }, ($, e) => {
     const [question] = e.questions
     seen.push(`ask: ${question?.question} [${question?.options.map(o => o.label).join(' | ')}] (${question?.header})`)
-    if (typeof answer !== 'string') return answer
-    return { result: { questions: e.questions, answers: { [question?.question ?? '']: answer } } }
+    const list: readonly Answer[] = Array.isArray(answer) ? answer : [answer as Answer]
+    const given = list[Math.min(asked++, list.length - 1)] ?? WRITE
+    if (typeof given !== 'string') return given
+    return { result: { questions: e.questions, answers: { [question?.question ?? '']: given } } }
   })
   mock.clock(on, { now: Date.UTC(2026, 9, 6, 1, 2, 3) })
-  return { registered, seen }
+  return { registered, seen, writes }
 }
 
 // The engine, and a `task` that exports `exports[i]` at the i-th export (the
@@ -68,10 +87,10 @@ const engine = (on: On, settings: Record<string, unknown>, answer: Answer = WRIT
 const world = (
   on: On,
   settings: Record<string, unknown>,
-  answer: Answer = WRITE,
+  answer: Answers = WRITE,
   exports: readonly object[] = [TASK],
 ) => {
-  const { registered, seen } = engine(on, settings, answer)
+  const { registered, seen, writes } = engine(on, settings, answer)
   const runs: Run[] = []
   let exported = 0
   on('process.run', ($, e) => {
@@ -80,7 +99,7 @@ const world = (
     const task = exports[Math.min(exported++, exports.length - 1)]
     return ran(JSON.stringify([task]))
   })
-  return { registered, runs, seen }
+  return { registered, runs, seen, writes }
 }
 
 const verbs = (runs: readonly Run[]) => runs.map(run => run.argv.at(-1))
@@ -238,4 +257,100 @@ test('a hook that throws is denied by its .catch', { options: { uuid: UUID } }, 
   await $.session.start(START)
   const answer = await $.tool.call({ ...CALL, expected: { description: 'feat: Old words', notes: [] }, notes: [] })
   expect(answer.deny).toBe('niri-tasks-refine: write_task_plan failed before writing.')
+})
+
+test('with a reports folder: both tools, and the report among the answers', { options: REPORTS }, async ($, on) => {
+  const { registered, seen } = world(on, SANDBOX)
+  await $.session.start(START)
+  expect(registered).toEqual([TOOL, REPORT_TOOL])
+  await $.tool.call(CALL)
+  expect(seen.at(-1)).toBe(`ask: Write this to the task? [${WRITE} | ${REPORT} | Change something] (Task plan)`)
+})
+
+test('a relative reports folder: no report tool, two answers', { options: { uuid: UUID, reports: 'r' } }, async ($, on) => {
+  const { registered, seen } = world(on, SANDBOX)
+  await $.session.start(START)
+  expect(registered).toEqual([TOOL])
+  await $.tool.call(CALL)
+  expect(seen.at(-1)).toBe(`ask: Write this to the task? [${WRITE} | Change something] (Task plan)`)
+})
+
+test('"Show me a report first": writes nothing, the model is told to build it', { options: REPORTS }, async ($, on) => {
+  const { runs, writes } = world(on, SANDBOX, REPORT)
+  await $.session.start(START)
+  const answer = await $.tool.call(CALL)
+  expect(answer.deny).toBe(
+    'Nothing written: the person chose "Show me a report first". Build the HTML report of this plan ' +
+      'as the refine-task skill\'s "Report, when asked" says, show it with show_task_report, ' +
+      'then call write_task_plan again with the same plan.',
+  )
+  expect(verbs(runs)).toEqual(['export'])
+  expect(writes).toEqual([])
+})
+
+test('a report no one asked for is refused', { options: REPORTS }, async ($, on) => {
+  const { runs, writes } = world(on, SANDBOX)
+  await $.session.start(START)
+  const answer = await $.tool.call({ tool: REPORT_TOOL, title: 'feat: New words', body: BODY })
+  expect(answer.deny).toBe(
+    'show_task_report: the person has not asked for a report. Call write_task_plan; ' +
+      'they can choose "Show me a report first" there.',
+  )
+  expect(writes).toEqual([])
+  expect(runs).toEqual([])
+})
+
+test('report, then approve: writes the page, opens it, then writes the task', { options: REPORTS }, async ($, on) => {
+  const { runs, seen, writes } = world(on, SANDBOX, [REPORT, WRITE])
+  await $.session.start(START)
+
+  expect((await $.tool.call(CALL)).deny).toContain(`the person chose "${REPORT}"`)
+
+  const shown = await $.tool.call({ tool: REPORT_TOOL, title: 'feat: New words', body: BODY })
+  expect(shown.deny).toBeUndefined()
+  expect(shown.result).toBe(
+    `Wrote the report to ${REPORT_PATH} and opened it in the browser. ` +
+      'Now call write_task_plan again with the same plan; the person approves or changes it there.',
+  )
+  expect(writes.map(w => w.path)).toEqual([REPORT_PATH])
+  expect(writes[0]?.text).toContain(BODY)
+  expect(writes[0]?.text).toContain('Content-Security-Policy')
+  expect(seen).toContain(`log: Report: ${REPORT_PATH}`)
+  expect(runs.at(-1)?.argv).toEqual(['sh', '-c', 'xdg-open "$1" >/dev/null 2>&1 </dev/null &', 'sh', REPORT_PATH])
+
+  // One report per ask: a second needs the person to choose it again.
+  const again = await $.tool.call({ tool: REPORT_TOOL, title: 'feat: New words', body: BODY })
+  expect(again.deny).toStartWith('show_task_report: the person has not asked for a report.')
+
+  const written = await $.tool.call(CALL)
+  expect(written.result).toContain(`Wrote the plan to task ${UUID}`)
+  expect(verbs(runs).at(-1)).toBe('import')
+})
+
+test('a body with a script is refused, and the person may still get a report', { options: REPORTS }, async ($, on) => {
+  const { writes } = world(on, SANDBOX, REPORT)
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  const refused = await $.tool.call({ tool: REPORT_TOOL, title: 't', body: '<script>alert(1)</script>' })
+  expect(refused.deny).toBe(
+    'show_task_report: body must not contain <script>: the page runs no script but Mermaid, loads nothing and sends nothing',
+  )
+  expect(writes).toEqual([])
+  const fixed = await $.tool.call({ tool: REPORT_TOOL, title: 't', body: BODY })
+  expect(fixed.result).toContain(`Wrote the report to ${REPORT_PATH}`)
+})
+
+test('a report that cannot be written is denied by its .catch', { options: REPORTS }, async ($, on) => {
+  engine(on, SANDBOX, REPORT, 'disk full')
+  on('process.run', ($, e) => (e.argv.includes('export') ? ran(JSON.stringify([TASK])) : ran('')))
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  const answer = await $.tool.call({ tool: REPORT_TOOL, title: 't', body: BODY })
+  expect(answer.deny).toBe('niri-tasks-refine: show_task_report failed.')
+})
+
+test('sandbox off: no report tool either', { options: REPORTS }, async ($, on) => {
+  const { registered } = world(on, { sandbox: { enabled: true, failIfUnavailable: false } })
+  await $.session.start(START)
+  expect(registered).toEqual([])
 })

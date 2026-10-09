@@ -125,6 +125,22 @@ export const WRITE = 'Write it to the task'
 export const CHANGE = 'Change something'
 export const HEADER = 'Task plan'
 
+// The third answer, offered when the session has a reports folder: write
+// nothing yet, show the person a report of the plan first.
+export const REPORT = 'Show me a report first'
+
+// What the model reads when the person chose REPORT.
+export const REPORT_FIRST =
+  `Nothing written: the person chose "${REPORT}". Build the HTML report of this plan ` +
+  'as the refine-task skill\'s "Report, when asked" says, show it with show_task_report, ' +
+  'then call write_task_plan again with the same plan.'
+
+// What the model reads when it calls show_task_report unasked: the report is
+// on demand, one per time the person chooses REPORT.
+export const NOT_ASKED_FOR =
+  'show_task_report: the person has not asked for a report. Call write_task_plan; ' +
+  `they can choose "${REPORT}" there.`
+
 // The most of one `$.ui.log` line the terminal draws.
 export const MAX_LINE = 2000
 

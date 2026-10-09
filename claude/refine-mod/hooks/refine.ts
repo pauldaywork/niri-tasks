@@ -2,7 +2,10 @@ import type { EngineInterface, Register } from 'claude-code'
 import {
   CHANGE,
   HEADER,
+  NOT_ASKED_FOR,
   QUESTION,
+  REPORT,
+  REPORT_FIRST,
   WRITE,
   isSandboxed,
   isUuid,
@@ -16,9 +19,11 @@ import {
   refusal,
 } from './plan'
 import type { Plan, Task } from './plan'
+import { openArgv, parseReport, reportPage, reportPath, reportsDir } from './report'
 
 // The tool's listed name: mcp__<plugin>__<name>, hyphens kept.
 export const TOOL = 'mcp__niri-tasks-refine__write_task_plan'
+export const REPORT_TOOL = 'mcp__niri-tasks-refine__show_task_report'
 
 const PLAN = {
   type: 'object',
@@ -42,6 +47,22 @@ const SPEC = {
       notes: { type: 'array', items: { type: 'string' }, description: 'The new notes, in order.' },
     },
     required: ['expected', 'description', 'notes'],
+  },
+}
+
+const REPORT_SPEC = {
+  name: 'show_task_report',
+  description:
+    'Writes an HTML report of the plan and opens it in the browser, once the person has chosen ' +
+    '"Show me a report first" in write_task_plan. `body` is the HTML inside <body>: no script, ' +
+    'meta, link, base, iframe, object, embed or form; diagrams as <pre class="mermaid"> or inline <svg>.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: "The page's title: the task's new description." },
+      body: { type: 'string', description: 'The HTML inside <body>.' },
+    },
+    required: ['title', 'body'],
   },
 }
 
@@ -73,8 +94,17 @@ const current = async (
 }
 
 export const register: Register = (on, options) => {
+  // Where reports go, or undefined when this session offers none.
+  const reports = reportsDir(options.reports)
+  // Set when the person chooses REPORT; spent by the report it asked for.
+  // Module state: a reload forgets it, and the model is told to ask again.
+  let reportAsked = false
+
   on('session.start', async ($, e, next) => {
-    if ((await armedUuid($, options.uuid)) !== undefined) await $.tool.register(SPEC)
+    if ((await armedUuid($, options.uuid)) !== undefined) {
+      await $.tool.register(SPEC)
+      if (reports !== undefined) await $.tool.register(REPORT_SPEC)
+    }
     return next(e)
   })
 
@@ -99,11 +129,16 @@ export const register: Register = (on, options) => {
     if (tooLong !== undefined) return { deny: `Nothing written: ${tooLong}` }
     for (const line of lines) $.ui.log(line)
 
+    const choices = reports === undefined ? [WRITE, CHANGE] : [WRITE, REPORT, CHANGE]
     let answer: string
     try {
-      answer = await $.ui.ask(QUESTION, { options: [WRITE, CHANGE], header: HEADER })
+      answer = await $.ui.ask(QUESTION, { options: choices, header: HEADER })
     } catch (error) {
       return { deny: notAsked(error instanceof Error ? error.message : String(error)) }
+    }
+    if (answer === REPORT && reports !== undefined) {
+      reportAsked = true
+      return { deny: REPORT_FIRST }
     }
     if (answer !== WRITE) return { deny: notApproved(answer) }
 
@@ -122,4 +157,28 @@ export const register: Register = (on, options) => {
       result: `Wrote the plan to task ${uuid}: ${input.notes.length} note(s), tagged planned.`,
     }
   }).catch($ => ({ deny: `${$.plugin.name}: write_task_plan failed before writing.` }))
+
+  // The report the person asked for: written outside the sandbox, which
+  // cannot write the reports folder, and opened in their browser.
+  on('tool.call', { tool: REPORT_TOOL }, async ($, e) => {
+    const uuid = await armedUuid($, options.uuid)
+    if (uuid === undefined || reports === undefined) {
+      return { deny: 'show_task_report is not armed in this session.' }
+    }
+    if (!reportAsked) return { deny: NOT_ASKED_FOR }
+
+    const report = parseReport(e)
+    if (typeof report === 'string') return { deny: `show_task_report: ${report}` }
+
+    const path = reportPath(reports, uuid, await $.clock.now())
+    await $.fs.write(path, reportPage(report))
+    reportAsked = false
+    $.ui.log(`Report: ${path}`)
+    await $.process.run(openArgv(path))
+    return {
+      result:
+        `Wrote the report to ${path} and opened it in the browser. ` +
+        'Now call write_task_plan again with the same plan; the person approves or changes it there.',
+    }
+  }).catch($ => ({ deny: `${$.plugin.name}: show_task_report failed.` }))
 }
