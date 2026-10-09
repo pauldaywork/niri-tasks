@@ -15,14 +15,23 @@ info() { echo -e "${GREEN}[+]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 
 # Back up anything real that is in the way, then link. An existing symlink
-# already pointing at us is left alone so re-runs are silent.
+# already pointing at us is left alone so re-runs are silent. A symlink to the
+# same file in another niri-tasks checkout (a worktree, or one since removed)
+# is ours too, so it is replaced without a backup: backing those up is what
+# left a trail of links into deleted worktrees beside every installed file.
 link() {
     local src="$1" dst="$2"
     if [ -L "$dst" ] && [ "$(readlink -f "$dst")" = "$(readlink -f "$src")" ]; then
         return 0
     fi
     mkdir -p "$(dirname "$dst")"
-    if [ -e "$dst" ] || [ -L "$dst" ]; then
+    local rel="${src#"$REPO"/}" old
+    old="$(readlink "$dst" 2>/dev/null || true)"
+    if [ -L "$dst" ] && [ "$rel" != "$src" ] && [ "${old%/"$rel"}" != "$old" ] &&
+        { [ -e "${old%/"$rel"}/install.sh" ] || [ ! -e "$old" ]; }; then
+        rm "$dst"
+        info "Relinked $dst (was ${old%/"$rel"})"
+    elif [ -e "$dst" ] || [ -L "$dst" ]; then
         local backup="$dst.before-niri-tasks.$(date +%Y%m%d-%H%M%S)"
         mv "$dst" "$backup"
         warn "Backed up existing: $dst → $backup"
