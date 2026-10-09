@@ -464,7 +464,7 @@ const DRAWN = {
 }
 
 test('diagrams are drawn in the fenced renderer, and the page then runs no script', { options: REPORTS }, async ($, on) => {
-  const { runs, writes } = world(on, SANDBOX, REPORT, [TASK], false, argv => {
+  const { runs, seen, writes } = world(on, SANDBOX, REPORT, [TASK], false, argv => {
     if (argv[0] !== 'bwrap') return argv.at(-1) === 'bun' ? ran('/opt/bun\n') : ran('', 1)
     return ran(JSON.stringify({ svgs: ['<svg viewBox="0 0 1 1"><rect/></svg>'], errors: [null] }))
   })
@@ -479,6 +479,7 @@ test('diagrams are drawn in the fenced renderer, and the page then runs no scrip
   expect(JSON.parse(draw?.init?.stdin ?? 'null').diagrams[0]).toStartWith('flowchart LR\n a --> b\nclassDef new')
   expect(writes[0]?.text).toContain('<div class="drawn"><svg viewBox="0 0 1 1"><rect/></svg></div>')
   expect(writes[0]?.text).not.toContain('<script')
+  expect(seen.filter(line => line.includes('Diagrams'))).toEqual([])
 })
 
 test('without bun the renderer runs on node', { options: REPORTS }, async ($, on) => {
@@ -495,7 +496,7 @@ test('without bun the renderer runs on node', { options: REPORTS }, async ($, on
 })
 
 test('a renderer that fails is not retried on node; the browser draws', { options: REPORTS }, async ($, on) => {
-  const { runs, writes } = world(on, SANDBOX, REPORT, [TASK], false, argv =>
+  const { runs, seen, writes } = world(on, SANDBOX, REPORT, [TASK], false, argv =>
     argv[0] !== 'bwrap' ? ran(argv.at(-1) === 'bun' ? '/opt/bun\n' : '/usr/bin/node\n') : ran('', 1),
   )
   await $.session.start(START)
@@ -504,11 +505,24 @@ test('a renderer that fails is not retried on node; the browser draws', { option
   expect(runs.filter(r => r.argv[0] === 'bwrap').length).toBe(1)
   expect(runs.filter(r => r.argv[2]?.includes('command -v')).map(r => r.argv.at(-1))).toEqual(['bun'])
   expect(writes[0]?.text).toContain('<pre class="mermaid">')
+  expect(seen).toContain('log: Diagrams left to Mermaid in the browser: the diagram renderer failed (exit 1).')
+})
+
+test("a drawing the page will not take is left to the browser, and said so", { options: REPORTS }, async ($, on) => {
+  const { seen, writes } = world(on, SANDBOX, REPORT, [TASK], false, argv => {
+    if (argv[0] !== 'bwrap') return argv.at(-1) === 'bun' ? ran('/opt/bun\n') : ran('', 1)
+    return ran(JSON.stringify({ svgs: ['<svg><!-- open</svg>'], errors: [null] }))
+  })
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  await $.tool.call({ tool: REPORT_TOOL, ...DRAWN })
+  expect(writes[0]?.text).toContain('<pre class="mermaid">')
+  expect(seen).toContain("log: Diagrams left to Mermaid in the browser: the renderer's output was refused for 1 diagram(s).")
 })
 
 test('with neither bun nor node the browser draws', { options: REPORTS }, async ($, on) => {
   const tried: string[] = []
-  const { runs, writes } = world(on, SANDBOX, REPORT, [TASK], false, argv => {
+  const { runs, seen, writes } = world(on, SANDBOX, REPORT, [TASK], false, argv => {
     tried.push(argv.at(-1) ?? '')
     return ran('', 1)
   })
@@ -520,4 +534,5 @@ test('with neither bun nor node the browser draws', { options: REPORTS }, async 
   expect(runs.some(r => r.argv[0] === 'bwrap')).toBe(false)
   expect(writes[0]?.text).toContain('<pre class="mermaid">')
   expect(writes[0]?.text).toContain(`<script src="https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js"`)
+  expect(seen).toContain('log: Diagrams left to Mermaid in the browser: no bun or node found.')
 })

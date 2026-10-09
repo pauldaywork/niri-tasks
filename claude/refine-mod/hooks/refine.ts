@@ -166,27 +166,44 @@ const findRuntime = async ($: EngineInterface): Promise<string | undefined> => {
   return undefined
 }
 
+// Says in the transcript why diagrams were left to Mermaid in the browser,
+// which needs the internet, so the fallback is seen.
+const leftToBrowser = ($: EngineInterface, why: string): void => {
+  $.ui.log(`Diagrams left to Mermaid in the browser: ${why}.`)
+}
+
 // Draws each Mermaid diagram before the page opens, in the shipped renderer
 // inside its fence, on the one runtime found: a renderer that fails or times
 // out is not tried again. Undefined for any it could not draw, which the page
-// leaves to Mermaid in the browser.
+// leaves to Mermaid in the browser, and says why.
 const drawDiagrams = async ($: EngineInterface, report: Report): Promise<(string | undefined)[]> => {
   const sources = drawSources(report)
   const diagrams = sources.filter((s): s is string => s !== undefined)
-  if (diagrams.length === 0) return sources.map(() => undefined)
   const undrawn = sources.map(() => undefined)
+  if (diagrams.length === 0) return undrawn
   const runtime = await findRuntime($)
-  if (runtime === undefined) return undrawn
+  if (runtime === undefined) {
+    leftToBrowser($, 'no bun or node found')
+    return undrawn
+  }
+  let run: Awaited<ReturnType<EngineInterface['process']['run']>>
   try {
-    const run = await $.process.run(drawArgv(runtime, `${$.plugin.root}/${RENDERER}`), {
+    run = await $.process.run(drawArgv(runtime, `${$.plugin.root}/${RENDERER}`), {
       stdin: JSON.stringify({ diagrams }),
       timeoutMs: 20_000,
     })
-    return run.exitCode === 0 ? drawnSvgs(run.stdout, sources) : undrawn
   } catch {
-    // No bwrap, or the renderer timed out.
+    leftToBrowser($, 'the diagram renderer could not run (no bwrap, or it timed out)')
     return undrawn
   }
+  if (run.exitCode !== 0) {
+    leftToBrowser($, `the diagram renderer failed (exit ${run.exitCode})`)
+    return undrawn
+  }
+  const svgs = drawnSvgs(run.stdout, sources)
+  const refused = sources.filter((s, i) => s !== undefined && svgs[i] === undefined).length
+  if (refused > 0) leftToBrowser($, `the renderer's output was refused for ${refused} diagram(s)`)
+  return svgs
 }
 
 export const register: Register = (on, options) => {
