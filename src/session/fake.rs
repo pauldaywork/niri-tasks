@@ -3,7 +3,7 @@
 //! without a herdr server or a compositor. It models what the module reads:
 //! a session running or not, its workspaces, tabs and panes, its agents, the
 //! worktrees it has opened, niri's windows, and it logs every call it gets,
-//! and every claim's release.
+//! and every claim's and setup lock's release.
 
 use super::{Agent, Claim, Claude, Created, HerdrError, HerdrResult, Opened, Port, WindowInfo, Workspace};
 use std::cell::RefCell;
@@ -185,16 +185,16 @@ impl Fake {
     }
 }
 
-/// What the fake's claim holds: the fake itself, to log the release when the
+/// What the fake's claims hold: the fake itself, to log `line` when the
 /// claim is dropped, which is the moment the process adapter's lock goes.
 struct Release {
     fake: Fake,
-    session: String,
+    line: String,
 }
 
 impl Drop for Release {
     fn drop(&mut self) {
-        self.fake.note(format!("release {}", self.session));
+        self.fake.note(std::mem::take(&mut self.line));
     }
 }
 
@@ -371,6 +371,10 @@ impl Port for Fake {
     }
     fn claim(&self, session: &str) -> anyhow::Result<Claim> {
         self.note(format!("claim {session}"));
-        Ok(Claim::new(Release { fake: self.clone(), session: session.into() }))
+        Ok(Claim::new(Release { fake: self.clone(), line: format!("release {session}") }))
+    }
+    fn setup_lock(&self, task: &str, wait: Duration) -> anyhow::Result<Option<Claim>> {
+        self.note(format!("setup_lock {task} {}ms", wait.as_millis()));
+        Ok(Some(Claim::new(Release { fake: self.clone(), line: format!("setup_release {task}") })))
     }
 }

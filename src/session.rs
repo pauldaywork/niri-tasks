@@ -188,10 +188,12 @@ pub enum Claude {
     Worker,
 }
 
-/// A hold on a session's launches, taken by [`Session::claim`] and given up
-/// when dropped. Whoever holds it is the one launch checking the session for
-/// its agent and starting it, so a second press of Refine or Start working
-/// waits, then finds the first one's agent instead of starting another.
+/// A hold on a session's launches, taken by [`Session::claim`], or on a
+/// task's setup, taken by [`Session::hold_setup`]; given up when dropped.
+/// Whoever holds a session's claim is the one launch checking the session
+/// for its agent and starting it, so a second press of Refine or Start
+/// working waits, then finds the first one's agent instead of starting
+/// another.
 #[must_use = "the claim is given up as soon as it is dropped"]
 pub struct Claim {
     // Whatever the adapter holds the claim by: an open, locked file for the
@@ -240,6 +242,10 @@ pub(crate) trait Port {
     /// claim is dropped, waiting for one already held; an error when it is
     /// still held after a bounded wait.
     fn claim(&self, session: &str) -> Result<Claim>;
+    /// Try `task`'s setup lock, which a setup tab holds for its whole life,
+    /// for up to `wait`: the lock, or None when another holds it still. A
+    /// zero `wait` tries once.
+    fn setup_lock(&self, task: &str, wait: Duration) -> Result<Option<Claim>>;
 }
 
 /// How long a just-opened project terminal gets to bring its herdr session up.
@@ -248,6 +254,10 @@ const SESSION_WAIT: Duration = Duration::from_secs(10);
 const SESSION_POLL: Duration = Duration::from_millis(250);
 /// How many times a stalled prompt is sent before giving up.
 const PROMPT_TRIES: u32 = 4;
+/// How long a setup tab waits for its task's setup lock: a launch looking to
+/// see whether it is held takes it for a moment, so a tab starting just then
+/// must not fail. Far longer than a look, far shorter than any real setup.
+const SETUP_TAKE_WAIT: Duration = Duration::from_secs(2);
 /// The pause before a stalled prompt is sent again.
 const PROMPT_RETRY: Duration = Duration::from_secs(2);
 
@@ -347,6 +357,18 @@ impl Session {
     /// tasks' launches in one session simply take turns.
     pub fn claim(&self) -> Result<Claim> {
         self.port.claim(&self.name)
+    }
+
+    /// Hold `task`'s setup lock until the returned claim is dropped: what a
+    /// setup tab does for its whole life, so that a press of Start working
+    /// meanwhile finds it held and points at that tab rather than opening
+    /// another. Waits briefly ([`SETUP_TAKE_WAIT`]) since a launch's look
+    /// takes it for a moment; held past that, another tab is setting the
+    /// task up, and this one says so.
+    pub fn hold_setup(&self, task: &str) -> Result<Claim> {
+        self.port
+            .setup_lock(task, SETUP_TAKE_WAIT)?
+            .context("This task is already being set up in another tab.")
     }
 
     /// Make the session running and in front of the user, and return its
@@ -676,6 +698,18 @@ mod tests {
 
     fn logged_start(f: &Fake, prefix: &str) -> bool {
         f.log().iter().any(|l| l.starts_with(prefix))
+    }
+
+    /// A setup tab holds its task's setup lock, waiting briefly for it,
+    /// until the claim it was given is dropped.
+    #[test]
+    fn a_setup_tab_holds_its_tasks_lock_until_it_goes() {
+        let (s, f) = session(Fake::running(&[("w1", "alpha")]));
+        let held = s.hold_setup("7cd9fd3a-0000").unwrap();
+        assert!(logged(&f, "setup_lock 7cd9fd3a-0000 2000ms"), "{:?}", f.log());
+        assert!(!logged(&f, "setup_release 7cd9fd3a-0000"));
+        drop(held);
+        assert!(logged(&f, "setup_release 7cd9fd3a-0000"), "{:?}", f.log());
     }
 
     /// The first `workspace_list` finds it stopped; the terminal is spawned

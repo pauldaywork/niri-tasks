@@ -198,11 +198,25 @@ fn start_and_prompt(session: &Session, claim: Claim, name: &str, pane: &str, tex
 /// Claude there, then close this tab. On failure the tab stays, with the
 /// error, until the user has read it.
 ///
+/// It holds the task's setup lock from the start until this process ends,
+/// the error's wait included, so that a press of Start working meanwhile
+/// finds it held and points at this tab rather than opening another. The
+/// kernel drops it with the process, so a closed tab never leaves it held.
+/// `uuid` is the full one [`launch`] passes, whose first eight characters
+/// name the lock.
+///
 /// `workspace` is the raw `--workspace` name, checked here rather than by the
 /// caller so that a name [`Workspace::named`] refuses also holds the tab open
 /// with its error, like any other failure.
 pub fn set_up_here(workspace: &str, uuid: &str) -> Result<()> {
-    match Workspace::named(workspace).and_then(|ws| set_up(&ws, uuid).map(|()| ws)) {
+    // Kept only to be dropped when this function returns, after the wait for
+    // Enter below.
+    let mut _setup = None;
+    let done = Workspace::named(workspace).and_then(|ws| {
+        _setup = Some(ws.session()?.hold_setup(uuid)?);
+        set_up(&ws, uuid).map(|()| ws)
+    });
+    match done {
         Ok(ws) => {
             // Best effort: closing our own tab ends this process, and a tab
             // left open is only untidy. It is closed through the workspace's
@@ -240,9 +254,10 @@ fn set_up(ws: &Workspace, uuid: &str) -> Result<()> {
 
     // Claimed only now the worktree exists: making it can wait minutes on the
     // user approving the repo's hooks, and every other launch in the session
-    // would wait with it. Under the claim, the agent is looked for before one
-    // is started, so a second setup tab for the same task, from a second
-    // press, focuses the first one's Claude instead of starting another.
+    // would wait with it. A second press meanwhile finds this tab's setup
+    // lock held and opens no tab of its own; under the claim, the agent is
+    // still looked for before one is started, in case one was started by
+    // hand or by a tab from before the lock.
     let name = names::work_agent(uuid);
     let claim = session.claim()?;
     let opened = session.open_worktree(&repo, &wt.path, &wt.branch)?;

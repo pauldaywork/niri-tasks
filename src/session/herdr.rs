@@ -351,6 +351,9 @@ impl Port for Process {
         let waiting = || self.notify(CLAIM_WAITING);
         Ok(Claim::new(claim_in(&claims_dir(), session, CLAIM_WAIT, CLAIM_POLL, waiting)?))
     }
+    fn setup_lock(&self, task: &str, wait: Duration) -> Result<Option<Claim>> {
+        Ok(setup_lock_in(&claims_dir(), task, wait, CLAIM_POLL)?.map(Claim::new))
+    }
 }
 
 /// How long a launch waits for another one in the same session to finish
@@ -366,7 +369,7 @@ const CLAIM_WAIT: Duration = Duration::from_secs(120);
 /// How often a waiting launch tries the lock again.
 const CLAIM_POLL: Duration = Duration::from_millis(100);
 
-/// Where the claims' lock files live: `$XDG_RUNTIME_DIR/niri-tasks`, which is
+/// Where the claims' and setup locks' files live: `$XDG_RUNTIME_DIR/niri-tasks`, which is
 /// per-user and per-boot, else the temp folder, as the daemon's socket does.
 fn claims_dir() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
@@ -380,10 +383,44 @@ fn claims_dir() -> PathBuf {
 /// of Refine that waits does not look like one that did nothing.
 const CLAIM_WAITING: &str = "Waiting for another launch in this session to start its Claude…";
 
-/// Take `session`'s claim: an exclusive `flock` on `session-<name>.lock` in
-/// `dir`, tried every `poll` until it is had or `wait` has passed, calling
-/// `waiting` once, the first time it is found held. The lock goes with the
-/// returned file, when it is closed or this process exits.
+/// Take `session`'s claim: an exclusive lock on `session-<name>.lock` in
+/// `dir` (see [`lock_in`]), calling `waiting` once, the first time it is
+/// found held; an error that says why once `wait` has passed.
+pub(crate) fn claim_in(
+    dir: &Path,
+    session: &str,
+    wait: Duration,
+    poll: Duration,
+    waiting: impl FnOnce(),
+) -> Result<File> {
+    // Through herdr's own naming rule, so a name from the environment can
+    // never carry a `/` out of the folder; a name herdr accepts is unchanged.
+    let name = format!("session-{}.lock", super::herdr_session_name(session));
+    lock_in(dir, &name, wait, poll, waiting)?.with_context(|| {
+        format!(
+            "Another Refine or Start working in herdr session {session} has still not started its \
+             Claude after {}s; it may be waiting for an answer in its tab. Try again once it has.",
+            wait.as_secs()
+        )
+    })
+}
+
+/// Try `task`'s setup lock, which a setup tab holds for its whole life: an
+/// exclusive lock on `task-<uuid8>.setup.lock` in `dir` (see [`lock_in`]),
+/// or None when it is still held once `wait` has passed. A zero `wait`
+/// tries once, which is how a launch looks to see whether it is held.
+pub(crate) fn setup_lock_in(dir: &Path, task: &str, wait: Duration, poll: Duration) -> Result<Option<File>> {
+    // Through herdr's naming rule as a session's name is, so a task that is
+    // not a uuid can never carry a `/` out of the folder.
+    let name = format!("task-{}.setup.lock", super::herdr_session_name(&crate::names::uuid8(task)));
+    lock_in(dir, &name, wait, poll, || ())
+}
+
+/// An exclusive `flock` on `name` in `dir`, tried every `poll` until it is
+/// had or `wait` has passed, calling `waiting` once, the first time it is
+/// found held: the open, locked file, or None when it is still held at the
+/// end. The lock goes with the returned file, when it is closed or this
+/// process exits.
 ///
 /// `flock` and not a lock file's mere existence, because the kernel drops it
 /// with a holder that crashes: nothing stale is ever left to clean up. Tried
@@ -393,22 +430,14 @@ const CLAIM_WAITING: &str = "Waiting for another launch in this session to start
 /// rather than through the port's `sleep`, a conscious exception to the
 /// design's Q16: this is the process adapter's own lock, under the port
 /// rather than above it, and its tests race it on real threads in real time.
-pub(crate) fn claim_in(
-    dir: &Path,
-    session: &str,
-    wait: Duration,
-    poll: Duration,
-    waiting: impl FnOnce(),
-) -> Result<File> {
+fn lock_in(dir: &Path, name: &str, wait: Duration, poll: Duration, waiting: impl FnOnce()) -> Result<Option<File>> {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(dir)
         .with_context(|| format!("could not make {}", dir.display()))?;
-    // Through herdr's own naming rule, so a name from the environment can
-    // never carry a `/` out of the folder; a name herdr accepts is unchanged.
-    let path = dir.join(format!("session-{}.lock", super::herdr_session_name(session)));
+    let path = dir.join(name);
     let file = File::options()
         .read(true)
         .write(true)
@@ -420,18 +449,14 @@ pub(crate) fn claim_in(
     let mut waiting = Some(waiting);
     loop {
         match file.try_lock() {
-            Ok(()) => return Ok(file),
+            Ok(()) => return Ok(Some(file)),
             Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
                 if let Some(say) = waiting.take() {
                     say();
                 }
                 std::thread::sleep(poll)
             }
-            Err(TryLockError::WouldBlock) => anyhow::bail!(
-                "Another Refine or Start working in herdr session {session} has still not started its \
-                 Claude after {}s; it may be waiting for an answer in its tab. Try again once it has.",
-                wait.as_secs()
-            ),
+            Err(TryLockError::WouldBlock) => return Ok(None),
             Err(TryLockError::Error(e)) => {
                 return Err(e).with_context(|| format!("could not lock {}", path.display()));
             }
@@ -536,6 +561,53 @@ mod tests {
         let held = claim_in(&dir, "../escape", Duration::from_millis(100), Duration::from_millis(10), || ()).unwrap();
         assert!(dir.join("session-.._escape.lock").is_file());
         drop(held);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A setup lock is one holder's at a time; a zero wait tries once and
+    /// does not wait; another task's is its own; and it is free again once
+    /// its holder goes, as when a setup tab's process ends.
+    #[test]
+    fn a_setup_lock_is_exclusive_and_gone_with_its_holder() {
+        let dir = scratch("setup");
+        let task = "7cd9fd3a-d27b-4387-8249-aaf0d6785f90";
+        let poll = Duration::from_millis(10);
+        let first = setup_lock_in(&dir, task, Duration::ZERO, poll).unwrap().expect("a free lock is had");
+        assert!(dir.join("task-7cd9fd3a.setup.lock").is_file());
+        let started = Instant::now();
+        assert!(setup_lock_in(&dir, task, Duration::ZERO, poll).unwrap().is_none(), "held by the first");
+        assert!(started.elapsed() < Duration::from_millis(100), "a zero wait does not wait");
+        assert!(setup_lock_in(&dir, "11111111-0000", Duration::ZERO, poll).unwrap().is_some());
+        drop(first);
+        assert!(setup_lock_in(&dir, task, Duration::ZERO, poll).unwrap().is_some(), "free once its holder goes");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A setup tab that waits briefly gets the lock once a launch's quick
+    /// look at it lets go.
+    #[test]
+    fn a_setup_lock_waited_for_is_had_once_let_go() {
+        let dir = scratch("setup-wait");
+        let task = "7cd9fd3a-0000";
+        let first = setup_lock_in(&dir, task, Duration::ZERO, Duration::from_millis(10)).unwrap().unwrap();
+        let dir2 = dir.clone();
+        let second = std::thread::spawn(move || {
+            setup_lock_in(&dir2, task, Duration::from_secs(5), Duration::from_millis(10)).unwrap().is_some()
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        drop(first);
+        assert!(second.join().unwrap(), "the waiting tab got the lock");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A task that is not a uuid is folded by herdr's naming rule, so its
+    /// lock file never reaches outside the claims' folder.
+    #[test]
+    fn a_setup_lock_file_stays_in_its_folder() {
+        let dir = scratch("setup-name");
+        let held = setup_lock_in(&dir, "../escape", Duration::ZERO, Duration::from_millis(10)).unwrap();
+        assert!(held.is_some());
+        assert!(dir.join("task-.._escap.setup.lock").is_file());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
