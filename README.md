@@ -156,7 +156,7 @@ include "niri-tasks.kdl"
 ```
 
 `install.sh` builds `niritasks`, symlinks the niri include and
-the Claude skills (`workspace-tasks`, `refine-task`, `finish-worktree`, `reject-worktree`) into `~/.claude/skills`,
+the Claude skills (`workspace-tasks`, `refine-task`, `finish-worktree`, `reject-worktree`, `private-github-repo`) into `~/.claude/skills`,
 the refine mod (`claude/refine-mod`, which Refine's session writes the task with) into
 `~/.local/share/niri-tasks/refine-mod`, a Claude rule into `~/.claude/rules` (use `finish-worktree` to land a worktree branch), restarts the daemon
 onto the new binary, and reloads niri. Updating is `git pull && bash install.sh`.
@@ -208,6 +208,12 @@ removes the worktree and its branch, locally and on origin, and puts the task
 back on the list, stopped, to be started fresh. Give it a reason and the task
 gets a `Rejected:` note. It asks first only when there are commits, uncommitted
 changes or a pushed branch to lose.
+
+A project with no GitHub repo yet gets one with `/private-github-repo`: a
+private repo on your account, named after the folder, set as `origin` and
+pushed. It runs `git init` if it has to, asks before making a first commit,
+and stops rather than push a secret, overwrite an existing `origin`, or reuse
+a name already taken on your account.
 
 VS Code is optional. `niritasks project open` starts one on the project folder when
 `code` is on `$PATH`, and starts only the terminal when it is not — the lookup

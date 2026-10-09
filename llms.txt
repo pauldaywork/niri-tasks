@@ -61,6 +61,7 @@
 - [workspace-tasks](.claude/skills/workspace-tasks/SKILL.md): work through every pending task on this terminal's workspace, one at a time, keeping their status honest
 - [refine-task](.claude/skills/refine-task/SKILL.md): work one task up into a plan and tag it `+planned`; what `niritasks task refine` starts
 - [finish-worktree](.claude/skills/finish-worktree/SKILL.md): land a finished task worktree on `main` and mark the task completed
+- [private-github-repo](.claude/skills/private-github-repo/SKILL.md): give the current project a private GitHub repo on your account, named after its folder, set as `origin` and pushed
 
 ## Optional
 

@@ -94,6 +94,10 @@ link "$REPO/.claude/skills/finish-worktree/SKILL.md" "$CLAUDE_SKILLS/finish-work
 # branch away, locally and on origin, and puts the task back, stopped.
 link "$REPO/.claude/skills/reject-worktree/SKILL.md" "$CLAUDE_SKILLS/reject-worktree/SKILL.md"
 
+# private-github-repo: gives the current project a private GitHub repo on the
+# user's account, named after its folder, set as origin and pushed.
+link "$REPO/.claude/skills/private-github-repo/SKILL.md" "$CLAUDE_SKILLS/private-github-repo/SKILL.md"
+
 # The refine mod: the one tool a Refine session writes its task with. A
 # folder, loaded by `niritasks task refine` with --plugin-dir from this fixed
 # path, since the installed binary does not know where the repo is. Not under
