@@ -125,6 +125,57 @@ describe('parseReport', () => {
   })
 })
 
+describe('parseReport keeps the page to one layout', () => {
+  const LAYOUT = 'the page keeps one layout'
+
+  test('refuses an HTML comment in detail or SVG', () => {
+    expect(parseReport(detailed('<p>a</p><!-- b -->'))).toBe(
+      `sections[0].detail must not contain an HTML comment: ${LAYOUT}`,
+    )
+    expect(parseReport(drawn({ svg: '<svg><!-- b --></svg>' }))).toBe(
+      `sections[0].diagram.svg must not contain an HTML comment: ${LAYOUT}`,
+    )
+  })
+
+  test("refuses closing the page's own structure", () => {
+    for (const tag of ['details', 'section', 'main', 'footer', 'nav', 'figure', 'header', 'body', 'html']) {
+      expect(parseReport(detailed(`<p>a</p></${tag}>`))).toBe(
+        `sections[0].detail must not close the page's <${tag}>: ${LAYOUT}`,
+      )
+    }
+    expect(parseReport(detailed('< / Section >'))).toBe(`sections[0].detail must not close the page's <section>: ${LAYOUT}`)
+    expect(parseReport(drawn({ svg: '<svg></figure></svg>' }))).toBe(
+      `sections[0].diagram.svg must not close the page's <figure>: ${LAYOUT}`,
+    )
+  })
+
+  test('refuses elements in detail that swallow or restyle the page', () => {
+    const tags = ['style', 'plaintext', 'xmp', 'textarea', 'title', 'noscript', 'template', 'html', 'head', 'body']
+    for (const tag of tags) {
+      expect(parseReport(detailed(`<p>a</p>< ${tag.toUpperCase()} x>`))).toBe(
+        `sections[0].detail must not contain <${tag}>: ${LAYOUT}`,
+      )
+    }
+  })
+
+  test('refuses <style> in SVG, and keeps its <title>', () => {
+    expect(parseReport(drawn({ svg: '<svg><style>p{}</style></svg>' }))).toBe(
+      `sections[0].diagram.svg must not contain <style>: ${LAYOUT}`,
+    )
+    expect(typeof parseReport(drawn({ svg: '<svg viewBox="0 0 1 1"><title>A box</title><rect/></svg>' }))).toBe('object')
+  })
+
+  test('keeps names that only begin like a refused one, and escaped markup', () => {
+    for (const detail of ['<titles>x</titles>', '<styled-box/>', '</sections>', '</main-part>', '<p>&lt;!-- x --&gt;</p>']) {
+      expect(typeof parseReport(detailed(detail))).toBe('object')
+    }
+  })
+
+  test('leaves Mermaid, whose source is escaped, to the rules for every diagram', () => {
+    expect(typeof parseReport(drawn({ mermaid: 'flowchart LR\n %% <!-- a -->\n a["</section> <style>"] --> b' }))).toBe('object')
+  })
+})
+
 describe('reportsDir', () => {
   test('takes an absolute folder, without a trailing slash', () => {
     expect(reportsDir('/home/x/.local/share/niri-tasks/reviews')).toBe('/home/x/.local/share/niri-tasks/reviews')

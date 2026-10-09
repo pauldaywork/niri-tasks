@@ -57,6 +57,18 @@ const CHANGES: readonly string[] = ['new', 'change', 'remove']
 // hears why rather than finding a blank figure.
 const FORBIDDEN = /<\s*(script|meta|base|link|iframe|frameset|frame|object|embed|form|portal)(?![\w-])/i
 
+// What would break the page's one layout, refused in detail and SVG, which
+// the page shows as given (Mermaid source is escaped, so it cannot): a
+// comment left open hides the rest of the page, and closing one of the
+// page's own elements moves what follows out of its place.
+const COMMENT = /<!--/
+const CLOSES = /<\s*\/\s*(details|section|main|footer|nav|figure|header|body|html)(?![\w-])/i
+
+// Elements that swallow the rest of the page as text, or restyle it. An SVG
+// may keep its <title>, which names the drawing.
+const SWALLOWS_DETAIL = /<\s*(style|plaintext|xmp|textarea|title|noscript|template|html|head|body)(?![\w-])/i
+const SWALLOWS_SVG = /<\s*(style)(?![\w-])/i
+
 // How many problems one refusal lists before it says how many more.
 const MAX_ERRORS = 20
 
@@ -85,9 +97,10 @@ const text = (errors: Errors, at: string, value: unknown, limit: { words?: numbe
   return value
 }
 
-// Markup the page shows as given: within its size, and holding nothing the
-// page must not.
-const markup = (errors: Errors, at: string, value: unknown, maxChars: number): string => {
+// Markup within its size, holding nothing the page must not. Markup the page
+// shows as given passes the elements that would swallow it, and is held to
+// the page's one layout too.
+const markup = (errors: Errors, at: string, value: unknown, maxChars: number, swallows?: RegExp): string => {
   if (typeof value !== 'string' || value.trim() === '') {
     errors.push(`${at} must be a non-empty string`)
     return ''
@@ -97,6 +110,12 @@ const markup = (errors: Errors, at: string, value: unknown, maxChars: number): s
   if (tag !== undefined) {
     errors.push(`${at} must not contain <${tag}>: the page runs no script but Mermaid, loads nothing and sends nothing`)
   }
+  if (swallows === undefined) return value
+  if (COMMENT.test(value)) errors.push(`${at} must not contain an HTML comment: the page keeps one layout`)
+  const closed = CLOSES.exec(value)?.[1]?.toLowerCase()
+  if (closed !== undefined) errors.push(`${at} must not close the page's <${closed}>: the page keeps one layout`)
+  const swallowed = swallows.exec(value)?.[1]?.toLowerCase()
+  if (swallowed !== undefined) errors.push(`${at} must not contain <${swallowed}>: the page keeps one layout`)
   return value
 }
 
@@ -143,7 +162,7 @@ const diagram = (errors: Errors, at: string, value: unknown): Diagram | undefine
     }
     return { mermaid: source }
   }
-  const svg = markup(errors, `${at}.svg`, value.svg, LIMITS.diagramChars)
+  const svg = markup(errors, `${at}.svg`, value.svg, LIMITS.diagramChars, SWALLOWS_SVG)
   if (svg !== '' && !/^\s*<svg[\s>][\s\S]*<\/svg>\s*$/i.test(svg)) errors.push(`${at}.svg must be one <svg> element`)
   return { svg }
 }
@@ -166,7 +185,9 @@ const section = (errors: Errors, at: string, value: unknown): Section => {
   } else if (value.look_at !== undefined) {
     errors.push(`${at}.look_at needs a diagram to point at`)
   }
-  if (value.detail !== undefined) part.detail = markup(errors, `${at}.detail`, value.detail, LIMITS.detailChars)
+  if (value.detail !== undefined) {
+    part.detail = markup(errors, `${at}.detail`, value.detail, LIMITS.detailChars, SWALLOWS_DETAIL)
+  }
   return part
 }
 
