@@ -145,14 +145,13 @@ use crate::actions::{Action, TaskState};
 use super::blur::Blur;
 use super::keys;
 use super::layout::{
-    centre_margin, scroll_to_show, Layout, Measured, CENTRED_X, EXPANDED_X, RING_PX, SURFACE_WIDTH,
-    TUCKED_X,
+    centre_margin, scroll_to_show, Layout, Measured, CENTRED_X, EXPANDED_X, SURFACE_WIDTH, TUCKED_X,
 };
 use super::notepad::Notepad;
 use super::model::{Card, Filter, Status, Tab};
 use super::projects::ProjectList;
 use super::state::{Armed, Effect, Focus, Mode, PanelState, Shown, Slot};
-use super::style::{CARD_WIDTH_PX, GAP_PX};
+use super::style::{CARD_WIDTH_PX, GAP_PX, RING_PX};
 use crate::project::{Projects, Row};
 use gtk4::prelude::*;
 use gtk4::{cairo, gdk, glib, Application, ApplicationWindow};

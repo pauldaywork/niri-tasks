@@ -36,14 +36,16 @@ pub const BACKGROUND: &str = "rgba(0, 0, 0, 0.375)";
 /// A terminal window's own fill, before niri touches it: ghostty's black
 /// `background` at `background-opacity = 0.5`. For the task box, which is a
 /// window rather than a layer surface, niri adds the rest itself — the window
-/// `opacity 0.75` that turns this into [`BACKGROUND`], the blur, and the 3px
-/// focus ring [`OUTLINE`] imitates — so the box fills with this and draws no
-/// outline of its own.
+/// `opacity 0.75` that turns this into [`BACKGROUND`], the blur, and the
+/// focus ring the cards imitate with [`RING_PX`] — so the box fills with this
+/// and draws no outline of its own.
 pub const WINDOW_BACKGROUND: &str = "rgba(0, 0, 0, 0.5)";
-/// A terminal window's outline: niri's 3px focus ring, `#00000020`, drawn as a
-/// spread shadow so it sits outside the card the way the ring sits outside the
-/// window.
-pub const OUTLINE: &str = "0 0 0 3px rgba(0, 0, 0, 0.125)";
+/// A terminal window's outline: niri's `focus-ring` `width`, drawn round each
+/// card as a spread shadow so it sits outside the card the way the ring sits
+/// outside the window. The layout keeps this much room round the cards too.
+pub const RING_PX: i32 = 3;
+/// niri's `focus-ring` colour, `#00000020`.
+pub const RING_COLOUR: &str = "rgba(0, 0, 0, 0.125)";
 /// mako `text-color`.
 pub const TEXT: &str = "#f0f0f0";
 /// The active task's ▶ and text. A green between Catppuccin's two, nearer
@@ -134,7 +136,7 @@ window.task-panel {{ background-color: transparent; }}
     color: {TEXT};
     border-radius: {RADIUS_PX}px;
     font: {FONT};
-    box-shadow: {OUTLINE};
+    box-shadow: 0 0 0 {RING_PX}px {RING_COLOUR};
 }}
 .task-panel .card-body,
 .task-panel .card-actions button,

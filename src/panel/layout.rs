@@ -6,7 +6,7 @@
 //! cards is tested without a compositor.
 
 use super::blur::{self, Rect};
-use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX};
+use super::style::{CARD_WIDTH_PX, GAP_PX, RADIUS_PX, RING_PX};
 
 /// How much of each card shows while the panel is tucked away: the card's
 /// 12px padding plus about one glyph, so the status icon peeks out and the
@@ -16,12 +16,6 @@ pub(crate) const PEEK_PX: i32 = 30;
 /// Room around the cards for their CSS shadow, which the surface has to
 /// contain or it is cut off square.
 pub(crate) const SHADOW_PX: i32 = 16;
-
-/// The spread of each card's outline ring (style.rs's `OUTLINE`), which is
-/// drawn outside the card's box. The scroller clips its content, so the column
-/// keeps this much margin inside it and the scroller is this much bigger than
-/// the cards on every side; SHADOW_PX already leaves the surface room for it.
-pub(crate) const RING_PX: i32 = 3;
 
 /// The expanded cards' distance from the screen edge, matching mako's
 /// `outer-margin`.
@@ -212,12 +206,6 @@ mod tests {
     fn the_region_runs_to_the_edge_unless_centred() {
         assert_eq!(region_width(100, false), SURFACE_WIDTH - 100);
         assert_eq!(region_width(CENTRED_X as i32, true), CARD_WIDTH_PX);
-    }
-
-    #[test]
-    fn the_ring_margin_is_the_outlines_spread() {
-        // A mismatch would clip the ring against the scroller again.
-        assert!(super::super::style::OUTLINE.contains(&format!(" {RING_PX}px ")));
     }
 
     #[test]
