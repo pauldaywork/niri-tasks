@@ -11,12 +11,14 @@
 //!
 //!   1. which workspace each monitor is showing, over the niri socket (no
 //!      subprocess), and
-//!   2. the mtimes of taskwarrior's `pending.data` and `completed.data`, in
-//!      the directory taskwarrior itself names (two stats).
+//!   2. the mtimes of the task database's files, in the directory taskwarrior
+//!      itself names: 2.6's `pending.data` and `completed.data`, and 3.x's
+//!      `taskchampion.sqlite3` (three stats; see `DB_FILES` for why those
+//!      and never 3.x's `-wal` or `-shm`).
 //!
 //! `task export` is a subprocess and the expensive part, so it runs only when
 //! one of those actually moved, and once per workspace tag rather than once
-//! per monitor. Idle cost is a socket round-trip and two stats.
+//! per monitor. Idle cost is a socket round-trip and three stats.
 
 use crate::panel::{model, style, Panel};
 use crate::workspace::Workspace;
@@ -47,8 +49,9 @@ struct State {
     /// Connector → the name of the workspace it shows. `None` until the first
     /// tick, and again after a hotplug, to force a redraw.
     outputs: Option<BTreeMap<String, Option<String>>>,
-    /// [`db_mtimes`] at the last tick.
-    task_mtimes: [Option<SystemTime>; 2],
+    /// [`db_mtimes`] at the last tick: one per file in [`DB_FILES`], in that
+    /// order, `None` for a file that does not exist.
+    task_mtimes: [Option<SystemTime>; DB_FILES.len()],
     /// Where taskwarrior keeps its data, asked of taskwarrior itself once,
     /// so a `.taskrc` that moves it is honoured. None when `task` could not
     /// say, in which case nothing is watched: the cards then follow only
@@ -56,12 +59,36 @@ struct State {
     data_dir: Option<std::path::PathBuf>,
 }
 
-/// The mtimes of `pending.data` and `completed.data` in `dir`. Both: editing,
-/// noting or removing a finished task writes `completed.data` alone, and its
-/// card on the Finished tab has to follow.
-fn db_mtimes(dir: &std::path::Path) -> [Option<SystemTime>; 2] {
-    ["pending.data", "completed.data"]
-        .map(|file| std::fs::metadata(dir.join(file)).ok()?.modified().ok())
+/// The files in taskwarrior's data directory whose mtimes the tick watches.
+///
+/// - `pending.data` and `completed.data` are Taskwarrior 2.6's database. Both,
+///   because editing, noting or removing a finished task writes
+///   `completed.data` alone, and its card on the Finished tab has to follow.
+/// - `taskchampion.sqlite3` is Taskwarrior 3.x's whole database, which
+///   replaces the `.data` files. It runs in WAL mode, but every `task` is a
+///   short-lived process whose exit checkpoints the WAL back into this file,
+///   so a write moves its mtime.
+///
+/// Watching all three keeps the panel refreshing on a 2.6 machine, a 3.x one,
+/// and one part-way through the move, for one more stat than either needs.
+///
+/// `taskchampion.sqlite3-wal` and `-shm` are left out on purpose, and must
+/// stay out: a read creates and touches them, so the panel's own
+/// `task export` would look like a change on every tick and it would refresh
+/// forever.
+///
+/// The daemon's reads pass `rc.gc=off` (see `export_values` in
+/// [`crate::task`]), so on 2.6 a read writes none of these files. Whether a
+/// 3.x read with gc off also leaves `taskchampion.sqlite3`'s mtime alone is
+/// still open: 3.x is not installed here to measure it. If it does not, the
+/// cost is a second, needless refresh after each change, not a missed one.
+const DB_FILES: [&str; 3] = ["pending.data", "completed.data", "taskchampion.sqlite3"];
+
+/// The mtime of each of [`DB_FILES`] in `dir`, in that order. A file that is
+/// not there — 3.x's on a 2.6 machine, 2.6's after the move to 3.x — reads
+/// as `None` rather than an error, so either layout is watched as it is.
+fn db_mtimes(dir: &std::path::Path) -> [Option<SystemTime>; DB_FILES.len()] {
+    DB_FILES.map(|file| std::fs::metadata(dir.join(file)).ok()?.modified().ok())
 }
 
 /// Every task card for a workspace, or none when it is unnamed or empty. The
@@ -430,16 +457,69 @@ mod tests {
         );
     }
 
-    /// The tick watches pending.data and completed.data inside the directory
-    /// taskwarrior names; a file not there yet reads as no mtime.
-    #[test]
-    fn db_mtimes_read_both_files_in_the_data_dir() {
-        let dir = std::env::temp_dir().join(format!("niri-tasks-mtimes-{}", std::process::id()));
+    /// A scratch directory of its own for each test, so two running at once
+    /// do not trip over each other's files.
+    fn scratch_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("niri-tasks-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Set `path`'s mtime to `secs` past the epoch, so a test can move it
+    /// without waiting for the clock.
+    fn touch(path: &std::path::Path, secs: u64) {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(secs))
+            .unwrap();
+    }
+
+    /// The tick watches 2.6's two files and 3.x's database inside the
+    /// directory taskwarrior names; a file not there yet reads as no mtime,
+    /// not an error.
+    #[test]
+    fn db_mtimes_read_each_file_in_the_data_dir() {
+        let dir = scratch_dir("mtimes");
         std::fs::write(dir.join("pending.data"), b"").unwrap();
-        let [pending, completed] = db_mtimes(&dir);
+        let [pending, completed, sqlite] = db_mtimes(&dir);
         assert!(pending.is_some(), "pending.data exists, so it has an mtime");
         assert!(completed.is_none(), "completed.data is not there yet");
+        assert!(sqlite.is_none(), "a 2.6 machine has no taskchampion.sqlite3");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 3.x's database is watched, and its WAL and shared-memory files never
+    /// are: a read touches those, so watching them would refresh every tick.
+    #[test]
+    fn db_mtimes_follow_the_sqlite_file_but_not_its_wal_or_shm() {
+        assert!(DB_FILES.contains(&"taskchampion.sqlite3"));
+        assert!(!DB_FILES.iter().any(|f| f.ends_with("-wal") || f.ends_with("-shm")));
+
+        let dir = scratch_dir("wal");
+        let files = [
+            "pending.data",
+            "completed.data",
+            "taskchampion.sqlite3",
+            "taskchampion.sqlite3-wal",
+            "taskchampion.sqlite3-shm",
+        ];
+        for file in files {
+            std::fs::write(dir.join(file), b"").unwrap();
+            touch(&dir.join(file), 1_000_000);
+        }
+        let before = db_mtimes(&dir);
+        assert!(before.iter().all(Option::is_some), "all three watched files exist");
+
+        touch(&dir.join("taskchampion.sqlite3-wal"), 2_000_000);
+        assert_eq!(db_mtimes(&dir), before, "a read touching -wal is not a change");
+        touch(&dir.join("taskchampion.sqlite3-shm"), 3_000_000);
+        assert_eq!(db_mtimes(&dir), before, "a read touching -shm is not a change");
+
+        touch(&dir.join("taskchampion.sqlite3"), 4_000_000);
+        assert_ne!(db_mtimes(&dir), before, "a write to the database is a change");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
