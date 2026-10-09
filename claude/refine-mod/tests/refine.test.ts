@@ -54,11 +54,20 @@ const ran = (stdout = '', exitCode = 0) => ({
 // session's start, the tool registry, the clock, the settings, the
 // transcript's log lines and the AskUserQuestion dialog. `seen` records the
 // log lines and the questions in the order they reached the engine.
-// `writeFails`, when given, is what `$.fs.write` is refused with.
-const engine = (on: On, settings: Record<string, unknown>, answer: Answers = WRITE, writeFails?: string) => {
+// `writeFails`, when given, is what `$.fs.write` is refused with. With
+// `fonts`, `$.fs.read` answers each font file with a short stand-in; without,
+// it is refused, as when the mod's fonts are missing.
+const engine = (
+  on: On,
+  settings: Record<string, unknown>,
+  answer: Answers = WRITE,
+  writeFails?: string,
+  fonts = false,
+) => {
   const registered: string[] = []
   const seen: string[] = []
   const writes: Write[] = []
+  const reads: string[] = []
   let asked = 0
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('tool.register', ($, e) => {
@@ -76,6 +85,11 @@ const engine = (on: On, settings: Record<string, unknown>, answer: Answers = WRI
     writes.push({ path: e.path, text: e.text })
     return { value: undefined }
   })
+  on('fs.read', ($, e) => {
+    reads.push(e.path)
+    if (!fonts) return { deny: 'no fonts here' }
+    return { value: { base64: e.path.endsWith('space-grotesk-latin-wght-normal.woff2') ? 'RElTUA==' : 'Qk9EWQ==' } }
+  })
   // `$.ui.ask` is a tool.call of AskUserQuestion; the dialog's answer is
   // `answers`, keyed by the question.
   on('tool.call', { tool: 'AskUserQuestion' }, ($, e) => {
@@ -87,7 +101,7 @@ const engine = (on: On, settings: Record<string, unknown>, answer: Answers = WRI
     return { result: { questions: e.questions, answers: { [question?.question ?? '']: given } } }
   })
   mock.clock(on, { now: Date.UTC(2026, 9, 6, 1, 2, 3) })
-  return { registered, seen, writes }
+  return { registered, seen, writes, reads }
 }
 
 // The engine, and a `task` that exports `exports[i]` at the i-th export (the
@@ -97,8 +111,9 @@ const world = (
   settings: Record<string, unknown>,
   answer: Answers = WRITE,
   exports: readonly object[] = [TASK],
+  fonts = false,
 ) => {
-  const { registered, seen, writes } = engine(on, settings, answer)
+  const { registered, seen, writes, reads } = engine(on, settings, answer, undefined, fonts)
   const runs: Run[] = []
   let exported = 0
   on('process.run', ($, e) => {
@@ -107,7 +122,7 @@ const world = (
     const task = exports[Math.min(exported++, exports.length - 1)]
     return ran(JSON.stringify([task]))
   })
-  return { registered, runs, seen, writes }
+  return { registered, runs, seen, writes, reads }
 }
 
 const verbs = (runs: readonly Run[]) => runs.map(run => run.argv.at(-1))
@@ -412,4 +427,30 @@ test('sandbox off: no report tool either', { options: REPORTS }, async ($, on) =
   const { registered } = world(on, { sandbox: { enabled: true, failIfUnavailable: false } })
   await $.session.start(START)
   expect(registered).toEqual([])
+})
+
+test('a report embeds the fonts the mod ships, read once a session', { options: REPORTS }, async ($, on) => {
+  const { reads, writes } = world(on, SANDBOX, [REPORT, REPORT], [TASK], true)
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  await $.tool.call(CALL)
+  await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(writes).toHaveLength(2)
+  for (const page of writes.map(w => w.text)) {
+    expect(page).toContain('src: url(data:font/woff2;base64,RElTUA==) format("woff2")')
+    expect(page).toContain('src: url(data:font/woff2;base64,Qk9EWQ==) format("woff2")')
+  }
+  expect(reads).toHaveLength(2)
+  expect(reads[0]).toEndWith('/fonts/space-grotesk-latin-wght-normal.woff2')
+  expect(reads[1]).toEndWith('/fonts/inter-latin-wght-normal.woff2')
+})
+
+test('a report is still written when its fonts cannot be read', { options: REPORTS }, async ($, on) => {
+  const { writes } = world(on, SANDBOX, REPORT)
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(shown.result).toContain(`Wrote the report to ${REPORT_PATH}`)
+  expect(writes[0]?.text).not.toContain('@font-face')
 })

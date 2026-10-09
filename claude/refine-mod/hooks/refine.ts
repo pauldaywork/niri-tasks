@@ -20,6 +20,8 @@ import {
 } from './plan'
 import type { Plan, Task } from './plan'
 import { reportPage } from './page'
+import { FONT_FILES } from './style'
+import type { Fonts } from './style'
 import { openArgv, parseReport, reportPath, reportsDir, withReportNotes } from './report'
 import type { MadeReport } from './report'
 
@@ -134,6 +136,21 @@ const current = async (
   return { task }
 }
 
+// The report's two typefaces, shipped in the mod's fonts/ folder, read on
+// the first report and kept in `kept`. If they cannot be read, the report is
+// still written, in the system's fonts.
+const readFonts = async ($: EngineInterface, kept: { read?: Fonts }): Promise<Fonts | undefined> => {
+  if (kept.read !== undefined) return kept.read
+  try {
+    const display = await $.fs.read(`${$.plugin.root}/fonts/${FONT_FILES.display}`, { as: 'bytes' })
+    const body = await $.fs.read(`${$.plugin.root}/fonts/${FONT_FILES.body}`, { as: 'bytes' })
+    kept.read = { display: display.base64, body: body.base64 }
+    return kept.read
+  } catch {
+    return undefined
+  }
+}
+
 export const register: Register = (on, options) => {
   // Where reports go, or undefined when this session offers none.
   const reports = reportsDir(options.reports)
@@ -146,6 +163,8 @@ export const register: Register = (on, options) => {
   // reload is not linked (its path is still in the transcript's `Report:`
   // line).
   const made: MadeReport[] = []
+  // The report's two typefaces, read on the first report and kept.
+  const fonts: { read?: Fonts } = {}
 
   on('session.start', async ($, e, next) => {
     if ((await armedUuid($, options.uuid)) !== undefined) {
@@ -224,7 +243,7 @@ export const register: Register = (on, options) => {
     const shown = askedFor
     askedFor = undefined
     const path = reportPath(reports, uuid, await $.clock.now())
-    await $.fs.write(path, reportPage(report, shown))
+    await $.fs.write(path, reportPage(report, shown, await readFonts($, fonts)))
     made.push({ path, plan: shown })
     $.ui.log(`Report: ${path}`)
     await $.process.run(openArgv(path))
