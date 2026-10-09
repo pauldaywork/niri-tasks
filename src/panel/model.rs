@@ -35,8 +35,8 @@ pub struct Card {
     /// which stands for no one task.
     pub uuid: Option<String>,
     /// The task's id, read off the export: what the line above its notes
-    /// shows. 0 on a finished task, which taskwarrior numbers 0, and on
-    /// "+N more".
+    /// shows. 0 on a finished task, whose old id the export keeps until gc
+    /// and this card zeroes, and on "+N more".
     pub id: u64,
     /// The task carries `+planned`. Apart from `status`, which shows a
     /// started or blocked planned task as Active or Blocked: the Planned and
@@ -304,7 +304,9 @@ pub fn cards(listing: &Listing, blocked: &[String]) -> Vec<Card> {
             },
             text: crate::text::collapse_whitespace(&t.description),
             uuid: Some(t.uuid.clone()),
-            id: t.id,
+            // A gc-off read keeps a just-finished task's old id until a
+            // report's gc renumbers; the card shows the uuid alone.
+            id: if finished(part) { 0 } else { t.id },
             planned: t.is_planned(),
             up_next: t.is_up_next(),
             since: if finished(part) { t.end.clone() } else { t.entry.clone() },
@@ -575,6 +577,17 @@ mod tests {
         let got = cards(&done(vec![finished("done", 2)]), &[]);
         assert_eq!(got[0].status, Status::Finished);
         assert_eq!(got[0].icon(), "\u{f00c}");
+    }
+
+    /// A gc-off read keeps a just-finished task's old id, yet a finished
+    /// card shows the uuid alone.
+    #[test]
+    fn a_finished_card_drops_the_id_the_export_kept() {
+        let mut t = finished("fin-uuid", 2);
+        t.id = 7;
+        let got = cards(&done(vec![t]), &[]);
+        assert_eq!(got[0].id, 0);
+        assert_eq!(got[0].id_line().as_deref(), Some("fin-uuid"));
     }
 
     /// Finished tasks go under every task still to do, the one finished

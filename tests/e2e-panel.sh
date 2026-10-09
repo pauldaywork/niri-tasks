@@ -366,8 +366,8 @@ if command -v wtype >/dev/null; then
     # Space on the card's body is meant to do what Enter does there: show the
     # notes, and hide them again on a second press, leaving the panel where
     # the checks after this expect it. The second press is held against
-    # notes_hidden, not keyboard_down: a card with notes says Space in its
-    # hint, so nothing after the notes were added matches keyboard_down.
+    # notes_hidden, not keyboard_down: the panel after the notes were added,
+    # not the one before, is what the checks after this expect.
     "${NENV[@]}" wtype -k space
     sleep 1
     shot notes_space || { summary; exit 1; }

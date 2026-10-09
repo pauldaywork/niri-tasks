@@ -26,8 +26,9 @@ pub const UP_NEXT_TAG: &str = "next";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Task {
-    /// Taskwarrior's working-set number, what `task 48 …` takes: 0 on a
-    /// completed or deleted task, which has none. Absent only on a
+    /// Taskwarrior's working-set number, what `task 48 …` takes: 0 once gc
+    /// has run on a completed or deleted task; until then the export keeps
+    /// its old id, and the panel's card zeroes it. Absent only on a
     /// hand-built task in a test, hence the default.
     #[serde(default)]
     pub id: u64,
@@ -235,9 +236,11 @@ fn export_values(filter: &[&str]) -> Result<Vec<Value>> {
     // its task in pending.data, so the daemon's next read wrote both files,
     // changed the mtimes it watches, and made it refresh a second time for
     // nothing (measured on 2.6.2). The same tasks and statuses come out
-    // either way; only the `id`s, which this tool never reads, stay
-    // unrenumbered until a write's gc. Writes keep gc through `base()`. No
-    // time is saved: an export takes about 6.5 ms with or without it.
+    // either way; only the `id`s differ. The panel shows the ids read with
+    // gc off, which match what a non-gc command like `task 48 modify`
+    // resolves; they renumber when a report's gc runs. Writes keep gc
+    // through `base()`. No time is saved: an export takes about 6.5 ms with
+    // or without it.
     let out = base()
         .arg("rc.gc=off")
         .args(filter)
