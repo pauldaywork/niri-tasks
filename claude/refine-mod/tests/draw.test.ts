@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { RENDERER, cleanSvg, drawArgv, drawSources, drawnSvgs } from '../hooks/draw'
+import { RENDERER, cleanSvg, drawArgv, drawSources, drawnSvgs, runtimePath, whichArgv } from '../hooks/draw'
 import type { Report } from '../hooks/report'
 
 const report = (sections: Report['sections']): Report => ({
@@ -14,12 +14,25 @@ const report = (sections: Report['sections']): Report => ({
   checks: [{ check: 'c', how: 'h' }],
 })
 
-test('the renderer runs fenced: read-only, no network, nothing else shared', () => {
+test('the renderer runs fenced: only /usr, the runtime and the script, no network, no host sockets', () => {
   expect(RENDERER).toBe('render/diagrams.mjs')
-  expect(drawArgv('bun', '/m/render/diagrams.mjs')).toEqual([
-    'bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
-    '--unshare-all', '--die-with-parent', '--new-session', 'bun', '/m/render/diagrams.mjs',
+  expect(drawArgv('/opt/bun', '/m/render/diagrams.mjs')).toEqual([
+    'bwrap', '--ro-bind', '/usr', '/usr',
+    '--symlink', 'usr/lib', '/lib', '--symlink', 'usr/lib64', '/lib64',
+    '--symlink', 'usr/bin', '/bin', '--symlink', 'usr/sbin', '/sbin',
+    '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
+    '--ro-bind', '/opt/bun', '/run/r/runtime', '--ro-bind', '/m/render/diagrams.mjs', '/run/r/diagrams.mjs',
+    '--unshare-all', '--die-with-parent', '--new-session', '--clearenv', '--setenv', 'PATH', '/usr/bin',
+    '/run/r/runtime', '/run/r/diagrams.mjs',
   ])
+})
+
+test('the runtime is found by name and resolved to its real path, passed as an argument', () => {
+  expect(whichArgv('bun')).toEqual(['sh', '-c', 'readlink -f "$(command -v "$1")"', 'sh', 'bun'])
+  expect(runtimePath({ exitCode: 0, stdout: '/home/p/.bun/bin/bun\n' })).toBe('/home/p/.bun/bin/bun')
+  expect(runtimePath({ exitCode: 1, stdout: '' })).toBeUndefined()
+  expect(runtimePath({ exitCode: 0, stdout: '\n' })).toBeUndefined()
+  expect(runtimePath({ exitCode: 0, stdout: 'bun\n' })).toBeUndefined()
 })
 
 describe('drawSources', () => {
@@ -60,6 +73,9 @@ describe('drawnSvgs', () => {
       '<svg><a href="javascript:x"></a></svg>',
       '<svg><image href="x"/></svg>',
       '<svg><use href="#x"/></svg>',
+      '<svg><meta http-equiv="refresh" content="0"/></svg>',
+      '<svg><link rel="stylesheet" href="x"/></svg>',
+      '<svg><base href="https://x/"/></svg>',
       '<div></div>',
     ]) {
       expect(drawnSvgs(JSON.stringify({ svgs: [bad, null] }), sources)[0]).toBeUndefined()

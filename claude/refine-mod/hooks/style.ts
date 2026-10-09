@@ -74,7 +74,8 @@ ol { padding-left: 1.4em; }
 .split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(16rem, 2fr); gap: 2rem; align-items: start; }
 @media (max-width: 56rem) { .split { grid-template-columns: 1fr; } }
 .solo { font-size: 1.3em; }
-.drawn svg { display: block; width: 100%; height: auto; max-height: 56vh; }
+.drawn svg { display: block; width: 100%; height: auto; max-height: 45vh; }
+@media (max-width: 56rem) { .drawn svg { min-width: 34rem; max-height: none; } }
 .drawn g.block[data-type="rect"] > rect:first-of-type { fill: var(--green); stroke: var(--black); stroke-width: 1.5px; }
 .drawn g.block[data-type="rect"] > rect:nth-of-type(2), .drawn g.block[data-type="rect"] > text { display: none; }
 code.path { overflow-wrap: normal; word-break: normal; }

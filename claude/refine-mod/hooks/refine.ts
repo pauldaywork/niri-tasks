@@ -19,7 +19,7 @@ import {
   refusal,
 } from './plan'
 import type { Plan, Task } from './plan'
-import { RENDERER, drawArgv, drawSources, drawnSvgs } from './draw'
+import { RENDERER, drawArgv, drawSources, drawnSvgs, runtimePath, whichArgv } from './draw'
 import { reportPage } from './page'
 import { FONT_FILES } from './style'
 import type { Fonts } from './style'
@@ -152,26 +152,41 @@ const readFonts = async ($: EngineInterface, kept: { read?: Fonts }): Promise<Fo
   }
 }
 
+// The real path of the runtime the renderer runs on: bun if there is one,
+// else node; undefined when there is neither.
+const findRuntime = async ($: EngineInterface): Promise<string | undefined> => {
+  for (const runtime of ['bun', 'node'] as const) {
+    try {
+      const path = runtimePath(await $.process.run(whichArgv(runtime)))
+      if (path !== undefined) return path
+    } catch {
+      // This one cannot be looked up: try the next.
+    }
+  }
+  return undefined
+}
+
 // Draws each Mermaid diagram before the page opens, in the shipped renderer
-// inside its fence: bun if there is one, else node. Undefined for any it
-// could not draw, which the page leaves to Mermaid in the browser.
+// inside its fence, on the one runtime found: a renderer that fails or times
+// out is not tried again. Undefined for any it could not draw, which the page
+// leaves to Mermaid in the browser.
 const drawDiagrams = async ($: EngineInterface, report: Report): Promise<(string | undefined)[]> => {
   const sources = drawSources(report)
   const diagrams = sources.filter((s): s is string => s !== undefined)
   if (diagrams.length === 0) return sources.map(() => undefined)
-  const script = `${$.plugin.root}/${RENDERER}`
-  for (const runtime of ['bun', 'node'] as const) {
-    try {
-      const run = await $.process.run(drawArgv(runtime, script), {
-        stdin: JSON.stringify({ diagrams }),
-        timeoutMs: 20_000,
-      })
-      if (run.exitCode === 0) return drawnSvgs(run.stdout, sources)
-    } catch {
-      // No bwrap, or this runtime would not start: try the next.
-    }
+  const undrawn = sources.map(() => undefined)
+  const runtime = await findRuntime($)
+  if (runtime === undefined) return undrawn
+  try {
+    const run = await $.process.run(drawArgv(runtime, `${$.plugin.root}/${RENDERER}`), {
+      stdin: JSON.stringify({ diagrams }),
+      timeoutMs: 20_000,
+    })
+    return run.exitCode === 0 ? drawnSvgs(run.stdout, sources) : undrawn
+  } catch {
+    // No bwrap, or the renderer timed out.
+    return undrawn
   }
-  return sources.map(() => undefined)
 }
 
 export const register: Register = (on, options) => {

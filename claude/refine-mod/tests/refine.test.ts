@@ -119,7 +119,8 @@ const world = (
   let exported = 0
   on('process.run', ($, e) => {
     runs.push(e)
-    if (e.argv[0] === 'bwrap') return draw?.(e.argv) ?? ran('', 1)
+    // The renderer: finding its runtime, then running it in the fence.
+    if (e.argv[0] === 'bwrap' || e.argv[2]?.includes('command -v')) return draw?.(e.argv) ?? ran('', 1)
     if (!e.argv.includes('export')) return ran('')
     const task = exports[Math.min(exported++, exports.length - 1)]
     return ran(JSON.stringify([task]))
@@ -463,30 +464,60 @@ const DRAWN = {
 }
 
 test('diagrams are drawn in the fenced renderer, and the page then runs no script', { options: REPORTS }, async ($, on) => {
-  const { runs, writes } = world(on, SANDBOX, REPORT, [TASK], false, () =>
-    ran(JSON.stringify({ svgs: ['<svg viewBox="0 0 1 1"><rect/></svg>'], errors: [null] })),
-  )
+  const { runs, writes } = world(on, SANDBOX, REPORT, [TASK], false, argv => {
+    if (argv[0] !== 'bwrap') return argv.at(-1) === 'bun' ? ran('/opt/bun\n') : ran('', 1)
+    return ran(JSON.stringify({ svgs: ['<svg viewBox="0 0 1 1"><rect/></svg>'], errors: [null] }))
+  })
   await $.session.start(START)
   await $.tool.call(CALL)
   await $.tool.call({ tool: REPORT_TOOL, ...DRAWN })
   const draw = runs.find(r => r.argv[0] === 'bwrap')
-  expect(draw?.argv.slice(-2)).toEqual(['bun', expect.stringMatching(/\/render\/diagrams\.mjs$/)])
+  const bind = (inside: string) => draw?.argv[(draw?.argv.indexOf(inside) ?? 0) - 1]
+  expect(bind('/run/r/runtime')).toBe('/opt/bun')
+  expect(bind('/run/r/diagrams.mjs')).toEqual(expect.stringMatching(/\/render\/diagrams\.mjs$/))
+  expect(draw?.argv.slice(-2)).toEqual(['/run/r/runtime', '/run/r/diagrams.mjs'])
   expect(JSON.parse(draw?.init?.stdin ?? 'null').diagrams[0]).toStartWith('flowchart LR\n a --> b\nclassDef new')
   expect(writes[0]?.text).toContain('<div class="drawn"><svg viewBox="0 0 1 1"><rect/></svg></div>')
   expect(writes[0]?.text).not.toContain('<script')
 })
 
-test('without bun the renderer runs on node, and without either the browser draws', { options: REPORTS }, async ($, on) => {
+test('without bun the renderer runs on node', { options: REPORTS }, async ($, on) => {
+  const { runs } = world(on, SANDBOX, REPORT, [TASK], false, argv => {
+    if (argv[0] !== 'bwrap') return argv.at(-1) === 'node' ? ran('/usr/bin/node\n') : ran('', 1)
+    return ran('', 1)
+  })
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  await $.tool.call({ tool: REPORT_TOOL, ...DRAWN })
+  const draws = runs.filter(r => r.argv[0] === 'bwrap')
+  expect(draws.length).toBe(1)
+  expect(draws[0]?.argv).toContain('/usr/bin/node')
+})
+
+test('a renderer that fails is not retried on node; the browser draws', { options: REPORTS }, async ($, on) => {
+  const { runs, writes } = world(on, SANDBOX, REPORT, [TASK], false, argv =>
+    argv[0] !== 'bwrap' ? ran(argv.at(-1) === 'bun' ? '/opt/bun\n' : '/usr/bin/node\n') : ran('', 1),
+  )
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  await $.tool.call({ tool: REPORT_TOOL, ...DRAWN })
+  expect(runs.filter(r => r.argv[0] === 'bwrap').length).toBe(1)
+  expect(runs.filter(r => r.argv[2]?.includes('command -v')).map(r => r.argv.at(-1))).toEqual(['bun'])
+  expect(writes[0]?.text).toContain('<pre class="mermaid">')
+})
+
+test('with neither bun nor node the browser draws', { options: REPORTS }, async ($, on) => {
   const tried: string[] = []
-  const { writes } = world(on, SANDBOX, REPORT, [TASK], false, argv => {
-    tried.push(argv.at(-2) ?? '')
-    return ran('', 127)
+  const { runs, writes } = world(on, SANDBOX, REPORT, [TASK], false, argv => {
+    tried.push(argv.at(-1) ?? '')
+    return ran('', 1)
   })
   await $.session.start(START)
   await $.tool.call(CALL)
   const shown = await $.tool.call({ tool: REPORT_TOOL, ...DRAWN })
   expect(shown.result).toContain('Wrote the report to')
   expect(tried).toEqual(['bun', 'node'])
+  expect(runs.some(r => r.argv[0] === 'bwrap')).toBe(false)
   expect(writes[0]?.text).toContain('<pre class="mermaid">')
   expect(writes[0]?.text).toContain(`<script src="https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js"`)
 })

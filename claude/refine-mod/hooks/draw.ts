@@ -8,12 +8,30 @@ import type { Report } from './report'
 // The renderer the mod ships: beautiful-mermaid, bundled (render/README.md).
 export const RENDERER = 'render/diagrams.mjs'
 
+// Finds a runtime by name and resolves it to its real path, the name passed
+// as an argument, never as script.
+export const whichArgv = (runtime: 'bun' | 'node'): string[] => [
+  'sh', '-c', 'readlink -f "$(command -v "$1")"', 'sh', runtime,
+]
+
+// The runtime's real path from whichArgv's answer; undefined when it has none.
+export const runtimePath = (run: { exitCode: number; stdout: string }): string | undefined => {
+  const path = run.stdout.trim()
+  return run.exitCode === 0 && path.startsWith('/') ? path : undefined
+}
+
 // The renderer runs outside the session's sandbox, on text the model wrote,
-// so in a fence of its own: the whole file system read-only, a blank /tmp,
-// no network and no namespace shared, gone with the mod.
-export const drawArgv = (runtime: 'bun' | 'node', script: string): string[] => [
-  'bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
-  '--unshare-all', '--die-with-parent', '--new-session', runtime, script,
+// so in a fence of its own: only /usr, the runtime and the script visible,
+// all read-only, a blank /tmp, no network, no host sockets, no environment
+// and no namespace shared, gone with the mod.
+export const drawArgv = (runtimePath: string, script: string): string[] => [
+  'bwrap', '--ro-bind', '/usr', '/usr',
+  '--symlink', 'usr/lib', '/lib', '--symlink', 'usr/lib64', '/lib64',
+  '--symlink', 'usr/bin', '/bin', '--symlink', 'usr/sbin', '/sbin',
+  '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
+  '--ro-bind', runtimePath, '/run/r/runtime', '--ro-bind', script, '/run/r/diagrams.mjs',
+  '--unshare-all', '--die-with-parent', '--new-session', '--clearenv', '--setenv', 'PATH', '/usr/bin',
+  '/run/r/runtime', '/run/r/diagrams.mjs',
 ]
 
 // Each part's Mermaid source as it is to be drawn, flowcharts and state
@@ -24,7 +42,7 @@ export const drawSources = (report: Report): (string | undefined)[] =>
 // What an SVG from the renderer may not hold: it is put in the page as it is,
 // so nothing that runs, loads or links. beautiful-mermaid draws plain shapes
 // and escapes its labels; this holds it to that.
-const UNSAFE = /<\s*\/?\s*(script|foreignObject|iframe|object|embed|image|use|a)\b|\son[a-z]+\s*=|javascript:/i
+const UNSAFE = /<\s*\/?\s*(script|foreignObject|iframe|object|embed|image|use|a|meta|link|base)\b|\son[a-z]+\s*=|javascript:/i
 
 // The web font beautiful-mermaid asks for, which the page's policy would
 // refuse anyway, and its font, swapped for the one the page embeds.
