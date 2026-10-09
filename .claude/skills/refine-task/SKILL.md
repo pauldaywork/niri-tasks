@@ -61,13 +61,31 @@ here changes a file.
   code cannot answer and a wrong guess would make the plan wrong — at most
   three, in one round, each with your recommended answer. None is fine.
 - **`grill`:** invoke the `grilling` skill with the task (description and notes)
-  as the plan to grill, and follow it until its frontier is empty.
+  as the plan to grill, and follow it until its frontier is empty — except for
+  how a round is put to the user. Instead of its numbered markdown list, ask
+  each round with **one AskUserQuestion call**, one question per tab, so the
+  user takes them one at a time and sends all the answers together:
+  - At most 4 questions a round. If the frontier holds more, ask the 4 that
+    most other decisions hang on, and leave the rest for the next round.
+  - Each question's text carries what the markdown body would have: the
+    decision and enough context to make it. Its `header` names the decision
+    in 12 characters or fewer.
+  - 2–4 options per question. Your recommended answer is the **first** option,
+    its label ending in "(Recommended)", and its description says why. An open
+    question still gets 2–4 likely answers; the user can always pick "Other"
+    and type their own. Use an option's `preview` when comparing code,
+    layouts or config.
+  - Don't repeat the round as text in your reply; the dialog is the round.
+
+  Everything else in `grilling` holds: rounds, recomputing the frontier after
+  each one, looking up facts rather than asking, and stopping when the
+  frontier is empty.
 
 ## 4. Propose
 
 Show the proposal in your reply. Do not ask the user to approve it yourself —
-no AskUserQuestion: the write tool in step 5 shows them exactly what it will
-write and asks them. The proposal contains:
+no AskUserQuestion for approval: the write tool in step 5 shows them exactly
+what it will write and asks them. The proposal contains:
 
 1. **New description** — one line, about 50 characters or fewer: the task card
    shows one line at that width. It starts with a Conventional
