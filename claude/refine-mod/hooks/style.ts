@@ -24,7 +24,8 @@ const fontFaces = (fonts: Fonts): string => `
 // A drawn diagram's colours and fonts are set here, from the stylesheet
 // beautiful-mermaid puts in each SVG, which the mod removes (draw.ts): its
 // colour variables, scoped to drawn diagrams, and its fonts, the page's
-// own body face first.
+// own body face first. The renderer keeps a `remove` node's pink fill but
+// not its dash, so the page dashes it.
 const CSS = `
 :root { color-scheme: light;
   --black: #000000; --white: #FFFFFF; --paper: #FFFDF5; --ink: #111111; --muted: #3D3D3D;
@@ -93,6 +94,7 @@ ol { padding-left: 1.4em; }
   --_key-badge: color-mix(in srgb, var(--fg) 10%, var(--bg)); }
 .drawn svg text { font-family: 'Report Body', 'Inter', system-ui, sans-serif; }
 .drawn svg .mono { font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace; }
+.drawn svg [fill="#FE90E8" i] { stroke-dasharray: 6 4; }
 @media (max-width: 56rem) { .drawn svg { min-width: 34rem; max-height: none; } }
 .drawn g.block[data-type="rect"] > rect:first-of-type { fill: var(--green); stroke: var(--black); stroke-width: 1.5px; }
 .drawn g.block[data-type="rect"] > rect:nth-of-type(2), .drawn g.block[data-type="rect"] > text { display: none; }

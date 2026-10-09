@@ -249,6 +249,12 @@ describe('diagrams', () => {
     expect(page).not.toContain('@import')
   })
 
+  // beautiful-mermaid keeps a class's fill but not its dash, so the page
+  // dashes a drawn node in the `remove` pink, in any case.
+  test('a drawn `remove` node keeps its dash', () => {
+    expect(reportPage(report(), PLAN)).toContain('.drawn svg [fill="#FE90E8" i] { stroke-dasharray: 6 4; }')
+  })
+
   test('a diagram left undrawn still gets Mermaid in the browser', () => {
     const flow = { mermaid: 'flowchart LR\n a --> b' }
     const page = reportPage(
