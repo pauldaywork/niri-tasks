@@ -111,6 +111,9 @@ pub fn reports_dir(dirs: &Dirs) -> PathBuf {
 /// Allowed unasked on top: web search and fetch, which write nothing; and
 /// `task`, which Claude Code asks about even inside the sandbox, for reasons
 /// it does not log — the skill reads with it, and it still runs sandboxed.
+/// The Read tool may read the installed skills too: the report catalogue
+/// lives there, outside the project, where Read would otherwise ask, and
+/// sandboxed Bash can read it regardless.
 /// The write itself is the refine mod's tool, which `pluginConfigs` tells
 /// which task it may write: `uuid`, never anything the model says.
 /// It is told `reports` too, the folder its report tool writes to, and
@@ -120,7 +123,7 @@ pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uu
     let deny: Vec<String> = CREDENTIALS.iter().map(|c| format!("Read({c})")).collect();
     serde_json::json!({
         "permissions": {
-            "allow": ["WebSearch", "WebFetch", "Bash(task *)"],
+            "allow": ["WebSearch", "WebFetch", "Bash(task *)", "Read(~/.claude/skills/**)"],
             "deny": deny,
         },
         "sandbox": {
@@ -379,17 +382,21 @@ mod tests {
         assert_eq!(sb["network"]["allowAllUnixSockets"], true);
     }
 
-    /// The web and the skill's reads run unasked; credentials cannot be read
-    /// through the Read tool, the one reader the Bash sandbox does not cover.
-    /// No `python3`: the write is the mod's tool now.
+    /// The web and the skill's reads run unasked, and so does the Read tool
+    /// on the installed skills, where the report catalogue lives: outside
+    /// the project, so the Read tool would otherwise ask, while sandboxed
+    /// Bash can read it anyway. Credentials cannot be read through the Read
+    /// tool, the one reader the Bash sandbox does not cover. No `python3`:
+    /// the write is the mod's tool now.
     #[test]
     fn the_session_may_search_the_web_but_not_read_credentials() {
         let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), Mode::Quick);
         let v: Value = serde_json::from_str(&json).unwrap();
         let allow = v["permissions"]["allow"].as_array().unwrap();
-        for tool in ["WebSearch", "WebFetch", "Bash(task *)"] {
+        for tool in ["WebSearch", "WebFetch", "Bash(task *)", "Read(~/.claude/skills/**)"] {
             assert!(allow.iter().any(|a| a == tool), "{tool} allowed");
         }
+        assert_eq!(allow.len(), 4, "nothing else runs unasked");
         assert!(!allow.iter().any(|a| a.as_str().is_some_and(|s| s.contains("python3"))));
         let deny = v["permissions"]["deny"].as_array().unwrap();
         assert!(deny.iter().any(|d| d == "Read(~/.ssh/**)"));
