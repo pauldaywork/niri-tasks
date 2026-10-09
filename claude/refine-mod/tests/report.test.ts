@@ -50,6 +50,8 @@ describe('parseReport', () => {
       )
     }
     expect(parseReport({ title: 't', body: '<svg>< SCRIPT>x</script></svg>' })).toContain('<script>')
+    expect(parseReport({ title: 't', body: '<script/src=x>' })).toContain('<script>')
+    expect(parseReport({ title: 't', body: '<script\n>' })).toContain('<script>')
     expect(parseReport({ title: 't', body: '<META http-equiv="refresh">' })).toContain('<meta>')
   })
 

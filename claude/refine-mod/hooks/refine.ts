@@ -96,8 +96,9 @@ const current = async (
 export const register: Register = (on, options) => {
   // Where reports go, or undefined when this session offers none.
   const reports = reportsDir(options.reports)
-  // Set when the person chooses REPORT; spent by the report it asked for.
-  // Module state: a reload forgets it, and the model is told to ask again.
+  // Set by the person's REPORT answer to the latest question, spent by the
+  // first well-formed report. Module state: a reload forgets it, and the
+  // model is told to ask again.
   let reportAsked = false
 
   on('session.start', async ($, e, next) => {
@@ -129,6 +130,8 @@ export const register: Register = (on, options) => {
     if (tooLong !== undefined) return { deny: `Nothing written: ${tooLong}` }
     for (const line of lines) $.ui.log(line)
 
+    // A new question supersedes any earlier REPORT choice.
+    reportAsked = false
     const choices = reports === undefined ? [WRITE, CHANGE] : [WRITE, REPORT, CHANGE]
     let answer: string
     try {
@@ -170,9 +173,9 @@ export const register: Register = (on, options) => {
     const report = parseReport(e)
     if (typeof report === 'string') return { deny: `show_task_report: ${report}` }
 
+    reportAsked = false
     const path = reportPath(reports, uuid, await $.clock.now())
     await $.fs.write(path, reportPage(report))
-    reportAsked = false
     $.ui.log(`Report: ${path}`)
     await $.process.run(openArgv(path))
     return {

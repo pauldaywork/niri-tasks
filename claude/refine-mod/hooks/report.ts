@@ -7,6 +7,9 @@ export type Report = { title: string; body: string }
 
 // Mermaid's own bundle, pinned and checked: it renders every
 // `<pre class="mermaid">` on load, so the page needs no script of its own.
+// Mermaid decodes entities in a block before sanitizing, so its sanitizer is
+// the only barrier against an entity-encoded <meta> or <base> inside one:
+// re-check that on any version bump.
 export const MERMAID_URL = 'https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js'
 export const MERMAID_SRI = 'sha384-EOXBFmc3gx5mb+vn0vPvvGqACToJD24hhacX5Yx+8NUUQrHIle/Qi5Bg9o3zKwW2'
 

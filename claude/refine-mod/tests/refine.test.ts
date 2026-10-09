@@ -327,6 +327,16 @@ test('report, then approve: writes the page, opens it, then writes the task', { 
   expect(verbs(runs).at(-1)).toBe('import')
 })
 
+test('a report choice is superseded by the next question', { options: REPORTS }, async ($, on) => {
+  const { writes } = world(on, SANDBOX, [REPORT, 'Change something'])
+  await $.session.start(START)
+  expect((await $.tool.call(CALL)).deny).toContain(`the person chose "${REPORT}"`)
+  expect((await $.tool.call(CALL)).deny).toContain('the person chose "Change something"')
+  const shown = await $.tool.call({ tool: REPORT_TOOL, title: 'feat: New words', body: BODY })
+  expect(shown.deny).toStartWith('show_task_report: the person has not asked for a report.')
+  expect(writes).toEqual([])
+})
+
 test('a body with a script is refused, and the person may still get a report', { options: REPORTS }, async ($, on) => {
   const { writes } = world(on, SANDBOX, REPORT)
   await $.session.start(START)
