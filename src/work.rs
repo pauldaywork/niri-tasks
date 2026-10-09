@@ -151,6 +151,9 @@ pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
     let claim = session.claim()?;
     let workspaces = session.open()?;
 
+    if pointed_at_setup(&session, &t.uuid)? {
+        return Ok(());
+    }
     if let Some(wt) = find_task_worktree(&wt_list(&repo)?, &t.uuid) {
         let opened = session.open_worktree(&repo, &wt.path, &wt.branch)?;
         if session.focus_agent(&name)? {
@@ -177,9 +180,19 @@ pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
 /// earlier press, is still open.
 const SETUP_UNDER_WAY: &str = "Already being set up — see its tab.";
 
-/// Open `t`'s setup tab and run `command` in it, under the launch's `claim`
-/// — unless a setup tab for it is under way already, from an earlier press,
-/// in which case the user is pointed at that one and nothing opens.
+/// Whether a setup tab for `uuid` is under way, from an earlier press —
+/// still making the worktree, running its hooks, or showing an error —
+/// having pointed the user at it if so. Looked at before the worktree is,
+/// since the worktree exists while its hooks still run.
+fn pointed_at_setup(session: &Session, uuid: &str) -> Result<bool> {
+    if session.setup_under_way(uuid)? {
+        session.notify(SETUP_UNDER_WAY);
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// Open `t`'s setup tab and run `command` in it, under the launch's `claim`.
 ///
 /// The claim is kept past `run_in_pane` until the tab's process is seen
 /// holding the setup lock: in between, a second press waiting on the claim
@@ -194,14 +207,10 @@ fn open_setup_tab(
     t: &task::Task,
     command: &str,
 ) -> Result<()> {
-    if session.setup_under_way(&t.uuid)? {
-        session.notify(SETUP_UNDER_WAY);
-        return Ok(());
-    }
     let label = format!("Start: {}", names::elide(&t.description));
     let tab = session.new_tab(workspaces, repo, &label, workspace_label)?;
     session.run_in_pane(&tab.pane, command)?;
-    session.wait_for_setup(&t.uuid)?;
+    session.wait_for_setup(&t.uuid);
     drop(claim);
     Ok(())
 }
@@ -446,20 +455,28 @@ mod tests {
 
     const U: &str = "7cd9fd3a-d27b-4387-8249-aaf0d6785f90";
 
-    /// A press that finds a setup tab already under way for its task opens
-    /// no tab, runs nothing and points the user at the tab there is.
+    /// A press that finds a setup tab under way, even while its hooks run
+    /// in a worktree that exists already, points at it and does nothing else.
     #[test]
-    fn a_launch_finding_its_setup_under_way_opens_no_tab() {
+    fn a_held_setup_lock_points_the_press_at_its_tab() {
         let fake = Fake::running(&[("w1", "alpha")]).with_setup_held_after(0);
         let s = session(&fake);
-        let claim = s.claim().unwrap();
-        open_setup_tab(&s, claim, &workspaces(), Path::new("/p/alpha"), "alpha", &task(U, "Fix it"), "setup").unwrap();
+        assert!(pointed_at_setup(&s, U).unwrap());
         let log = fake.log();
+        assert!(log.contains(&format!("notify {SETUP_UNDER_WAY}")), "{log:?}");
         assert!(
-            !log.iter().any(|l| l.starts_with("tab_create") || l.starts_with("workspace_create") || l.starts_with("pane_run")),
+            !log.iter().any(|l| ["tab_create", "workspace_create", "pane_run", "agent_start"].iter().any(|p| l.starts_with(p))),
             "{log:?}"
         );
-        assert!(log.contains(&format!("notify {SETUP_UNDER_WAY}")), "{log:?}");
+    }
+
+    /// With no setup tab holding the lock, the press goes on, saying nothing.
+    #[test]
+    fn a_free_setup_lock_leaves_the_press_to_go_on() {
+        let fake = Fake::running(&[("w1", "alpha")]);
+        let s = session(&fake);
+        assert!(!pointed_at_setup(&s, U).unwrap());
+        assert!(!fake.log().iter().any(|l| l.starts_with("notify")), "{:?}", fake.log());
     }
 
     /// A launch keeps its claim past running the setup command until it sees
@@ -467,13 +484,13 @@ mod tests {
     /// claim finds the lock held rather than opening a tab of its own.
     #[test]
     fn a_launch_keeps_its_claim_until_its_setup_tab_holds_the_lock() {
-        // One free try for the look before the tab, two while the tab starts.
-        let fake = Fake::running(&[("w1", "alpha")]).with_setup_held_after(3);
+        // Two free tries while the tab starts.
+        let fake = Fake::running(&[("w1", "alpha")]).with_setup_held_after(2);
         let s = session(&fake);
         let claim = s.claim().unwrap();
         open_setup_tab(&s, claim, &workspaces(), Path::new("/p/alpha"), "alpha", &task(U, "Fix it"), "setup").unwrap();
         let log = fake.log();
-        assert!(at(&log, "setup_release") < at(&log, "tab_create alpha w1 /p/alpha Start: Fix it"), "{log:?}");
+        assert!(at(&log, "tab_create alpha w1 /p/alpha Start: Fix it") < at(&log, "pane_run alpha"), "{log:?}");
         assert!(at(&log, "pane_run alpha") < at(&log, "setup_held"), "{log:?}");
         assert!(at(&log, "setup_held") < at(&log, "release alpha"), "{log:?}");
         assert!(!log.iter().any(|l| l.starts_with("notify")), "{log:?}");

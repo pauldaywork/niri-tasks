@@ -387,14 +387,15 @@ impl Session {
     /// Wait for the setup tab a launch just opened to hold `task`'s setup
     /// lock, for a few seconds at most: a tab whose command never starts must
     /// not keep the launch's claim, and every launch in the session with it.
-    pub fn wait_for_setup(&self, task: &str) -> Result<()> {
+    pub fn wait_for_setup(&self, task: &str) {
         for _ in 0..SETUP_POLLS {
-            if self.setup_under_way(task)? {
-                return Ok(());
+            // The wait is best effort and the tab is running already, so a
+            // lock file that cannot be looked at ends it rather than the launch.
+            if self.setup_under_way(task).unwrap_or(true) {
+                return;
             }
             self.port.sleep(SETUP_POLL);
         }
-        Ok(())
     }
 
     /// Tell the user something, as the port does: for a step whose outcome
@@ -769,7 +770,7 @@ mod tests {
     #[test]
     fn waiting_for_a_setup_tab_stops_once_it_holds_the_lock() {
         let (s, f) = session(Fake::running(&[("w1", "alpha")]).with_setup_held_after(2));
-        s.wait_for_setup("7cd9fd3a-0000").unwrap();
+        s.wait_for_setup("7cd9fd3a-0000");
         let log = f.log();
         assert_eq!(log.iter().filter(|l| *l == "sleep 100ms").count(), 2, "{log:?}");
         assert_eq!(log.last().map(String::as_str), Some("setup_held 7cd9fd3a-0000"), "{log:?}");
@@ -780,7 +781,7 @@ mod tests {
     #[test]
     fn waiting_for_a_setup_tab_gives_up_after_a_few_seconds() {
         let (s, f) = session(Fake::running(&[("w1", "alpha")]));
-        s.wait_for_setup("7cd9fd3a-0000").unwrap();
+        s.wait_for_setup("7cd9fd3a-0000");
         let slept: u128 = f
             .log()
             .iter()

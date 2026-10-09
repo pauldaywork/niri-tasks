@@ -369,8 +369,9 @@ const CLAIM_WAIT: Duration = Duration::from_secs(120);
 /// How often a waiting launch tries the lock again.
 const CLAIM_POLL: Duration = Duration::from_millis(100);
 
-/// Where the claims' and setup locks' files live: `$XDG_RUNTIME_DIR/niri-tasks`, which is
-/// per-user and per-boot, else the temp folder, as the daemon's socket does.
+/// Where the claims' and setup locks' files live:
+/// `$XDG_RUNTIME_DIR/niri-tasks`, which is per-user and per-boot, else the
+/// temp folder, as the daemon's socket does.
 fn claims_dir() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
         .filter(|d| !d.is_empty())
