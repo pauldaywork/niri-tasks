@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { LIMITS, openArgv, parseReport, reportNotes, reportPath, reportsDir } from '../hooks/report'
+import { LIMITS, openArgv, parseReport, reportPath, reportsDir, withReportNotes } from '../hooks/report'
 import { EXAMPLE } from './example-report'
 
 const UUID = '0b8f6a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b'
@@ -196,15 +196,43 @@ test('openArgv passes the path as an argument, never as script', () => {
   expect(openArgv(path)).toEqual(['sh', '-c', 'xdg-open "$1" >/dev/null 2>&1 </dev/null &', 'sh', path])
 })
 
-describe('reportNotes', () => {
+describe('withReportNotes', () => {
   const plan = { description: 'feat: A', notes: ['Goal: x'] }
 
-  test('links a report made for this very plan', () => {
-    expect(reportNotes([{ path: '/r/a.html', plan }], plan)).toEqual(['Report: /r/a.html'])
+  test("adds a note linking a report made for this very plan, after the plan's own", () => {
+    expect(withReportNotes([{ path: '/r/a.html', plan }], plan)).toEqual(['Goal: x', 'Report: /r/a.html'])
   })
 
   test('marks a report made before the plan changed', () => {
-    expect(reportNotes([{ path: '/r/a.html', plan }], { ...plan, notes: ['Goal: y'] })).toEqual([
+    expect(withReportNotes([{ path: '/r/a.html', plan }], { ...plan, notes: ['Goal: y'] })).toEqual([
+      'Goal: y',
+      'Report (earlier draft): /r/a.html',
+    ])
+  })
+
+  test('relabels a kept note for a report of this session once the plan is revised', () => {
+    const revised = { ...plan, notes: ['Goal: y', 'Report: /r/a.html'] }
+    expect(withReportNotes([{ path: '/r/a.html', plan }], revised)).toEqual([
+      'Goal: y',
+      'Report (earlier draft): /r/a.html',
+    ])
+  })
+
+  test('keeps a kept note for an unrevised plan once, as it was', () => {
+    const kept = { ...plan, notes: ['Goal: x', 'Report: /r/a.html'] }
+    expect(withReportNotes([{ path: '/r/a.html', plan }], kept)).toEqual(['Goal: x', 'Report: /r/a.html'])
+    // A second report on the same plan: the first's note does not make it differ.
+    const made = [
+      { path: '/r/a.html', plan },
+      { path: '/r/b.html', plan: kept },
+    ]
+    expect(withReportNotes(made, kept)).toEqual(['Goal: x', 'Report: /r/a.html', 'Report: /r/b.html'])
+  })
+
+  test("keeps an earlier session's report note in its place", () => {
+    const notes = ['Goal: x', 'Report: /old/z.html', 'Done when: y']
+    expect(withReportNotes([{ path: '/r/a.html', plan }], { ...plan, notes })).toEqual([
+      ...notes,
       'Report (earlier draft): /r/a.html',
     ])
   })
@@ -214,13 +242,10 @@ describe('reportNotes', () => {
       { path: '/r/a.html', plan: { ...plan, description: 'feat: Old' } },
       { path: '/r/b.html', plan },
     ]
-    expect(reportNotes(made, plan)).toEqual(['Report (earlier draft): /r/a.html', 'Report: /r/b.html'])
-    expect(reportNotes(made, { ...plan, notes: [...plan.notes, 'Report: /r/b.html'] })).toEqual([
-      'Report (earlier draft): /r/a.html',
-    ])
+    expect(withReportNotes(made, plan)).toEqual(['Goal: x', 'Report (earlier draft): /r/a.html', 'Report: /r/b.html'])
   })
 
-  test('none made, none linked', () => {
-    expect(reportNotes([], plan)).toEqual([])
+  test("none made: the plan's own notes", () => {
+    expect(withReportNotes([], plan)).toEqual(['Goal: x'])
   })
 })

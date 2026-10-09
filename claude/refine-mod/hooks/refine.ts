@@ -20,7 +20,7 @@ import {
 } from './plan'
 import type { Plan, Task } from './plan'
 import { reportPage } from './page'
-import { openArgv, parseReport, reportNotes, reportPath, reportsDir } from './report'
+import { openArgv, parseReport, reportPath, reportsDir, withReportNotes } from './report'
 import type { MadeReport } from './report'
 
 // The tool's listed name: mcp__<plugin>__<name>, hyphens kept.
@@ -142,7 +142,9 @@ export const register: Register = (on, options) => {
   // reload forgets it, and the model is told to ask again.
   let askedFor: Plan | undefined
   // The reports made this session, linked from the task's notes when it is
-  // written.
+  // written. Module state: a reload forgets it, so a report made before a
+  // reload is not linked (its path is still in the transcript's `Report:`
+  // line).
   const made: MadeReport[] = []
 
   on('session.start', async ($, e, next) => {
@@ -170,7 +172,7 @@ export const register: Register = (on, options) => {
     // The plan as the tool will write it, from its own arguments, not from
     // what the model printed, with a note linking each report made this
     // session; refused whole before a line could be cut.
-    const plan = { description: input.description, notes: [...input.notes, ...reportNotes(made, input)] }
+    const plan = { description: input.description, notes: withReportNotes(made, input) }
     const lines = planLines(plan)
     const tooLong = overlong(lines)
     if (tooLong !== undefined) return { deny: `Nothing written: ${tooLong}` }

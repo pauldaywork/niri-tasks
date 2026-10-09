@@ -268,10 +268,25 @@ export type MadeReport = { path: string; plan: Plan }
 const samePlan = (a: Plan, b: Plan): boolean =>
   a.description === b.description && a.notes.length === b.notes.length && a.notes.every((n, i) => n === b.notes[i])
 
-// The notes that link the session's reports from the task, after the plan's
-// own: marked as an earlier draft when the plan changed since. A report the
-// plan's notes already link is not linked twice.
-export const reportNotes = (made: readonly MadeReport[], plan: Plan): string[] =>
-  made
-    .filter(m => !plan.notes.some(note => note.startsWith('Report') && note.endsWith(m.path)))
-    .map(m => (samePlan(m.plan, plan) ? `Report: ${m.path}` : `Report (earlier draft): ${m.path}`))
+// The plan's own notes: those that link one of the session's reports are
+// the mod's to write, so they are dropped here and written afresh. A note
+// linking a report from an earlier session is the plan's own.
+const ownNotes = (made: readonly MadeReport[], notes: readonly string[]): string[] =>
+  notes.filter(note => !(note.startsWith('Report') && made.some(m => note.endsWith(m.path))))
+
+// The notes the task is written with: the plan's own, then one linking each
+// report made this session, in the order made, marked as an earlier draft
+// when the plan changed since. A report note the model kept is relabelled,
+// never doubled.
+export const withReportNotes = (made: readonly MadeReport[], plan: Plan): string[] => {
+  const own = ownNotes(made, plan.notes)
+  const now = { description: plan.description, notes: own }
+  return [
+    ...own,
+    ...made.map(m =>
+      samePlan({ description: m.plan.description, notes: ownNotes(made, m.plan.notes) }, now)
+        ? `Report: ${m.path}`
+        : `Report (earlier draft): ${m.path}`,
+    ),
+  ]
+}
