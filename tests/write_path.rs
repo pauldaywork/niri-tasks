@@ -324,7 +324,7 @@ fn write_path_lifecycle() {
         !task::replace_text(&target, &rewritten.description, &unchanged).expect("no-op"),
         "an unchanged save reports that it wrote nothing"
     );
-    assert_eq!(change_log_len(&data), before_noop, "and leaves nothing in the undo log");
+    assert_eq!(change_log_len(&data), before_noop, "and leaves nothing in the change log");
 
     // An empty description is not a task: nothing is written.
     assert!(!task::replace_text(&target, "", &[]).expect("empty description"));

@@ -67,7 +67,10 @@ struct State {
 /// - `taskchampion.sqlite3` is Taskwarrior 3.x's whole database, which
 ///   replaces the `.data` files. It runs in WAL mode, but every `task` is a
 ///   short-lived process whose exit checkpoints the WAL back into this file,
-///   so a write moves its mtime.
+///   so a write moves its mtime. If another `task` (a long `task sync`, say)
+///   still has the database open when a write exits, the checkpoint, and so
+///   the refresh, waits until that one closes: late, never lost. Measure it
+///   once sync is on.
 ///
 /// Watching all three keeps the panel refreshing on a 2.6 machine, a 3.x one,
 /// and one part-way through the move, for one more stat than either needs.
@@ -80,8 +83,11 @@ struct State {
 /// The daemon's reads pass `rc.gc=off` (see `export_values` in
 /// [`crate::task`]), so on 2.6 a read writes none of these files. Whether a
 /// 3.x read with gc off also leaves `taskchampion.sqlite3`'s mtime alone is
-/// still open: 3.x is not installed here to measure it. If it does not, the
-/// cost is a second, needless refresh after each change, not a missed one.
+/// still open: 3.x is not installed here to measure it, though the sync
+/// plan saw a 3.5.0 `task export` leave the main file's mtime alone. If a
+/// read did move it, the panel would refresh on every tick, as watching
+/// `-wal` would, because the tick records the mtimes before its own export.
+/// Check that first after installing 3.x.
 const DB_FILES: [&str; 3] = ["pending.data", "completed.data", "taskchampion.sqlite3"];
 
 /// The mtime of each of [`DB_FILES`] in `dir`, in that order. A file that is
