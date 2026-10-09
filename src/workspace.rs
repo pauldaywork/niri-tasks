@@ -1,8 +1,8 @@
 //! Which workspace a command is about, decided once, as a value that always
 //! has a usable tag: the focused one for a keybind, this terminal's herdr
 //! session (or its ~/Projects folder) for an agent, and whichever is asking
-//! for the commands both run. The policies and their refusals were spread
-//! over the crate root; they live here.
+//! for the commands both run. Each command decides once, and every caller
+//! gets the name, tag, herdr session and folder from that one value.
 
 use crate::session::{self, Session};
 use crate::{dirs::Dirs, niri, tag};
@@ -60,8 +60,7 @@ impl Workspace {
     ///    names the workspace the same way the session does.
     ///
     /// A named herdr session that matches no workspace is an error rather than a
-    /// reason to try the folder: it means the workspace was renamed, and the
-    /// folder would only give a plausible-looking guess.
+    /// reason to try the folder; `from_session` says why.
     ///
     /// The obvious alternative — walk this process's parents to the niri window
     /// running it and read *its* workspace — does not survive contact with this

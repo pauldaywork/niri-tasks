@@ -1,5 +1,6 @@
-//! Project folders: the `~/Projects` list, its name normalisation, the list a
-//! task can move to, and moving it.
+//! Project folders: the `~/Projects` list and the uncloned repos offered
+//! beside it, its name normalisation, opening one on its own workspace with
+//! its programs started, the list a task can move to, and moving it.
 //!
 //! A name typed on the project list that matches no folder becomes a
 //! directory name, so it is normalised and then guarded. The re-check after
@@ -226,7 +227,8 @@ impl Projects {
 /// the editor if installed. The name is set before this runs, which is what
 /// puts the windows on the right workspace: niri spawns onto the focused one.
 fn start(dir: &std::path::Path, workspace: &str) -> Result<()> {
-    for command in crate::programs::startup_commands(dir, &crate::session::herdr_session_name(workspace)) {
+    let session = crate::session::herdr_session_name(workspace);
+    for command in crate::programs::startup_commands(dir, &session) {
         crate::niri::spawn(command)?;
     }
     Ok(())
@@ -434,7 +436,6 @@ mod tests {
         let names: Vec<String> = ["alpha", "beta"].iter().map(|s| s.to_string()).collect();
         assert_eq!(move_destinations(&names, "scratch").len(), 2);
     }
-
 
     /// Picking a row runs `project open` with the row's bare name, a repo's
     /// as much as a folder's.
