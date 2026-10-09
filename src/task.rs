@@ -229,9 +229,10 @@ fn export_values(filter: &[&str]) -> Result<Vec<Value>> {
     // pending.data and completed.data. A `task done` or `task delete` leaves
     // its task in pending.data, so the daemon's next read wrote both files,
     // changed the mtimes it watches, and made it refresh a second time for
-    // nothing (measured on 2.6.2). The output is the same either way, and
-    // writes keep gc through `base()`. No time is saved: an export takes
-    // about 6.5 ms with or without it.
+    // nothing (measured on 2.6.2). The same tasks and statuses come out
+    // either way; only the `id`s, which this tool never reads, stay
+    // unrenumbered until a write's gc. Writes keep gc through `base()`. No
+    // time is saved: an export takes about 6.5 ms with or without it.
     let out = base()
         .arg("rc.gc=off")
         .args(filter)
@@ -266,6 +267,8 @@ pub fn pending_for_tag(tag: &str) -> Result<Vec<Task>> {
 #[derive(Debug, Default)]
 pub struct Listing {
     /// Pending and not parked, most urgent first (the `task next` order).
+    /// Each keeps whichever of `pending` or `waiting` it was exported with,
+    /// so a stored `waiting` whose date has passed sits here with that status.
     pub pending: Vec<Task>,
     /// Parked: pending with a wait date still to come, taskwarrior's
     /// `+WAITING`. Each keeps the status it was exported with, `pending` from

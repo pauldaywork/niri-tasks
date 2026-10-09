@@ -607,6 +607,16 @@ mod tests {
         assert_eq!(Filter::shown(&cards(&done(vec![finished("done", 2)]), &[])), vec![Filter::All, Filter::Finished]);
     }
 
+    /// The part decides, never the status: a stored `waiting` whose date has
+    /// passed is in the pending part, and its card is pending.
+    #[test]
+    fn a_waiting_status_in_the_pending_part_is_pending() {
+        let mut stored = task("stored", 1, false);
+        stored.status = "waiting".into();
+        let got = cards(&todo(vec![stored]), &[]);
+        assert_eq!(got[0].status, Status::Pending);
+    }
+
     #[test]
     fn a_waiting_task_gets_the_pause_icon() {
         let got = cards(&parked(vec![waiting("parked")]), &[]);
