@@ -174,18 +174,19 @@ one import, and touches nothing else. Its answer says what happened:
   again after revising.
 - **Nothing written: the task no longer exists** or **… not pending** — stop
   and tell the user.
-- Any other **Nothing written: …**, **write_task_plan: …** or **show_task_report: …** answer — fix what
-  it names (a line too long, a note on two lines, a control or invisible
-  character) and call again.
+- Any other **Nothing written: …** or **write_task_plan: …** answer, or a
+  **show_task_report: …** answer other than "has not asked for a report"
+  (see **Report, when asked**) — fix what it names (a line too long, a note
+  on two lines, a control or invisible character) and call again.
 - Anything else (not armed, `task export failed`, `task import failed`,
   `failed before writing`) — do not retry and do not write the task any other
   way. Export the task as in step 6, then tell the user the tool's answer and
   what the task now holds.
-  If it was the report tool that failed, tell the user the report could not
-  be made, and call `write_task_plan` again so they can approve or change
-  the plan without it.
+- The report tool answered not armed or failed — tell the user the report
+  could not be made, and call `write_task_plan` again so they can approve or
+  change the plan without it.
 
-If the tool is missing, say so and stop — do not write the task any other
+If the write tool is missing, say so and stop — do not write the task any other
 way.
 
 ### Report, when asked
@@ -200,12 +201,14 @@ nothing to the task. Build the report:
    always, then each other entry whose **When** holds. Ground every one in
    the code you read in step 2 — real paths, real function and type names —
    and mark what the plan adds as new.
-3. Call `mcp__niri-tasks-refine__show_task_report` with `title`, the new
-   description, and `body`, the HTML inside `<body>`. Diagrams are
+3. Call `mcp__niri-tasks-refine__show_task_report` with `title` (the new
+   description) and `body` (the HTML inside `<body>`). Diagrams are
    `<pre class="mermaid">` blocks or inline `<svg>`. No `<script>`, `<meta>`,
    `<link>`, `<base>`, `<iframe>`, `<object>`, `<embed>` or `<form>`: the tool
    adds the page around the body and refuses those.
-4. On **show_task_report: …**, fix what it names and call it again. On
+4. On **show_task_report: the person has not asked for a report**, call
+   `write_task_plan` again instead; they can choose the report there. On any
+   other **show_task_report: …**, fix what it names and call it again. On
    **Wrote the report to …**, tell the user the path in one line, then call
    `write_task_plan` again with the same `expected`, `description` and
    `notes`. The plan has not changed, so do not print the block again.

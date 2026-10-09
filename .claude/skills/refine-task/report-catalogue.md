@@ -14,7 +14,7 @@ that fits is better than a long one that pads.
 
 You write only what goes inside `<body>`. The tool adds the rest: the page
 head, a stylesheet, and Mermaid. The page runs no script of yours and loads
-nothing, so the tool refuses `<script>`, `<meta>`, `<link>`, `<base>`,
+nothing but Mermaid, so the tool refuses `<script>`, `<meta>`, `<link>`, `<base>`,
 `<iframe>`, `<frame>`, `<frameset>`, `<object>`, `<embed>`, `<form>` and
 `<portal>`. Styles in a `<style>` element are fine. Images must be inline:
 `<svg>` or a `data:` URL.
@@ -22,7 +22,7 @@ nothing, so the tool refuses `<script>`, `<meta>`, `<link>`, `<base>`,
 Diagrams are either:
 
 - **Mermaid** — `<pre class="mermaid">…</pre>` holding a Mermaid 11
-  diagram. Escape `<`, `>` and `&` inside it as `&lt;`, `&gt;`, `&amp;`.
+  diagram. Escape `<` and `&` inside it as `&lt;` and `&amp;`.
   Mermaid lays it out; use it for anything with boxes and arrows. Offline it
   shows as its source text.
 - **Inline SVG** — for what Mermaid draws badly: a screen mock-up, a
