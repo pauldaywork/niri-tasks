@@ -125,10 +125,11 @@ task you have misread gets caught before any work goes into it.
 
 For each task, in the order the user confirmed:
 
-**1. Claim it by starting it.**
+**1. Claim it by starting it, then mark it active through niritasks.**
 
 ```bash
 task <uuid> start
+niritasks task status <uuid> active
 ```
 
 Starting is the claim. Taskwarrior locks its data files while it writes, and
@@ -137,6 +138,12 @@ exit 1 — so when two agents reach for the same task at once, exactly one of th
 gets it. If yours is the one refused, another agent (or the user) took the task
 after you read the list: say so, skip it, and move on to the next. Do not
 retry, and do not stop their claim to take it.
+
+The second line is not the claim: `niritasks task status <uuid> active` succeeds
+on a task that is already active, so it cannot tell you whether you won. Run it
+only once `task start` has succeeded. It is what the card's buttons use, so the
+panel gets its notification, and from a herdr pane it names your agent after the
+task, which is how the task's card finds your session.
 
 **Stop only your own.** Before claiming the next task, stop the one you just
 finished or gave up on — never another active task on the tag. Other active tasks are
@@ -161,7 +168,7 @@ you created when you are done with them; they are your scratch, not the user's.
 **4. Mark it done.**
 
 ```bash
-task <uuid> done
+niritasks task status <uuid> completed
 ```
 
 Mark it done as soon as the work is complete and verified — that is the point of
@@ -173,7 +180,7 @@ before closing it.
 **If a task turns out to be blocked**, stop it rather than leaving it active:
 
 ```bash
-task <uuid> stop
+niritasks task status <uuid> stopped
 task <uuid> annotate -- "blocked: <one line on why>"
 ```
 
