@@ -111,19 +111,24 @@ pub fn reports_dir(dirs: &Dirs) -> PathBuf {
 /// Allowed unasked on top: web search and fetch, which write nothing; and
 /// `task`, which Claude Code asks about even inside the sandbox, for reasons
 /// it does not log — the skill reads with it, and it still runs sandboxed.
-/// The Read tool may read the installed skills too: the report catalogue
-/// lives there, outside the project, where Read would otherwise ask, and
-/// sandboxed Bash can read it regardless.
+/// The Read tool may read the installed skills too, and the real folders
+/// the links point into ([`skill_dirs`]): the report catalogue lives there,
+/// outside the project, where Read would otherwise ask, and sandboxed Bash
+/// can read it regardless.
 /// The write itself is the refine mod's tool, which `pluginConfigs` tells
 /// which task it may write: `uuid`, never anything the model says.
 /// It is told `reports` too, the folder its report tool writes to, and
 /// `report`: true in a Report session, where it offers only the report tool
 /// and links the report from the task itself.
-pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uuid: &str, reports: &Path, mode: Mode) -> String {
+pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uuid: &str, reports: &Path, skill_dirs: &[PathBuf], mode: Mode) -> String {
     let deny: Vec<String> = CREDENTIALS.iter().map(|c| format!("Read({c})")).collect();
+    let mut allow: Vec<String> =
+        ["WebSearch", "WebFetch", "Bash(task *)", "Read(~/.claude/skills/**)"].iter().map(|s| s.to_string()).collect();
+    // `//` is Claude Code's absolute form; one `/` would be the project's.
+    allow.extend(skill_dirs.iter().map(|dir| format!("Read(//{}/**)", dir.display().to_string().trim_start_matches('/'))));
     serde_json::json!({
         "permissions": {
-            "allow": ["WebSearch", "WebFetch", "Bash(task *)", "Read(~/.claude/skills/**)"],
+            "allow": allow,
             "deny": deny,
         },
         "sandbox": {
@@ -143,6 +148,22 @@ pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uu
         },
     })
     .to_string()
+}
+
+/// The real folders of the installed skill files the session's Read tool
+/// has to read: today the refine-task catalogue's, which both the report
+/// skill and a refine's "Show me a report first" read. `install.sh` links
+/// the file into the repo, and Claude Code lets the Read tool through a
+/// link only when the link and its target are both allowed, so
+/// [`session_settings`] allows these beside `~/.claude/skills`. Empty when
+/// the catalogue is not installed: the skill then stops and says so.
+pub fn skill_dirs(home: &Path) -> Vec<PathBuf> {
+    let catalogue = home.join(".claude/skills/refine-task/report-catalogue.md");
+    std::fs::canonicalize(catalogue)
+        .ok()
+        .and_then(|file| file.parent().map(Path::to_path_buf))
+        .into_iter()
+        .collect()
 }
 
 /// [`CREDENTIALS`] as paths under `home`, of those that exist: the sandbox
@@ -267,7 +288,15 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
         mod_dir.display()
     );
     let session = ws.session()?;
-    let settings = session_settings(session.dir(), &task::data_location()?, &hidden, &t.uuid, &reports_dir(&dirs), mode);
+    let settings = session_settings(
+        session.dir(),
+        &task::data_location()?,
+        &hidden,
+        &t.uuid,
+        &reports_dir(&dirs),
+        &skill_dirs(home),
+        mode,
+    );
 
     let claude = Claude::Refiner { settings, mod_dir };
     let label = tab_label(mode, &t.description);
@@ -369,7 +398,7 @@ mod tests {
     #[test]
     fn the_sandbox_fences_the_session_to_the_task_database() {
         let hidden = [PathBuf::from("/run/user/1000"), PathBuf::from("/run/docker.sock")];
-        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden, "u", Path::new("/r"), Mode::Quick);
+        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden, "u", Path::new("/r"), &[], Mode::Quick);
         let v: Value = serde_json::from_str(&json).unwrap();
         let sb = &v["sandbox"];
         assert_eq!(sb["enabled"], true);
@@ -390,7 +419,7 @@ mod tests {
     /// the write is the mod's tool now.
     #[test]
     fn the_session_may_search_the_web_but_not_read_credentials() {
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), Mode::Quick);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), &[], Mode::Quick);
         let v: Value = serde_json::from_str(&json).unwrap();
         let allow = v["permissions"]["allow"].as_array().unwrap();
         for tool in ["WebSearch", "WebFetch", "Bash(task *)", "Read(~/.claude/skills/**)"] {
@@ -404,12 +433,45 @@ mod tests {
         assert_eq!(deny.len(), CREDENTIALS.len());
     }
 
+    /// install.sh links the skills into the repo, and Claude Code lets the
+    /// Read tool through a link only when the link and its target are both
+    /// allowed, so each resolved skill folder gets a rule of its own, in the
+    /// absolute `//` form. The order is the rules' own, so a test can pin it.
+    #[test]
+    fn each_resolved_skill_folder_is_allowed_beside_the_links() {
+        let dirs = [PathBuf::from("/home/x/Projects/niri-tasks/.claude/skills/refine-task")];
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), &dirs, Mode::Report);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        let allow = v["permissions"]["allow"].as_array().unwrap();
+        assert_eq!(allow[3], "Read(~/.claude/skills/**)");
+        assert_eq!(allow[4], "Read(//home/x/Projects/niri-tasks/.claude/skills/refine-task/**)");
+        assert_eq!(allow.len(), 5);
+    }
+
+    /// The catalogue's real folder, found through its installed link; none
+    /// when it is not installed, since the skill then stops and says so.
+    #[test]
+    fn skill_dirs_resolve_the_installed_catalogue_and_skip_what_is_absent() {
+        let home = std::env::temp_dir().join(format!("niritasks-skills-{}", std::process::id()));
+        let repo = home.join("repo/.claude/skills/refine-task");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(repo.join("report-catalogue.md"), "# Refine report catalogue\n").unwrap();
+        let installed = home.join(".claude/skills/refine-task");
+        std::fs::create_dir_all(&installed).unwrap();
+        std::os::unix::fs::symlink(repo.join("report-catalogue.md"), installed.join("report-catalogue.md")).unwrap();
+
+        assert_eq!(skill_dirs(&home), vec![std::fs::canonicalize(&repo).unwrap()]);
+
+        std::fs::remove_dir_all(&home).ok();
+        assert_eq!(skill_dirs(&home), Vec::<PathBuf>::new());
+    }
+
     /// The task the mod may write, and where it may write a report, come from
     /// these settings, never from the model.
     #[test]
     fn the_mod_is_told_which_task_it_may_write_and_where_reports_go() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/home/x/.local/share/niri-tasks/reviews"), Mode::Quick);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/home/x/.local/share/niri-tasks/reviews"), &[], Mode::Quick);
         let v: Value = serde_json::from_str(&json).unwrap();
         let options = &v["pluginConfigs"][REFINE_MOD]["options"];
         assert_eq!(options["uuid"], u);
@@ -423,14 +485,14 @@ mod tests {
     #[test]
     fn a_report_session_tells_the_mod_so() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), Mode::Report);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), &[], Mode::Report);
         let v: Value = serde_json::from_str(&json).unwrap();
         let options = &v["pluginConfigs"][REFINE_MOD]["options"];
         assert_eq!(options["report"], true);
         assert_eq!(options["uuid"], u, "the same fence and task as a refine");
         assert_eq!(options["reports"], "/r");
         for mode in [Mode::Quick, Mode::Grill] {
-            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), mode);
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), &[], mode);
             let v: Value = serde_json::from_str(&json).unwrap();
             assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["report"], false, "{mode:?}");
         }
