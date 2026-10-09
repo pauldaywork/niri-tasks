@@ -21,8 +21,9 @@
 # and clones are not opened from a try window either: ghostty and VS Code
 # hand off over the session bus to your running instances, and gh would
 # clone into your real ~/Projects, so stubs for ghostty, code and gh print
-# what would have run, as [notify] lines in the try shell. Mod+Alt+W can
-# still make a new folder under ~/Projects.
+# what would have run, as [notify] lines in the try shell. gh's stub fails,
+# so a clone says it could not and a GitHub refresh keeps the list it had.
+# Alt+W can still make a new folder under ~/Projects.
 #
 # It never touches what is installed: ~/.cargo/bin/niritasks, the
 # niri-tasks service and install.sh's links stay as they are, and your own
@@ -90,15 +91,25 @@ PY
 mkdir -p "$SB/bin" "$SB/share"
 ln -sf "$BIN" "$SB/bin/niritasks"
 # Stubs for what would reach your real desktop or ~/Projects from a bind:
-# they record the call in the notification log and run nothing.
+# they record the call in the notification log and run nothing. gh's fails:
+# a stub that succeeded would hand the project list an empty repo list as
+# fresh, and have a clone open a folder that was never made.
 for prog in ghostty code gh; do
-    cat > "$SB/bin/$prog" <<'STUB'
+    status=0
+    [ "$prog" = gh ] && status=1
+    cat > "$SB/bin/$prog" <<STUB
 #!/bin/sh
-echo "would run: ${0##*/} $*" >> "${NOTIFY_LOG:?}"
-exit 0
+echo "would run: \${0##*/} \$*" >> "\${NOTIFY_LOG:?}"
+exit $status
 STUB
     chmod +x "$SB/bin/$prog"
 done
+# The GitHub repo cache is the sandbox's, seeded from yours so the project
+# list shows your repos: a build under test never writes your ~/.cache.
+case "${XDG_CACHE_HOME:-}" in /*) REAL_CACHE="$XDG_CACHE_HOME" ;; *) REAL_CACHE="$HOME/.cache" ;; esac
+mkdir -p "$SB/cache"
+[ -d "$REAL_CACHE/niritasks" ] && cp -r "$REAL_CACHE/niritasks" "$SB/cache/"
+export XDG_CACHE_HOME="$SB/cache"
 # The Ideas tab saves under XDG_DATA_HOME: the sandbox's, never yours. Set
 # before the nested niri starts, so its bind spawns get it too.
 export XDG_DATA_HOME="$SB/share"
@@ -170,7 +181,7 @@ shows the panel, Alt+W opens a project and Alt+Return opens a terminal
 
 Terminals, editors and clones are not opened from it: ghostty, code and gh
 are stubs, and what would have run is printed here as [notify] lines.
-Mod+Alt+W can still make a new folder under ~/Projects.
+Alt+W can still make a new folder under ~/Projects.
 
   reload   rebuild and restart the nested daemon
   exit     close it all; the copy is thrown away

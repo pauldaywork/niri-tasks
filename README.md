@@ -466,8 +466,10 @@ reason printed in the try shell. Terminals, editors and clones are not opened
 either: `ghostty`, `code` and `gh` are stubs that print what would have run
 (`[notify] would run: …`), because ghostty and VS Code would otherwise hand
 off to your running instances and `gh` would clone into your real
-`~/Projects`. Mod+Alt+W can still make a folder under `~/Projects`, for a new
-name typed there.
+`~/Projects`. The `gh` stub fails, so a clone says it could not and the
+project list keeps the GitHub repos it had, from a copy of your
+`~/.cache/niritasks` that the try build writes instead of yours. Alt+W can
+still make a folder under `~/Projects`, for a new name typed there.
 Installing a build for daily use is still `bash install.sh`, on main.
 
 ### Why the three scripts are not cargo tests
