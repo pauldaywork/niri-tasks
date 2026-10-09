@@ -398,7 +398,9 @@ stopped, it checks the CLI refuses with "daemon is not running" rather than
 drawing a box of its own. Your own `niri-tasks` daemon is never stopped.
 Run from a herdr pane, both nested tests drop every `HERDR_*` variable before
 starting the nested niri, so they behave as from a plain terminal and never
-touch your herdr session or pane.
+touch your herdr session or pane. Either way, the daemon and the commands they
+run see a `$PATH` with every directory holding a `herdr` taken out, and the run
+stops if `herdr` can still be found, so nothing they start reaches your herdr.
 
 It cannot click, so after a change to the task box (`src/taskbox.rs` or `src/taskbox/`) check the pointer half by
 hand: × deletes its row, "+ Add note" appends an empty row with the cursor in

@@ -29,6 +29,11 @@
 # HERDR_* you have reaches the nested niri, its spawns or anything run
 # through `nested`, so a task added in it is never filed under your herdr
 # session or linked to your pane.
+#
+# Nor can anything run through `nested` reach your herdr: its PATH is yours
+# with every directory that holds a herdr taken out, and the run stops if
+# herdr can still be found on it. The nested niri's own spawns get
+# NESTED_SPAWN_PATH when a test sets one.
 
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
 command -v task >/dev/null || { echo "taskwarrior is required" >&2; exit 1; }
@@ -247,12 +252,34 @@ echo "$*" >> "${NOTIFY_LOG:?}"
 exit 0
 STUB
     chmod +x "$SB/bin/notify-send"
+    # PATH: the stubs, then yours without any directory that holds a herdr.
+    # The daemon asks herdr for each workspace's live agents every time the
+    # panel slides out (src/link.rs), and a refine or a start opens a session
+    # in it; with your real herdr on PATH that would be your real herdr. What
+    # else sits beside it (wt, claude) no e2e path runs. NIRITASKS is made
+    # absolute first, in case it was found in one of the dropped directories.
+    NIRITASKS=$(command -v "$NIRITASKS") || die "no niritasks on \$PATH — build it, or set NIRITASKS="
+    local dir no_herdr_path=""
+    local -a dirs
+    IFS=: read -ra dirs <<< "$PATH"
+    for dir in "${dirs[@]}"; do
+        [ -x "${dir:-.}/herdr" ] && continue
+        no_herdr_path="$no_herdr_path:$dir"
+    done
     # -u DISPLAY and GDK_BACKEND: if the nested niri dies, GTK must not fall
     # back to X11 and open a box on the real desktop. -u HERDR_*: as for the
     # nested niri. env -u comes first.
     NENV=(env -u DISPLAY "${herdr_unset[@]}" XDG_RUNTIME_DIR="$RT" WAYLAND_DISPLAY="$n_wayland"
           NIRI_SOCKET="$n_socket" GDK_BACKEND=wayland
-          NOTIFY_LOG="$SB/notifications" PATH="$SB/bin:$PATH")
+          NOTIFY_LOG="$SB/notifications" PATH="$SB/bin$no_herdr_path")
+    # Checked on every run, through NENV itself, so that a herdr found some
+    # other way (a PATH entry the loop above misses, say)
+    # stops the run before the daemon can reach it, rather than show up later
+    # as a panel that talked to your real herdr.
+    local found
+    if found=$("${NENV[@]}" sh -c 'command -v herdr'); then
+        die "herdr is still on the nested run's PATH ($found): the daemon would reach your real herdr"
+    fi
 
     # Started from a herdr pane, the run must behave as from a plain
     # terminal: an inherited HERDR_SESSION names a session the nested niri
