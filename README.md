@@ -400,7 +400,7 @@ Run from a herdr pane, both nested tests drop every `HERDR_*` variable before
 starting the nested niri, so they behave as from a plain terminal and never
 touch your herdr session or pane.
 
-It cannot click, so after a change to `src/taskbox.rs` check the pointer half by
+It cannot click, so after a change to the task box (`src/taskbox.rs` or `src/taskbox/`) check the pointer half by
 hand: × deletes its row, "+ Add note" appends an empty row with the cursor in
 it, and a long note list scrolls, keeping a row made by Enter at the bottom in
 view.

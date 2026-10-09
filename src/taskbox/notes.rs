@@ -56,8 +56,8 @@ impl Notes {
         container.append(&delete);
         {
             // Weak, both of them: the row's own button holding the list that
-            // holds the row is a cycle. See the note above `do_submit` for why
-            // a closed box must not be kept alive.
+            // holds the row is a cycle. See the note above `do_submit` in
+            // `build_window` for why a closed box must not be kept alive.
             let notes = Rc::downgrade(self);
             let view = view.downgrade();
             delete.connect_clicked(move |_| {
