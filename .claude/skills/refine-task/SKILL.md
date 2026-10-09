@@ -62,9 +62,11 @@ here changes a file.
   three, in one round, each with your recommended answer. None is fine.
 - **`grill`:** invoke the `grilling` skill with the task (description and notes)
   as the plan to grill, and follow it until its frontier is empty — except for
-  how a round is put to the user. Instead of its numbered markdown list, ask
-  each round with **one AskUserQuestion call**, one question per tab, so the
-  user takes them one at a time and sends all the answers together:
+  how a round is put to the user. The "Format a round like so" block in
+  `grilling` (❓ **Q1** … ➡️, the numbered markdown list) does not apply in a
+  refine session; this bullet replaces it, even though `grilling` loads after
+  it. Ask each round with **one AskUserQuestion call**, one question per tab,
+  so the user takes them one at a time and sends all the answers together:
   - At most 4 questions a round. If the frontier holds more, ask the 4 that
     most other decisions hang on, and leave the rest for the next round.
   - Each question's text carries what the markdown body would have: the
@@ -74,12 +76,18 @@ here changes a file.
     its label ending in "(Recommended)", and its description says why. An open
     question still gets 2–4 likely answers; the user can always pick "Other"
     and type their own. Use an option's `preview` when comparing code,
-    layouts or config.
-  - Don't repeat the round as text in your reply; the dialog is the round.
+    layouts or config. If a question's options are not exclusive, set
+    `multiSelect`.
+  - Don't repeat the round as text in your reply; the dialog is the round. If
+    the dialog is dismissed or errors, re-ask that round as plain text, still
+    with the recommended answer first.
 
-  Everything else in `grilling` holds: rounds, recomputing the frontier after
-  each one, looking up facts rather than asking, and stopping when the
-  frontier is empty.
+  The rest of `grilling` holds, including rounds, recomputing the frontier
+  after each one, looking up facts rather than asking, and stopping when the
+  frontier is empty. A question that hangs on another still open waits for a
+  later round, so never put both in one dialog. Grilling's final confirmation
+  is the write tool's question in step 5; don't ask for it in a separate
+  dialog.
 
 ## 4. Propose
 
