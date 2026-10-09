@@ -26,6 +26,10 @@ pub enum Action {
     Refine,
     /// Refine, interviewing first rather than drafting straight away.
     Grill,
+    /// The refine report of a planned task's plan, built by Claude in the
+    /// workspace's herdr session, opened in the browser and linked from the
+    /// task's notes, without refining again.
+    Report,
     /// The task box on the description and every note. The box, not a
     /// one-line prompt: the descriptions you reach for it to fix are the long
     /// ones.
@@ -122,12 +126,13 @@ impl Action {
     ///
     /// The glyphs keep the row narrow. Font Awesome's, from the same Nerd
     /// Font as the cards' lock: terminal, undo arrow, play, magic wand,
-    /// comments, pencil, bookmark, check, open folder, stop, pause and trash
-    /// can. Speak's speaker is Material Design's, from the same font.
+    /// comments, file-text, pencil, bookmark, check, open folder, stop, pause
+    /// and trash can. Speak's speaker is Material Design's, from the same font.
     ///
     /// The colours are Catppuccin mocha's, one per button (see
-    /// `panel::style`); Grill me wears Refine's mauve, being a refine that
-    /// interviews first, and Start shares the active task's green.
+    /// `panel::style`); Grill me and Report wear Refine's mauve, one being a
+    /// refine that interviews first and the other a report of what a refine
+    /// wrote, and Start shares the active task's green.
     ///
     /// Back to list, Up next, Complete, Waiting and Remove only change the
     /// task, and Speak plays in the background, so none opens anything that
@@ -144,6 +149,9 @@ impl Action {
             Start => Facts { icon: "\u{f04b}", class: "start", key: Some("s"), colour: c::ACTIVE, keeps_keyboard: false, leaves_the_list: false },
             Refine => Facts { icon: "\u{f0d0}", class: "refine", key: Some("r"), colour: c::REFINE, keeps_keyboard: false, leaves_the_list: false },
             Grill => Facts { icon: "\u{f086}", class: "grill", key: Some("i"), colour: c::REFINE, keeps_keyboard: false, leaves_the_list: false },
+            // Font Awesome's file-text: the report. Refine's mauve, being a
+            // view of what a refine wrote.
+            Report => Facts { icon: "\u{f15c}", class: "report", key: Some("p"), colour: c::REFINE, keeps_keyboard: false, leaves_the_list: false },
             Edit => Facts { icon: "\u{f040}", class: "edit", key: Some("e"), colour: c::EDIT, keeps_keyboard: false, leaves_the_list: false },
             // Material Design's volume-medium, not Font Awesome's volume-up,
             // which is drawn nearly twice as wide as its cell and sat off
@@ -198,8 +206,8 @@ impl Action {
 
 impl Action {
     /// Every task action, in the order the action row puts the ones it has.
-    pub const ALL: [Action; 13] =
-        [Session, Back, Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Stop, Wait, Remove];
+    pub const ALL: [Action; 14] =
+        [Session, Back, Start, Refine, Grill, Report, Edit, Speak, UpNext, Complete, Move, Stop, Wait, Remove];
 
     /// Whether the action makes sense on a task in `state`. A waiting or
     /// finished task is off the list: it gets the way back to it, and what
@@ -208,12 +216,15 @@ impl Action {
     /// it. Go to session needs a Claude to go to, and Stop a task that was
     /// started. Start working stays on an active task, where it goes back to
     /// the worktree and the Claude; a view with no room for both it and Stop
-    /// drops it there.
+    /// drops it there. Report is for a planned task on the list: an unplanned
+    /// one has no plan to report on.
     pub fn applies(self, state: TaskState) -> bool {
         match self {
             Session => state.has_session && !state.off_list(),
             Back => state.off_list(),
             Stop => state.active,
+            // A plan to report on, and a task still on the list.
+            Report => state.planned && !state.off_list(),
             Start | Refine | Grill | UpNext | Wait => !state.off_list(),
             // A finished task is done already, and stays where it was done.
             Complete | Move => !state.finished,
@@ -231,6 +242,7 @@ impl Action {
             Start => "Start working",
             Refine => "Refine",
             Grill => "Grill me",
+            Report => "Report",
             Edit => "Edit",
             Speak => "Speak",
             UpNext if up_next => "Not up next",
@@ -253,6 +265,7 @@ impl Action {
             Start => &["task", "start", uuid],
             Refine => &["task", "refine", uuid],
             Grill => &["task", "refine", uuid, "--grill"],
+            Report => &["task", "report", uuid],
             Edit => &["task", "edit", uuid],
             Speak => &["task", "speak", uuid],
             UpNext => &["task", "up-next", uuid],
@@ -276,13 +289,29 @@ mod tests {
     }
 
     /// A task on the list, not started: everything but the ways back from
-    /// somewhere it is not.
+    /// somewhere it is not. Report only once it has a plan.
     #[test]
     fn a_task_on_the_list_gets_all_but_session_back_and_stop() {
         assert_eq!(
             offered(TaskState::default()),
             vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
         );
+        assert_eq!(
+            offered(TaskState { planned: true, ..TaskState::default() }),
+            vec![Start, Refine, Grill, Report, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
+        );
+    }
+
+    /// Report needs a plan to report on, and a task on the list: never an
+    /// unplanned one, which gets Refine or Grill me first, nor a waiting or
+    /// finished one, planned or not.
+    #[test]
+    fn report_needs_a_plan_and_a_task_on_the_list() {
+        assert!(!Report.applies(TaskState::default()));
+        assert!(Report.applies(TaskState { planned: true, ..TaskState::default() }));
+        assert!(Report.applies(TaskState { planned: true, active: true, ..TaskState::default() }));
+        assert!(!Report.applies(TaskState { planned: true, waiting: true, ..TaskState::default() }));
+        assert!(!Report.applies(TaskState { planned: true, finished: true, ..TaskState::default() }));
     }
 
     /// An active task can be stopped, and started again, which goes back to
@@ -321,7 +350,7 @@ mod tests {
         assert_eq!(
             labels,
             vec![
-                "Go to session", "Back to list", "Start working", "Refine", "Grill me", "Edit",
+                "Go to session", "Back to list", "Start working", "Refine", "Grill me", "Report", "Edit",
                 "Speak", "Up next", "Complete", "Move to workspace", "Stop", "Waiting", "Remove",
             ]
         );
@@ -369,6 +398,7 @@ mod tests {
         assert_eq!(Start.args(u), vec!["task", "start", u]);
         assert_eq!(Refine.args(u), vec!["task", "refine", u]);
         assert_eq!(Grill.args(u), vec!["task", "refine", u, "--grill"]);
+        assert_eq!(Report.args(u), vec!["task", "report", u]);
         assert_eq!(Edit.args(u), vec!["task", "edit", u]);
         assert_eq!(Speak.args(u), vec!["task", "speak", u]);
         assert_eq!(UpNext.args(u), vec!["task", "up-next", u]);
@@ -442,6 +472,8 @@ mod tests {
     fn the_table_says_what_a_press_does_to_the_panel() {
         let keeps: Vec<Action> = Action::ALL.into_iter().filter(|a| a.keeps_keyboard()).collect();
         assert_eq!(keeps, vec![Back, Speak, UpNext, Complete, Move, Wait, Remove]);
+        // Report opens a herdr tab, which takes the keyboard, and the card stays.
+        assert!(!Report.keeps_keyboard() && !Report.leaves_the_list());
         let leaves: Vec<Action> = Action::ALL.into_iter().filter(|a| a.leaves_the_list()).collect();
         assert_eq!(leaves, vec![Back, Complete, Wait, Remove]);
     }

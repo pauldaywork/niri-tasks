@@ -195,15 +195,18 @@ mod tests {
         assert_eq!(classes, vec!["refine", "grill", "edit", "speak", "up-next", "complete", "move", "stop", "wait", "remove"]);
     }
 
+    /// A task not yet started gets Start working and no Stop; a planned one
+    /// gets Report too, after Grill me.
     #[test]
     fn a_task_not_yet_active_gets_start_and_no_stop() {
-        for planned in [false, true] {
-            assert_eq!(
-                Action::row(on_list(planned)),
-                vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Wait, Remove],
-                "planned={planned}"
-            );
-        }
+        assert_eq!(
+            Action::row(on_list(false)),
+            vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
+        );
+        assert_eq!(
+            Action::row(on_list(true)),
+            vec![Start, Refine, Grill, Report, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
+        );
     }
 
     /// Go to session leads the row only while a Claude is on the task — on an
@@ -217,7 +220,7 @@ mod tests {
         // A refine open on a task not yet started.
         assert_eq!(
             Action::row(with_claude(on_list(true))),
-            vec![Session, Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
+            vec![Session, Start, Refine, Grill, Report, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
         );
     }
 
@@ -275,6 +278,20 @@ mod tests {
         }
     }
 
+    /// Report sits between Grill me and Edit on every planned card on the
+    /// list, active or not, and on no other card.
+    #[test]
+    fn every_planned_card_on_the_list_gets_report() {
+        for state in every_state() {
+            let row = Action::row(state);
+            assert_eq!(row.contains(&Report), state.planned && !state.off_list(), "{state:?}");
+            if row.contains(&Report) {
+                let at = row.iter().position(|a| *a == Report).unwrap();
+                assert_eq!((row[at - 1], row[at + 1]), (Grill, Edit), "{state:?}");
+            }
+        }
+    }
+
     /// Every card can be completed, a waiting one too, and moved to another
     /// project's workspace; a finished one is done already, and stays put.
     #[test]
@@ -292,9 +309,9 @@ mod tests {
         assert!(!UpNext.leaves_the_list());
     }
 
-    /// g b s r i e c m t press Go to session, Back to list, Start working,
-    /// Refine, Grill me, Edit, Complete, Move to workspace and Stop, and each
-    /// letter finds its own button.
+    /// g b s r i p e c m t press Go to session, Back to list, Start working,
+    /// Refine, Grill me, Report, Edit, Complete, Move to workspace and Stop,
+    /// and each letter finds its own button.
     #[test]
     fn letters_press_their_own_buttons() {
         let lettered: Vec<(char, Action)> =
@@ -302,8 +319,8 @@ mod tests {
         assert_eq!(
             lettered,
             vec![
-                ('g', Session), ('b', Back), ('s', Start), ('r', Refine), ('i', Grill), ('e', Edit),
-                ('c', Complete), ('m', Move), ('t', Stop)
+                ('g', Session), ('b', Back), ('s', Start), ('r', Refine), ('i', Grill), ('p', Report),
+                ('e', Edit), ('c', Complete), ('m', Move), ('t', Stop)
             ]
         );
         for (c, action) in lettered {
@@ -395,6 +412,8 @@ mod tests {
         assert_eq!(hint(on_list(false), Some(Refine)), "r: Refine · Ctrl+Enter: Refine");
         assert_eq!(hint(active(false), Some(Edit)), "e: Edit · Ctrl+Enter: Refine");
         assert_eq!(hint(on_list(false), Some(Grill)), "i: Grill me · Ctrl+Enter: Refine");
+        assert_eq!(hint(on_list(true), Some(Report)), "p: Report · Ctrl+Enter: Start working");
+        assert_eq!(hint(with_claude(active(true)), Some(Report)), "p: Report · Ctrl+Enter: Go to session");
         assert_eq!(hint(on_list(true), Some(Complete)), "c: Complete · Ctrl+Enter: Start working");
         assert_eq!(hint(on_list(true), Some(Move)), "m: Move to workspace · Ctrl+Enter: Start working");
         assert_eq!(hint(active(true), Some(Stop)), "t: Stop");

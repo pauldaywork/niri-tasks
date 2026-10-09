@@ -38,9 +38,10 @@
 //! hidden as the focus moves rather than built again, since a render would
 //! lose the focused button. Up and Down move between cards, Down onto "+N
 //! more" showing the cards it stands for and landing on the first of them;
-//! Left, Right and Tab move along the focused one, and g, b, s, r, i, e, c,
-//! m, t and Delete press its Go to session, Back to list, Start, Refine,
-//! Grill me, Edit, Complete, Move to workspace, Stop and Remove. Ctrl+Delete deletes the focused card's task at once and keeps the
+//! Left, Right and Tab move along the focused one, and g, b, s, r, i, p, e,
+//! c, m, t and Delete press its Go to session, Back to list, Start, Refine,
+//! Grill me, Report, Edit, Complete, Move to workspace, Stop and Remove.
+//! Ctrl+Delete deletes the focused card's task at once and keeps the
 //! keyboard. After the buttons a dimmed hint names the keys that change per
 //! card, the focused button's and what Ctrl+Enter does to the task
 //! (`Action::hint`); a footer under the scroller names Enter and Ctrl+Delete,
