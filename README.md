@@ -159,7 +159,7 @@ include "niri-tasks.kdl"
 ```
 
 `install.sh` builds `niritasks`, symlinks the niri include and
-the Claude skills (`workspace-tasks`, `refine-task`, `finish-worktree`, `reject-worktree`, `private-github-repo`) into `~/.claude/skills`,
+the Claude skills (`workspace-tasks`, `refine-task`, `report-task`, `finish-worktree`, `reject-worktree`, `private-github-repo`) into `~/.claude/skills`,
 the refine mod (`claude/refine-mod`, which Refine's session writes the task with) into
 `~/.local/share/niri-tasks/refine-mod`, a Claude rule into `~/.claude/rules` (use `finish-worktree` to land a worktree branch), restarts the daemon
 onto the new binary, and reloads niri. Updating is `git pull && bash install.sh`.

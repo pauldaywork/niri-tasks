@@ -88,6 +88,10 @@ link "$REPO/.claude/skills/workspace-tasks/SKILL.md" "$CLAUDE_SKILLS/workspace-t
 link "$REPO/.claude/skills/refine-task/SKILL.md" "$CLAUDE_SKILLS/refine-task/SKILL.md"
 link "$REPO/.claude/skills/refine-task/report-catalogue.md" "$CLAUDE_SKILLS/refine-task/report-catalogue.md"
 
+# report-task: what a planned card's Report button opens Claude with. It
+# reads refine-task's report catalogue, linked above, beside it.
+link "$REPO/.claude/skills/report-task/SKILL.md" "$CLAUDE_SKILLS/report-task/SKILL.md"
+
 # finish-worktree: the other end of Start working — lands a task's worktree
 # branch on main, pushes, and marks the task completed through niritasks.
 link "$REPO/.claude/skills/finish-worktree/SKILL.md" "$CLAUDE_SKILLS/finish-worktree/SKILL.md"
