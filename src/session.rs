@@ -472,8 +472,16 @@ impl Session {
     /// trust a folder it has not seen; that answer is the user's, so they are
     /// told and the start waits for it. Any other failure is a failure, and
     /// a "No" exits Claude, so the wait then fails with herdr's reason.
-    pub fn start_claude(&self, name: &str, pane: &str, claude: &Claude) -> Result<()> {
-        if let Err(e) = self.port.agent_start(&self.name, name, pane, claude)? {
+    ///
+    /// `claim` is the launch's hold on the session, given up as soon as
+    /// `agent start` returns, blocked or not: herdr has the agent under its
+    /// name by then, so a second press finds it and lands in the tab that
+    /// wants the answer, and other tasks' launches here need not wait on a
+    /// question the user has not answered yet.
+    pub fn start_claude(&self, claim: Claim, name: &str, pane: &str, claude: &Claude) -> Result<()> {
+        let started = self.port.agent_start(&self.name, name, pane, claude);
+        drop(claim);
+        if let Err(e) = started? {
             // Any failure to ask is "not blocked": the start's own error is
             // the one worth showing.
             let blocked = matches!(
@@ -805,7 +813,7 @@ mod tests {
     #[test]
     fn a_clean_start_starts_once_and_waits_for_nothing() {
         let (s, f) = session(Fake::running(&[("w1", "alpha")]));
-        s.start_claude("task-abc", "p1", &Claude::Refiner { settings: "{}".into(), mod_dir: PathBuf::from("/m") })
+        s.start_claude(s.claim().unwrap(), "task-abc", "p1", &Claude::Refiner { settings: "{}".into(), mod_dir: PathBuf::from("/m") })
             .unwrap();
         assert!(logged(&f, "agent_start alpha task-abc p1 refiner"));
         assert!(!logged_start(&f, "agent_wait_ready"));
@@ -814,12 +822,15 @@ mod tests {
     #[test]
     fn a_blocked_start_is_waited_out_and_a_failed_one_is_an_error() {
         let (s, f) = session(Fake::running(&[("w1", "alpha")]).with_start(StartOutcome::FailsBlockedThenIdle));
-        s.start_claude("work-abc", "p1", &Claude::Worker).unwrap();
+        s.start_claude(s.claim().unwrap(), "work-abc", "p1", &Claude::Worker).unwrap();
         let log = f.log();
         assert!(log.iter().any(|l| l.starts_with("notify ")), "{log:?}");
         assert!(log.contains(&"agent_wait_ready alpha work-abc".to_string()), "{log:?}");
         let (s, f) = session(Fake::running(&[("w1", "alpha")]).with_start(StartOutcome::Fails));
-        assert_eq!(s.start_claude("work-abc", "p1", &Claude::Worker).unwrap_err().to_string(), "claude exited");
+        assert_eq!(
+            s.start_claude(s.claim().unwrap(), "work-abc", "p1", &Claude::Worker).unwrap_err().to_string(),
+            "claude exited"
+        );
         assert!(!logged_start(&f, "agent_wait_ready"));
         assert!(!logged_start(&f, "notify"));
     }
@@ -886,6 +897,20 @@ mod tests {
         assert!(!logged(&f, "release alpha"), "{:?}", f.log());
         drop(claim);
         assert_eq!(f.log().last().map(String::as_str), Some("release alpha"));
+    }
+
+    /// The claim goes the moment `agent start` returns: before a blocked
+    /// start's question is waited out, which can take the user minutes, and
+    /// before anything else is asked of herdr, whatever the outcome.
+    #[test]
+    fn a_start_lets_the_claim_go_before_waiting_on_a_question() {
+        for outcome in [StartOutcome::Ok, StartOutcome::Fails, StartOutcome::FailsBlockedThenIdle] {
+            let (s, f) = session(Fake::running(&[("w1", "alpha")]).with_start(outcome));
+            let _ = s.start_claude(s.claim().unwrap(), "work-abc", "p1", &Claude::Worker);
+            let log = f.log();
+            let start = log.iter().position(|l| l.starts_with("agent_start ")).unwrap();
+            assert_eq!(log[start + 1], "release alpha", "{outcome:?}: {log:?}");
+        }
     }
 
     #[test]

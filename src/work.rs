@@ -184,14 +184,12 @@ fn start_working(session: &Session, claim: Claim, name: &str, pane: &str, uuid: 
     task::set_active(uuid)
 }
 
-/// Start the working Claude in `pane` under `claim`, let the claim go, then
-/// send `text`. Let go once the start is over, either way: the prompt's
-/// retries can take seconds, and by then a second launch waiting on the
-/// claim finds the agent and focuses it.
+/// Start the working Claude in `pane` under `claim`, then send `text`. The
+/// start lets the claim go once herdr has the agent, before a blocked
+/// start's question or the prompt's retries: a second launch waiting on it
+/// then finds the agent and focuses it.
 fn start_and_prompt(session: &Session, claim: Claim, name: &str, pane: &str, text: &str) -> Result<()> {
-    let started = session.start_claude(name, pane, &Claude::Worker);
-    drop(claim);
-    started?;
+    session.start_claude(claim, name, pane, &Claude::Worker)?;
     session.prompt(name, text)
 }
 
@@ -369,6 +367,19 @@ mod tests {
         assert!(at(&log, "release alpha") < at(&log, "agent_prompt alpha work-abc"), "{log:?}");
     }
 
+    /// A start blocked on a question lets the claim go before the answer
+    /// is waited for, and still before the prompt.
+    #[test]
+    fn a_blocked_start_lets_the_claim_go_before_the_wait() {
+        let fake = Fake::running(&[("w1", "alpha")]).with_start(StartOutcome::FailsBlockedThenIdle);
+        let s = session(&fake);
+        start_and_prompt(&s, s.claim().unwrap(), "work-abc", "p1", "/plan").unwrap();
+        let log = fake.log();
+        assert!(at(&log, "agent_start alpha work-abc") < at(&log, "release alpha"), "{log:?}");
+        assert!(at(&log, "release alpha") < at(&log, "agent_wait_ready alpha work-abc"), "{log:?}");
+        assert!(at(&log, "release alpha") < at(&log, "agent_prompt alpha work-abc"), "{log:?}");
+    }
+
     /// A start that fails lets the claim go too, and sends no prompt.
     #[test]
     fn a_failed_start_lets_the_claim_go() {
@@ -376,7 +387,7 @@ mod tests {
         let s = session(&fake);
         assert!(start_and_prompt(&s, s.claim().unwrap(), "work-abc", "p1", "/plan").is_err());
         let log = fake.log();
-        assert_eq!(log.last().map(String::as_str), Some("release alpha"), "{log:?}");
+        assert_eq!(log[at(&log, "agent_start alpha work-abc") + 1], "release alpha", "{log:?}");
         assert!(!log.iter().any(|l| l.starts_with("agent_prompt")), "{log:?}");
     }
 }

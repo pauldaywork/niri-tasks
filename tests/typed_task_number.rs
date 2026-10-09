@@ -102,7 +102,7 @@ impl Sandbox {
     fn new() -> Self {
         let dir = std::env::temp_dir().join(format!("niritasks-number-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        for sub in ["data", "bin", "home/Projects/alpha/.git", "worktree", "xdg/niri-tasks/refine-mod/.claude-plugin"] {
+        for sub in ["data", "bin", "run", "home/Projects/alpha/.git", "worktree", "xdg/niri-tasks/refine-mod/.claude-plugin"] {
             std::fs::create_dir_all(dir.join(sub)).unwrap();
         }
         // Refine refuses to start without the mod, and the real one is
@@ -163,6 +163,9 @@ impl Sandbox {
             .env("PATH", path)
             .env("HOME", home)
             .env("XDG_DATA_HOME", self.dir.join("xdg"))
+            // Refine and Start working lock their session in the runtime
+            // folder: the sandbox's own, never the user's.
+            .env("XDG_RUNTIME_DIR", self.dir.join("run"))
             .env("TASKRC", self.dir.join("taskrc"))
             .env("TASKDATA", self.dir.join("data"))
             .env("NIRI_SOCKET", &self.niri_socket)

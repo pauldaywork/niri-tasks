@@ -269,11 +269,12 @@ enum Launched {
 /// labelled `label` and hand it `text`. Kept apart so the order of the steps
 /// can be checked against the fake.
 ///
-/// All of it up to Claude's start runs under the session's claim, so a
+/// All of it up to `agent start` runs under the session's claim, so a
 /// second press of Refine waits here and then finds this one's Claude,
 /// rather than finding none and starting another beside it. The claim is let
-/// go before the prompt, whose retries can take seconds: by then the agent
-/// exists for that second press to find.
+/// go as soon as herdr has the agent, before a blocked start's question and
+/// the prompt's retries, either of which can take a while: by then the
+/// agent exists for that second press to find.
 fn launch_in(session: &Session, name: &str, label: &str, workspace_label: &str, claude: &Claude, text: &str) -> Result<Launched> {
     let claim = session.claim()?;
     let workspaces = session.open()?;
@@ -282,7 +283,8 @@ fn launch_in(session: &Session, name: &str, label: &str, workspace_label: &str, 
     }
 
     let tab = session.new_tab(&workspaces, session.dir(), label, workspace_label)?;
-    if let Err(e) = session.start_claude(name, &tab.pane, claude) {
+    // The claim goes inside, once herdr has the agent under its name.
+    if let Err(e) = session.start_claude(claim, name, &tab.pane, claude) {
         // A retry should not find a pile of bare-shell tabs from every
         // failed attempt; closing is best effort, so the real error stands.
         if let Some(tab) = &tab.tab {
@@ -290,7 +292,6 @@ fn launch_in(session: &Session, name: &str, label: &str, workspace_label: &str, 
         }
         return Err(e);
     }
-    drop(claim);
     session.prompt(name, text)?;
     Ok(Launched::Started)
 }
@@ -529,15 +530,28 @@ Num       RefCount Protocol Flags    Type St Inode Path
         assert!(second.iter().any(|l| *l == "agent_focus alpha task-abc"), "{log:?}");
     }
 
-    /// A failed start still lets go, but only once its bare tab is closed:
-    /// a press waiting on it must not find the tab half gone.
+    /// A failed start lets go as soon as `agent start` returns, and still
+    /// closes its bare tab after.
     #[test]
-    fn a_failed_refine_closes_its_tab_then_lets_go() {
+    fn a_failed_refine_lets_go_and_closes_its_tab() {
         let fake = Fake::running(&[("w1", "alpha")]).with_start(StartOutcome::Fails);
         assert!(refine(&fake).is_err());
         let log = fake.log();
         assert_eq!(log[0], "claim alpha", "{log:?}");
-        assert_eq!(log.last().map(String::as_str), Some("release alpha"), "{log:?}");
-        assert!(at(&log, "tab_close alpha") < at(&log, "release alpha"), "{log:?}");
+        assert!(at(&log, "agent_start alpha task-abc") < at(&log, "release alpha"), "{log:?}");
+        assert!(at(&log, "tab_close alpha") > at(&log, "release alpha"), "{log:?}");
+        assert!(!log.iter().any(|l| l.starts_with("agent_prompt")), "{log:?}");
+    }
+
+    /// A start blocked on a question lets go before waiting for the answer,
+    /// so a second press can land in the tab that wants it.
+    #[test]
+    fn a_blocked_refine_lets_go_before_waiting_for_the_answer() {
+        let fake = Fake::running(&[("w1", "alpha")]).with_start(StartOutcome::FailsBlockedThenIdle);
+        assert_eq!(refine(&fake).unwrap(), Launched::Started);
+        let log = fake.log();
+        assert!(at(&log, "agent_start alpha task-abc") < at(&log, "release alpha"), "{log:?}");
+        assert!(at(&log, "release alpha") < at(&log, "agent_wait_ready alpha task-abc"), "{log:?}");
+        assert!(at(&log, "release alpha") < at(&log, "agent_prompt alpha task-abc"), "{log:?}");
     }
 }
