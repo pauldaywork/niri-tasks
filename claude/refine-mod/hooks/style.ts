@@ -79,7 +79,7 @@ ol { padding-left: 1.4em; }
 .split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(16rem, 2fr); gap: 2rem; align-items: start; }
 @media (max-width: 56rem) { .split { grid-template-columns: 1fr; } }
 .solo { font-size: 1.3em; }
-.drawn svg { display: block; width: 100%; height: auto; max-height: 45vh; }
+.drawn svg { display: block; width: 100%; height: auto; max-height: 42vh; }
 .drawn svg { --_text: var(--fg);
   --_text-sec: var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
   --_text-muted: var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
@@ -120,6 +120,7 @@ details { border: 3px solid var(--black); background: var(--white); padding: 0.6
 summary { cursor: pointer; font-weight: 700; }
 .next-step { font-weight: 700; font-size: 1.05em; background: var(--yellow); border: 3px solid var(--black);
   padding: 0.8rem 1rem; margin: 1.25rem 0 0; }
+.next-step + .hint { margin-top: 1rem; }
 a.next { align-self: flex-end; font: 700 1rem/1.2 var(--display); color: var(--black); background: var(--white);
   border: 3px solid var(--black); box-shadow: 4px 4px 0 var(--black); padding: 0.6rem 0.9rem; text-decoration: none; }
 a.next:hover { background: var(--yellow); }

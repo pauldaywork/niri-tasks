@@ -273,8 +273,16 @@ describe('diagrams', () => {
     expect(page).toContain(`<meta http-equiv="Content-Security-Policy" content="${CSP}">`)
   })
 
-  test('a highlighted block in a sequence diagram carries the legend', () => {
-    expect(part({ mermaid: 'sequenceDiagram\n rect rgb(153, 232, 133)\n A->>B: hi\n end' })).toContain('<p class="legend">')
+  test('a highlighted block in a sequence diagram carries a legend for new steps only', () => {
+    const page = part({ mermaid: 'sequenceDiagram\n rect rgb(153, 232, 133)\n A->>B: hi\n end' })
+    expect(page).toContain('<p class="legend"><span class="badge new">new</span> Highlighted steps are new.</p>')
+    const figure = page.slice(page.indexOf('<figure>'), page.indexOf('</figure>'))
+    expect(figure).not.toContain('<span class="badge change">')
+    expect(figure).not.toContain('<span class="badge remove">')
+    expect(part({ mermaid: 'flowchart LR\n a --> b' })).toContain(
+      '<p class="legend"><span class="badge new">new</span> <span class="badge change">changed</span> ' +
+        '<span class="badge remove">removed</span> Everything else is unchanged.</p>',
+    )
   })
 })
 

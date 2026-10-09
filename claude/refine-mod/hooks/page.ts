@@ -91,8 +91,11 @@ const NEXT =
   `<p class="next-step">Back in the terminal: choose <strong>${escapeHtml(WRITE)}</strong> ` +
   'to save this plan, or type what to change.</p>'
 
-// What the colours mean, under a drawing that takes them.
+// What the colours mean, under a drawing that takes them; under a sequence
+// diagram, whose only mark is a highlighted block of new steps, what that
+// block means.
 const LEGEND = `<p class="legend">${badge('new')} ${badge('change')} ${badge('remove')} Everything else is unchanged.</p>`
+const STEPS_LEGEND = `<p class="legend">${badge('new')} Highlighted steps are new.</p>`
 
 // What kind of Mermaid diagram a source is: its first word, past any front
 // matter and `%%` comment or directive lines; '' when it has none.
@@ -108,10 +111,16 @@ export const takesMarks = (source: string): boolean => /^(?:flowchart|graph|stat
 // Flowcharts and state diagrams get the change colours after their own lines.
 export const withMarks = (source: string): string => (takesMarks(source) ? `${source.trimEnd()}\n${MARKS}` : source)
 
+// The legend a diagram carries: the change colours under a flowchart or a
+// state diagram, the highlighted block under a sequence diagram with a
+// `rect`, and none under any other.
+const legendFor = (diagram: Diagram): string => {
+  if (!('mermaid' in diagram)) return ''
+  if (takesMarks(diagram.mermaid)) return LEGEND
+  return /^\s*rect\b/m.test(diagram.mermaid) ? STEPS_LEGEND : ''
+}
+
 const figure = (diagram: Diagram, lookAt: string, svg?: string): string => {
-  // The change colours, or a highlighted block, show on a flowchart, a state
-  // diagram, or a sequence diagram with a `rect`.
-  const marked = 'mermaid' in diagram && (takesMarks(diagram.mermaid) || /^\s*rect\b/m.test(diagram.mermaid))
   const drawing =
     svg !== undefined
       ? `<div class="drawn">${svg}</div>`
@@ -122,7 +131,7 @@ const figure = (diagram: Diagram, lookAt: string, svg?: string): string => {
     '<figure>',
     `<figcaption class="look"><strong>Look at:</strong> ${plain(lookAt)}</figcaption>`,
     drawing,
-    marked ? LEGEND : '',
+    legendFor(diagram),
     '</figure>',
   ]
     .filter(Boolean)
