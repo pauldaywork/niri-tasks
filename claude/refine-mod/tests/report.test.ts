@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { LIMITS, openArgv, parseReport, reportPath, reportsDir } from '../hooks/report'
+import { LIMITS, openArgv, parseReport, reportNotes, reportPath, reportsDir } from '../hooks/report'
 import { EXAMPLE } from './example-report'
 
 const UUID = '0b8f6a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b'
@@ -143,4 +143,33 @@ test('reportPath names the task and the UTC time', () => {
 test('openArgv passes the path as an argument, never as script', () => {
   const path = '/r/it\'s "here" $(x).html'
   expect(openArgv(path)).toEqual(['sh', '-c', 'xdg-open "$1" >/dev/null 2>&1 </dev/null &', 'sh', path])
+})
+
+describe('reportNotes', () => {
+  const plan = { description: 'feat: A', notes: ['Goal: x'] }
+
+  test('links a report made for this very plan', () => {
+    expect(reportNotes([{ path: '/r/a.html', plan }], plan)).toEqual(['Report: /r/a.html'])
+  })
+
+  test('marks a report made before the plan changed', () => {
+    expect(reportNotes([{ path: '/r/a.html', plan }], { ...plan, notes: ['Goal: y'] })).toEqual([
+      'Report (earlier draft): /r/a.html',
+    ])
+  })
+
+  test('links each report once, in the order made', () => {
+    const made = [
+      { path: '/r/a.html', plan: { ...plan, description: 'feat: Old' } },
+      { path: '/r/b.html', plan },
+    ]
+    expect(reportNotes(made, plan)).toEqual(['Report (earlier draft): /r/a.html', 'Report: /r/b.html'])
+    expect(reportNotes(made, { ...plan, notes: [...plan.notes, 'Report: /r/b.html'] })).toEqual([
+      'Report (earlier draft): /r/a.html',
+    ])
+  })
+
+  test('none made, none linked', () => {
+    expect(reportNotes([], plan)).toEqual([])
+  })
 })

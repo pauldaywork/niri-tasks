@@ -318,7 +318,8 @@ test('report, then approve: writes the page, opens it, then writes the task', { 
   expect(shown.deny).toBeUndefined()
   expect(shown.result).toBe(
     `Wrote the report to ${REPORT_PATH} and opened it in the browser. ` +
-      'Now call write_task_plan again with the same plan; the person approves or changes it there.',
+      'Now call write_task_plan again with the same plan; the person approves or changes it there, ' +
+      'and the task will link the report in its notes.',
   )
   expect(writes.map(w => w.path)).toEqual([REPORT_PATH])
   expect(writes[0]?.text).toContain('<p class="lede">The task gets new words.</p>')
@@ -331,8 +332,27 @@ test('report, then approve: writes the page, opens it, then writes the task', { 
   expect(again.deny).toStartWith('show_task_report: the person has not asked for a report.')
 
   const written = await $.tool.call(CALL)
-  expect(written.result).toContain(`Wrote the plan to task ${UUID}`)
+  expect(written.result).toBe(`Wrote the plan to task ${UUID}: 3 note(s), tagged planned.`)
+  expect(seen).toContain(`log: Note 3: Report: ${REPORT_PATH}`)
   expect(verbs(runs).at(-1)).toBe('import')
+  const [imported] = JSON.parse(runs.at(-1)?.init?.stdin ?? 'null')
+  expect(imported.annotations.map((a: { description: string }) => a.description)).toEqual([
+    'step one',
+    'step two',
+    `Report: ${REPORT_PATH}`,
+  ])
+})
+
+test('a report made before the plan changed is linked as an earlier draft', { options: REPORTS }, async ($, on) => {
+  const { runs, seen } = world(on, SANDBOX, [REPORT, WRITE])
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  const written = await $.tool.call({ ...CALL, notes: ['step one', 'step three'] })
+  expect(written.result).toContain('3 note(s)')
+  expect(seen).toContain(`log: Note 3: Report (earlier draft): ${REPORT_PATH}`)
+  const [imported] = JSON.parse(runs.at(-1)?.init?.stdin ?? 'null')
+  expect(imported.annotations.at(-1).description).toBe(`Report (earlier draft): ${REPORT_PATH}`)
 })
 
 test('a report choice is superseded by the next question', { options: REPORTS }, async ($, on) => {

@@ -20,7 +20,8 @@ import {
 } from './plan'
 import type { Plan, Task } from './plan'
 import { reportPage } from './page'
-import { openArgv, parseReport, reportPath, reportsDir } from './report'
+import { openArgv, parseReport, reportNotes, reportPath, reportsDir } from './report'
+import type { MadeReport } from './report'
 
 // The tool's listed name: mcp__<plugin>__<name>, hyphens kept.
 export const TOOL = 'mcp__niri-tasks-refine__write_task_plan'
@@ -136,10 +137,13 @@ const current = async (
 export const register: Register = (on, options) => {
   // Where reports go, or undefined when this session offers none.
   const reports = reportsDir(options.reports)
-  // Set by the person's REPORT answer to the latest question, spent by the
-  // first well-formed report. Module state: a reload forgets it, and the
-  // model is told to ask again.
-  let reportAsked = false
+  // The plan the person was shown when they chose REPORT in answer to the
+  // latest question, spent by the first well-formed report. Module state: a
+  // reload forgets it, and the model is told to ask again.
+  let askedFor: Plan | undefined
+  // The reports made this session, linked from the task's notes when it is
+  // written.
+  const made: MadeReport[] = []
 
   on('session.start', async ($, e, next) => {
     if ((await armedUuid($, options.uuid)) !== undefined) {
@@ -164,14 +168,16 @@ export const register: Register = (on, options) => {
     if ('deny' in before) return before
 
     // The plan as the tool will write it, from its own arguments, not from
-    // what the model printed; refused whole before a line could be cut.
-    const lines = planLines(input)
+    // what the model printed, with a note linking each report made this
+    // session; refused whole before a line could be cut.
+    const plan = { description: input.description, notes: [...input.notes, ...reportNotes(made, input)] }
+    const lines = planLines(plan)
     const tooLong = overlong(lines)
     if (tooLong !== undefined) return { deny: `Nothing written: ${tooLong}` }
     for (const line of lines) $.ui.log(line)
 
     // A new question supersedes any earlier REPORT choice.
-    reportAsked = false
+    askedFor = undefined
     const choices = reports === undefined ? [WRITE, CHANGE] : [WRITE, REPORT, CHANGE]
     let answer: string
     try {
@@ -180,7 +186,7 @@ export const register: Register = (on, options) => {
       return { deny: notAsked(error instanceof Error ? error.message : String(error)) }
     }
     if (answer === REPORT && reports !== undefined) {
-      reportAsked = true
+      askedFor = { description: input.description, notes: input.notes }
       return { deny: REPORT_FIRST }
     }
     if (answer !== WRITE) return { deny: notApproved(answer) }
@@ -189,7 +195,7 @@ export const register: Register = (on, options) => {
     const now = await current($, uuid, input.expected)
     if ('deny' in now) return now
 
-    const planned = merge(now.task, input, await $.clock.now())
+    const planned = merge(now.task, { ...input, notes: plan.notes }, await $.clock.now())
     const imported = await $.process.run([...TASK, 'rc.verbose=nothing', 'import'], {
       stdin: JSON.stringify([planned]),
     })
@@ -197,7 +203,7 @@ export const register: Register = (on, options) => {
       return { deny: `task import failed (${imported.exitCode}): ${imported.stderr.trim()}` }
     }
     return {
-      result: `Wrote the plan to task ${uuid}: ${input.notes.length} note(s), tagged planned.`,
+      result: `Wrote the plan to task ${uuid}: ${plan.notes.length} note(s), tagged planned.`,
     }
   }).catch($ => ({ deny: `${$.plugin.name}: write_task_plan failed before writing.` }))
 
@@ -208,20 +214,23 @@ export const register: Register = (on, options) => {
     if (uuid === undefined || reports === undefined) {
       return { deny: 'show_task_report is not armed in this session.' }
     }
-    if (!reportAsked) return { deny: NOT_ASKED_FOR }
+    if (askedFor === undefined) return { deny: NOT_ASKED_FOR }
 
     const report = parseReport(e)
     if (typeof report === 'string') return { deny: `show_task_report: ${report}` }
 
-    reportAsked = false
+    const shown = askedFor
+    askedFor = undefined
     const path = reportPath(reports, uuid, await $.clock.now())
     await $.fs.write(path, reportPage(report))
+    made.push({ path, plan: shown })
     $.ui.log(`Report: ${path}`)
     await $.process.run(openArgv(path))
     return {
       result:
         `Wrote the report to ${path} and opened it in the browser. ` +
-        'Now call write_task_plan again with the same plan; the person approves or changes it there.',
+        'Now call write_task_plan again with the same plan; the person approves or changes it there, ' +
+        'and the task will link the report in its notes.',
     }
   }).catch($ => ({ deny: `${$.plugin.name}: show_task_report failed.` }))
 }

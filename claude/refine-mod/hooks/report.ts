@@ -3,6 +3,7 @@
 // No `$`, so the unit tests reach it directly.
 
 import { HIDDEN } from './plan'
+import type { Plan } from './plan'
 
 export type Change = 'new' | 'change' | 'remove'
 export type Diagram = { mermaid: string } | { svg: string }
@@ -238,3 +239,18 @@ export const openArgv = (path: string): string[] => [
   'sh',
   path,
 ]
+
+// A report made in this session, and the plan the person was shown when
+// they asked for it.
+export type MadeReport = { path: string; plan: Plan }
+
+const samePlan = (a: Plan, b: Plan): boolean =>
+  a.description === b.description && a.notes.length === b.notes.length && a.notes.every((n, i) => n === b.notes[i])
+
+// The notes that link the session's reports from the task, after the plan's
+// own: marked as an earlier draft when the plan changed since. A report the
+// plan's notes already link is not linked twice.
+export const reportNotes = (made: readonly MadeReport[], plan: Plan): string[] =>
+  made
+    .filter(m => !plan.notes.some(note => note.startsWith('Report') && note.endsWith(m.path)))
+    .map(m => (samePlan(m.plan, plan) ? `Report: ${m.path}` : `Report (earlier draft): ${m.path}`))
