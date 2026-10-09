@@ -36,7 +36,9 @@ pub enum KeyAction {
     NextFilter,
     /// Ctrl+Enter: move the focused card's task on a step — refine it, or
     /// start working on it once it is planned — keeping the keyboard, so the
-    /// list stays up to pick the next one.
+    /// list stays up to pick the next one. On a task being worked with a
+    /// Claude on it, go to that session instead, giving the keyboard back as
+    /// g does.
     Advance,
     /// Ctrl+Delete: delete the focused card's task at once, with no Confirm
     /// remove, from whichever of its slots has the focus, keeping the

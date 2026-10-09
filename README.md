@@ -18,7 +18,7 @@ the only way a workspace gets a name, bar workspace 1, which starts as `general`
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
 | `Mod+Alt+Shift+T` | The same, with Add & refine as the default: once added, the task opens in a "Refine: …" tab of the workspace's herdr session, where Claude works it up into a plan |
-| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude (or be grilled about it first), edit it, read it aloud, complete it, move it to another project's workspace, stop it, park it as waiting, or remove it. Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up. Tabs above the cards, each labelled with the key that picks it, as To refine (4), and picked with 1–6 or [ and ], narrow them to All, Active, Planned, To refine, Waiting or Finished, and the Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task. Finished lists the last 12 finished tasks, and Back to list (`b`) reopens one. Ctrl+Delete deletes the focused task at once. A hint beside the focused card's buttons, and a line under the list, name the keys. The last tab, Ideas (7), is a notepad for the workspace's ideas that are not tasks yet. With no tasks at all, finished ones included, or no name, a notification says so instead |
+| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude (or be grilled about it first), edit it, read it aloud, complete it, move it to another project's workspace, stop it, park it as waiting, or remove it. Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up; on a task already being worked with a Claude on it, it goes to that session. Tabs above the cards, each labelled with the key that picks it, as To refine (4), and picked with 1–6 or [ and ], narrow them to All, Active, Planned, To refine, Waiting or Finished, and the Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task. Finished lists the last 12 finished tasks, and Back to list (`b`) reopens one. Ctrl+Delete deletes the focused task at once. A hint beside the focused card's buttons, and a line under the list, name the keys. The last tab, Ideas (7), is a notepad for the workspace's ideas that are not tasks yet. With no tasks at all, finished ones included, or no name, a notification says so instead |
 | `Mod+Alt+W` | The task panel's project list, in the middle of the screen: the `~/Projects` folders, then your GitHub repos not cloned yet. Type to narrow it; Enter or a click puts the project on its own named workspace (cloning a repo first) and opens a terminal and an editor in it. When nothing matches, the line under the title says what Enter will do with the name: open a folder of that name, make one, or clone your GitHub repo of that name. Escape clears what you typed, then closes it |
 
 ## Task panel
@@ -86,16 +86,19 @@ the next one focused. Escape clears what you typed, and on an empty field
 goes back to the cards on the same one without moving it.
 
 Ctrl+Enter and Ctrl+Delete act on the focused card, whichever of its buttons is
-focused, without giving the keyboard back. Ctrl+Enter refines the task, or
-starts working on it once it is planned, and the panel stays up with the same
-card focused, so you can carry on down the list. It does nothing on a task that
-is already being worked, or on a waiting or finished task. Ctrl+Delete deletes
-the task at once, with no Confirm remove, and moves the focus to the next card
-(the one above, from the last) with the list kept up; Delete alone still asks
-first. Ctrl still held from the `Mod+Alt+Ctrl+T` chord counts, so let go of Ctrl
-before pressing Enter if you only want the focused button, or Delete if you want
-Remove to ask. Apart from Ctrl+Shift+Delete, the Waiting tab's Clear all
-(below), every other Ctrl chord passes through untouched.
+focused. Ctrl+Enter refines the task, or starts working on it once it is
+planned, and the panel keeps the keyboard with the same card focused, so you can
+carry on down the list. On a task already being worked with a live Claude,
+planned or not, it goes to that session, as `g` does, and gives the keyboard
+back. On a worked task with no Claude it refines the task if it has no plan and
+does nothing if it has one; it does nothing on a waiting or finished task.
+Ctrl+Delete deletes the task at once, with no Confirm remove, and moves the
+focus to the next card (the one above, from the last) with the list kept up;
+Delete alone still asks first. Ctrl still held from the `Mod+Alt+Ctrl+T` chord
+counts, so let go of Ctrl before pressing Enter if you only want the focused
+button, or Delete if you want Remove to ask. Apart from Ctrl+Shift+Delete, the
+Waiting tab's Clear all (below), every other Ctrl chord passes through
+untouched.
 
 Above the cards, tabs narrow them while the panel has the keyboard: **All**,
 **Active** (started), **Planned** (refined or grilled into a plan, and not

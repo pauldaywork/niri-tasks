@@ -877,15 +877,21 @@ impl PanelState {
 
     /// Ctrl+Enter: the focused card's Refine, or its Start once it is
     /// planned, keeping the keyboard and the focus so the user can go on down
-    /// the list. Not through `on_press`, which gives the keyboard back. Like
-    /// the letters, only a button the card has.
-    fn advance(&self) -> Vec<Effect> {
+    /// the list — not through `on_press`, which would give the keyboard
+    /// back. Go to session, on a worked task with a Claude, leaves the list
+    /// for the session, so it goes through `on_press` and gives the keyboard
+    /// back, as g does. Like the letters, only a button the card has.
+    fn advance(&mut self) -> Vec<Effect> {
         let shown = self.visible();
         let Some(card) = self.current(&shown).map(|at| &shown[at]) else { return Vec::new() };
         let Some(uuid) = &card.card.uuid else { return Vec::new() };
         let Some(action) = card.state.and_then(Action::advance) else { return Vec::new() };
         if !card.actions.contains(&action) {
             return Vec::new();
+        }
+        if action == Action::Session {
+            let uuid = uuid.clone();
+            return self.on_press(&uuid, Slot::Button(action));
         }
         vec![Effect::Notify(format!("{}: {}", action.label(false), card.card.text)), Effect::Spawn(action.args(uuid))]
     }
@@ -1498,6 +1504,50 @@ mod tests {
         planned_active.planned = true;
         let mut state = keyboard(vec![planned_active]);
         assert_eq!(key(&mut state, KeyAction::Advance), Vec::new());
+    }
+
+    /// An active card with a live Claude on it, planned or not, with the
+    /// keyboard and the focus on its body.
+    fn worked_with_claude(planned: bool) -> PanelState {
+        let mut active = card("a", Status::Active);
+        active.planned = planned;
+        let mut state = PanelState::default();
+        state.set_cards(&[active]);
+        assert!(state.take_keyboard(vec![crate::names::work_agent("a")]));
+        state
+    }
+
+    /// Ctrl+Enter on a worked task with a Claude does what g does: the
+    /// keyboard back, then `task session <uuid>`.
+    #[test]
+    fn ctrl_enter_goes_to_the_session_giving_the_keyboard_back() {
+        for planned in [false, true] {
+            let mut state = worked_with_claude(planned);
+            assert_eq!(state.card_hint("a"), "Space: view notes · Ctrl+Enter: Go to session", "planned={planned}");
+            let effects = key(&mut state, KeyAction::Advance);
+            assert_eq!(
+                effects,
+                vec![Effect::Render, Effect::Release, Effect::Spawn(vec!["task".into(), "session".into(), "a".into()])],
+                "planned={planned}"
+            );
+            assert!(!state.keyboard(), "planned={planned}");
+            let mut by_letter = worked_with_claude(planned);
+            assert_eq!(key(&mut by_letter, KeyAction::Run(Action::Session)), effects, "the same as g");
+        }
+    }
+
+    /// With no Claude on it, an unplanned worked task still refines and
+    /// keeps the keyboard, as before.
+    #[test]
+    fn ctrl_enter_still_refines_a_worked_task_with_no_claude() {
+        let mut state = keyboard(vec![card("a", Status::Active)]);
+        assert_eq!(state.card_hint("a"), "Space: view notes · Ctrl+Enter: Refine");
+        assert_eq!(
+            key(&mut state, KeyAction::Advance),
+            vec![Effect::Notify("Refine: a".into()), Effect::Spawn(Action::Refine.args("a"))],
+        );
+        assert!(state.keyboard());
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
     }
 
     // ─── Ctrl+Delete ─────────────────────────────────────────────────────

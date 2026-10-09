@@ -104,9 +104,10 @@ action's `niritasks` command. Enter or a click on the card's body shows or
 hides the task's id, uuid and notes instead (see Task card).
 After the buttons, dimmed, the hint names the keys that change from card to
 card: the focused button's, or on the card's body, `Space: view
-notes` or `Space: hide notes`; and what Ctrl+Enter does to the task. The keys
-every card shares, Enter or Space and Ctrl+Delete, are on a line under the list
-instead.
+notes` or `Space: hide notes`; and what Ctrl+Enter does to the task: Refine
+until it has a plan, then Start working, and Go to session once it is being
+worked with a live Claude. The keys every card shares, Enter or Space and
+Ctrl+Delete, are on a line under the list instead.
 _Avoid_: toolbar, button bar, quick actions
 
 **Filter tab**:
