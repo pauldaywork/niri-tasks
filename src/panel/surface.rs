@@ -47,7 +47,7 @@
 //! which act alike on every card. The controller runs in the capture phase,
 //! ahead of GTK's own focus chain, which would otherwise walk every button on
 //! the panel. The focused card is darkened. Enter, Space or a click on its
-//! body shows the task's notes, or hides them.
+//! body shows the task's id and uuid and its notes, or hides them.
 //! Escape, or anything that runs, hands the keyboard back, folds the cards to
 //! one line again, and puts the panel back on the right edge as a peek.
 //!
@@ -245,9 +245,8 @@ struct CardWidgets {
     body: gtk4::Button,
     /// None on "+N more", and on every card off the keyboard.
     row: Option<ActionRow>,
-    /// The task's notes under the description, shown while the state says.
-    /// None on "+N more", on a task with no notes, and on every card off
-    /// the keyboard.
+    /// The task's id line and notes under the description, shown while the
+    /// state says. None on "+N more" and on every card off the keyboard.
     notes: Option<gtk4::Box>,
     /// The age at the right end, and the stamp it counts from, for the
     /// minute timer. None on "+N more".
@@ -1010,11 +1009,12 @@ impl Panel {
 
         let (label, age) = card_label(card, keyboard);
         // The notes go inside the body, under the description, so a click
-        // on them hides them as a click on the description does.
+        // on them hides them as a click on the description does. Every task
+        // card has the box, a card with no notes for its id line alone.
         let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         content.append(&label);
-        let notes = card.uuid.as_deref().filter(|_| keyboard && !card.notes.is_empty()).map(|uuid| {
-            let notes = notes_box(&card.notes);
+        let notes = card.uuid.as_deref().zip(card.id_line()).filter(|_| keyboard).map(|(uuid, id_line)| {
+            let notes = notes_box(&id_line, &card.notes);
             notes.set_visible(self.state.borrow().shows_notes(uuid));
             content.append(&notes);
             notes
@@ -1364,13 +1364,14 @@ impl Panel {
     }
 }
 
-/// A task's notes, for under its card's description: one dimmed label per
-/// note, wrapped, text only. The panel shows the box once the card's body is
-/// pressed.
-fn notes_box(notes: &[String]) -> gtk4::Box {
+/// A task's notes, for under its card's description: first the line of its
+/// id and uuid, to read off for a `task` or `niritasks` command, then one
+/// label per note, all dimmed alike, wrapped, text only. The panel shows the
+/// box once the card's body is pressed.
+fn notes_box(id_line: &str, notes: &[String]) -> gtk4::Box {
     let column = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     column.add_css_class("card-notes");
-    for note in notes {
+    for note in std::iter::once(id_line).chain(notes.iter().map(String::as_str)) {
         let label = gtk4::Label::new(Some(note));
         label.add_css_class("card-note");
         label.set_xalign(0.0);

@@ -47,19 +47,18 @@ impl Action {
     /// What the focused card's hint reads beside its buttons: the keys that
     /// change from card to card and button to button. The focused button's
     /// key and name ("g: Go to session", "Del: Remove", or just "Speak" for
-    /// a button only Enter presses), or, on the body of a card with notes,
-    /// what Space does to them; then what Ctrl+Enter does to this task, in
-    /// the words of the button it presses ("Ctrl+Enter: Refine"), when `row`
-    /// has that button. `notes` is whether the card's notes show, None on a
-    /// card with none. Empty on the body of a task with no notes that
-    /// Ctrl+Enter leaves alone. Enter and Ctrl+Delete do the same on every
-    /// card, so they are the footer's, [`CARD_KEYS`]. Pure, so every card's
-    /// hint is tested without a window; `PanelState::card_hint` picks the
-    /// card and `surface.rs` only sets the label.
-    pub fn hint(state: TaskState, row: &[Action], focused: Option<Action>, notes: Option<bool>) -> String {
+    /// a button only Enter presses), or, on the card's body, what Space does
+    /// to its notes; then what Ctrl+Enter does to this task, in the words of
+    /// the button it presses ("Ctrl+Enter: Refine"), when `row` has that
+    /// button. `notes` is whether the card's notes show. Enter and
+    /// Ctrl+Delete do the same on every card, so they are the footer's,
+    /// [`CARD_KEYS`]. Pure, so every card's hint is tested without a window;
+    /// `PanelState::card_hint` picks the card and `surface.rs` only sets the
+    /// label.
+    pub fn hint(state: TaskState, row: &[Action], focused: Option<Action>, notes: bool) -> String {
         let mut parts = Vec::new();
-        match (focused, notes) {
-            (Some(action), _) => {
+        match focused {
+            Some(action) => {
                 let name = action.label(state.up_next);
                 parts.push(match action.facts().key {
                     Some(key) => format!("{key}: {name}"),
@@ -68,8 +67,7 @@ impl Action {
             }
             // Space, not Enter: Enter is the footer's, and either presses
             // the body.
-            (None, Some(shown)) => parts.push(format!("Space: {} notes", if shown { "hide" } else { "view" })),
-            (None, None) => {}
+            None => parts.push(format!("Space: {} notes", if notes { "hide" } else { "view" })),
         }
         if let Some(step) = Self::advance(state).filter(|a| row.contains(a)) {
             parts.push(format!("Ctrl+Enter: {}", step.label(false)));
@@ -228,7 +226,7 @@ mod tests {
     fn ctrl_enter_leaves_a_finished_task_alone() {
         assert_eq!(Action::advance(finished(false)), None);
         assert_eq!(Action::advance(finished(true)), None);
-        assert_eq!(hint(finished(false), None), "");
+        assert_eq!(hint(finished(false), None), "Space: view notes");
         assert_eq!(hint(finished(false), Some(Back)), "b: Back to list");
     }
 
@@ -330,33 +328,34 @@ mod tests {
     }
 
     fn hint(state: TaskState, focused: Option<Action>) -> String {
-        Action::hint(state, &Action::row(state), focused, None)
+        Action::hint(state, &Action::row(state), focused, false)
     }
 
-    /// On the body of a card with notes, the hint names what Space does to
-    /// them, before what Ctrl+Enter does; a button's hint leaves them out.
+    /// On a card's body, the hint names what Space does to its notes,
+    /// before what Ctrl+Enter does; a button's hint leaves them out.
     #[test]
-    fn the_body_of_a_card_with_notes_hints_space() {
+    fn the_body_hints_space() {
         let row = Action::row(on_list(false));
-        assert_eq!(Action::hint(on_list(false), &row, None, Some(false)), "Space: view notes · Ctrl+Enter: Refine");
-        assert_eq!(Action::hint(on_list(false), &row, None, Some(true)), "Space: hide notes · Ctrl+Enter: Refine");
-        assert_eq!(Action::hint(active(true), &Action::row(active(true)), None, Some(false)), "Space: view notes");
-        assert_eq!(Action::hint(on_list(false), &row, Some(Edit), Some(true)), "e: Edit · Ctrl+Enter: Refine");
+        assert_eq!(Action::hint(on_list(false), &row, None, false), "Space: view notes · Ctrl+Enter: Refine");
+        assert_eq!(Action::hint(on_list(false), &row, None, true), "Space: hide notes · Ctrl+Enter: Refine");
+        assert_eq!(Action::hint(active(true), &Action::row(active(true)), None, false), "Space: view notes");
+        assert_eq!(Action::hint(on_list(false), &row, Some(Edit), true), "e: Edit · Ctrl+Enter: Refine");
     }
 
-    /// Up and Down land on the body: what Ctrl+Enter does to this task.
+    /// Up and Down land on the body: Space for the notes, then what
+    /// Ctrl+Enter does to this task.
     #[test]
     fn the_body_hints_what_ctrl_enter_does() {
-        assert_eq!(hint(on_list(false), None), "Ctrl+Enter: Refine");
-        assert_eq!(hint(active(false), None), "Ctrl+Enter: Refine");
-        assert_eq!(hint(on_list(true), None), "Ctrl+Enter: Start working");
+        assert_eq!(hint(on_list(false), None), "Space: view notes · Ctrl+Enter: Refine");
+        assert_eq!(hint(active(false), None), "Space: view notes · Ctrl+Enter: Refine");
+        assert_eq!(hint(on_list(true), None), "Space: view notes · Ctrl+Enter: Start working");
     }
 
     #[test]
-    fn the_body_of_a_task_ctrl_enter_leaves_alone_hints_nothing() {
-        assert_eq!(hint(active(true), None), "");
-        assert_eq!(hint(waiting(false), None), "");
-        assert_eq!(hint(with_claude(waiting(true)), None), "");
+    fn the_body_of_a_task_ctrl_enter_leaves_alone_hints_only_space() {
+        assert_eq!(hint(active(true), None), "Space: view notes");
+        assert_eq!(hint(waiting(false), None), "Space: view notes");
+        assert_eq!(hint(with_claude(waiting(true)), None), "Space: view notes");
     }
 
     #[test]
@@ -393,12 +392,12 @@ mod tests {
     /// Ctrl+Enter is left out when what it would press is not on the card.
     #[test]
     fn ctrl_enter_is_left_out_when_the_card_lacks_its_button() {
-        assert_eq!(Action::hint(on_list(false), &[Edit, Remove], None, None), "");
-        assert_eq!(Action::hint(on_list(true), &[Edit, Remove], Some(Edit), None), "e: Edit");
+        assert_eq!(Action::hint(on_list(false), &[Edit, Remove], None, false), "Space: view notes");
+        assert_eq!(Action::hint(on_list(true), &[Edit, Remove], Some(Edit), false), "e: Edit");
     }
 
-    /// Every state, up next or not, with the body (with no notes, and with
-    /// notes hidden and shown) and with each of its buttons focused.
+    /// Every state, up next or not, with the body (with its notes hidden and
+    /// shown) and with each of its buttons focused.
     fn every_hint() -> Vec<(TaskState, Option<Action>, String)> {
         let mut all = Vec::new();
         for state in every_state() {
@@ -406,7 +405,7 @@ mod tests {
                 let state = TaskState { up_next, ..state };
                 let row = Action::row(state);
                 for focused in std::iter::once(None).chain(row.iter().copied().map(Some)) {
-                    for notes in [None, Some(false), Some(true)] {
+                    for notes in [false, true] {
                         all.push((state, focused, Action::hint(state, &row, focused, notes)));
                     }
                 }

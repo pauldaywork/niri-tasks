@@ -323,8 +323,7 @@ if command -v wtype >/dev/null; then
     # description, and the panel grows to fit them; a second Enter hides
     # them. Every task gets a note first, so whichever card Down left the
     # focus on has one. Notes show only once pressed, so the re-render
-    # the notes bring changes only the focused card's hint, which now offers
-    # Space, and leaves the panel's size and place alone. The frames after
+    # the notes bring leaves the panel's size and place alone. The frames after
     # the notes are added are compared among themselves.
     for uuid in $(task "+$TAG" _uuids 2>/dev/null); do
         task rc.verbose=nothing rc.confirmation=no "$uuid" annotate -- "a note on this task" >/dev/null 2>&1
@@ -334,7 +333,7 @@ if command -v wtype >/dev/null; then
     keyed_at=$(measure keyboard_down)
     noted_at=$(measure noted)
     if [ "$noted_at" = "$keyed_at" ]; then
-        ok "adding notes leaves the panel as it was; only the focused card's hint changes"
+        ok "adding notes leaves the panel as it was"
     else
         bad "adding notes moved or resized the panel before any press: against the
       baseline it measured '${keyed_at}' before the notes and '${noted_at}' after"

@@ -312,8 +312,7 @@ impl PanelState {
             Slot::Button(action) => Some(action),
             Slot::Body => None,
         };
-        let notes = (!card.card.notes.is_empty()).then(|| self.shows_notes(uuid));
-        Action::hint(state, &card.actions, focused, notes)
+        Action::hint(state, &card.actions, focused, self.shows_notes(uuid))
     }
 
     /// The line shown in place of cards when the tab has none: only All, on
@@ -339,14 +338,11 @@ impl PanelState {
             return Vec::new();
         }
         self.all = cards.to_vec();
-        // Notes stay shown only for a card that is still there with notes:
-        // otherwise a stale uuid would reopen the card unasked when notes
-        // came back, with the toggle unable to reach it meanwhile.
+        // Notes stay shown only for a card still there: otherwise a stale
+        // uuid would reopen the card unasked when it came back, with the
+        // toggle unable to reach it meanwhile.
         let all = &self.all;
-        self.notes.retain(|uuid| {
-            all.iter()
-                .any(|c| c.uuid.as_deref() == Some(uuid.as_str()) && !c.notes.is_empty())
-        });
+        self.notes.retain(|uuid| all.iter().any(|c| c.uuid.as_deref() == Some(uuid.as_str())));
         // The task being moved has gone (done elsewhere, say): its project
         // list goes with it.
         let gone = self
@@ -567,13 +563,12 @@ impl PanelState {
         effects
     }
 
-    /// Show this task's notes on its card, or hide them again. Only while
-    /// the panel has the keyboard, and only on a card with notes to show:
-    /// anywhere else the body still does nothing. The keyboard, the focus
-    /// and anything armed stay as they are.
+    /// Show this task's notes on its card, under the line of its id and
+    /// uuid, or hide them again. Only while the panel has the keyboard, and
+    /// only on a card still there: anywhere else the body still does
+    /// nothing. The keyboard, the focus and anything armed stay as they are.
     fn toggle_notes(&mut self, uuid: &str) -> Vec<Effect> {
-        let has_notes = self.all.iter().any(|c| c.uuid.as_deref() == Some(uuid) && !c.notes.is_empty());
-        if !self.keyboard || !has_notes {
+        if !self.keyboard || !self.all.iter().any(|c| c.uuid.as_deref() == Some(uuid)) {
             return Vec::new();
         }
         if !self.notes.remove(uuid) {
@@ -983,11 +978,11 @@ mod tests {
         assert_eq!(state.card_hint("a"), "", "Confirm remove says what Enter does");
     }
 
+    /// The body's hint offers Space on every task card, notes or none, and
+    /// follows the toggle.
     #[test]
     fn the_body_hint_follows_the_notes_toggle() {
-        let mut with_notes = card("a", Status::Pending);
-        with_notes.notes = vec!["a note".into()];
-        let mut state = keyboard(vec![with_notes]);
+        let mut state = keyboard(pending(&["a"]));
         assert!(state.card_hint("a").starts_with("Space: view notes"), "{}", state.card_hint("a"));
         state.on_press("a", Slot::Body);
         assert!(state.card_hint("a").starts_with("Space: hide notes"), "{}", state.card_hint("a"));
@@ -1409,14 +1404,16 @@ mod tests {
         assert!(!state.shows_notes("a"));
     }
 
-    /// A card with no notes has nothing to show, so its body still does
-    /// nothing.
+    /// A card with no notes still opens, on the line of its id and uuid
+    /// alone, and a second press closes it.
     #[test]
-    fn a_card_with_no_notes_ignores_the_press() {
+    fn a_card_with_no_notes_opens_on_its_id_line() {
         let mut state = keyboard(pending(&["a"]));
-        assert_eq!(state.on_press("a", Slot::Body), Vec::new());
-        assert!(!state.shows_notes("a"));
+        assert_eq!(state.on_press("a", Slot::Body), vec![Effect::Notes]);
+        assert!(state.shows_notes("a"));
         assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+        assert_eq!(state.on_press("a", Slot::Body), vec![Effect::Notes]);
+        assert!(!state.shows_notes("a"));
     }
 
     /// The peek's cards are one line each: a click on one shows nothing.
@@ -1441,17 +1438,16 @@ mod tests {
         assert!(state.shows_notes("a"));
     }
 
-    /// A card whose notes have gone, or which has left the list, stops
-    /// being shown: when notes come back later it does not reopen by itself.
+    /// A card that loses its notes stays open, on its id line. One that
+    /// leaves the list stops being shown: when it comes back it does not
+    /// reopen by itself.
     #[test]
-    fn a_card_that_loses_its_notes_does_not_reopen() {
+    fn a_card_that_leaves_the_list_does_not_reopen() {
         let mut state = keyboard(vec![noted("a"), noted("b")]);
         state.on_press("a", Slot::Body);
         state.on_press("b", Slot::Body);
         state.set_cards(&[card("a", Status::Pending), noted("b")]);
-        assert!(!state.shows_notes("a"));
-        state.set_cards(&[noted("a"), noted("b")]);
-        assert!(!state.shows_notes("a"));
+        assert!(state.shows_notes("a"), "still open, on its id line");
         state.set_cards(&[noted("a")]);
         state.set_cards(&[noted("a"), noted("b")]);
         assert!(!state.shows_notes("b"));
