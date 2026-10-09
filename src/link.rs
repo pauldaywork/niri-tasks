@@ -4,7 +4,8 @@
 //! agent by asking herdr for those names. A Claude started by hand gets the
 //! same `work-` name when it marks the task active.
 
-use crate::session::{current_pane, herdr_session_name, CurrentPane, Session};
+use crate::session::{current_pane, CurrentPane, Session};
+use crate::workspace::Workspace;
 use crate::{refine, work};
 use anyhow::{Context, Result};
 
@@ -56,28 +57,28 @@ pub fn session_agent(names: &[String], uuid: &str) -> Option<String> {
         .find(|want| names.iter().any(|n| n == want))
 }
 
-/// Every named live agent in `workspace`'s herdr session, from one
-/// `agent list` — what the panel asks once for all its cards. A session that
-/// is not running, or no herdr at all, has none: the panel asks
-/// this on every open and must not fail for it.
-pub fn live_agent_names(workspace: &str) -> Vec<String> {
-    Session::named(&herdr_session_name(workspace)).agent_names()
+/// Every named live agent in `ws`'s herdr session, from one `agent list` —
+/// what the panel asks once for all its cards. A session that is not
+/// running, or no herdr at all, has none: the panel asks this on every open
+/// and must not fail for it.
+pub fn live_agent_names(ws: &Workspace) -> Vec<String> {
+    // By name alone: listing agents needs no folder, so no HOME is read.
+    Session::named(&ws.session_name()).agent_names()
 }
 
-/// The live agent working on `uuid` in `workspace`'s herdr session, if there
-/// is one.
-pub fn live_agent(workspace: &str, uuid: &str) -> Option<String> {
-    session_agent(&live_agent_names(workspace), uuid)
+/// The live agent working on `uuid` in `ws`'s herdr session, if there is one.
+pub fn live_agent(ws: &Workspace, uuid: &str) -> Option<String> {
+    session_agent(&live_agent_names(ws), uuid)
 }
 
-/// Bring the terminal showing `workspace`'s herdr session forward and focus
-/// the agent working on `uuid` in it. Never starts anything: with no live
-/// agent — it exited since the panel slid out, say — this is an error, not a
-/// new session.
-pub fn go_to(workspace: &str, uuid: &str) -> Result<()> {
-    let name = live_agent(workspace, uuid)
+/// Bring the terminal showing `ws`'s herdr session forward and focus the
+/// agent working on `uuid` in it. Never starts anything: with no live agent —
+/// it exited since the panel slid out, say — this is an error, not a new
+/// session.
+pub fn go_to(ws: &Workspace, uuid: &str) -> Result<()> {
+    let name = live_agent(ws, uuid)
         .context("No Claude is working on this task in this workspace's herdr session.")?;
-    let session = Session::for_workspace(workspace)?;
+    let session = ws.session()?;
     session.open()?;
     // It can still exit between the panel's list and this focus.
     anyhow::ensure!(session.focus_agent(&name)?, "The Claude working on this task has gone.");

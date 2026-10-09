@@ -260,7 +260,8 @@ fn serve_request(app: &Application, req: crate::ipc::Request) {
                 let agents = focused
                     .name
                     .as_deref()
-                    .map(crate::link::live_agent_names)
+                    .and_then(|n| Workspace::named(n).ok())
+                    .map(|w| crate::link::live_agent_names(&w))
                     .unwrap_or_default();
                 panel.take_keyboard(agents)
             }) {

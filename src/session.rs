@@ -3,7 +3,9 @@
 //! agents.
 //!
 //! Two rules, and the inverse of each, because `niritasks tag --session` has
-//! to get from a terminal back to the workspace it was opened for:
+//! to get from a terminal back to the workspace it was opened for. The
+//! lookup itself is `Workspace::of_session`'s, in the `workspace` module;
+//! the inverses here are what it is made of:
 //!
 //! * **Folder**, defined in `dirs`: a workspace named "hansard-votes" works in
 //!   `~/Projects/hansard-votes` ([`Dirs::start_dir`]). Inverse:
@@ -20,12 +22,14 @@
 //! through `Port`, everything the module does outside itself, so the steps
 //! can be tested against a fake as well as run for real through
 //! `herdr::Process`.
+//!
+//! [`Dirs::start_dir`]: crate::dirs::Dirs::start_dir
+//! [`Dirs::project_from_cwd`]: crate::dirs::Dirs::project_from_cwd
 
 mod herdr;
 #[cfg(test)]
 pub(crate) mod fake;
 
-use crate::dirs::Dirs;
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -278,13 +282,10 @@ pub struct Session {
 }
 
 impl Session {
-    /// The session for `workspace`, through the process adapter.
-    pub fn for_workspace(workspace: &str) -> Result<Session> {
-        Ok(Session {
-            name: herdr_session_name(workspace),
-            dir: Dirs::from_env()?.start_dir(workspace),
-            port: Box::new(herdr::Process),
-        })
+    /// A session by name, with the folder its terminals start in: what a
+    /// workspace's session is, built by `Workspace::session`.
+    pub fn at(name: String, dir: PathBuf) -> Session {
+        Session { name, dir, port: Box::new(herdr::Process) }
     }
 
     /// A session known by name alone, through the process adapter: as a pane
@@ -292,7 +293,7 @@ impl Session {
     /// folder is unknown, and no HOME is read, so `open` must not be called
     /// on it.
     pub fn named(session: &str) -> Session {
-        Session { name: session.to_string(), dir: PathBuf::new(), port: Box::new(herdr::Process) }
+        Session::at(session.to_string(), PathBuf::new())
     }
 
     /// The same session over any adapter: the tests' way in.

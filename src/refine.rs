@@ -6,7 +6,8 @@
 //! version rather than the one the panel showed.
 
 use crate::dirs::Dirs;
-use crate::session::{Claude, Session};
+use crate::session::Claude;
+use crate::workspace::Workspace;
 use crate::{niri, notify, task, text};
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
@@ -233,7 +234,7 @@ fn ensure_no_exposed_sockets(hidden: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
-/// Open Claude on a task in `workspace`'s herdr session.
+/// Open Claude on a task in `ws`'s herdr session.
 ///
 /// Opens the project terminal first if the session is not running, and goes
 /// back to the task's existing tab if it is already being refined.
@@ -244,7 +245,7 @@ fn ensure_no_exposed_sockets(hidden: &[PathBuf]) -> Result<()> {
 ///
 /// The task as found, not a uuid as typed: the session is found again by the
 /// uuid's first eight characters, and a typed task number has none of them.
-pub fn launch(workspace: &str, t: &task::Task, mode: Mode) -> Result<()> {
+pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
     let dirs = Dirs::from_env()?;
     let home = dirs.home();
     let name = agent_name(&t.uuid);
@@ -260,7 +261,7 @@ pub fn launch(workspace: &str, t: &task::Task, mode: Mode) -> Result<()> {
         "The refine mod is missing, or its link is broken, at {}. Run install.sh from the niri-tasks repo.",
         mod_dir.display()
     );
-    let session = Session::for_workspace(workspace)?;
+    let session = ws.session()?;
     let settings = session_settings(session.dir(), &task::data_location()?, &hidden, &t.uuid);
 
     let workspaces = session.open()?;
@@ -269,7 +270,7 @@ pub fn launch(workspace: &str, t: &task::Task, mode: Mode) -> Result<()> {
         return Ok(());
     }
 
-    let tab = session.new_tab(&workspaces, session.dir(), &tab_label(mode, &t.description), workspace)?;
+    let tab = session.new_tab(&workspaces, session.dir(), &tab_label(mode, &t.description), ws.name())?;
     let claude = Claude::Refiner { settings, mod_dir };
     if let Err(e) = session.start_claude(&name, &tab.pane, &claude) {
         // A retry should not find a pile of bare-shell tabs from every

@@ -4,7 +4,8 @@
 //! for the commands both run. The policies and their refusals were spread
 //! over the crate root; they live here.
 
-use crate::{dirs::Dirs, niri, session, tag};
+use crate::session::{self, Session};
+use crate::{dirs::Dirs, niri, tag};
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
@@ -118,6 +119,11 @@ impl Workspace {
     pub fn folder(&self, dirs: &Dirs) -> PathBuf {
         dirs.start_dir(&self.name)
     }
+
+    /// The workspace's herdr session, in the folder its terminals start in.
+    pub fn session(&self) -> Result<Session> {
+        Ok(Session::at(self.session_name(), self.folder(&Dirs::from_env()?)))
+    }
 }
 
 /// The workspace a named herdr session was opened for, among `names`. A
@@ -177,7 +183,7 @@ mod tests {
 
         let ws = Workspace::named("my project").unwrap();
         assert_eq!(ws.name(), "my project");
-        assert_eq!(ws.tag(), tag::workspace_tag("my project"));
+        assert_eq!(ws.tag(), "my_project");
         assert_eq!(ws.session_name(), "my_project");
     }
 

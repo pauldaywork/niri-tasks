@@ -6,6 +6,7 @@
 
 use crate::dirs::Dirs;
 use crate::session::{current_pane, Claude, Session};
+use crate::workspace::Workspace;
 use crate::{notify, project, task, text};
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -117,8 +118,8 @@ pub fn sh_quote(s: &str) -> String {
 
 /// The repository a workspace's tasks are worked in: its `~/Projects` folder,
 /// which has to be a git repository for there to be worktrees at all.
-fn repo_for(workspace: &str) -> Result<PathBuf> {
-    let repo = Dirs::from_env()?.start_dir(workspace);
+fn repo_for(ws: &Workspace) -> Result<PathBuf> {
+    let repo = ws.folder(&Dirs::from_env()?);
     anyhow::ensure!(
         repo.join(".git").exists(),
         "{} is not a git repository, so there is no worktree to make.",
@@ -150,10 +151,10 @@ fn wt_list(repo: &Path) -> Result<Value> {
 /// The task as found, not a uuid as typed: the worktree and the agent are
 /// found again by the uuid's first eight characters, and a typed task number
 /// has none of them.
-pub fn launch(workspace: &str, t: &task::Task) -> Result<()> {
-    let repo = repo_for(workspace)?;
+pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
+    let repo = repo_for(ws)?;
     anyhow::ensure!(project::on_path("wt"), "worktrunk (wt) is not installed.");
-    let session = Session::for_workspace(workspace)?;
+    let session = ws.session()?;
     let name = work_agent_name(&t.uuid);
 
     let workspaces = session.open()?;
@@ -171,12 +172,12 @@ pub fn launch(workspace: &str, t: &task::Task) -> Result<()> {
     }
 
     let label = format!("Start: {}", short(&t.description));
-    let tab = session.new_tab(&workspaces, &repo, &label, workspace)?;
+    let tab = session.new_tab(&workspaces, &repo, &label, ws.name())?;
     let exe = std::env::current_exe().context("could not find the niritasks binary")?;
     let command = format!(
         "{} task start --here --workspace {} {}",
         sh_quote(&exe.display().to_string()),
-        sh_quote(workspace),
+        sh_quote(ws.name()),
         sh_quote(&t.uuid)
     );
     session.run_in_pane(&tab.pane, &command)
@@ -195,14 +196,18 @@ fn start_working(session: &Session, name: &str, pane: &str, uuid: &str) -> Resul
 /// (approval and hook output land here), open it as its own workspace, start
 /// Claude there, then close this tab. On failure the tab stays, with the
 /// error, until the user has read it.
+///
+/// `workspace` is the raw `--workspace` name, checked here rather than by the
+/// caller so that a name [`Workspace::named`] refuses also holds the tab open
+/// with its error, like any other failure.
 pub fn set_up_here(workspace: &str, uuid: &str) -> Result<()> {
-    match set_up(workspace, uuid) {
-        Ok(()) => {
+    match Workspace::named(workspace).and_then(|ws| set_up(&ws, uuid).map(|()| ws)) {
+        Ok(ws) => {
             // Best effort: closing our own tab ends this process, and a tab
             // left open is only untidy. It is closed through the workspace's
             // session, the one launch opened it in.
             if let Some(tab) = current_pane().and_then(|p| p.tab) {
-                if let Ok(session) = Session::for_workspace(workspace) {
+                if let Ok(session) = ws.session() {
                     session.close_tab(&tab);
                 }
             }
@@ -216,14 +221,14 @@ pub fn set_up_here(workspace: &str, uuid: &str) -> Result<()> {
     }
 }
 
-fn set_up(workspace: &str, uuid: &str) -> Result<()> {
+fn set_up(ws: &Workspace, uuid: &str) -> Result<()> {
     let t = task::get(uuid)?.context("task not found")?;
     // The uuid as found, not as typed, from here on: the branch and the agent
     // are named after its first eight characters, and a typed task number
     // has none of them.
     let uuid = t.uuid.as_str();
-    let repo = repo_for(workspace)?;
-    let session = Session::for_workspace(workspace)?;
+    let repo = repo_for(ws)?;
+    let session = ws.session()?;
 
     // Found again first: a retry after a run that made the worktree but
     // failed later must not try to make it twice.

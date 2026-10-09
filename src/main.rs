@@ -352,7 +352,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             let workspace = Workspace::of_caller()?;
             let t = task::get(&uuid)?.context("task not found")?;
             anyhow::ensure!(t.status == "pending", "Only a pending task can be started.");
-            work::launch(workspace.name(), &t)?;
+            work::launch(&workspace, &t)?;
         }
 
         TaskCommand::Refine { uuid, grill } => {
@@ -364,7 +364,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             // has nothing left to work up into a plan.
             anyhow::ensure!(t.status == "pending", "Only a pending task can be refined.");
             let mode = if grill { refine::Mode::Grill } else { refine::Mode::Quick };
-            refine::launch(workspace.name(), &t, mode)?;
+            refine::launch(&workspace, &t, mode)?;
         }
 
         TaskCommand::Session { uuid } => {
@@ -373,7 +373,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             // its first eight characters, and a typed task number has none of
             // them.
             let t = task::get(&uuid)?.context("task not found")?;
-            link::go_to(workspace.name(), &t.uuid)?;
+            link::go_to(&workspace, &t.uuid)?;
         }
     }
     Ok(())
