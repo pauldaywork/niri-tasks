@@ -252,6 +252,15 @@ echo "$*" >> "${NOTIFY_LOG:?}"
 exit 0
 STUB
     chmod +x "$SB/bin/notify-send"
+    # The Taskwarrior the test scripts check with, first on every nested PATH.
+    # Taking out herdr's directory below can take out the `task` beside it
+    # (~/.local/bin holds both when Taskwarrior is built from source), which
+    # would leave the daemon and the CLI on another version with another
+    # store: 2.6's .data files where the scripts read 3.x's sqlite file. The
+    # nested niri's spawns get it too, since NESTED_SPAWN_PATH starts here.
+    local outer_task
+    outer_task=$(command -v task) || die "no task on \$PATH"
+    ln -sf "$(readlink -f "$outer_task")" "$SB/bin/task"
     # PATH: the stubs, then yours without any directory that holds a herdr.
     # The daemon asks herdr for each workspace's live agents every time the
     # panel slides out (src/link.rs), and a refine or a start opens a session
@@ -280,6 +289,13 @@ STUB
     if found=$("${NENV[@]}" sh -c 'command -v herdr'); then
         die "herdr is still on the nested run's PATH ($found): the daemon would reach your real herdr"
     fi
+    # And the nested run's `task` is the scripts' own, so both sides read one
+    # store.
+    local inner_version outer_version
+    outer_version=$(task --version 2>/dev/null)
+    inner_version=$("${NENV[@]}" task --version 2>/dev/null)
+    [ "$inner_version" = "$outer_version" ] ||
+        die "the nested run's task is ${inner_version:-missing}, the scripts' is $outer_version"
 
     # Started from a herdr pane, the run must behave as from a plain
     # terminal: an inherited HERDR_SESSION names a session the nested niri
