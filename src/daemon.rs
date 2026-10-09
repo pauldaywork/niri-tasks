@@ -85,7 +85,7 @@ fn cards_for_workspace(name: Option<&str>) -> Vec<model::Card> {
     // Still asked of taskwarrior: a dependency on another tag is invisible
     // to this tag's export, and whether it still blocks depends on its status.
     let blocked = task::blocked_uuids_for_tag(&t).unwrap_or_default();
-    model::cards(&listing.into_tasks(), &blocked)
+    model::cards(&listing, &blocked)
 }
 
 pub fn run() -> anyhow::Result<()> {

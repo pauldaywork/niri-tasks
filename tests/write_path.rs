@@ -617,8 +617,9 @@ fn write_path_lifecycle() {
     // parked (`nx`, `wait:someday`), passed-wait (`waited`), reopened (`st`),
     // completed past the cap, deleted (`second`, `del`) and other-tag tasks,
     // so this is the comparison that keeps the Rust rule honest. Pending as
-    // sets: urgency ties make its order arbitrary. Completed in order: newest
-    // first and cut to twelve is part of the claim.
+    // sets: urgency's age term is recomputed by each `task` process, so two
+    // exports a moment apart can rank close tasks differently. Completed in
+    // order: newest first and cut to twelve is part of the claim.
     let uuids = |ts: &[task::Task]| ts.iter().map(|t| t.uuid.clone()).collect::<Vec<_>>();
     let sorted = |ts: &[task::Task]| {
         let mut u = uuids(ts);

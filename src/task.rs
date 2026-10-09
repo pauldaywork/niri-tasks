@@ -239,9 +239,12 @@ fn export_values(filter: &[&str]) -> Result<Vec<Value>> {
     serde_json::from_str(trimmed).context("could not parse `task export` output as JSON")
 }
 
-/// Pending tasks carrying `tag`, most urgent first.
+/// Pending tasks carrying `tag`, most urgent first: taskwarrior's own
+/// `status:pending` filter.
 ///
-/// The same order `task next` uses, so the daemon's list agrees with the terminal.
+/// Nothing in `src/` calls it since [`listing`] splits one export in Rust; it
+/// is kept so the write-path suite can check that split against taskwarrior's
+/// own answer. The same order `task next` uses.
 pub fn pending_for_tag(tag: &str) -> Result<Vec<Task>> {
     let mut tasks = export(&[&format!("+{tag}"), "status:pending"])?;
     tasks.sort_by(|a, b| b.urgency.partial_cmp(&a.urgency).unwrap_or(std::cmp::Ordering::Equal));
@@ -256,7 +259,8 @@ pub struct Listing {
     /// Pending and not parked, most urgent first (the `task next` order).
     pub pending: Vec<Task>,
     /// Parked: pending with a wait date still to come, taskwarrior's
-    /// `+WAITING`. Each keeps the status `pending` it was exported with.
+    /// `+WAITING`. Each keeps the status it was exported with, `pending` from
+    /// taskwarrior 2.6.
     pub waiting: Vec<Task>,
     /// The last [`FINISHED_CAP`] finished, the most recently finished first.
     pub completed: Vec<Task>,
@@ -266,20 +270,6 @@ impl Listing {
     /// Nothing on any tab: no pending, waiting or finished task.
     pub fn is_empty(&self) -> bool {
         self.pending.is_empty() && self.waiting.is_empty() && self.completed.is_empty()
-    }
-
-    /// The three parts as one list, pending then waiting then completed, for
-    /// `model::cards` as it is today. Marks the waiting part's status
-    /// `waiting`, which is what `model::cards` reads today; step 2 hands it
-    /// the Listing instead.
-    pub fn into_tasks(self) -> Vec<Task> {
-        let mut all = self.pending;
-        all.extend(self.waiting.into_iter().map(|mut t| {
-            t.status = "waiting".into();
-            t
-        }));
-        all.extend(self.completed);
-        all
     }
 }
 
@@ -301,7 +291,11 @@ fn partition(tasks: Vec<Task>, now: i64) -> Listing {
     let mut l = Listing::default();
     for t in tasks {
         match t.status.as_str() {
-            "pending" => {
+            // Taskwarrior before 2.6 stored `waiting` as a status of its own,
+            // and old data can still carry it. Its gc rewrites that to
+            // `pending` today, but this split must not depend on gc having
+            // run, so both go through the same wait rule.
+            "pending" | "waiting" => {
                 // Strictly after: the second the wait date arrives, the task
                 // is back on the list.
                 let parked = t.wait.as_deref().and_then(stamp_secs).is_some_and(|w| w > now);
@@ -322,19 +316,17 @@ fn partition(tasks: Vec<Task>, now: i64) -> Listing {
     l
 }
 
-/// The tasks for `tag` parked as waiting, for the keyboard panel's Waiting
-/// tab: those with a wait date still to come, which `pending_for_tag` leaves
-/// out.
+/// The tasks for `tag` parked as waiting, those with a wait date still to
+/// come, which `pending_for_tag` leaves out: taskwarrior's own
+/// `status:waiting` filter.
 ///
-/// Taskwarrior 2.6 matches them with `status:waiting` but exports them as
-/// `pending`, so their status is set to `waiting` here, where it is known,
-/// for the panel to tell them apart.
+/// Nothing in `src/` calls it since [`listing`] splits one export in Rust; it
+/// is kept so the write-path suite can check that split against taskwarrior's
+/// own answer. Taskwarrior 2.6 exports these tasks as `pending`, and they are
+/// returned as exported: the panel tells them apart by the listing's part
+/// now, so no status needs rewriting.
 pub fn waiting_for_tag(tag: &str) -> Result<Vec<Task>> {
-    let mut tasks = export(&[&format!("+{tag}"), "status:waiting"])?;
-    for t in &mut tasks {
-        t.status = "waiting".into();
-    }
-    Ok(tasks)
+    export(&[&format!("+{tag}"), "status:waiting"])
 }
 
 /// Whether the task is parked as waiting: taskwarrior's own `+WAITING`, a
@@ -368,9 +360,13 @@ pub fn blocked_uuids_for_tag(tag: &str) -> Result<Vec<String>> {
 pub const FINISHED_CAP: usize = 12;
 
 /// The last [`FINISHED_CAP`] tasks finished on `tag`, the most recently
-/// finished first, for the task panel's Finished tab. Completed only: a
-/// deleted task was thrown away, not finished, and its status says
-/// `deleted` even though it keeps its `end`.
+/// finished first: taskwarrior's own `status:completed` filter, cut as the
+/// Finished tab cuts it. Completed only: a deleted task was thrown away, not
+/// finished, and its status says `deleted` even though it keeps its `end`.
+///
+/// Nothing in `src/` calls it since [`listing`] splits one export in Rust; it
+/// is kept so the write-path suite can check that split against taskwarrior's
+/// own answer.
 pub fn completed_for_tag(tag: &str) -> Result<Vec<Task>> {
     Ok(latest_finished(export(&[&format!("+{tag}"), "status:completed"])?))
 }
@@ -1251,11 +1247,10 @@ mod tests {
     fn no_tasks_is_an_empty_listing() {
         let l = partition(Vec::new(), noon());
         assert!(l.is_empty());
-        assert!(l.into_tasks().is_empty());
     }
 
-    /// The split reports what taskwarrior exported; only `into_tasks` marks
-    /// the waiting ones for `model::cards`.
+    /// The split reports what taskwarrior exported: the part, not the
+    /// status, says a task is waiting.
     #[test]
     fn waiting_tasks_keep_their_exported_status() {
         let l = partition(vec![t("w", "pending", Some("99991229T130000Z"), 1.0, "")], noon());
@@ -1276,21 +1271,29 @@ mod tests {
         assert_eq!(ids(&l.pending), vec!["high", "mid", "low"]);
     }
 
-    /// One list for `model::cards`: pending, then waiting marked `waiting`,
-    /// then completed.
+    /// A stored `waiting`, from data written before taskwarrior 2.6, goes
+    /// through the wait rule like `pending`: parked while the date is ahead,
+    /// back on the list once it has passed.
     #[test]
-    fn into_tasks_marks_the_waiting_part() {
+    fn a_stored_waiting_status_follows_the_wait_rule() {
         let l = partition(
             vec![
-                t("c", "completed", None, 0.0, "20261008T120000Z"),
-                t("w", "pending", Some("99991229T130000Z"), 1.0, ""),
-                t("p", "pending", None, 1.0, ""),
+                t("ahead", "waiting", Some("99991229T130000Z"), 1.0, ""),
+                t("passed", "waiting", Some("20261001T000000Z"), 1.0, ""),
             ],
             noon(),
         );
-        let all = l.into_tasks();
-        let got: Vec<(&str, &str)> = all.iter().map(|t| (t.uuid.as_str(), t.status.as_str())).collect();
-        assert_eq!(got, vec![("p", "pending"), ("w", "waiting"), ("c", "completed")]);
+        assert_eq!(ids(&l.waiting), vec!["ahead"]);
+        assert_eq!(ids(&l.pending), vec!["passed"]);
+    }
+
+    /// Finished is finished: a wait date left on a completed task parks
+    /// nothing.
+    #[test]
+    fn a_completed_task_with_a_wait_ahead_stays_completed() {
+        let l = partition(vec![t("c", "completed", Some("99991229T130000Z"), 0.0, "20261008T120000Z")], noon());
+        assert_eq!(ids(&l.completed), vec!["c"]);
+        assert!(l.pending.is_empty() && l.waiting.is_empty());
     }
 
     #[test]

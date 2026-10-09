@@ -4,7 +4,7 @@
 //! testing, and none of them needs a compositor.
 
 use crate::actions::TaskState;
-use crate::task::Task;
+use crate::task::{Listing, Task};
 
 /// The most task cards a panel shows. Past this, the rest fold into one
 /// "+N more" card rather than running off the bottom of the screen.
@@ -235,14 +235,28 @@ impl Tab {
 /// not urgency: taskwarrior's age coefficient lifts old tasks, and a task
 /// just added is the one most likely to matter. Due dates count for nothing
 /// here.
-pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
+///
+/// Whether a task is waiting or finished is which part of the [`Listing`] it
+/// is in, not its status: taskwarrior 2.6 exports a waiting task as
+/// `pending`.
+pub fn cards(listing: &Listing, blocked: &[String]) -> Vec<Card> {
     // Only below up next: an active or up next task stays on top blocked.
     let sinks = |t: &Task| !t.is_active() && !t.is_up_next() && blocked.contains(&t.uuid);
-    let finished = |t: &Task| t.status == "completed";
-    let mut sorted: Vec<&Task> = tasks.iter().collect();
-    sorted.sort_by(|a, b| {
-        finished(a).cmp(&finished(b)).then_with(|| {
-            if finished(a) {
+    // Each task with the part it came from, which is what makes it waiting or
+    // finished: no status string is read. Merged pending, waiting, completed,
+    // the order the parts used to arrive in as one list, so the stable sort
+    // keeps full ties where they were.
+    let parts = [
+        (&listing.pending, Part::Pending),
+        (&listing.waiting, Part::Waiting),
+        (&listing.completed, Part::Finished),
+    ];
+    let mut sorted: Vec<(&Task, Part)> =
+        parts.iter().flat_map(|&(tasks, part)| tasks.iter().map(move |t| (t, part))).collect();
+    let finished = |part: Part| part == Part::Finished;
+    sorted.sort_by(|&(a, pa), &(b, pb)| {
+        finished(pa).cmp(&finished(pb)).then_with(|| {
+            if finished(pa) {
                 // Both finished: the one finished last on top.
                 return b.end.cmp(&a.end);
             }
@@ -258,13 +272,13 @@ pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
 
     sorted
         .iter()
-        .map(|t| Card {
-            // Finished first, then waiting: parking a task stops it, so a
-            // waiting task is not the work in progress whatever else it
-            // carries.
-            status: if finished(t) {
+        .map(|&(t, part)| Card {
+            // Finished first, then waiting, both by the part the task came
+            // from: parking a task stops it, so a waiting task is not the
+            // work in progress whatever else it carries.
+            status: if finished(part) {
                 Status::Finished
-            } else if t.status == "waiting" {
+            } else if part == Part::Waiting {
                 Status::Waiting
             } else if t.is_active() {
                 Status::Active
@@ -279,10 +293,18 @@ pub fn cards(tasks: &[Task], blocked: &[String]) -> Vec<Card> {
             uuid: Some(t.uuid.clone()),
             planned: t.is_planned(),
             up_next: t.is_up_next(),
-            since: if finished(t) { t.end.clone() } else { t.entry.clone() },
+            since: if finished(part) { t.end.clone() } else { t.entry.clone() },
             notes: t.annotations.iter().map(|a| a.description.clone()).collect(),
         })
         .collect()
+}
+
+/// Which part of a [`Listing`] a task came from, for [`cards`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    Pending,
+    Waiting,
+    Finished,
 }
 
 /// The first `n` cards, and past that one "+N more" card for the rest.
@@ -327,6 +349,21 @@ mod tests {
         }
     }
 
+    /// A listing of tasks still to do and nothing parked or finished.
+    fn todo(pending: Vec<Task>) -> Listing {
+        Listing { pending, ..Listing::default() }
+    }
+
+    /// A listing of finished tasks alone.
+    fn done(completed: Vec<Task>) -> Listing {
+        Listing { completed, ..Listing::default() }
+    }
+
+    /// A listing of parked tasks alone.
+    fn parked(waiting: Vec<Task>) -> Listing {
+        Listing { waiting, ..Listing::default() }
+    }
+
     fn texts(cards: &[Card]) -> Vec<&str> {
         cards.iter().map(|c| c.text.as_str()).collect()
     }
@@ -350,13 +387,13 @@ mod tests {
 
     #[test]
     fn no_tasks_no_cards() {
-        assert!(cards(&[], &[]).is_empty());
+        assert!(cards(&Listing::default(), &[]).is_empty());
     }
 
     #[test]
     fn active_first_then_newest() {
         let got = cards(
-            &[task("low", 1, false), task("started", 2, true), task("high", 9, false)],
+            &todo(vec![task("low", 1, false), task("started", 2, true), task("high", 9, false)]),
             &[],
         );
         assert_eq!(texts(&got), vec!["started", "high", "low"]);
@@ -367,21 +404,21 @@ mod tests {
 
     #[test]
     fn blocked_tasks_are_marked() {
-        let got = cards(&[task("waits", 1, false)], &["waits".into()]);
+        let got = cards(&todo(vec![task("waits", 1, false)]), &["waits".into()]);
         assert_eq!(got[0].status, Status::Blocked);
         assert_eq!(got[0].icon(), "\u{f023}");
     }
 
     #[test]
     fn started_outranks_blocked() {
-        let got = cards(&[task("both", 1, true)], &["both".into()]);
+        let got = cards(&todo(vec![task("both", 1, true)]), &["both".into()]);
         assert_eq!(got[0].status, Status::Active);
     }
 
     #[test]
     fn past_the_cap_the_rest_fold_into_one_card() {
         let many: Vec<Task> = (0..11).map(|i| task(&format!("t{i}"), i as u32 + 1, false)).collect();
-        let got = cap(&cards(&many, &[]), CAP);
+        let got = cap(&cards(&todo(many), &[]), CAP);
         assert_eq!(got.len(), CAP + 1);
         assert_eq!(got[0].text, "t10", "the cap keeps the newest");
         let last = got.last().unwrap();
@@ -394,7 +431,7 @@ mod tests {
     #[test]
     fn exactly_the_cap_has_no_more_card() {
         let many: Vec<Task> = (0..CAP).map(|i| task(&format!("t{i}"), 1, false)).collect();
-        let got = cap(&cards(&many, &[]), CAP);
+        let got = cap(&cards(&todo(many), &[]), CAP);
         assert_eq!(got.len(), CAP);
         assert!(got.iter().all(|c| c.status != Status::More));
     }
@@ -403,7 +440,7 @@ mod tests {
     fn descriptions_are_one_line() {
         let mut t = task("x", 1, false);
         t.description = "two\nlines".into();
-        assert_eq!(cards(&[t], &[])[0].text, "two lines");
+        assert_eq!(cards(&todo(vec![t]), &[])[0].text, "two lines");
     }
 
     /// A card carries its task's notes, in order and text only, for the
@@ -415,7 +452,7 @@ mod tests {
             crate::task::Annotation { entry: "20261001T120000Z".into(), description: "first note".into() },
             crate::task::Annotation { entry: "20261002T120000Z".into(), description: "second note".into() },
         ];
-        let cards = cards(&[noted, task("plain", 1, false)], &[]);
+        let cards = cards(&todo(vec![noted, task("plain", 1, false)]), &[]);
         assert_eq!(cards[0].notes, vec!["first note".to_string(), "second note".to_string()]);
         assert!(cards[1].notes.is_empty());
         let capped = cap(&cards, 1);
@@ -424,14 +461,14 @@ mod tests {
 
     #[test]
     fn planned_tasks_get_the_filled_dot() {
-        let got = cards(&[planned("p", false)], &[]);
+        let got = cards(&todo(vec![planned("p", false)]), &[]);
         assert_eq!(got[0].status, Status::Planned);
         assert_eq!(got[0].icon(), "●");
     }
 
     #[test]
     fn started_outranks_planned() {
-        let got = cards(&[planned("p", true)], &[]);
+        let got = cards(&todo(vec![planned("p", true)]), &[]);
         assert_eq!(got[0].status, Status::Active);
     }
 
@@ -439,20 +476,20 @@ mod tests {
     /// the lock is what says so.
     #[test]
     fn blocked_outranks_planned() {
-        let got = cards(&[planned("p", false)], &["p".into()]);
+        let got = cards(&todo(vec![planned("p", false)]), &["p".into()]);
         assert_eq!(got[0].status, Status::Blocked);
     }
 
     #[test]
     fn planned_does_not_change_the_order() {
         let low = planned("low", false);
-        let got = cards(&[low, task("high", 9, false)], &[]);
+        let got = cards(&todo(vec![low, task("high", 9, false)]), &[]);
         assert_eq!(texts(&got), vec!["high", "low"]);
     }
 
     #[test]
     fn a_card_knows_its_task_is_planned_whatever_its_status() {
-        let got = cards(&[planned("started", true), planned("waits", false), task("plain", 1, false)], &["waits".into()]);
+        let got = cards(&todo(vec![planned("started", true), planned("waits", false), task("plain", 1, false)]), &["waits".into()]);
         assert_eq!(got[0].status, Status::Active);
         assert!(got[0].planned, "a started planned task is still planned");
         let waits = got.iter().find(|c| c.text == "waits").unwrap();
@@ -464,12 +501,14 @@ mod tests {
     #[test]
     fn the_more_card_is_not_planned() {
         let many: Vec<Task> = (0..CAP + 1).map(|i| planned(&format!("t{i}"), false)).collect();
-        assert!(!cap(&cards(&many, &[]), CAP).last().unwrap().planned);
+        assert!(!cap(&cards(&todo(many), &[]), CAP).last().unwrap().planned);
     }
 
+    /// A task parked with `wait:someday`. Taskwarrior still exports it as
+    /// `pending`; it is waiting because it sits in the listing's waiting part.
     fn waiting(uuid: &str) -> Task {
         let mut t = task(uuid, 1, false);
-        t.status = "waiting".into();
+        t.wait = Some("99991229T130000Z".into());
         t
     }
 
@@ -489,7 +528,7 @@ mod tests {
 
     #[test]
     fn a_finished_task_gets_the_check() {
-        let got = cards(&[finished("done", 2)], &[]);
+        let got = cards(&done(vec![finished("done", 2)]), &[]);
         assert_eq!(got[0].status, Status::Finished);
         assert_eq!(got[0].icon(), "\u{f00c}");
     }
@@ -498,7 +537,12 @@ mod tests {
     /// last on top, whatever was added when.
     #[test]
     fn finished_tasks_go_last_most_recently_finished_first() {
-        let got = cards(&[finished("old", 2), task("todo", 1, false), finished("new", 5), task("started", 1, true)], &[]);
+        let listing = Listing {
+            pending: vec![task("todo", 1, false), task("started", 1, true)],
+            waiting: Vec::new(),
+            completed: vec![finished("old", 2), finished("new", 5)],
+        };
+        let got = cards(&listing, &[]);
         assert_eq!(texts(&got), vec!["started", "todo", "new", "old"]);
     }
 
@@ -508,7 +552,12 @@ mod tests {
     fn a_finished_task_is_only_under_finished() {
         let mut planned_done = finished("planned-done", 3);
         planned_done.tags = vec![crate::task::PLANNED_TAG.into()];
-        let all = cards(&[task("plain", 9, false), waiting("parked"), finished("done", 4), planned_done], &[]);
+        let listing = Listing {
+            pending: vec![task("plain", 9, false)],
+            waiting: vec![waiting("parked")],
+            completed: vec![finished("done", 4), planned_done],
+        };
+        let all = cards(&listing, &[]);
         assert_eq!(texts(&Filter::All.pick(&all)), vec!["plain"]);
         assert!(Filter::Planned.pick(&all).is_empty());
         assert_eq!(texts(&Filter::ToRefine.pick(&all)), vec!["plain"]);
@@ -519,7 +568,7 @@ mod tests {
     /// The age on a finished card is how long ago it was finished.
     #[test]
     fn a_finished_card_ages_from_when_it_was_finished() {
-        let got = cards(&[finished("done", 6)], &[]);
+        let got = cards(&done(vec![finished("done", 6)]), &[]);
         assert_eq!(got[0].since, "20261006T180000Z");
         // 2026-10-06 12:00:00Z is 1_791_288_000, so 18:00 is 6h on.
         let later = 1_791_288_000 + 6 * 3_600 + 2 * 3_600;
@@ -532,14 +581,19 @@ mod tests {
     fn a_finished_card_is_finished_and_never_yellow() {
         let mut next_done = finished("done", 2);
         next_done.tags = vec![crate::task::UP_NEXT_TAG.into()];
-        let got = cards(&[next_done], &[]);
+        let got = cards(&done(vec![next_done]), &[]);
         assert_eq!(got[0].state(false), Some(TaskState { finished: true, up_next: true, ..TaskState::default() }));
         assert!(!got[0].shows_up_next());
     }
 
     #[test]
     fn the_finished_tab_comes_after_waiting_and_before_ideas() {
-        let all = cards(&[task("plain", 9, false), waiting("parked"), finished("done", 2)], &[]);
+        let listing = Listing {
+            pending: vec![task("plain", 9, false)],
+            waiting: vec![waiting("parked")],
+            completed: vec![finished("done", 2)],
+        };
+        let all = cards(&listing, &[]);
         assert_eq!(
             Tab::shown(&all),
             vec![
@@ -550,12 +604,12 @@ mod tests {
                 Tab::Ideas,
             ]
         );
-        assert_eq!(Filter::shown(&cards(&[finished("done", 2)], &[])), vec![Filter::All, Filter::Finished]);
+        assert_eq!(Filter::shown(&cards(&done(vec![finished("done", 2)]), &[])), vec![Filter::All, Filter::Finished]);
     }
 
     #[test]
     fn a_waiting_task_gets_the_pause_icon() {
-        let got = cards(&[waiting("parked")], &[]);
+        let got = cards(&parked(vec![waiting("parked")]), &[]);
         assert_eq!(got[0].status, Status::Waiting);
         assert_eq!(got[0].icon(), "\u{f04c}");
     }
@@ -566,7 +620,12 @@ mod tests {
     fn a_waiting_task_is_only_under_waiting() {
         let mut planned_parked = waiting("planned-parked");
         planned_parked.tags = vec![crate::task::PLANNED_TAG.into()];
-        let all = cards(&[task("plain", 9, false), waiting("parked"), planned_parked], &[]);
+        let listing = Listing {
+            pending: vec![task("plain", 9, false)],
+            waiting: vec![waiting("parked"), planned_parked],
+            completed: Vec::new(),
+        };
+        let all = cards(&listing, &[]);
         assert_eq!(texts(&Filter::All.pick(&all)), vec!["plain"]);
         assert!(Filter::Planned.pick(&all).is_empty());
         assert_eq!(texts(&Filter::ToRefine.pick(&all)), vec!["plain"]);
@@ -577,7 +636,7 @@ mod tests {
     /// have a task under them.
     #[test]
     fn only_tabs_with_tasks_are_shown() {
-        let all = cards(&[task("plain", 9, false), waiting("parked")], &[]);
+        let all = cards(&Listing { pending: vec![task("plain", 9, false)], waiting: vec![waiting("parked")], completed: Vec::new() }, &[]);
         assert_eq!(Filter::shown(&all), vec![Filter::All, Filter::ToRefine, Filter::Waiting]);
         assert_eq!(Filter::shown(&[]), vec![Filter::All]);
     }
@@ -598,12 +657,12 @@ mod tests {
     #[test]
     fn each_tab_picks_its_tasks_in_order() {
         let all = cards(
-            &[
+            &todo(vec![
                 task("plain", 9, false),
                 planned("started-planned", true),
                 task("started", 5, true),
                 planned("planned", false),
-            ],
+            ]),
             &[],
         );
         assert_eq!(texts(&Filter::All.pick(&all)), texts(&all));
@@ -615,19 +674,21 @@ mod tests {
     /// Clear all deletes what the Waiting tab lists, and nothing it does not.
     #[test]
     fn a_tabs_uuids_are_its_tasks_and_no_others() {
-        let all = cards(
-            &[task("plain", 9, false), waiting("parked"), task("started", 5, true), waiting("also-parked")],
-            &[],
-        );
+        let listing = Listing {
+            pending: vec![task("plain", 9, false), task("started", 5, true)],
+            waiting: vec![waiting("parked"), waiting("also-parked")],
+            completed: Vec::new(),
+        };
+        let all = cards(&listing, &[]);
         assert_eq!(Filter::Waiting.uuids(&all), vec!["parked", "also-parked"]);
-        assert!(Filter::Waiting.uuids(&cards(&[task("plain", 9, false)], &[])).is_empty());
+        assert!(Filter::Waiting.uuids(&cards(&todo(vec![task("plain", 9, false)]), &[])).is_empty());
     }
 
     /// Every one the tab lists, not just those on screen before "+N more".
     #[test]
     fn a_tabs_uuids_are_uncapped() {
         let many: Vec<Task> = (0..CAP + 2).map(|i| waiting(&format!("w{i}"))).collect();
-        assert_eq!(Filter::Waiting.uuids(&cards(&many, &[])).len(), CAP + 2);
+        assert_eq!(Filter::Waiting.uuids(&cards(&parked(many), &[])).len(), CAP + 2);
     }
 
     /// Up next is the one to do next, so it sits right under the work in
@@ -635,7 +696,7 @@ mod tests {
     #[test]
     fn up_next_sorts_right_under_the_active_tasks() {
         let got = cards(
-            &[task("low", 1, false), task("started", 2, true), task("high", 9, false), up_next("next", 1, false)],
+            &todo(vec![task("low", 1, false), task("started", 2, true), task("high", 9, false), up_next("next", 1, false)]),
             &[],
         );
         assert_eq!(texts(&got), vec!["started", "next", "high", "low"]);
@@ -645,7 +706,7 @@ mod tests {
     /// stays first, and green.
     #[test]
     fn started_outranks_up_next() {
-        let got = cards(&[up_next("next", 9, false), task("started", 1, true)], &[]);
+        let got = cards(&todo(vec![up_next("next", 9, false), task("started", 1, true)]), &[]);
         assert_eq!(texts(&got), vec!["started", "next"]);
     }
 
@@ -653,7 +714,7 @@ mod tests {
     /// can offer to clear it on an active card too.
     #[test]
     fn a_card_knows_its_task_is_up_next_whatever_its_status() {
-        let got = cards(&[up_next("started", 1, true), up_next("plain", 1, false), task("other", 1, false)], &[]);
+        let got = cards(&todo(vec![up_next("started", 1, true), up_next("plain", 1, false), task("other", 1, false)]), &[]);
         assert!(got[0].up_next, "a started up next task is still up next");
         assert!(got[1].up_next);
         assert!(!got[2].up_next);
@@ -667,25 +728,27 @@ mod tests {
         let mut planned_next = up_next("planned", 1, false);
         planned_next.tags.push(crate::task::PLANNED_TAG.into());
         let mut waiting_next = up_next("parked", 1, false);
-        waiting_next.status = "waiting".into();
-        let got = cards(
-            &[up_next("plain", 1, false), up_next("blocked", 1, false), planned_next, up_next("started", 1, true), waiting_next],
-            &["blocked".into()],
-        );
+        waiting_next.wait = Some("99991229T130000Z".into());
+        let listing = Listing {
+            pending: vec![up_next("plain", 1, false), up_next("blocked", 1, false), planned_next, up_next("started", 1, true)],
+            waiting: vec![waiting_next],
+            completed: Vec::new(),
+        };
+        let got = cards(&listing, &["blocked".into()]);
         let shows = |text: &str| got.iter().find(|c| c.text == text).unwrap().shows_up_next();
         assert!(shows("plain"));
         assert!(shows("blocked"), "the lock is yellow too");
         assert!(shows("planned"), "the dot is yellow too");
         assert!(!shows("started"), "an active card stays green");
         assert!(!shows("parked"), "a waiting card keeps its look");
-        assert!(!cards(&[task("other", 1, false)], &[])[0].shows_up_next());
+        assert!(!cards(&todo(vec![task("other", 1, false)]), &[])[0].shows_up_next());
     }
 
     /// The "+N more" card stands for no task, so it is never up next.
     #[test]
     fn the_more_card_is_not_up_next() {
         let many: Vec<Task> = (0..CAP + 1).map(|i| up_next(&format!("t{i}"), 1, false)).collect();
-        let more = cap(&cards(&many, &[]), CAP).pop().unwrap();
+        let more = cap(&cards(&todo(many), &[]), CAP).pop().unwrap();
         assert!(!more.up_next);
         assert!(!more.shows_up_next());
     }
@@ -711,7 +774,7 @@ mod tests {
     /// Ideas is a tab, not a filter: always on show, after the filter tabs.
     #[test]
     fn ideas_is_always_shown_last() {
-        let all = cards(&[task("plain", 9, false), waiting("parked")], &[]);
+        let all = cards(&Listing { pending: vec![task("plain", 9, false)], waiting: vec![waiting("parked")], completed: Vec::new() }, &[]);
         assert_eq!(
             Tab::shown(&all),
             vec![Tab::Filter(Filter::All), Tab::Filter(Filter::ToRefine), Tab::Filter(Filter::Waiting), Tab::Ideas]
@@ -731,7 +794,7 @@ mod tests {
     fn newest_first_whatever_the_urgency() {
         let mut old = task("old", 1, false);
         old.urgency = 20.0;
-        let got = cards(&[old, task("new", 9, false)], &[]);
+        let got = cards(&todo(vec![old, task("new", 9, false)]), &[]);
         assert_eq!(texts(&got), vec!["new", "old"]);
     }
 
@@ -740,20 +803,20 @@ mod tests {
     fn a_task_without_an_entry_sorts_after_one_with_it() {
         let mut bare = task("bare", 9, false);
         bare.entry = String::new();
-        let got = cards(&[bare, task("old", 1, false)], &[]);
+        let got = cards(&todo(vec![bare, task("old", 1, false)]), &[]);
         assert_eq!(texts(&got), vec!["old", "bare"]);
     }
 
     #[test]
     fn priority_outranks_age_h_over_m_over_l_over_none() {
         let got = cards(
-            &[
+            &todo(vec![
                 task("none-new", 9, false),
                 with_priority(task("l", 4, false), "L"),
                 with_priority(task("h-old", 1, false), "H"),
                 with_priority(task("m", 2, false), "M"),
                 with_priority(task("h-new", 3, false), "H"),
-            ],
+            ]),
             &[],
         );
         assert_eq!(texts(&got), vec!["h-new", "h-old", "m", "l", "none-new"]);
@@ -763,7 +826,7 @@ mod tests {
     #[test]
     fn active_then_up_next_outrank_priority() {
         let got = cards(
-            &[with_priority(task("high", 9, false), "H"), up_next("next", 1, false), task("started", 1, true)],
+            &todo(vec![with_priority(task("high", 9, false), "H"), up_next("next", 1, false), task("started", 1, true)]),
             &[],
         );
         assert_eq!(texts(&got), vec!["started", "next", "high"]);
@@ -775,13 +838,13 @@ mod tests {
     #[test]
     fn blocked_sinks_below_the_unblocked_rest() {
         let got = cards(
-            &[
+            &todo(vec![
                 with_priority(task("blocked-h", 9, false), "H"),
                 task("blocked-new", 8, false),
                 task("blocked-old", 2, false),
                 task("free-old", 1, false),
                 with_priority(task("free-l", 1, false), "L"),
-            ],
+            ]),
             &["blocked-h".into(), "blocked-new".into(), "blocked-old".into()],
         );
         assert_eq!(texts(&got), vec!["free-l", "free-old", "blocked-h", "blocked-new", "blocked-old"]);
@@ -791,7 +854,7 @@ mod tests {
     #[test]
     fn active_and_up_next_stay_on_top_when_blocked() {
         let got = cards(
-            &[task("free", 9, false), up_next("next", 1, false), task("started", 1, true)],
+            &todo(vec![task("free", 9, false), up_next("next", 1, false), task("started", 1, true)]),
             &["next".into(), "started".into()],
         );
         assert_eq!(texts(&got), vec!["started", "next", "free"]);
@@ -801,7 +864,7 @@ mod tests {
     /// minute and the panel need not re-render to age it.
     #[test]
     fn a_card_ages_from_its_tasks_stamp() {
-        let got = cards(&[task("t", 6, false)], &[]);
+        let got = cards(&todo(vec![task("t", 6, false)]), &[]);
         assert_eq!(got[0].since, "20261006T120000Z");
         // 2026-10-06 12:00:00Z is 1_791_288_000 (Task 1's 12:09:29 less 569s).
         let later = 1_791_288_000 + 3 * 3_600;
@@ -812,7 +875,7 @@ mod tests {
     #[test]
     fn the_more_card_has_no_age() {
         let many: Vec<Task> = (0..CAP + 1).map(|i| task(&format!("t{i}"), i as u32 + 1, false)).collect();
-        let more = cap(&cards(&many, &[]), CAP).pop().unwrap();
+        let more = cap(&cards(&todo(many), &[]), CAP).pop().unwrap();
         assert_eq!(more.since, "");
         assert_eq!(more.age(i64::MAX / 2), None);
     }
