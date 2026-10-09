@@ -224,7 +224,16 @@ fn export(filter: &[&str]) -> Result<Vec<Task>> {
 /// [`replace_text`] needs this form, because `task import` drops any field it
 /// is not handed back, and [`Task`] only models the fields this tool reads.
 fn export_values(filter: &[&str]) -> Result<Vec<Value>> {
+    // `rc.gc=off`, on reads alone. With gc on, an export moves the tasks
+    // finished since the last gc out of pending.data, rewriting both
+    // pending.data and completed.data. A `task done` or `task delete` leaves
+    // its task in pending.data, so the daemon's next read wrote both files,
+    // changed the mtimes it watches, and made it refresh a second time for
+    // nothing (measured on 2.6.2). The output is the same either way, and
+    // writes keep gc through `base()`. No time is saved: an export takes
+    // about 6.5 ms with or without it.
     let out = base()
+        .arg("rc.gc=off")
         .args(filter)
         .arg("export")
         .output()
