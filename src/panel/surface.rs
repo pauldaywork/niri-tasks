@@ -1197,7 +1197,7 @@ impl Panel {
     /// in the column until then.
     fn follow_focus(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
-        crate::taskbox::after_next_paint(&self.window, move || {
+        crate::paint::after_next_paint(&self.window, move || {
             let Some(p) = weak.upgrade() else { return };
             let folder = p.state.borrow().projects().map(ProjectList::at);
             let root = match folder {

@@ -488,7 +488,7 @@ fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn Fn(Submiss
 /// shrinks while being typed in asks for its own resize.
 fn settle_after_opening(window: &ApplicationWindow, list: &gtk4::Box) {
     let list = list.downgrade();
-    after_next_paint(window, move || {
+    crate::paint::after_next_paint(window, move || {
         let Some(list) = list.upgrade() else {
             return;
         };
@@ -513,7 +513,7 @@ fn follow_focus(window: &ApplicationWindow, scroll: &gtk4::ScrolledWindow, list:
     let follow = move |window: &ApplicationWindow| {
         let (scroll, list) = (scroll.clone(), list.clone());
         let weak = window.downgrade();
-        after_next_paint(window, move || {
+        crate::paint::after_next_paint(window, move || {
             if let (Some(window), Some(scroll), Some(list)) =
                 (weak.upgrade(), scroll.upgrade(), list.upgrade())
             {
@@ -528,37 +528,11 @@ fn follow_focus(window: &ApplicationWindow, scroll: &gtk4::ScrolledWindow, list:
     // Once for the opening: the focus is placed before this is connected, and
     // the rows only reach their real heights two frames in.
     let weak = window.downgrade();
-    after_next_paint(window, move || {
+    crate::paint::after_next_paint(window, move || {
         if let Some(window) = weak.upgrade() {
             follow(&window);
         }
     });
-}
-
-/// Run `f` once, after the window's next frame has been painted — by which
-/// point everything queued before it has been measured and placed.
-pub(crate) fn after_next_paint(window: &ApplicationWindow, f: impl FnOnce() + 'static) {
-    let Some(clock) = window.frame_clock() else {
-        return;
-    };
-    let handler = Rc::new(RefCell::new(None));
-    // The signal wants a Fn; the cell is what lets it run `f` only once.
-    let f = RefCell::new(Some(f));
-    let id = clock.connect_after_paint({
-        let handler = handler.clone();
-        move |clock| {
-            if let Some(id) = handler.borrow_mut().take() {
-                clock.disconnect(id);
-            }
-            if let Some(f) = f.borrow_mut().take() {
-                f();
-            }
-        }
-    });
-    *handler.borrow_mut() = Some(id);
-    // A focus move that changes nothing on screen would not otherwise bring
-    // the next frame.
-    clock.request_phase(gdk::FrameClockPhase::AFTER_PAINT);
 }
 
 /// Scroll the notes list just enough to show the whole row the cursor is in,
