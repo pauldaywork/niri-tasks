@@ -83,8 +83,10 @@ fi
 CLAUDE_SKILLS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
 link "$REPO/.claude/skills/workspace-tasks/SKILL.md" "$CLAUDE_SKILLS/workspace-tasks/SKILL.md"
 
-# refine-task: what a card's Refine and Grill me buttons open Claude with.
+# refine-task: what a card's Refine and Grill me buttons open Claude with, and
+# the report catalogue it reads when the person asks for a report first.
 link "$REPO/.claude/skills/refine-task/SKILL.md" "$CLAUDE_SKILLS/refine-task/SKILL.md"
+link "$REPO/.claude/skills/refine-task/report-catalogue.md" "$CLAUDE_SKILLS/refine-task/report-catalogue.md"
 
 # finish-worktree: the other end of Start working — lands a task's worktree
 # branch on main, pushes, and marks the task completed through niritasks.
