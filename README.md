@@ -70,7 +70,7 @@ its own keys: the focused button's letter and name (`g: Go to session`,
 `Del: Remove`), or on a card's description `Space: view notes`
 or `Space: hide notes`, and what Ctrl+Enter would do to this task. A line under the list
 names the keys that act the same on every card: Enter or Space, and Ctrl+Delete (not on
-Ideas, where the notepad takes those keys as typing). Enter or a click on the card's description shows, dimmed under it, the task's id and uuid (`#48 · <uuid>`, the uuid alone on a finished task) and then its notes, one per note, scrolling once they pass about twelve lines, and a second press hides them; giving the keyboard back hides them all. Every button that opens something gives the keyboard back as it runs; Speak, Up next, Complete, Move to workspace, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
+Ideas, where the notepad takes those keys as typing). Enter or a click on the card's description shows, dimmed under it, the task's id and uuid (`#48 · <uuid>`, the uuid alone on a finished task) and then its notes, one per note, scrolling once they pass about twelve lines, and a second press hides them; opening another card's notes hides the first's, and giving the keyboard back hides them all. Every button that opens something gives the keyboard back as it runs; Speak, Up next, Complete, Move to workspace, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
 right edge, tucked away with the cards folded back to one line. A list taller
 than the screen scrolls, keeping the focused card in view. Hovering never shows
 the buttons — only the keyboard does.

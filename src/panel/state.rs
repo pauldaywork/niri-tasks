@@ -19,7 +19,6 @@ use super::model::{self, Card, Filter, Tab};
 use super::projects::{Escaped, Matcher, Picked, ProjectList, Purpose, NO_DESTINATIONS};
 use crate::project::{Projects, Row};
 use gtk4::gdk;
-use std::collections::HashSet;
 
 /// Where on a card the keyboard's focus is: its body, or one of the buttons
 /// on its action row.
@@ -145,10 +144,11 @@ pub struct PanelState {
     /// Where the keyboard's focus is. None without the keyboard, and while
     /// Clear all is armed.
     focus: Option<Focus>,
-    /// The tasks whose cards show their notes, by uuid: a press on a card's
-    /// body adds it, a second takes it out. Kept across a re-render, so a
-    /// tick leaves them open; emptied as the keyboard is given back.
-    notes: HashSet<String>,
+    /// The task whose card shows its notes, by uuid: one at a time, so a
+    /// press on another card's body moves them there, and a second press on
+    /// the same card closes them. Kept across a re-render, so a tick leaves
+    /// them open; cleared as the keyboard is given back.
+    notes: Option<String>,
     armed: Armed,
 }
 
@@ -198,7 +198,7 @@ impl PanelState {
     /// This task's card shows its notes: only ever while the panel has the
     /// keyboard, the peek's cards being one line.
     pub fn shows_notes(&self, uuid: &str) -> bool {
-        self.keyboard && self.notes.contains(uuid)
+        self.keyboard && self.notes.as_deref() == Some(uuid)
     }
 
     /// The project list, while it is up.
@@ -342,7 +342,7 @@ impl PanelState {
         // uuid would reopen the card unasked when it came back, with the
         // toggle unable to reach it meanwhile.
         let all = &self.all;
-        self.notes.retain(|uuid| all.iter().any(|c| c.uuid.as_deref() == Some(uuid.as_str())));
+        self.notes = self.notes.take().filter(|uuid| all.iter().any(|c| c.uuid.as_deref() == Some(uuid.as_str())));
         // The task being moved has gone (done elsewhere, say): its project
         // list goes with it.
         let gone = self
@@ -565,20 +565,22 @@ impl PanelState {
     }
 
     /// Show this task's notes on its card, under the line of its id and
-    /// uuid, or hide them again. Only while the panel has the keyboard, and
-    /// only on a card still there: anywhere else the body still does
-    /// nothing. Showing them moves the focus to the card's body, so its
-    /// action row, its hint and the scroll follow the card just opened, and
-    /// that move disarms as any other does. Hiding them leaves the focus and
-    /// anything armed as they are. The keyboard stays either way.
+    /// uuid, hiding any other card's, or hide them again. Only while the
+    /// panel has the keyboard, and only on a card still there: anywhere else
+    /// the body still does nothing. Showing them moves the focus to the
+    /// card's body, so its action row, its hint and the scroll follow the
+    /// card just opened, and that move disarms as any other does. Hiding
+    /// them leaves the focus and anything armed as they are. The keyboard
+    /// stays either way.
     fn toggle_notes(&mut self, uuid: &str) -> Vec<Effect> {
         if !self.keyboard || !self.all.iter().any(|c| c.uuid.as_deref() == Some(uuid)) {
             return Vec::new();
         }
-        if self.notes.remove(uuid) {
+        if self.notes.as_deref() == Some(uuid) {
+            self.notes = None;
             return vec![Effect::Notes];
         }
-        self.notes.insert(uuid.to_string());
+        self.notes = Some(uuid.to_string());
         // Focus first, so the Notes effect's scroll follows this card.
         let mut effects = self.focus_on(Focus::body(uuid));
         effects.push(Effect::Notes);
@@ -690,7 +692,7 @@ impl PanelState {
         self.mode = Mode::Tasks;
         self.armed = Armed::None;
         self.focus = None;
-        self.notes.clear();
+        self.notes = None;
         vec![Effect::Render, Effect::Release]
     }
 
@@ -1422,6 +1424,24 @@ mod tests {
         assert!(!state.shows_notes("a"));
     }
 
+    /// One card shows its notes at a time: opening another's closes the
+    /// first, the focus going with them, and closing that one leaves both
+    /// closed.
+    #[test]
+    fn opening_a_cards_notes_closes_the_others() {
+        let mut state = keyboard(vec![noted("a"), noted("b")]);
+        state.on_press("a", Slot::Body);
+        assert_eq!(
+            state.on_press("b", Slot::Body),
+            vec![Effect::Focus(focused("b", Slot::Body)), Effect::Notes]
+        );
+        assert!(state.shows_notes("b"));
+        assert!(!state.shows_notes("a"), "closed by b's opening");
+        state.on_press("b", Slot::Body);
+        assert!(!state.shows_notes("a"));
+        assert!(!state.shows_notes("b"));
+    }
+
     /// A card with no notes still opens, on the line of its id and uuid
     /// alone, and a second press closes it.
     #[test]
@@ -1500,9 +1520,9 @@ mod tests {
     fn a_card_that_leaves_the_list_does_not_reopen() {
         let mut state = keyboard(vec![noted("a"), noted("b")]);
         state.on_press("a", Slot::Body);
-        state.on_press("b", Slot::Body);
         state.set_cards(&[card("a", Status::Pending), noted("b")]);
         assert!(state.shows_notes("a"), "still open, on its id line");
+        state.on_press("b", Slot::Body);
         state.set_cards(&[noted("a")]);
         state.set_cards(&[noted("a"), noted("b")]);
         assert!(!state.shows_notes("b"));

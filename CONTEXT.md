@@ -79,7 +79,8 @@ dimmed, carries a check, and counts its age from when the task was finished.
 While the task panel has the keyboard, Enter or a click on a card's body shows,
 dimmed under its description, the task's id and uuid on one line (`#48 ·
 <uuid>`, the uuid alone on a finished task, which has no id) and then its
-notes, one per note, until a second press or the keyboard is given back.
+notes, one per note, until a second press, a press on another card's body
+(one card shows its notes at a time) or the keyboard is given back.
 Showing them moves the focus to that card's body, its action row and hint
 with it; hiding them leaves the focus where it is. The id line and notes
 together grow to about twelve lines (`NOTES_MAX_PX`), past which they scroll
