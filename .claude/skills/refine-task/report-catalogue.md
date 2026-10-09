@@ -68,8 +68,9 @@ first 40 characters.
 
 `detail`, an SVG and a Mermaid diagram may not contain `<script>`, `<meta>`,
 `<link>`, `<base>`, `<iframe>`, `<frame>`, `<frameset>`, `<object>`,
-`<embed>`, `<form>` or `<portal>`: the page runs no script but Mermaid,
-loads nothing but Mermaid, and sends nothing.
+`<embed>`, `<form>` or `<portal>`: the page runs no script when every
+diagram is drawn, loads only pinned Mermaid for one that is not, and sends
+nothing.
 
 `detail` and an SVG are shown as given, so they may not break the page's one
 layout either: no HTML comment (`<!--`), and no closing tag of the page's own
@@ -153,7 +154,7 @@ This very feature, explained:
   ],
   "needs_your_eye": [
     "Diagrams: if the mod cannot run its renderer, they fall back to Mermaid, which needs the internet.",
-    "Script: the page runs no script but pinned Mermaid, so the model cannot act in your browser."
+    "Script: none runs; only an undrawn diagram loads pinned Mermaid."
   ],
   "terms": [
     {

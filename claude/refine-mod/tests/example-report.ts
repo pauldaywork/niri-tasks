@@ -15,7 +15,7 @@ export const EXAMPLE = {
   ],
   needs_your_eye: [
     'Diagrams: if the mod cannot run its renderer, they fall back to Mermaid, which needs the internet.',
-    'Script: the page runs no script but pinned Mermaid, so the model cannot act in your browser.',
+    'Script: none runs; only an undrawn diagram loads pinned Mermaid.',
   ],
   terms: [
     { term: 'Refine', meaning: 'Claude turning a terse task into a plan, then writing it back.' },
