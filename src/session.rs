@@ -1,11 +1,11 @@
-//! Which folder a workspace's terminals start in, which herdr session a
-//! workspace's project terminal attaches to, and opening that session and
-//! its agents.
+//! Which herdr session a workspace's project terminal attaches to, and
+//! opening that session (in the folder [`Dirs::start_dir`] picks) and its
+//! agents.
 //!
 //! Two rules, and the inverse of each, because `niritasks tag --session` has
 //! to get from a terminal back to the workspace it was opened for:
 //!
-//! * **Folder**: a workspace named "hansard-votes" works in
+//! * **Folder**, defined in `dirs`: a workspace named "hansard-votes" works in
 //!   `~/Projects/hansard-votes` ([`Dirs::start_dir`]). Inverse:
 //!   [`Dirs::project_from_cwd`].
 //! * **Session**: its project terminal runs `herdr --session <name>`, with the

@@ -9,10 +9,8 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use niri_tasks::{
-    actions::Action,
-    caller_workspace, caller_workspace_tag, dirs, github, ipc, link, niri, notify, project, refine,
-    require_workspace_tag,
-    speak, task, text, work,
+    actions::Action, dirs, github, ipc, link, niri, notify, project, refine, speak, task, text,
+    work, workspace::Workspace,
 };
 
 #[derive(Parser)]
@@ -227,12 +225,8 @@ fn run() -> Result<()> {
 fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Tag { session } => {
-            let tag = if session {
-                niri_tasks::session_workspace_tag()?
-            } else {
-                require_workspace_tag()?
-            };
-            print!("{tag}");
+            let ws = if session { Workspace::of_session()? } else { Workspace::focused()? };
+            print!("{}", ws.tag());
         }
         Command::Task(c) => return task_command(c),
         Command::Project(ProjectCommand::Open { name }) => return project_open(name),
@@ -259,7 +253,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         TaskCommand::Move { uuid, folder } => {
             // From a herdr pane, the session's workspace, as for task add;
             // the panel's spawn has focused its own monitor first.
-            let tag = caller_workspace_tag()?;
+            let tag = Workspace::of_caller()?.tag().to_string();
             let t = task::get(&uuid)?.context("task not found")?;
             let (_, names) = project::list()?;
             let to = project::move_task(&t, &tag, &folder, &names)?;
@@ -281,7 +275,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             // With text, the caller's workspace: from a herdr pane, the
             // session's, so an agent filing a task does not follow the user's
             // focus to another workspace; anywhere else, the focused one.
-            let tag = caller_workspace_tag()?;
+            let tag = Workspace::of_caller()?.tag().to_string();
             let description = text::collapse_whitespace(&words.join(" "));
 
             if description.is_empty() {
@@ -355,31 +349,31 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             }
             // From a herdr pane, the session's workspace, as for task add: an
             // agent's Start must not open in whatever workspace has the focus.
-            let workspace = caller_workspace()?;
+            let workspace = Workspace::of_caller()?;
             let t = task::get(&uuid)?.context("task not found")?;
             anyhow::ensure!(t.status == "pending", "Only a pending task can be started.");
-            work::launch(&workspace, &t)?;
+            work::launch(workspace.name(), &t)?;
         }
 
         TaskCommand::Refine { uuid, grill } => {
             // The same refusal every entry point makes: a task refined on an
             // unnamed workspace would have no session to open in.
-            let workspace = caller_workspace()?;
+            let workspace = Workspace::of_caller()?;
             let t = task::get(&uuid)?.context("task not found")?;
             // task::get is unfiltered by status; a completed or deleted task
             // has nothing left to work up into a plan.
             anyhow::ensure!(t.status == "pending", "Only a pending task can be refined.");
             let mode = if grill { refine::Mode::Grill } else { refine::Mode::Quick };
-            refine::launch(&workspace, &t, mode)?;
+            refine::launch(workspace.name(), &t, mode)?;
         }
 
         TaskCommand::Session { uuid } => {
-            let workspace = caller_workspace()?;
+            let workspace = Workspace::of_caller()?;
             // The uuid as found, not as typed: the agent's name is made from
             // its first eight characters, and a typed task number has none of
             // them.
             let t = task::get(&uuid)?.context("task not found")?;
-            link::go_to(&workspace, &t.uuid)?;
+            link::go_to(workspace.name(), &t.uuid)?;
         }
     }
     Ok(())

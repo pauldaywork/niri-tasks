@@ -374,15 +374,15 @@ mod tests {
     /// ~/.claude/skills, where a plugin would load in every session.
     #[test]
     fn the_mod_lives_under_the_xdg_data_folder() {
-        let home = Dirs::at(Path::new("/home/x"));
-        assert_eq!(refine_mod_dir(&home), PathBuf::from("/home/x/.local/share/niri-tasks/refine-mod"));
+        let dirs = Dirs::at(Path::new("/home/x"));
+        assert_eq!(refine_mod_dir(&dirs), PathBuf::from("/home/x/.local/share/niri-tasks/refine-mod"));
         assert_eq!(
-            refine_mod_dir(&home.clone().with_data(Path::new("/data"))),
+            refine_mod_dir(&dirs.clone().with_data(Path::new("/data"))),
             PathBuf::from("/data/niri-tasks/refine-mod")
         );
         // The XDG spec says a relative path is to be ignored.
         assert_eq!(
-            refine_mod_dir(&home.with_data(Path::new("rel"))),
+            refine_mod_dir(&dirs.with_data(Path::new("rel"))),
             PathBuf::from("/home/x/.local/share/niri-tasks/refine-mod")
         );
     }

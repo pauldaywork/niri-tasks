@@ -29,7 +29,8 @@ pub fn remote_only(remote: &[String], local: &[String]) -> Vec<String> {
 }
 
 /// Where the repo list is cached: `$XDG_CACHE_HOME/niritasks/github-repos`,
-/// or `~/.cache/niritasks/github-repos`.
+/// or `~/.cache/niritasks/github-repos`. A relative `XDG_CACHE_HOME` is
+/// ignored, as the XDG spec says; None without `HOME`.
 pub fn cache_path() -> Option<PathBuf> {
     Dirs::from_env().ok().map(|d| d.cache().join("niritasks/github-repos"))
 }

@@ -19,6 +19,7 @@
 //! per monitor. Idle cost is a socket round-trip and two stats.
 
 use crate::panel::{model, style, Panel};
+use crate::workspace::Workspace;
 use crate::{niri, tag, task};
 use gtk4::gdk;
 use gtk4::prelude::*;
@@ -90,7 +91,7 @@ pub fn run() -> anyhow::Result<()> {
     // Startup housekeeping that used to be its own spawn-at-startup script:
     // give workspace 1 a name so it has a tag from the first moment. Failure is
     // not fatal — the panel is still worth running.
-    if let Err(e) = crate::workspace_default() {
+    if let Err(e) = crate::workspace::name_default() {
         eprintln!("could not set default workspace name: {e}");
     }
 
@@ -223,8 +224,8 @@ fn focused_panel() -> Option<(Rc<Panel>, niri_ipc::Workspace)> {
 
 /// What Mod+Alt+Ctrl+T says when there is no card to hand the keyboard to:
 /// the tag's own refusal on an unnamed workspace, which says how to name it,
-/// else that the workspace has no tasks. `tag` is
-/// `crate::require_workspace_tag()`'s answer.
+/// else that the workspace has no tasks. `tag` is the focused workspace's
+/// tag, or [`Workspace::focused`]'s refusal.
 fn no_cards_text(tag: anyhow::Result<String>) -> String {
     match tag {
         Err(e) => e.to_string(),
@@ -263,12 +264,12 @@ fn serve_request(app: &Application, req: crate::ipc::Request) {
                     .unwrap_or_default();
                 panel.take_keyboard(agents)
             }) {
-                notify::tasks(&no_cards_text(crate::require_workspace_tag()));
+                notify::tasks(&no_cards_text(Workspace::focused().map(|w| w.tag().to_string())));
             }
         }
 
         Request::Add { refine } => {
-            let tag = match crate::require_workspace_tag() {
+            let tag = match Workspace::focused().map(|w| w.tag().to_string()) {
                 Ok(t) => t,
                 Err(e) => {
                     notify::tasks(&e.to_string());
