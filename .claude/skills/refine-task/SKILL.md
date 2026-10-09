@@ -198,11 +198,15 @@ The user wants to see the plan explained before they approve it. Write
 nothing to the task. Build the report:
 
 1. Read `report-catalogue.md` in this skill's base directory: who the report
-   is for, its fields and their limits, how to choose its parts and draw its
-   diagrams, and a worked example.
+   is for, its fields and their limits, the lenses to look through, how to
+   draw diagrams, and a worked example.
 2. Fill the fields from the plan you just proposed and the code you read in
-   step 2. Real paths go in `files`; everywhere else, plain words the user
-   would use.
+   step 2. Go through every lens the catalogue lists and give a part for
+   each one that applies: before/after, structure, data flow, outside tools
+   and how hard each is to swap, styling, code before/after, and whether a
+   newcomer could follow it. Read the code each lens needs: count the files
+   that name a tool before you rate its swap. Real paths go in `files`;
+   everywhere else, plain words the user would use.
 3. Call `mcp__niri-tasks-refine__show_task_report` with the fields. The tool
    builds the page in its fixed layout, saves it under the reviews folder and
    opens it in the browser.
