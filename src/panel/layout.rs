@@ -74,6 +74,12 @@ pub struct Measured {
 /// the rows scroll, as the task cards do at the screen's edge.
 pub(crate) const PROJECT_LIST_MAX_PX: i32 = 800;
 
+/// The tallest a card's notes area grows, the id line and every note
+/// together, before they scroll inside it: about twelve lines. Without it a
+/// task with long notes makes its card taller than the panel. The
+/// `card-notes` padding over it comes on top.
+pub(crate) const NOTES_MAX_PX: i32 = 240;
+
 /// Where everything is, worked out from what was measured: the surface's
 /// size, and the rectangles the input region and the blur need.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

@@ -81,7 +81,9 @@ dimmed under its description, the task's id and uuid on one line (`#48 ·
 <uuid>`, the uuid alone on a finished task, which has no id) and then its
 notes, one per note, until a second press or the keyboard is given back.
 Showing them moves the focus to that card's body, its action row and hint
-with it; hiding them leaves the focus where it is.
+with it; hiding them leaves the focus where it is. The id line and notes
+together grow to about twelve lines (`NOTES_MAX_PX`), past which they scroll
+inside that height by wheel, touchpad or scrollbar.
 _Avoid_: row (the action row is part of a card), item, block
 
 **Task action**:

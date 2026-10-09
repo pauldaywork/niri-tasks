@@ -55,12 +55,14 @@ NESTED_SPAWN_PATH="$SB/bin:/usr/bin:/bin"
 # The nested niri's one output (tests/lib/nested-niri.sh), in pixels.
 OUT_W=$NESTED_W
 OUT_H=$NESTED_H
-# Mirror PEEK_PX and SURFACE_WIDTH in src/panel/layout.rs, and RING_PX and
-# CARD_WIDTH_PX in src/panel/style.rs.
+# Mirror PEEK_PX, SURFACE_WIDTH and NOTES_MAX_PX in src/panel/layout.rs, and
+# RING_PX, CARD_WIDTH_PX and PADDING_PX in src/panel/style.rs.
 PEEK=30
 RING=3
 CARD=760
 SURFACE=784
+NOTES_MAX=240
+PADDING=12
 # Where the tucked peek starts: the peek, and the card's outline ring drawn
 # outside it.
 PEEK_X=$((OUT_W - PEEK - RING))
@@ -383,6 +385,38 @@ if command -v wtype >/dev/null; then
         ok "and a second Space hides them, the panel back as it was"
     else
         bad "after a second Space the screen differs: $(whereabouts notes_space_hidden notes_hidden)"
+    fi
+
+    # A card with more notes than fit shows them in an area capped at
+    # NOTES_MAX tall, the padding over it, and scrolls the rest inside it:
+    # thirty more notes on every task, so whichever card has the focus has
+    # them, run far past the cap at a line apiece. Hidden again, the panel
+    # is as it was with them hidden.
+    for uuid in $(task "+$TAG" _uuids 2>/dev/null); do
+        for n in $(seq 1 30); do
+            task rc.verbose=nothing rc.confirmation=no "$uuid" annotate -- "long note $n" >/dev/null 2>&1
+        done
+    done
+    settle
+    shot long_noted || { summary; exit 1; }
+    "${NENV[@]}" wtype -k Return
+    sleep 1
+    shot long_notes_shown || { summary; exit 1; }
+    read -r x0 x1 y0 y1 < <(measure long_notes_shown)
+    grown=$((y1 - y0 - keyboard_h))
+    if [ "$grown" -ge "$NOTES_MAX" ] && [ "$grown" -le $((PADDING + NOTES_MAX)) ]; then
+        ok "thirty-one lines of notes stop at the cap (${grown}px, at most $((PADDING + NOTES_MAX))px)"
+    else
+        bad "a long-noted card grew ${grown}px, expected ${NOTES_MAX}-$((PADDING + NOTES_MAX))px —
+      the notes area should stop at NOTES_MAX_PX and scroll the rest"
+    fi
+    "${NENV[@]}" wtype -k Return
+    sleep 1
+    shot long_notes_hidden || { summary; exit 1; }
+    if same long_noted long_notes_hidden; then
+        ok "and a second Enter hides them, the panel back as it was"
+    else
+        bad "after hiding the long notes the screen differs: $(whereabouts long_notes_hidden long_noted)"
     fi
 
     # Escape from a tab other than All: the hover panel has no tabs, so it

@@ -145,8 +145,8 @@ use crate::actions::{Action, TaskState};
 use super::blur::Blur;
 use super::keys;
 use super::layout::{
-    centre_margin, scroll_to_show, Layout, Measured, CENTRED_X, EXPANDED_X, PROJECT_LIST_MAX_PX,
-    SURFACE_WIDTH, TUCKED_X,
+    centre_margin, scroll_to_show, Layout, Measured, CENTRED_X, EXPANDED_X, NOTES_MAX_PX,
+    PROJECT_LIST_MAX_PX, SURFACE_WIDTH, TUCKED_X,
 };
 use super::notepad::Notepad;
 use super::model::{Card, Filter, Status, Tab};
@@ -247,7 +247,7 @@ struct CardWidgets {
     row: Option<ActionRow>,
     /// The task's id line and notes under the description, shown while the
     /// state says. None on "+N more" and on every card off the keyboard.
-    notes: Option<gtk4::Box>,
+    notes: Option<gtk4::ScrolledWindow>,
     /// The age at the right end, and the stamp it counts from, for the
     /// minute timer. None on "+N more".
     age: Option<(gtk4::Label, String)>,
@@ -1014,7 +1014,7 @@ impl Panel {
         let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         content.append(&label);
         let notes = card.uuid.as_deref().zip(card.id_line()).filter(|_| keyboard).map(|(uuid, id_line)| {
-            let notes = notes_box(&id_line, &card.notes);
+            let notes = notes_scroller(&notes_box(&id_line, &card.notes));
             notes.set_visible(self.state.borrow().shows_notes(uuid));
             content.append(&notes);
             notes
@@ -1366,11 +1366,10 @@ impl Panel {
 
 /// A task's notes, for under its card's description: first the line of its
 /// id and uuid, to read off for a `task` or `niritasks` command, then one
-/// label per note, all dimmed alike, wrapped, text only. The panel shows the
-/// box once the card's body is pressed.
+/// label per note, all dimmed alike, wrapped, text only. `notes_scroller`
+/// holds the column, and the panel shows it once the card's body is pressed.
 fn notes_box(id_line: &str, notes: &[String]) -> gtk4::Box {
     let column = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    column.add_css_class("card-notes");
     for note in std::iter::once(id_line).chain(notes.iter().map(String::as_str)) {
         let label = gtk4::Label::new(Some(note));
         label.add_css_class("card-note");
@@ -1381,6 +1380,27 @@ fn notes_box(id_line: &str, notes: &[String]) -> gtk4::Box {
         column.append(&label);
     }
     column
+}
+
+/// The notes column's scroller: as tall as the notes up to `NOTES_MAX_PX`,
+/// past which they scroll inside it, the id line with them, by wheel,
+/// touchpad or the scrollbar. Short notes take their own height, as they
+/// did unscrolled. A click on them still reaches the body and hides them;
+/// the scrollbar takes its own presses, so dragging it does not. It wears
+/// `card-notes`, so the padding stays over the area rather than scrolling.
+fn notes_scroller(column: &gtk4::Box) -> gtk4::ScrolledWindow {
+    let scroller = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .propagate_natural_height(true)
+        .max_content_height(NOTES_MAX_PX)
+        // Out of the focus chain: the state moves the focus between cards
+        // and along their buttons, never onto the notes.
+        .focusable(false)
+        .child(column)
+        .build();
+    scroller.add_css_class("card-notes");
+    scroller
 }
 
 /// The card's icon, description and age: one line cut off with "…" for the

@@ -70,7 +70,7 @@ its own keys: the focused button's letter and name (`g: Go to session`,
 `Del: Remove`), or on a card's description `Space: view notes`
 or `Space: hide notes`, and what Ctrl+Enter would do to this task. A line under the list
 names the keys that act the same on every card: Enter or Space, and Ctrl+Delete (not on
-Ideas, where the notepad takes those keys as typing). Enter or a click on the card's description shows, dimmed under it, the task's id and uuid (`#48 · <uuid>`, the uuid alone on a finished task) and then its notes, one per note, and a second press hides them; giving the keyboard back hides them all. Every button that opens something gives the keyboard back as it runs; Speak, Up next, Complete, Move to workspace, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
+Ideas, where the notepad takes those keys as typing). Enter or a click on the card's description shows, dimmed under it, the task's id and uuid (`#48 · <uuid>`, the uuid alone on a finished task) and then its notes, one per note, scrolling once they pass about twelve lines, and a second press hides them; giving the keyboard back hides them all. Every button that opens something gives the keyboard back as it runs; Speak, Up next, Complete, Move to workspace, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
 right edge, tucked away with the cards folded back to one line. A list taller
 than the screen scrolls, keeping the focused card in view. Hovering never shows
 the buttons — only the keyboard does.
@@ -402,7 +402,7 @@ darkened. The pointer passing over it does not move it. Check also active tasks 
 Start working; Up and Down move the darkening between cards, Left, Right and
 Tab along the buttons; `s` starts working, `r`
 refines, `e` opens the box, `t` stops; Delete arms Remove and only a second
-Delete deletes, while moving away disarms it; Enter on a card's description shows its notes, dimmed under it, with the panel and its blur grown to fit, and a second Enter hides them, `c` completes the task, `m` shows the project list and Escape comes back from it while Enter on a folder moves the task there, `project open` on a workspace with no tasks shows the project list and Escape closes it,
+Delete deletes, while moving away disarms it; Enter on a card's description shows its notes, dimmed under it, with the panel and its blur grown to fit, and a second Enter hides them; a card with more notes than fit stops at about twelve lines and scrolls the rest by wheel and by dragging the scrollbar, neither of which hides them, while a click on the notes does, `c` completes the task, `m` shows the project list and Escape comes back from it while Enter on a folder moves the task there, `project open` on a workspace with no tasks shows the project list and Escape closes it,
 Down reaching "+N more" shows the rest, focused on the first card it hid, and a
 list taller than the screen scrolls with the focus; a click on a filter tab switches the cards and does not take the focus (the focus still falls back to the first card when the focused one is not under the new tab), a started planned task shows under Active but not Planned, and Back to list on a waiting task brings it back to All; a click on Clear all arms it, darkening no card, a second click deletes the waiting tasks, and Up or Down in between puts it back with the focus on the card it was on; arming Clear all puts an armed Remove back, and arming Remove puts Clear all back; Escape tucks it away to the one-line peek.
 
