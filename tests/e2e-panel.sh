@@ -402,6 +402,7 @@ if command -v wtype >/dev/null; then
     # thirty more notes on every task, so whichever card has the focus has
     # them, run far past the cap at a line apiece. Hidden again, the panel
     # is as it was with them hidden.
+    # The notes stay on every task for the checks after this block.
     for uuid in $(task "+$TAG" _uuids 2>/dev/null); do
         for n in $(seq 1 30); do
             task rc.verbose=nothing rc.confirmation=no "$uuid" annotate -- "long note $n" >/dev/null 2>&1
@@ -414,10 +415,10 @@ if command -v wtype >/dev/null; then
     shot long_notes_shown || { summary; exit 1; }
     read -r x0 x1 y0 y1 < <(measure long_notes_shown)
     grown=$((y1 - y0 - keyboard_h))
-    if [ "$grown" -ge "$NOTES_MAX" ] && [ "$grown" -le $((PADDING + NOTES_MAX)) ]; then
-        ok "thirty-one lines of notes stop at the cap (${grown}px, at most $((PADDING + NOTES_MAX))px)"
+    if [ "$grown" -eq $((PADDING + NOTES_MAX)) ]; then
+        ok "thirty-one lines of notes stop at the cap (${grown}px, the padding and ${NOTES_MAX}px)"
     else
-        bad "a long-noted card grew ${grown}px, expected ${NOTES_MAX}-$((PADDING + NOTES_MAX))px —
+        bad "a long-noted card grew ${grown}px, expected $((PADDING + NOTES_MAX))px —
       the notes area should stop at NOTES_MAX_PX and scroll the rest"
     fi
     "${NENV[@]}" wtype -k Return

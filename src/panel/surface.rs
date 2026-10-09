@@ -1014,7 +1014,8 @@ impl Panel {
         let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         content.append(&label);
         let notes = card.uuid.as_deref().zip(card.id_line()).filter(|_| keyboard).map(|(uuid, id_line)| {
-            let notes = notes_scroller(&notes_box(&id_line, &card.notes), notes_fit(&id_line, &card.notes));
+            let fits = notes_fit(&id_line, &card.notes);
+            let notes = notes_scroller(&notes_box(&id_line, &card.notes), fits);
             notes.set_visible(self.state.borrow().shows_notes(uuid));
             content.append(&notes);
             notes
@@ -1387,10 +1388,19 @@ fn notes_box(id_line: &str, notes: &[String]) -> gtk4::Box {
 /// scroll, which would make a line or two of notes taller than unscrolled; so
 /// notes that fit get no scrollbar. Measured on a column of its own, since a
 /// measure before the column is in the panel leaves its labels at the wrong
-/// height for the first time they show; a few paddings narrower than the
-/// card, where text wraps sooner, so a misjudged wrap keeps the scrollbar.
+/// height for the first time they show. The column goes under a `task-panel`
+/// and `task-card` pair, which supplies the panel's CSS, its font among it, to
+/// the measure; at the width of a card body's content, the card less its
+/// padding either side.
 fn notes_fit(id_line: &str, notes: &[String]) -> bool {
-    notes_box(id_line, notes).measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX - 4 * PADDING_PX).1 <= NOTES_MAX_PX
+    let scope = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    scope.add_css_class("task-panel");
+    let card = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    card.add_css_class("task-card");
+    let column = notes_box(id_line, notes);
+    card.append(&column);
+    scope.append(&card);
+    column.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX - 2 * PADDING_PX).1 <= NOTES_MAX_PX
 }
 
 /// The notes column's scroller: as tall as the notes up to `NOTES_MAX_PX`,
