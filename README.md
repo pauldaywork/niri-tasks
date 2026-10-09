@@ -156,7 +156,7 @@ include "niri-tasks.kdl"
 ```
 
 `install.sh` builds `niritasks`, symlinks the niri include and
-the Claude skills (`workspace-tasks`, `refine-task`, `finish-worktree`) into `~/.claude/skills`,
+the Claude skills (`workspace-tasks`, `refine-task`, `finish-worktree`, `reject-worktree`) into `~/.claude/skills`,
 the refine mod (`claude/refine-mod`, which Refine's session writes the task with) into
 `~/.local/share/niri-tasks/refine-mod`, a Claude rule into `~/.claude/rules` (use `finish-worktree` to land a worktree branch), restarts the daemon
 onto the new binary, and reloads niri. Updating is `git pull && bash install.sh`.
@@ -202,6 +202,12 @@ it syncs `main` with origin, rebases the branch and tests the result, then
 fast-forwards `main`, pushes, marks the task completed with `niritasks task status`,
 and removes the worktree. It stops to ask only for a conflict with no obvious
 resolution, red tests, or `main` holding commits origin doesn't have.
+
+To throw an attempt away instead, `/reject-worktree` in that worktree's Claude
+removes the worktree and its branch, locally and on origin, and puts the task
+back on the list, stopped, to be started fresh. Give it a reason and the task
+gets a `Rejected:` note. It asks first only when there are commits, uncommitted
+changes or a pushed branch to lose.
 
 VS Code is optional. `niritasks project open` starts one on the project folder when
 `code` is on `$PATH`, and starts only the terminal when it is not — the lookup
