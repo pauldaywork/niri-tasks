@@ -522,8 +522,9 @@ impl PanelState {
     }
 
     /// A press on a task's card: a button, as a click or a key presses it,
-    /// or the body, which shows the task's notes on the card or hides them
-    /// again. Remove only arms itself the first time; the second press runs it.
+    /// or the body, which shows the task's notes on the card, focusing it, or
+    /// hides them again. Remove only arms itself the first time; the second
+    /// press runs it.
     /// Everything that opens something gives the keyboard back first, so the
     /// box or terminal it opens can take it. Back, Waiting and Remove take
     /// the card off the list, so the focus moves to the next card (the one
@@ -566,15 +567,22 @@ impl PanelState {
     /// Show this task's notes on its card, under the line of its id and
     /// uuid, or hide them again. Only while the panel has the keyboard, and
     /// only on a card still there: anywhere else the body still does
-    /// nothing. The keyboard, the focus and anything armed stay as they are.
+    /// nothing. Showing them moves the focus to the card's body, so its
+    /// action row, its hint and the scroll follow the card just opened, and
+    /// that move disarms as any other does. Hiding them leaves the focus and
+    /// anything armed as they are. The keyboard stays either way.
     fn toggle_notes(&mut self, uuid: &str) -> Vec<Effect> {
         if !self.keyboard || !self.all.iter().any(|c| c.uuid.as_deref() == Some(uuid)) {
             return Vec::new();
         }
-        if !self.notes.remove(uuid) {
-            self.notes.insert(uuid.to_string());
+        if self.notes.remove(uuid) {
+            return vec![Effect::Notes];
         }
-        vec![Effect::Notes]
+        self.notes.insert(uuid.to_string());
+        // Focus first, so the Notes effect's scroll follows this card.
+        let mut effects = self.focus_on(Focus::body(uuid));
+        effects.push(Effect::Notes);
+        effects
     }
 
     /// Clear all, by its button or Ctrl+Shift+Delete. The first press arms it and
@@ -1397,11 +1405,15 @@ mod tests {
     // ─── presses ─────────────────────────────────────────────────────────
 
     /// A press on a card's body, Enter or a click, shows its task's notes
-    /// and a second hides them, keeping the keyboard and the focus.
+    /// and puts the focus on it; a second hides them, keeping the keyboard
+    /// and the focus.
     #[test]
     fn a_press_on_the_body_toggles_its_notes() {
         let mut state = keyboard(vec![noted("a"), noted("b")]);
-        assert_eq!(state.on_press("a", Slot::Body), vec![Effect::Notes]);
+        assert_eq!(
+            state.on_press("a", Slot::Body),
+            vec![Effect::Focus(focused("a", Slot::Body)), Effect::Notes],
+        );
         assert!(state.shows_notes("a"));
         assert!(!state.shows_notes("b"), "only the card pressed");
         assert!(state.keyboard());
@@ -1415,11 +1427,48 @@ mod tests {
     #[test]
     fn a_card_with_no_notes_opens_on_its_id_line() {
         let mut state = keyboard(pending(&["a"]));
-        assert_eq!(state.on_press("a", Slot::Body), vec![Effect::Notes]);
+        assert_eq!(
+            state.on_press("a", Slot::Body),
+            vec![Effect::Focus(focused("a", Slot::Body)), Effect::Notes],
+        );
         assert!(state.shows_notes("a"));
         assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
         assert_eq!(state.on_press("a", Slot::Body), vec![Effect::Notes]);
         assert!(!state.shows_notes("a"));
+    }
+
+    /// A click on another card's body opens its notes and brings the focus,
+    /// and with it the action row, the hint and the scroll, to that card.
+    /// Closing them again leaves the focus where it is.
+    #[test]
+    fn opening_another_cards_notes_moves_the_focus_to_it() {
+        let mut state = keyboard(vec![noted("a"), noted("b")]);
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+        assert_eq!(
+            state.on_press("b", Slot::Body),
+            vec![Effect::Focus(focused("b", Slot::Body)), Effect::Notes],
+        );
+        assert!(state.shows_notes("b"));
+        assert_eq!(state.focus(), focused("b", Slot::Body).as_ref());
+        assert!(state.card_hint("b").starts_with("Space: hide notes"), "{}", state.card_hint("b"));
+        assert_eq!(state.on_press("b", Slot::Body), vec![Effect::Notes]);
+        assert!(!state.shows_notes("b"));
+        assert_eq!(state.focus(), focused("b", Slot::Body).as_ref(), "closing does not move it");
+    }
+
+    /// Opening a card's notes from one of its own buttons puts the focus on
+    /// its body, as Up and Down would, and the move disarms its Remove.
+    #[test]
+    fn opening_notes_from_an_armed_remove_moves_to_the_body_and_disarms() {
+        let mut state = keyboard(vec![noted("a"), noted("b")]);
+        state.on_press("b", Slot::Button(Action::Remove));
+        assert_eq!(state.armed(), &Armed::Remove("b".into()));
+        assert_eq!(
+            state.on_press("b", Slot::Body),
+            vec![Effect::Focus(focused("b", Slot::Body)), Effect::Notes],
+        );
+        assert_eq!(state.focus(), focused("b", Slot::Body).as_ref());
+        assert_eq!(state.armed(), &Armed::None);
     }
 
     /// The peek's cards are one line each: a click on one shows nothing.
