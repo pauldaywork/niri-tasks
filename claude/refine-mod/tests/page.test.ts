@@ -241,6 +241,14 @@ describe('diagrams', () => {
     )
   })
 
+  test("a drawn diagram takes the renderer's colours and fonts from the page, scoped to it", () => {
+    const page = reportPage(report(), PLAN)
+    expect(page).toContain('.drawn svg { --_text: var(--fg);')
+    expect(page).toContain('--_node-fill: var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));')
+    expect(page).toContain(".drawn svg text { font-family: 'Report Body', 'Inter', system-ui, sans-serif; }")
+    expect(page).not.toContain('@import')
+  })
+
   test('a diagram left undrawn still gets Mermaid in the browser', () => {
     const flow = { mermaid: 'flowchart LR\n a --> b' }
     const page = reportPage(

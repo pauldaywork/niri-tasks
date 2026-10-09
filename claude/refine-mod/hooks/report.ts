@@ -60,9 +60,13 @@ const FORBIDDEN = /<\s*(script|meta|base|link|iframe|frameset|frame|object|embed
 // What would break the page's one layout, refused in detail and SVG, which
 // the page shows as given (Mermaid source is escaped, so it cannot): a
 // comment left open hides the rest of the page, and closing one of the
-// page's own elements moves what follows out of its place.
-const COMMENT = /<!--/
-const CLOSES = /<\s*\/\s*(details|section|main|footer|nav|figure|header|body|html)(?![\w-])/i
+// page's own elements moves what follows out of its place. Drawn diagrams
+// are held to them too.
+export const COMMENT = /<!--/
+export const CLOSES = /<\s*\/\s*(details|section|main|footer|nav|figure|header|body|html)(?![\w-])/i
+
+// An SVG shown as given is one whole <svg> element, nothing before or after.
+export const WHOLE_SVG = /^\s*<svg[\s>][\s\S]*<\/svg>\s*$/i
 
 // Elements that swallow the rest of the page as text, or restyle it. An SVG
 // may keep its <title>, which names the drawing.
@@ -163,7 +167,7 @@ const diagram = (errors: Errors, at: string, value: unknown): Diagram | undefine
     return { mermaid: source }
   }
   const svg = markup(errors, `${at}.svg`, value.svg, LIMITS.diagramChars, SWALLOWS_SVG)
-  if (svg !== '' && !/^\s*<svg[\s>][\s\S]*<\/svg>\s*$/i.test(svg)) errors.push(`${at}.svg must be one <svg> element`)
+  if (svg !== '' && !WHOLE_SVG.test(svg)) errors.push(`${at}.svg must be one <svg> element`)
   return { svg }
 }
 

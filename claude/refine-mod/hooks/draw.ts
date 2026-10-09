@@ -3,6 +3,7 @@
 // keeps of what comes back. No `$`, so the unit tests reach it directly.
 
 import { diagramKind, withMarks } from './page'
+import { CLOSES, COMMENT, WHOLE_SVG } from './report'
 import type { Report } from './report'
 
 // The renderer the mod ships: beautiful-mermaid, bundled (render/README.md).
@@ -57,10 +58,27 @@ export const drawSources = (report: Report): (string | undefined)[] =>
 // and escapes its labels; this holds it to that.
 const UNSAFE = /<\s*\/?\s*(script|foreignObject|iframe|object|embed|image|use|a|meta|link|base)\b|\son[a-z]+\s*=|javascript:/i
 
-// The web font beautiful-mermaid asks for, which the page's policy would
-// refuse anyway, and its font, swapped for the one the page embeds.
-export const cleanSvg = (svg: string): string =>
-  svg.replace(/@import\s+url\([^)]*\)\s*;?/g, '').replace(/'Inter',/g, "'Report Body', 'Inter',")
+// beautiful-mermaid's own stylesheet, in every SVG it draws: its colours
+// and font, which the page's stylesheet carries for drawn diagrams instead
+// (style.ts), and a web font the page's policy would refuse anyway.
+const RENDERER_STYLE = /<\s*style\b[^>]*>[\s\S]*?<\s*\/\s*style\s*>/gi
+
+// What an SVG may not hold once its stylesheet is gone: a <style> would
+// restyle the whole page.
+const STYLE = /<\s*\/?\s*style(?![\w-])/i
+
+// An SVG from the renderer without its stylesheet.
+export const cleanSvg = (svg: string): string => svg.replace(RENDERER_STYLE, '')
+
+// An SVG from the renderer as the page will show it, held to what a model's
+// SVG is; undefined when it is not one the page will take.
+const keptSvg = (svg: unknown): string | undefined => {
+  if (typeof svg !== 'string') return undefined
+  const clean = cleanSvg(svg)
+  const refused =
+    !WHOLE_SVG.test(clean) || STYLE.test(clean) || UNSAFE.test(clean) || COMMENT.test(clean) || CLOSES.test(clean)
+  return refused ? undefined : clean
+}
 
 // The SVG for each part, from the renderer's answer for the sources that
 // were drawn, in order; undefined where it could not draw one, or drew
@@ -74,10 +92,5 @@ export const drawnSvgs = (stdout: string, sources: readonly (string | undefined)
   }
   const answers = Array.isArray(svgs) ? svgs : []
   let next = 0
-  return sources.map(source => {
-    if (source === undefined) return undefined
-    const svg: unknown = answers[next++]
-    if (typeof svg !== 'string' || !/^\s*<svg[\s>]/.test(svg) || UNSAFE.test(svg)) return undefined
-    return cleanSvg(svg)
-  })
+  return sources.map(source => (source === undefined ? undefined : keptSvg(answers[next++])))
 }

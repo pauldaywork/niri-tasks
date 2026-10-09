@@ -21,6 +21,10 @@ const fontFaces = (fonts: Fonts): string => `
   font-weight: 100 900; font-display: block; }
 `
 
+// A drawn diagram's colours and fonts are set here, from the stylesheet
+// beautiful-mermaid puts in each SVG, which the mod removes (draw.ts): its
+// colour variables, scoped to drawn diagrams, and its fonts, the page's
+// own body face first.
 const CSS = `
 :root { color-scheme: light;
   --black: #000000; --white: #FFFFFF; --paper: #FFFDF5; --ink: #111111; --muted: #3D3D3D;
@@ -75,6 +79,20 @@ ol { padding-left: 1.4em; }
 @media (max-width: 56rem) { .split { grid-template-columns: 1fr; } }
 .solo { font-size: 1.3em; }
 .drawn svg { display: block; width: 100%; height: auto; max-height: 45vh; }
+.drawn svg { --_text: var(--fg);
+  --_text-sec: var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+  --_text-muted: var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+  --_text-faint: color-mix(in srgb, var(--fg) 25%, var(--bg));
+  --_line: var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+  --_arrow: var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+  --_node-fill: var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+  --_node-stroke: var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+  --_group-fill: var(--bg);
+  --_group-hdr: color-mix(in srgb, var(--fg) 5%, var(--bg));
+  --_inner-stroke: color-mix(in srgb, var(--fg) 12%, var(--bg));
+  --_key-badge: color-mix(in srgb, var(--fg) 10%, var(--bg)); }
+.drawn svg text { font-family: 'Report Body', 'Inter', system-ui, sans-serif; }
+.drawn svg .mono { font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace; }
 @media (max-width: 56rem) { .drawn svg { min-width: 34rem; max-height: none; } }
 .drawn g.block[data-type="rect"] > rect:first-of-type { fill: var(--green); stroke: var(--black); stroke-width: 1.5px; }
 .drawn g.block[data-type="rect"] > rect:nth-of-type(2), .drawn g.block[data-type="rect"] > text { display: none; }

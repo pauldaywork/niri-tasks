@@ -99,18 +99,34 @@ describe('drawnSvgs', () => {
     }
   })
 
+  test("keeps a renderer SVG with its <style>, the style removed", () => {
+    const svg = '<svg viewBox="0 0 1 1">\n<style>\n  svg { --_line: var(--fg); }\n</style>\n<rect/>\n</svg>'
+    expect(drawnSvgs(JSON.stringify({ svgs: [svg, null] }), sources)[0]).toBe('<svg viewBox="0 0 1 1">\n\n<rect/>\n</svg>')
+  })
+
+  test('drops what would break the page, as for an SVG the model writes', () => {
+    for (const bad of [
+      '<svg><!-- open',
+      '<svg><text>a</text></section><section></svg>',
+      '<svg><g></figure></g></svg>',
+      '<svg><rect/>',
+      '<svg><rect/></svg><p>after</p>',
+      '<svg><style>a{}</style><style>b{}</svg>',
+      '<svg><style>a{}</style>b{}</style></svg>',
+    ]) {
+      expect(drawnSvgs(JSON.stringify({ svgs: [bad, null] }), sources)[0]).toBeUndefined()
+    }
+  })
+
   test('draws nothing from output that is not its JSON', () => {
     expect(drawnSvgs('', sources)).toEqual([undefined, undefined, undefined])
     expect(drawnSvgs('{"svgs": 7}', sources)).toEqual([undefined, undefined, undefined])
   })
 })
 
-test('cleanSvg drops the web font and uses the report body font', () => {
+test("cleanSvg removes the renderer's stylesheet, whose rules the page carries", () => {
   const svg =
     "<svg><style>\n  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap');\n" +
-    "  text { font-family: 'Inter', system-ui, sans-serif; }\n</style></svg>"
-  const clean = cleanSvg(svg)
-  expect(clean).not.toContain('@import')
-  expect(clean).not.toContain('googleapis')
-  expect(clean).toContain("font-family: 'Report Body', 'Inter', system-ui, sans-serif;")
+    "  text { font-family: 'Inter', system-ui, sans-serif; }\n</style><rect/><STYLE media=\"x\">svg{}</STYLE ></svg>"
+  expect(cleanSvg(svg)).toBe('<svg><rect/></svg>')
 })
