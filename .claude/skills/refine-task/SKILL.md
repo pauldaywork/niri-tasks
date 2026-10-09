@@ -20,7 +20,8 @@ still fits a task card, and notes that carry the goal, the decisions and what
 **You refine the task; you never do it.** However concrete the steps you write
 into its notes, do not carry out any of them — no file edits, no config
 changes, no commands beyond reading. Your one write is the Taskwarrior update in
-step 5, and the write tool asks the user itself before it writes. The session
+step 5, and the write tool asks the user itself before it writes. A report
+the user asks for there is written by the report tool, not by you. The session
 was started without file-editing tools and without plan mode for exactly this
 reason: approving a plan in plan mode means "implement it", which is not what
 the user is approving here.
@@ -40,11 +41,15 @@ Stop and say so if it returns `[]` or its `status` is not `pending`. Keep the
 `description` and `annotations` you read — the write in step 5 checks against
 them. Show the user the description and every note before going further.
 
-Then select the write tool with ToolSearch
-(`select:mcp__niri-tasks-refine__write_task_plan`). If it is not there, stop
+Then select the mod's tools with ToolSearch
+(`select:mcp__niri-tasks-refine__write_task_plan,mcp__niri-tasks-refine__show_task_report`).
+If the write tool is not there, stop
 before step 2 and tell the user the refine mod did not load, so the task
 cannot be written: they should run `install.sh` and check that `claude
 --version` is 2.1.287 or later. Do not interview them first.
+
+The report tool may be missing on its own; then the user is not offered a
+report, and nothing else changes.
 
 ## 2. Ground it
 
@@ -130,6 +135,9 @@ are. This block is the description and notes themselves, not a summary of
 them: step 5 passes them to the tool unchanged. The user is approving this
 block, so it must match the proposal above it.
 
+If the user asks for a report of the plan in chat, go on to step 5 all the
+same: the tool's question offers **Show me a report first**.
+
 Then go straight to step 5.
 
 ## 5. Write
@@ -153,6 +161,9 @@ one import, and touches nothing else. Its answer says what happened:
 - **Wrote the plan …** — go to step 6.
 - **Nothing written: the person chose "Change something"** — ask them what to
   change, revise, print the block again (step 4) and call the tool again.
+- **Nothing written: the person chose "Show me a report first"** — build the
+  report as **Report, when asked** below says, then call the tool again with
+  the same plan.
 - **Nothing written: the person answered "…"** — those are their words about
   the plan: revise with them, print the block again and call again.
 - **Nothing written: the task changed since it was read** — someone else
@@ -163,16 +174,44 @@ one import, and touches nothing else. Its answer says what happened:
   again after revising.
 - **Nothing written: the task no longer exists** or **… not pending** — stop
   and tell the user.
-- Any other **Nothing written: …** or **write_task_plan: …** answer — fix what
+- Any other **Nothing written: …**, **write_task_plan: …** or **show_task_report: …** answer — fix what
   it names (a line too long, a note on two lines, a control or invisible
   character) and call again.
 - Anything else (not armed, `task export failed`, `task import failed`,
   `failed before writing`) — do not retry and do not write the task any other
   way. Export the task as in step 6, then tell the user the tool's answer and
   what the task now holds.
+  If it was the report tool that failed, tell the user the report could not
+  be made, and call `write_task_plan` again so they can approve or change
+  the plan without it.
 
 If the tool is missing, say so and stop — do not write the task any other
 way.
+
+### Report, when asked
+
+The user wants to see the plan explained before they approve it. Write
+nothing to the task. Build the report:
+
+1. Read `report-catalogue.md` in this skill's base directory. It says what
+   every report holds, the classes its stylesheet gives you, and the
+   diagrams and tables that can explain a plan, each with when it applies.
+2. Pick what fits this task: the file-change map and the done-when checks
+   always, then each other entry whose **When** holds. Ground every one in
+   the code you read in step 2 — real paths, real function and type names —
+   and mark what the plan adds as new.
+3. Call `mcp__niri-tasks-refine__show_task_report` with `title`, the new
+   description, and `body`, the HTML inside `<body>`. Diagrams are
+   `<pre class="mermaid">` blocks or inline `<svg>`. No `<script>`, `<meta>`,
+   `<link>`, `<base>`, `<iframe>`, `<object>`, `<embed>` or `<form>`: the tool
+   adds the page around the body and refuses those.
+4. On **show_task_report: …**, fix what it names and call it again. On
+   **Wrote the report to …**, tell the user the path in one line, then call
+   `write_task_plan` again with the same `expected`, `description` and
+   `notes`. The plan has not changed, so do not print the block again.
+
+If, after reading the report, the user answers with changes, revise, print
+the block again (step 4) and call `write_task_plan` again.
 
 ## 6. Verify and report
 
