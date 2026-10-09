@@ -61,6 +61,35 @@ fn raw(uuid: &str, field: &str) -> String {
         .to_string()
 }
 
+/// How many changes the sandbox's task store has logged, whichever store
+/// taskwarrior keeps: the rows of `operations` in 3.x's
+/// `taskchampion.sqlite3`, or the lines of 2.6's `undo.data`.
+///
+/// Counting `undo.data` alone passed without testing anything on 3.x, which
+/// never writes it. So a sandbox with neither store panics rather than
+/// reading as zero: the no-op check can never pass vacuously again.
+fn change_log_len(data: &std::path::Path) -> usize {
+    let db = data.join("taskchampion.sqlite3");
+    let undo = data.join("undo.data");
+    if db.exists() {
+        let out = std::process::Command::new("sqlite3")
+            .arg(&db)
+            .arg("select count(*) from operations")
+            .output()
+            .expect("run sqlite3 — is it installed?");
+        assert!(out.status.success(), "sqlite3 failed: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().parse().expect("sqlite3 printed a count")
+    } else if undo.exists() {
+        std::fs::read_to_string(&undo).expect("read undo.data").lines().count()
+    } else {
+        panic!(
+            "the sandbox has no task store in {} (neither taskchampion.sqlite3 nor undo.data), \
+             so there is no change log to count",
+            data.display()
+        );
+    }
+}
+
 #[test]
 fn write_path_lifecycle() {
     let sandbox = Sandbox::new();
@@ -281,9 +310,11 @@ fn write_path_lifecycle() {
     assert!(stamp_four < stamp_five, "new notes are dated in the order they were typed");
 
     // Saving what is already there writes nothing — not even an undo entry.
-    let undo = sandbox.dir.join("data").join("undo.data");
-    let undo_lines = || std::fs::read_to_string(&undo).unwrap_or_default().lines().count();
-    let before_noop = undo_lines();
+    let data = sandbox.dir.join("data");
+    let before_noop = change_log_len(&data);
+    // Every write above logged a change, so an empty log means the count is
+    // measuring the wrong thing, and equality below would prove nothing.
+    assert!(before_noop > 0, "the writes above left a change log to compare against");
     let unchanged: Vec<NoteEdit> = rewritten
         .annotations
         .iter()
@@ -293,7 +324,7 @@ fn write_path_lifecycle() {
         !task::replace_text(&target, &rewritten.description, &unchanged).expect("no-op"),
         "an unchanged save reports that it wrote nothing"
     );
-    assert_eq!(undo_lines(), before_noop, "and leaves nothing in the undo log");
+    assert_eq!(change_log_len(&data), before_noop, "and leaves nothing in the undo log");
 
     // An empty description is not a task: nothing is written.
     assert!(!task::replace_text(&target, "", &[]).expect("empty description"));

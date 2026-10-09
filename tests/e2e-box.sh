@@ -113,7 +113,20 @@ print('\n'.join(a['entry']+' '+a['description'] for a in (ts[0].get('annotations
 "
 }
 # How many changes taskwarrior has logged — an unchanged save must add none.
-undo_count() { wc -l < "$TASKDATA/undo.data" 2>/dev/null || echo 0; }
+# Whichever store exists: the rows of `operations` in 3.x's
+# taskchampion.sqlite3, or the lines of 2.6's undo.data. With neither it
+# fails rather than printing 0, since counting a file 3.x never writes let
+# the check pass without testing anything.
+undo_count() {
+    if [ -f "$TASKDATA/taskchampion.sqlite3" ]; then
+        sqlite3 "$TASKDATA/taskchampion.sqlite3" 'select count(*) from operations'
+    elif [ -f "$TASKDATA/undo.data" ]; then
+        wc -l < "$TASKDATA/undo.data"
+    else
+        echo "no task store in $TASKDATA (neither taskchampion.sqlite3 nor undo.data)" >&2
+        return 1
+    fi
+}
 field_of() {
     task rc.verbose=nothing rc.json.array=on "$1" export 2>/dev/null \
       | python3 -c "import json,sys; ts=json.load(sys.stdin); print(ts[0].get(sys.argv[1],'') if ts else '')" "$2"
@@ -329,15 +342,18 @@ print(next((t['description'] for t in ts if 'first line' in t['description']), '
     fi
 
     # Saving without changing anything writes nothing at all.
+    # An empty or missing change log would make the comparison prove nothing,
+    # so either one fails the check instead of passing it.
     local undo_before
-    undo_before=$(undo_count)
-    if [ -n "$uuid" ] && open_box edit "$uuid"; then
+    undo_before=$(undo_count) && [ "$undo_before" -gt 0 ] \
+        || { bad "no change log to count: \"$undo_before\" in $TASKDATA"; undo_before=; }
+    if [ -n "$undo_before" ] && [ -n "$uuid" ] && open_box edit "$uuid"; then
         settle_keys                          # or an Escape here would pass too
         nested wtype -M ctrl -k Return -m ctrl
         sleep 1.5
         [ "$(undo_count)" -eq "$undo_before" ] && ok "an unchanged save wrote nothing" \
             || bad "an unchanged save wrote to the task database"
-    else
+    elif [ -n "$undo_before" ]; then
         bad "edit box did not reopen"
     fi
 
