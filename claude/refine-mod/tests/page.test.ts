@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { CSP, MERMAID_SRI, MERMAID_URL, inline, readingMinutes, reportPage } from '../hooks/page'
 import { parseReport } from '../hooks/report'
 import type { Report } from '../hooks/report'
-import { EXAMPLE } from './example-report'
+import { EXAMPLE, EXAMPLE_PLAN } from './example-report'
 
 const report = (over: Partial<Report> = {}): Report => ({
   title: 'feat: <A> & "B"',
@@ -17,11 +17,14 @@ const report = (over: Partial<Report> = {}): Report => ({
   ...over,
 })
 
+// The plan the person was shown, which the page repeats as it will be written.
+const PLAN = { description: 'feat: <A> & "B"', notes: ['Goal: <x> & y', 'Done when: `z` shows'] }
+
 const words = (n: number) => Array.from({ length: n }, () => 'word').join(' ')
 const NEXT = 'Back in the terminal: choose <strong>Write it to the task</strong> to save this plan, or type what to change.'
 
 describe('the head', () => {
-  const page = reportPage(report())
+  const page = reportPage(report(), PLAN)
 
   test('puts the policy first, before anything it governs', () => {
     const csp = page.indexOf(`<meta http-equiv="Content-Security-Policy" content="${CSP}">`)
@@ -50,7 +53,7 @@ describe('the head', () => {
 
 describe('the layout', () => {
   test('glance, parts, files, checks, in that order, and the next step at both ends', () => {
-    const page = reportPage(report())
+    const page = reportPage(report(), PLAN)
     const at = (id: string) => page.indexOf(`id="${id}"`)
     expect(at('glance')).toBeGreaterThan(-1)
     expect(at('glance')).toBeLessThan(at('part-1'))
@@ -60,18 +63,18 @@ describe('the layout', () => {
   })
 
   test('says how long it takes and how much there is', () => {
-    expect(reportPage(report())).toContain('<p class="meta">About 1 min to read · 1 part · 1 file</p>')
+    expect(reportPage(report(), PLAN)).toContain('<p class="meta">About 1 min to read · 1 part · 1 file</p>')
   })
 
   test('lists the parts, numbered, in the contents bar', () => {
-    const page = reportPage(report({ sections: [{ heading: 'One', points: ['a'] }, { heading: 'Two', points: ['b'] }] }))
+    const page = reportPage(report({ sections: [{ heading: 'One', points: ['a'] }, { heading: 'Two', points: ['b'] }] }), PLAN)
     expect(page).toContain('<a href="#part-1">1. One</a>')
     expect(page).toContain('<a href="#part-2">2. Two</a>')
     expect(page).toContain('<span class="num">2/2</span> Two')
   })
 
   test('shows the optional blocks only when given', () => {
-    const bare = reportPage(report())
+    const bare = reportPage(report(), PLAN)
     for (const text of ['What stays the same', 'Needs your eye', 'Words used here', 'class="legend"']) {
       expect(bare).not.toContain(text)
     }
@@ -82,6 +85,7 @@ describe('the layout', () => {
         terms: [{ term: 'Refine', meaning: 'Turning a task into a plan.' }],
         sections: [{ heading: 'h', points: ['p'], look_at: 'x', diagram: { mermaid: 'flowchart LR\n a --> b' } }],
       }),
+      PLAN,
     )
     for (const text of ['What stays the same', 'Needs your eye', 'Words used here', 'class="legend"']) {
       expect(full).toContain(text)
@@ -90,15 +94,45 @@ describe('the layout', () => {
   })
 
   test('shows the files with a labelled badge each', () => {
-    expect(reportPage(report())).toContain(
+    expect(reportPage(report(), PLAN)).toContain(
       '<tr><td><span class="badge change">changed</span></td><td><code>src/words.rs</code></td><td>Holds the words.</td></tr>',
     )
   })
 })
 
+describe('what will be written', () => {
+  const BLOCK =
+    '<section id="plan"><h2>Exactly what will be written</h2><details>' +
+    '<summary>The description and notes you approve in the terminal</summary>'
+
+  test('repeats the plan, escaped, from the plan the person was shown', () => {
+    expect(reportPage(report(), PLAN)).toContain(
+      `${BLOCK}<p><strong>Description:</strong> feat: &lt;A&gt; &amp; &quot;B&quot;</p>` +
+        '<ol><li>Goal: &lt;x&gt; &amp; y</li><li>Done when: `z` shows</li></ol>' +
+        '<p class="muted">The tool also adds a note linking this report.</p></details></section>',
+    )
+  })
+
+  test('sits after the last part and before the files, with its own link', () => {
+    const page = reportPage(report({ sections: [{ heading: 'One', points: ['a'] }, { heading: 'Two', points: ['b'] }] }), PLAN)
+    expect(page.indexOf('id="plan"')).toBeGreaterThan(page.indexOf('id="part-2"'))
+    expect(page.indexOf('id="plan"')).toBeLessThan(page.indexOf('id="files"'))
+    const link = page.indexOf('<li><a href="#plan">What will be written</a></li>')
+    expect(link).toBeGreaterThan(page.indexOf('href="#part-2"'))
+    expect(link).toBeLessThan(page.indexOf('href="#files"'))
+  })
+
+  test('says so when the plan has no notes', () => {
+    const page = reportPage(report(), { description: 'feat: A', notes: [] })
+    expect(page).toContain('<p><strong>Description:</strong> feat: A</p><p>No notes.</p><p class="muted">')
+    const block = page.slice(page.indexOf('<section id="plan">'), page.indexOf('<section id="files">'))
+    expect(block).not.toContain('<ol>')
+  })
+})
+
 describe('diagrams', () => {
   const part = (diagram: { mermaid: string } | { svg: string }) =>
-    reportPage(report({ sections: [{ heading: 'h', points: ['p'], look_at: 'The new box.', diagram }] }))
+    reportPage(report({ sections: [{ heading: 'h', points: ['p'], look_at: 'The new box.', diagram }] }), PLAN)
 
   test('say what to look at, just above the drawing', () => {
     const page = part({ mermaid: 'flowchart LR\n a --> b' })
@@ -120,7 +154,7 @@ describe('diagrams', () => {
   })
 
   test('put detail in a collapsed block', () => {
-    const page = reportPage(report({ sections: [{ heading: 'h', points: ['p'], detail: '<p>deep</p>' }] }))
+    const page = reportPage(report({ sections: [{ heading: 'h', points: ['p'], detail: '<p>deep</p>' }] }), PLAN)
     expect(page).toContain('<details>\n<summary>More detail</summary>\n<p>deep</p>\n</details>')
   })
 })
@@ -150,7 +184,7 @@ describe('readingMinutes', () => {
 test('the worked example renders every part', () => {
   const parsed = parseReport(EXAMPLE)
   if (typeof parsed === 'string') throw new Error(parsed)
-  const page = reportPage(parsed)
+  const page = reportPage(parsed, EXAMPLE_PLAN)
   for (const section of parsed.sections) expect(page).toContain(section.heading)
   expect(page.split('<pre class="mermaid">').length - 1).toBe(2)
 })

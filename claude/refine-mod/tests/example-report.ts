@@ -90,3 +90,14 @@ export const EXAMPLE = {
     { check: "The mod's tests pass", how: '`claude plugin test claude/refine-mod`' },
   ],
 }
+
+// The plan the person was shown when they asked for the worked example: the
+// page repeats it as it will be written.
+export const EXAMPLE_PLAN: { description: string; notes: string[] } = {
+  description: EXAMPLE.title,
+  notes: [
+    'Goal: let the person see the plan explained on a page before they approve it.',
+    'Decided: the mod builds the page from fixed fields, so every report reads the same way.',
+    'Done when: choosing the report opens it, and approving links it from the task.',
+  ],
+}

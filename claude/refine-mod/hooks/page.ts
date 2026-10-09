@@ -4,6 +4,7 @@
 // detail last. No `$`, so the unit tests reach it directly.
 
 import { WRITE } from './plan'
+import type { Plan } from './plan'
 import type { Change, Check, Diagram, FileChange, Report, Section, Term } from './report'
 
 // Mermaid's own bundle, pinned and checked: it renders every
@@ -83,6 +84,7 @@ dd { margin: 0 0 0.75rem; }
 .badge.change { color: var(--change); }
 .badge.remove { color: var(--remove); border-style: dashed; }
 .legend { color: var(--muted); }
+.muted { color: var(--muted); }
 details { border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.9rem; }
 summary { cursor: pointer; font-weight: 600; }
 `
@@ -149,6 +151,7 @@ const contents = (report: Report): string => {
     ['glance', 'At a glance'],
     ...(report.terms.length > 0 ? [['terms', 'Words used here'] as [string, string]] : []),
     ...report.sections.map((s, i): [string, string] => [`part-${i + 1}`, `${i + 1}. ${s.heading}`]),
+    ['plan', 'What will be written'],
     ['files', 'Files'],
     ['checks', 'Done when'],
   ]
@@ -208,6 +211,20 @@ const part = (s: Section, n: number, of: number): string =>
     .filter(Boolean)
     .join('\n')
 
+// The description and notes as the tool will write them, from the plan the
+// person was shown, never from the report's fields: what they approve is
+// what they read here.
+const written = (plan: Plan): string => {
+  const notes =
+    plan.notes.length === 0 ? '<p>No notes.</p>' : `<ol>${plan.notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ol>`
+  return (
+    '<section id="plan"><h2>Exactly what will be written</h2><details>' +
+    '<summary>The description and notes you approve in the terminal</summary>' +
+    `<p><strong>Description:</strong> ${escapeHtml(plan.description)}</p>${notes}` +
+    '<p class="muted">The tool also adds a note linking this report.</p></details></section>'
+  )
+}
+
 const files = (list: readonly FileChange[]): string => {
   const rows = list
     .map(f => `<tr><td>${badge(f.change)}</td><td><code>${escapeHtml(f.path)}</code></td><td>${inline(f.why)}</td></tr>`)
@@ -237,8 +254,9 @@ const checks = (list: readonly Check[]): string => {
 }
 
 // The whole page: the policy before anything it governs, then the title, the
-// stylesheet and Mermaid, then the report in its fixed order.
-export const reportPage = (report: Report): string => {
+// stylesheet and Mermaid, then the report in its fixed order, with the plan
+// the person was shown just before the files.
+export const reportPage = (report: Report, plan: Plan): string => {
   const parts = report.sections
   const meta =
     `About ${readingMinutes(report)} min to read · ` +
@@ -266,6 +284,7 @@ export const reportPage = (report: Report): string => {
     report.terms.length > 0 ? terms(report.terms) : '',
     parts.some(s => s.diagram !== undefined) ? LEGEND : '',
     ...parts.map((s, i) => part(s, i + 1, parts.length)),
+    written(plan),
     files(report.files),
     checks(report.checks),
     `<footer>${NEXT}</footer>`,

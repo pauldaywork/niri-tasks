@@ -222,7 +222,7 @@ export const register: Register = (on, options) => {
     const shown = askedFor
     askedFor = undefined
     const path = reportPath(reports, uuid, await $.clock.now())
-    await $.fs.write(path, reportPage(report))
+    await $.fs.write(path, reportPage(report, shown))
     made.push({ path, plan: shown })
     $.ui.log(`Report: ${path}`)
     await $.process.run(openArgv(path))
