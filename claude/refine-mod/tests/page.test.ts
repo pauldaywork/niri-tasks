@@ -23,6 +23,10 @@ const PLAN = { description: 'feat: <A> & "B"', notes: ['Goal: <x> & y', 'Done wh
 const words = (n: number) => Array.from({ length: n }, () => 'word').join(' ')
 const NEXT = 'Back in the terminal: choose <strong>Write it to the task</strong> to save this plan, or type what to change.'
 
+// The ids of a page's slides, in order.
+const slides = (page: string): string[] =>
+  [...page.matchAll(/<section class="slide [^"]*" id="([^"]+)"/g)].map(m => m[1] ?? '')
+
 describe('the head', () => {
   const page = reportPage(report(), PLAN)
 
@@ -49,104 +53,113 @@ describe('the head', () => {
     expect(page).toContain('<h1>feat: &lt;A&gt; &amp; &quot;B&quot;</h1>')
     expect(page).toContain('The task gets &lt;new&gt; words.')
   })
+
+  test('embeds the fonts it is given, and none otherwise', () => {
+    expect(reportPage(report(), PLAN)).not.toContain('@font-face')
+    const page = reportPage(report(), PLAN, { display: 'RElTUA==', body: 'Qk9EWQ==' })
+    expect(page).toContain('src: url(data:font/woff2;base64,RElTUA==) format("woff2")')
+    expect(page).toContain('src: url(data:font/woff2;base64,Qk9EWQ==) format("woff2")')
+  })
+
+  test('snaps one slide to the screen, with nothing to run', () => {
+    const page = reportPage(report(), PLAN)
+    expect(page).toContain('scroll-snap-type: y mandatory')
+    expect(page).toContain('scroll-snap-align: start')
+    expect(page.split('<script').length - 1).toBe(1)
+  })
 })
 
-describe('the layout', () => {
-  test('glance, parts, files, checks, in that order, and the next step at both ends', () => {
-    const page = reportPage(report(), PLAN)
-    const at = (id: string) => page.indexOf(`id="${id}"`)
-    expect(at('glance')).toBeGreaterThan(-1)
-    expect(at('glance')).toBeLessThan(at('part-1'))
-    expect(at('part-1')).toBeLessThan(at('files'))
-    expect(at('files')).toBeLessThan(at('checks'))
-    expect(page.split(NEXT).length - 1).toBe(2)
-  })
-
-  test('says how long it takes and how much there is', () => {
-    expect(reportPage(report(), PLAN)).toContain('<p class="meta">About 1 min to read · 1 part · 1 file</p>')
-  })
-
-  test('lists the parts, numbered, in the contents bar', () => {
-    const page = reportPage(report({ sections: [{ heading: 'One', points: ['a'] }, { heading: 'Two', points: ['b'] }] }), PLAN)
-    expect(page).toContain('<a href="#part-1">1. One</a>')
-    expect(page).toContain('<a href="#part-2">2. Two</a>')
-    expect(page).toContain('<span class="num">2/2</span> Two')
-  })
-
-  test('shows the optional blocks only when given', () => {
-    const bare = reportPage(report(), PLAN)
-    for (const text of ['What stays the same', 'Needs your eye', 'Words used here', 'class="legend"']) {
-      expect(bare).not.toContain(text)
-    }
+describe('the slides', () => {
+  test('come in a fixed order, the optional ones only when given', () => {
+    expect(slides(reportPage(report(), PLAN))).toEqual(['cover', 'glance', 'part-1', 'files', 'checks', 'decision'])
     const full = reportPage(
       report({
-        unchanged: ['Approval: still asked.'],
         needs_your_eye: ['Offline: diagrams show as text.'],
         terms: [{ term: 'Refine', meaning: 'Turning a task into a plan.' }],
-        sections: [{ heading: 'h', points: ['p'], look_at: 'x', diagram: { mermaid: 'flowchart LR\n a --> b' } }],
+        sections: [
+          { heading: 'One', points: ['a'] },
+          { heading: 'Two', points: ['b'] },
+        ],
       }),
       PLAN,
     )
-    for (const text of ['What stays the same', 'Needs your eye', 'Words used here', 'class="legend"']) {
-      expect(full).toContain(text)
-    }
-    expect(full).toContain('<dt>Refine</dt><dd>Turning a task into a plan.</dd>')
+    expect(slides(full)).toEqual(['cover', 'glance', 'eye', 'terms', 'part-1', 'part-2', 'files', 'checks', 'decision'])
+    expect(slides(reportPage(report({ files: [] }), PLAN))).toEqual(['cover', 'glance', 'part-1', 'checks', 'decision'])
   })
 
-  test('shows backticks in a part heading as code in the contents bar', () => {
-    const page = reportPage(report({ sections: [{ heading: 'Run `task` <now>', points: ['a'] }] }), PLAN)
-    expect(page).toContain('<a href="#part-1">1. Run <code>task</code> &lt;now&gt;</a>')
+  test('each says where it is, and links to the next by name', () => {
+    const page = reportPage(report(), PLAN)
+    expect(page).toContain('<span class="count">01 / 06</span>')
+    expect(page).toContain('<span class="count">06 / 06</span>')
+    expect(page).toContain('<a class="next" href="#glance">Next: At a glance ↓</a>')
+    expect(page).toContain('<a class="next" href="#part-1">Next: What changes ↓</a>')
+    expect(page).toContain('<a class="next" href="#decision">Next: Your decision ↓</a>')
+    expect(page.split('<a class="next"').length - 1).toBe(5)
   })
 
-  test('leaves out the files, their link and their count when the plan touches none', () => {
-    const page = reportPage(report({ files: [] }), PLAN)
-    expect(page).not.toContain('id="files"')
-    expect(page).not.toContain('href="#files"')
-    expect(page).toContain('<p class="meta">About 1 min to read · 1 part</p>')
+  test('the rail links every slide', () => {
+    const page = reportPage(report(), PLAN)
+    expect(page).toContain('<nav class="rail" aria-label="Slides">')
+    for (const id of slides(page)) expect(page).toContain(`<a href="#${id}"`)
   })
 
-  test('shows the legend only beside a diagram that takes the change colours', () => {
-    const with_ = (diagram: { mermaid: string } | { svg: string }) =>
-      reportPage(report({ sections: [{ heading: 'h', points: ['p'], look_at: 'x', diagram }] }), PLAN)
-    expect(with_({ mermaid: 'sequenceDiagram\n A->>B: hi' })).not.toContain('class="legend"')
-    expect(with_({ svg: '<svg viewBox="0 0 1 1"><rect/></svg>' })).not.toContain('class="legend"')
-    expect(with_({ mermaid: '%% the flow\nstateDiagram-v2\n [*] --> A' })).toContain('class="legend"')
+  test('a part has its own slide, numbered, its heading shown with code', () => {
+    const page = reportPage(report({ sections: [{ heading: 'The `task` command', points: ['a'] }] }), PLAN)
+    expect(page).toContain('<span class="pill">Part 1 of 1</span>')
+    expect(page).toContain('<h2>The <code>task</code> command</h2>')
+    expect(page).toContain('Next: The <code>task</code> command ↓')
   })
 
-  test('shows the files with a labelled badge each', () => {
+  test('the next step is said on the first slide and the last', () => {
+    const page = reportPage(report(), PLAN)
+    expect(page.split(NEXT).length - 1).toBe(2)
+    expect(page.indexOf(NEXT)).toBeLessThan(page.indexOf('id="glance"'))
+    expect(page.lastIndexOf(NEXT)).toBeGreaterThan(page.indexOf('id="decision"'))
+  })
+
+  test('the cover says how long it takes and how much there is', () => {
+    expect(reportPage(report(), PLAN)).toContain('<p class="meta">About 1 min to read · 6 slides · 1 file</p>')
+    expect(reportPage(report({ files: [] }), PLAN)).toContain('<p class="meta">About 1 min to read · 5 slides</p>')
+  })
+
+  test('the glance puts what changes beside what stays the same', () => {
+    const page = reportPage(report({ unchanged: ['Approval: still asked.'] }), PLAN)
+    expect(page).toContain('<p class="lede">The task gets &lt;new&gt; words.</p>')
+    expect(page).toContain('<h3>What changes</h3>')
+    expect(page).toContain('<h3>What stays the same</h3>')
+    expect(reportPage(report(), PLAN)).not.toContain('What stays the same')
+  })
+
+  test('words used here are a definition list', () => {
+    const page = reportPage(report({ terms: [{ term: 'Refine', meaning: 'Turning a task into a plan.' }] }), PLAN)
+    expect(page).toContain('<dt>Refine</dt><dd>Turning a task into a plan.</dd>')
+  })
+
+  test('shows the files with a labelled badge each, paths breaking only at a slash', () => {
     expect(reportPage(report(), PLAN)).toContain(
-      '<tr><td><span class="badge change">changed</span></td><td><code>src/words.rs</code></td><td>Holds the words.</td></tr>',
+      '<tr><td><span class="badge change">changed</span></td><td><code class="path">src/<wbr>words.rs</code></td><td>Holds the words.</td></tr>',
     )
+  })
+
+  test('the cover names the report once, in its pill', () => {
+    const page = reportPage(report(), PLAN)
+    expect(page.split('Refine report').length - 1).toBe(1)
   })
 })
 
-describe('what will be written', () => {
-  const BLOCK =
-    '<section id="plan"><h2>Exactly what will be written</h2><details>' +
-    '<summary>The description and notes you approve in the terminal</summary>'
-
+describe('the decision slide', () => {
   test('repeats the plan, escaped, from the plan the person was shown', () => {
-    expect(reportPage(report(), PLAN)).toContain(
-      `${BLOCK}<p><strong>Description:</strong> feat: &lt;A&gt; &amp; &quot;B&quot;</p>` +
-        '<ol><li>Goal: &lt;x&gt; &amp; y</li><li>Done when: `z` shows</li></ol>' +
-        '<p class="muted">The tool also adds a note linking this report.</p></details></section>',
-    )
-  })
-
-  test('sits after the last part and before the files, with its own link', () => {
-    const page = reportPage(report({ sections: [{ heading: 'One', points: ['a'] }, { heading: 'Two', points: ['b'] }] }), PLAN)
-    expect(page.indexOf('id="plan"')).toBeGreaterThan(page.indexOf('id="part-2"'))
-    expect(page.indexOf('id="plan"')).toBeLessThan(page.indexOf('id="files"'))
-    const link = page.indexOf('<li><a href="#plan">What will be written</a></li>')
-    expect(link).toBeGreaterThan(page.indexOf('href="#part-2"'))
-    expect(link).toBeLessThan(page.indexOf('href="#files"'))
+    const page = reportPage(report({ summary: 'Something else entirely.' }), PLAN)
+    const decision = page.slice(page.indexOf('id="decision"'))
+    expect(decision).toContain('<h3>Exactly what will be written</h3>')
+    expect(decision).toContain('<p><strong>Description:</strong> feat: &lt;A&gt; &amp; &quot;B&quot;</p>')
+    expect(decision).toContain('<li>Goal: &lt;x&gt; &amp; y</li>')
+    expect(decision).toContain('<li>Done when: `z` shows</li>')
+    expect(decision).toContain('<p class="muted">The tool also adds a note linking this report.</p>')
   })
 
   test('says so when the plan has no notes', () => {
-    const page = reportPage(report(), { description: 'feat: A', notes: [] })
-    expect(page).toContain('<p><strong>Description:</strong> feat: A</p><p>No notes.</p><p class="muted">')
-    const block = page.slice(page.indexOf('<section id="plan">'), page.indexOf('<section id="files">'))
-    expect(block).not.toContain('<ol>')
+    expect(reportPage(report(), { ...PLAN, notes: [] })).toContain('<p>No notes.</p>')
   })
 })
 
@@ -164,16 +177,16 @@ describe('diagrams', () => {
   test('escape Mermaid source, and give flowcharts and state diagrams the change colours', () => {
     const flow = part({ mermaid: 'flowchart LR\n a["x"] --> b' })
     expect(flow).toContain('a[&quot;x&quot;] --&gt; b')
-    expect(flow).toContain('classDef new fill:#dcfce7')
-    expect(part({ mermaid: 'stateDiagram-v2\n [*] --> A' })).toContain('classDef change fill:#fef3c7')
+    expect(flow).toContain('classDef new fill:#99E885')
+    expect(part({ mermaid: 'stateDiagram-v2\n [*] --> A' })).toContain('classDef change fill:#F7CB46')
     expect(part({ mermaid: 'sequenceDiagram\n A->>B: hi' })).not.toContain('classDef')
   })
 
   test('find the kind of diagram past comments, directives and front matter', () => {
     expect(part({ mermaid: "%%{init: {'theme': 'base'}}%%\n%% the flow\nflowchart LR\n a --> b" })).toContain(
-      'classDef new fill:#dcfce7',
+      'classDef new fill:#99E885',
     )
-    expect(part({ mermaid: '---\ntitle: The flow\n---\nflowchart LR\n a --> b' })).toContain('classDef new fill:#dcfce7')
+    expect(part({ mermaid: '---\ntitle: The flow\n---\nflowchart LR\n a --> b' })).toContain('classDef new fill:#99E885')
     expect(part({ mermaid: '---\ntitle: flowchart\n---\nsequenceDiagram\n A->>B: hi' })).not.toContain('classDef')
     expect(part({ mermaid: '%% flowchart\nsequenceDiagram\n A->>B: hi' })).not.toContain('classDef')
   })
@@ -185,6 +198,20 @@ describe('diagrams', () => {
   test('put detail in a collapsed block', () => {
     const page = reportPage(report({ sections: [{ heading: 'h', points: ['p'], detail: '<p>deep</p>' }] }), PLAN)
     expect(page).toContain('<details>\n<summary>More detail</summary>\n<p>deep</p>\n</details>')
+  })
+
+  test('sit beside the points, and a part without one has its points alone', () => {
+    expect(part({ mermaid: 'flowchart LR\n a --> b' })).toContain('<div class="split">')
+    const bare = reportPage(report(), PLAN)
+    expect(bare).not.toContain('<div class="split">')
+    expect(bare).toContain('<div class="points solo">')
+  })
+
+  test('carry the legend under the drawing, only where the change colours apply', () => {
+    const flow = part({ mermaid: 'flowchart LR\n a --> b' })
+    expect(flow.indexOf('<p class="legend">')).toBeGreaterThan(flow.indexOf('<pre class="mermaid">'))
+    expect(part({ mermaid: 'sequenceDiagram\n A->>B: hi' })).not.toContain('<p class="legend">')
+    expect(part({ svg: '<svg viewBox="0 0 1 1"><rect/></svg>' })).not.toContain('<p class="legend">')
   })
 })
 

@@ -326,7 +326,7 @@ test('report, then approve: writes the page, opens it, then writes the task', { 
   expect(writes[0]?.text).toContain('Content-Security-Policy')
   // The plan the person was shown, from the tool's own arguments.
   const page = writes[0]?.text ?? ''
-  const block = page.slice(page.indexOf('<h2>Exactly what will be written</h2>'), page.indexOf('<section id="files">'))
+  const block = page.slice(page.indexOf('id="decision"'))
   expect(block).toContain('<p><strong>Description:</strong> feat: New words</p>')
   for (const note of CALL.notes) expect(block).toContain(`<li>${note}</li>`)
   expect(seen).toContain(`log: Report: ${REPORT_PATH}`)
