@@ -2,7 +2,7 @@
 // the mod hands the shipped renderer, the fence it runs it in, and what it
 // keeps of what comes back. No `$`, so the unit tests reach it directly.
 
-import { withMarks } from './page'
+import { diagramKind, withMarks } from './page'
 import type { Report } from './report'
 
 // The renderer the mod ships: beautiful-mermaid, bundled (render/README.md).
@@ -34,10 +34,23 @@ export const drawArgv = (runtimePath: string, script: string): string[] => [
   '/run/r/runtime', '/run/r/diagrams.mjs',
 ]
 
+// A change mark in a diagram: a `class <ids> new` line, or `:::new` after a
+// node, for each of the three changes.
+const MARKED = /^\s*class\s+\S[^\n]*\s(?:new|change|remove)\s*;?\s*$|:::(?:new|change|remove)(?![\w-])/m
+
+// beautiful-mermaid draws a state diagram without its classes, so one that
+// marks a change would lose its colours: Mermaid in the browser draws it.
+const drawable = (source: string): boolean => !(diagramKind(source).startsWith('stateDiagram') && MARKED.test(source))
+
 // Each part's Mermaid source as it is to be drawn, flowcharts and state
-// diagrams with the change colours; undefined for a part with none.
+// diagrams with the change colours; undefined for a part with none, or with
+// one left to the browser.
 export const drawSources = (report: Report): (string | undefined)[] =>
-  report.sections.map(s => (s.diagram !== undefined && 'mermaid' in s.diagram ? withMarks(s.diagram.mermaid) : undefined))
+  report.sections.map(s =>
+    s.diagram !== undefined && 'mermaid' in s.diagram && drawable(s.diagram.mermaid)
+      ? withMarks(s.diagram.mermaid)
+      : undefined,
+  )
 
 // What an SVG from the renderer may not hold: it is put in the page as it is,
 // so nothing that runs, loads or links. beautiful-mermaid draws plain shapes

@@ -112,8 +112,10 @@ The files and the checks are always there: they are fields, not parts.
   and state diagrams only. In one, add `class <node> new`, `change` or
   `remove`, or `:::new` after a node. The slides draw them green, yellow
   and dashed pink, the same as the file badges, with a legend under the
-  diagram. Do not define those classes yourself. In a sequence diagram, wrap the new
-  steps in `rect rgb(153, 232, 133)` … `end`.
+  diagram. Do not define those classes yourself. The mod keeps the
+  colours when it draws a flowchart; a state diagram with marks is drawn
+  in the browser instead, which needs the internet. In a sequence
+  diagram, wrap the new steps in `rect rgb(153, 232, 133)` … `end`.
 - **Generics in a class diagram** are written `Vec~Frame~`, not
   `Vec<Frame>`, which is refused.
 - **Label the arrows** with what moves or happens.

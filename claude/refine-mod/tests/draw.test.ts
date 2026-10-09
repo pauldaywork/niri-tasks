@@ -50,6 +50,23 @@ describe('drawSources', () => {
     expect(sources[2]).toBeUndefined()
     expect(sources[3]).toBe('sequenceDiagram\n A->>B: hi')
   })
+
+  // beautiful-mermaid draws a state diagram without the change colours, so
+  // one that marks a change is left to Mermaid in the browser.
+  test('leaves a state diagram with change marks to the browser', () => {
+    const state = (mermaid: string) => drawSources(report([{ heading: 'a', points: ['p'], look_at: 'x', diagram: { mermaid } }]))[0]
+    expect(state('stateDiagram-v2\n [*] --> A\n A --> B\n class B new')).toBeUndefined()
+    expect(state('stateDiagram-v2\n [*] --> A\n class A,B change;')).toBeUndefined()
+    expect(state('stateDiagram\n [*] --> A:::remove')).toBeUndefined()
+    expect(state('%% the states\nstateDiagram-v2\n A --> B:::new')).toBeUndefined()
+    expect(state('stateDiagram-v2\n [*] --> A\n A --> B')).toStartWith('stateDiagram-v2\n [*] --> A\n A --> B\nclassDef new')
+  })
+
+  test('still draws a flowchart with change marks', () => {
+    const flow = 'flowchart LR\n a --> b:::new\n class a remove'
+    const [source] = drawSources(report([{ heading: 'a', points: ['p'], look_at: 'x', diagram: { mermaid: flow } }]))
+    expect(source).toStartWith(`${flow}\nclassDef new`)
+  })
 })
 
 describe('drawnSvgs', () => {

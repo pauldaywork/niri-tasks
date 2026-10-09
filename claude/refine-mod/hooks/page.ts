@@ -94,12 +94,16 @@ const NEXT =
 // What the colours mean, under a drawing that takes them.
 const LEGEND = `<p class="legend">${badge('new')} ${badge('change')} ${badge('remove')} Everything else is unchanged.</p>`
 
-// Whether a Mermaid diagram takes the change colours: a flowchart or a state
-// diagram, named past any front matter and `%%` comment or directive lines.
-export const takesMarks = (source: string): boolean => {
+// What kind of Mermaid diagram a source is: its first word, past any front
+// matter and `%%` comment or directive lines; '' when it has none.
+export const diagramKind = (source: string): string => {
   const body = source.replace(/^\s*---[^\S\n]*\n[\s\S]*?\n\s*---[^\S\n]*(?:\n|$)/, '')
-  return /^(?:\s*%%[^\n]*(?:\n|$))*\s*(?:flowchart|graph|stateDiagram)/.test(body)
+  return /^(?:\s*%%[^\n]*(?:\n|$))*\s*([A-Za-z][\w-]*)/.exec(body)?.[1] ?? ''
 }
+
+// Whether a Mermaid diagram takes the change colours: a flowchart or a state
+// diagram.
+export const takesMarks = (source: string): boolean => /^(?:flowchart|graph|stateDiagram)/.test(diagramKind(source))
 
 // Flowcharts and state diagrams get the change colours after their own lines.
 export const withMarks = (source: string): string => (takesMarks(source) ? `${source.trimEnd()}\n${MARKS}` : source)
