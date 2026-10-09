@@ -12,6 +12,12 @@ its `-shm` file on a read. Where it says a session could rewrite
 `pending.data`, read `taskchampion.sqlite3`. Taskwarrior's undo, named below
 as one of the bounds, reaches back only to the move to 3.5.0.
 
+*2026-10-09:* the write tool also adds notes of its own: one per HTML
+report the person asked for during the session (`show_task_report`),
+`Report: <path>` or `Report (earlier draft): <path>`. They are shown with
+the plan before the question, so what the person approves is still what is
+written.
+
 Refine starts Claude in a herdr tab fenced in from outside: `refine.rs` and
 `herdr.rs` hand it a Bash sandbox, hidden sockets and credentials, a list of
 removed tools and a standing instruction, all before Claude exists, and the

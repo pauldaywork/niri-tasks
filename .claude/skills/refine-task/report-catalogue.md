@@ -1,311 +1,227 @@
 # Refine report catalogue
 
-What a refine's HTML report holds, and the diagrams and tables that can
-explain a plan, each with when it applies. Read it when the person chooses
-**Show me a report first**, pick what fits the task, and pass the result to
-`show_task_report` as `body`.
+How to fill `show_task_report` when the user chooses **Show me a report
+first**. The tool builds the page itself, in one fixed layout, from the
+fields you give it. Your job is the words and the diagrams.
 
-The report is for one decision: approve this plan, or change it. Every
-section should help the person see what will change and judge whether the
-plan is right. Leave out a section whose "when" does not hold; a short report
-that fits is better than a long one that pads.
+## Who reads it, and what for
 
-## The page you write
+One person, deciding one thing: approve this plan, or say what to change.
+Write for a reader who may have ADHD. They scan rather than read, hold about
+four things in mind at once, lose their place when interrupted, and give up
+on walls of text. What helps them helps every reader:
 
-You write only what goes inside `<body>`. The tool adds the rest: the page
-head, a stylesheet, and Mermaid. The page runs no script of yours and loads
-nothing but Mermaid, so the tool refuses `<script>`, `<meta>`, `<link>`, `<base>`,
-`<iframe>`, `<frame>`, `<frameset>`, `<object>`, `<embed>`, `<form>` and
-`<portal>`. Styles in a `<style>` element are fine. Images must be inline:
-`<svg>` or a `data:` URL.
+- **Conclusion first.** The top of the page answers "what does this do, and
+  what am I deciding?" before any detail.
+- **Short and plain.** One idea per line, everyday words, no idioms, no
+  double negatives. Say "the panel", not `src/panel/surface.rs`, except in
+  `files`.
+- **Point at what matters.** Each diagram says what to look at, and
+  `needs_your_eye` says where the reader's judgement is needed.
+- **Pictures with words, not instead of them.** Every diagram has points
+  beside it.
+- **The same shape every time.** The layout never changes, so the reader
+  learns it once.
 
-Diagrams are either:
+The tool enforces the limits below and refuses a report that breaks them,
+listing every reason, so fix them all and call again.
 
-- **Mermaid** — `<pre class="mermaid">…</pre>` holding a Mermaid 11
-  diagram. Escape `<` and `&` inside it as `&lt;` and `&amp;`.
-  Mermaid lays it out; use it for anything with boxes and arrows. Offline it
-  shows as its source text.
-- **Inline SVG** — for what Mermaid draws badly: a screen mock-up, a
-  before/after of a layout, a timeline with real proportions. Give it a
-  `viewBox`, and use `currentColor` for lines and text so it reads in dark
-  mode.
+## The fields
 
-Put each diagram in a `<figure>` with a `<figcaption>` saying what to look
-at.
-
-The stylesheet gives you, beyond plain HTML:
-
-| Class | On | What it is |
+| Field | What it holds | Limit |
 |---|---|---|
-| `lede` | `<p>` | The opening summary, set larger. |
-| `badge add`, `badge change`, `badge remove` | `<span>` | A coloured chip for a file's change. |
-| `cols` | `<div>` | Its children side by side, stacked on a narrow window: before and after. |
-| `callout` | `<div>` or `<aside>` | A boxed note: an open question, an assumption. |
-| `risk high`, `risk medium`, `risk low` | `<span>` | A coloured chip for a risk's level. |
-| `muted` | any | Quieter text: paths, asides. |
+| `title` | The task's new description. | 120 characters |
+| `summary` | One sentence: what the task does, for the reader. | 35 words |
+| `changes` | What will be different once it is done. | 1–3 lines, 20 words each |
+| `unchanged` | What stays the same, or is out of scope, that the reader might worry about. | 0–3 lines, 20 words each |
+| `needs_your_eye` | Where the reader's judgement is needed: an assumption, a trade-off, a risk, an open question. | 0–3 lines, 30 words each |
+| `terms` | Words the report uses that the reader may not know, each with a plain `meaning`. | 0–5; term 4 words, meaning 20 |
+| `sections` | The parts that explain the plan, in reading order. | 1–6 |
+| `sections[].heading` | A statement of what the part shows: "What you will see", not "Overview". | 10 words |
+| `sections[].diagram` | One diagram: `{ "mermaid": "…" }` or `{ "svg": "<svg …>…</svg>" }`. | Mermaid 40 lines |
+| `sections[].look_at` | With a diagram, and only then: what to look at in it. | 25 words |
+| `sections[].points` | What the part says, one idea per line. | 1–5 lines, 25 words each |
+| `sections[].detail` | Optional HTML, shown collapsed under "More detail", for whoever wants it. | 20,000 characters |
+| `files` | Every file the plan touches: `path`, `change` (`new`, `change` or `remove`) and `why`. | 1–40; why 20 words |
+| `checks` | The Done when checks: the `check`, and `how` it is checked. | 1–6; 20 words each |
 
-Tables, `<details>`, `<code>`, `<pre>`, headings and lists are styled.
+Every field except `detail` and the diagram is one line of plain text. Two
+marks are drawn specially: text in backticks as code, and a short label
+before the first `: ` in bold. Start a line with a label when it helps the
+reader scan: `"Approval: the task is still written only when you choose."`
 
-## What every report holds
+`detail`, an SVG and a Mermaid diagram may not contain `<script>`, `<meta>`,
+`<link>`, `<base>`, `<iframe>`, `<frame>`, `<frameset>`, `<object>`,
+`<embed>`, `<form>` or `<portal>`: the page runs no script but Mermaid,
+loads nothing but Mermaid, and sends nothing.
 
-In this order:
+## Choosing the parts
 
-1. **`<h1>`** — the task's new description.
-2. **Summary** — a `<p class="lede">`: what the plan does and why, in two or
-   three sentences, from the Goal note.
-3. **Files to change** — the file-change map below. Always.
-4. **The diagrams that fit** — from the catalogue below, each under an
-   `<h2>` naming what it shows.
-5. **Done when** — the done-when checks below. Always.
-6. **Out of scope** — a list, when the plan has an Out of scope note.
+Choose parts by the question they answer for the reader. Most tasks need two
+to four. Put the one about what the reader will notice first.
 
-Ground everything in the code you read: real paths, real function and type
-names. Mark what the plan adds and does not yet exist as new.
+| The reader asks | Make a part with | When |
+|---|---|---|
+| What will I see change? | A **before and after**: one diagram with the new parts marked `new`, or two small ones. | Anything the user sees or does changes. |
+| What happens, in order? | A **sequence** diagram (`sequenceDiagram`). | Several actors — the user, a CLI, a daemon, Claude, a service — take turns. |
+| What states can it be in? | A **state** diagram (`stateDiagram-v2`). | Something gains, loses or guards a state: a task's status, a mode, a flag. |
+| Where does the data go? | A **data flow** (`flowchart LR`), stores as `[( )]`, arrows labelled with what moves. | Data is read, changed, stored or sent in a new way. |
+| What talks to what? | A **component map** (`flowchart TB`, a `subgraph` per process). | A module, process or service is added, or a job moves between them. |
+| What does each case do? | Points, one per case, or a table in `detail`. | Behaviour branches on two or more inputs. |
+| What shape is the data? | A `classDiagram`, or a field table in `detail`. | A type, a JSON shape or a config's keys change. |
+| What else was considered? | Points: each option, and why it was or was not chosen. | A Decided note chose between alternatives. |
+| What could go wrong? | Points starting "Risk: …", and the worst one in `needs_your_eye`. | Something working could break, data could be lost, or a security boundary moves. |
 
-## Catalogue
+The files and the checks are always there: they are fields, not parts.
 
-### File-change map
+## Drawing diagrams
 
-**When:** always.
+- **One idea per diagram, at most about nine boxes.** Split a bigger one in
+  two parts.
+- **Plain names on the boxes:** "the panel", "Claude", "the task". File
+  names belong in `files`.
+- **Mark what the plan changes.** In a flowchart or a state diagram, add
+  `class <node> new`, `change` or `remove`, or `:::new` after a node. The page
+  draws them green, amber and dashed red, the same as the file badges, and
+  says so above the first part. Do not define those classes yourself. In a
+  sequence diagram, wrap the new steps in `rect rgb(220, 252, 231)` … `end`.
+- **Label the arrows** with what moves or happens.
+- **`look_at` points at the change:** "The new middle answer, and the loop
+  back to the question", not "The flow".
+- Use SVG only for what Mermaid draws badly, such as a screen mock-up. Give
+  it a `viewBox`, and draw lines and text in `currentColor`.
 
-A table, one row per file: the path in `<code>`, a badge for the change,
-why it changes in one sentence, and which step of the plan touches it. Group
-rows by area (module, folder) when there are more than about eight. When the
-files call one another in ways the plan changes, follow the table with a
-Mermaid flowchart of them, new files and edges marked.
+## Writing the lines
 
-```html
-<table>
-  <thead><tr><th>File</th><th>Change</th><th>Why</th><th>Step</th></tr></thead>
-  <tbody>
-    <tr><td><code>src/refine.rs</code></td><td><span class="badge change">change</span></td>
-      <td>Tells the mod where reports go.</td><td>3</td></tr>
-    <tr><td><code>claude/refine-mod/hooks/report.ts</code></td><td><span class="badge add">new</span></td>
-      <td>Builds the page around the model's HTML.</td><td>2</td></tr>
-  </tbody>
-</table>
+- Start with the thing that matters, in everyday words.
+- One idea per line; no "and also".
+- Name things the way the project does (`CONTEXT.md`), and put any word the
+  reader may not know in `terms`.
+- No italics, capitals for emphasis or exclamation marks; the label is the
+  emphasis.
+- Say what the plan does, not what it "aims to" or "should" do.
+
+## Worked example
+
+This very feature, explained:
+
+```json
+{
+  "title": "feat: Let a refine show an HTML report of its plan",
+  "summary": "Before you approve a refined task, you can ask for a page that explains the plan with pictures, then approve or change it as before.",
+  "changes": [
+    "New answer: the question gains \"Show me a report first\", which writes nothing to the task.",
+    "New page: the report opens in your browser and is saved under reviews, never in /tmp.",
+    "New note: the task keeps a link to each report made while refining it."
+  ],
+  "unchanged": [
+    "Approval: the task is still written only when you choose Write it to the task.",
+    "Every refine: no report is made unless you ask for one."
+  ],
+  "needs_your_eye": [
+    "Diagrams need the internet: offline, Mermaid diagrams show as their source text.",
+    "Script: the page runs no script but pinned Mermaid, so the model cannot act in your browser."
+  ],
+  "terms": [
+    {
+      "term": "Refine",
+      "meaning": "Claude turning a terse task into a plan, then writing it back."
+    },
+    {
+      "term": "The mod",
+      "meaning": "Code inside Claude Code that asks you before writing the task."
+    },
+    {
+      "term": "Mermaid",
+      "meaning": "A tool that draws diagrams from short text descriptions."
+    }
+  ],
+  "sections": [
+    {
+      "heading": "What you will see",
+      "look_at": "The new middle answer, and the loop back to the same question.",
+      "diagram": {
+        "mermaid": "flowchart TD\n  ask[\"Write this to the task?\"] --> write[\"Write it to the task\"]\n  ask --> report[\"Show me a report first\"]:::new\n  report --> page[\"Report opens in your browser\"]:::new\n  page --> ask\n  ask --> change[\"Change something\"]"
+      },
+      "points": [
+        "Choose the report: nothing is written yet.",
+        "Read the page: it opens by itself in your browser.",
+        "Back in the terminal: the same question comes back."
+      ]
+    },
+    {
+      "heading": "How the report is made",
+      "look_at": "The mod, not Claude, writes the page and opens it.",
+      "diagram": {
+        "mermaid": "sequenceDiagram\n  actor You\n  participant C as Claude\n  participant M as The mod\n  C->>M: write_task_plan(plan)\n  M->>You: Write this to the task?\n  rect rgb(220, 252, 231)\n  You-->>M: Show me a report first\n  M-->>C: Build the report\n  C->>M: show_task_report(report)\n  M->>You: Opens the page\n  end\n  C->>M: write_task_plan(plan)"
+      },
+      "points": [
+        "Claude fills in fixed fields: summary, changes, diagrams, files and checks.",
+        "The mod builds the page, so every report has the same layout.",
+        "The page runs no script of Claude's: only the pinned Mermaid library."
+      ]
+    },
+    {
+      "heading": "What the task remembers",
+      "points": [
+        "Report note: each report becomes a note, Report: followed by its path.",
+        "Earlier draft: a report made before you changed the plan is marked as an earlier draft.",
+        "You approve it: the note is shown with the plan before you choose."
+      ]
+    }
+  ],
+  "files": [
+    {
+      "path": "claude/refine-mod/hooks/report.ts",
+      "change": "change",
+      "why": "Checks the report's fields and their length limits."
+    },
+    {
+      "path": "claude/refine-mod/hooks/page.ts",
+      "change": "new",
+      "why": "Builds the page in one fixed, readable layout."
+    },
+    {
+      "path": "claude/refine-mod/hooks/refine.ts",
+      "change": "change",
+      "why": "Adds the answer, the report tool and the report notes."
+    },
+    {
+      "path": ".claude/skills/refine-task/SKILL.md",
+      "change": "change",
+      "why": "Tells Claude when and how to make a report."
+    },
+    {
+      "path": ".claude/skills/refine-task/report-catalogue.md",
+      "change": "change",
+      "why": "Explains how to write a report that is easy to read."
+    }
+  ],
+  "checks": [
+    {
+      "check": "Choosing the report opens a page in the browser",
+      "how": "A live refine, by hand"
+    },
+    {
+      "check": "Approving afterwards writes the task with a report note",
+      "how": "A live refine, then `task export`"
+    },
+    {
+      "check": "The mod's tests pass",
+      "how": "`claude plugin test claude/refine-mod`"
+    }
+  ]
+}
 ```
 
-```mermaid
-flowchart LR
-  refine_rs["src/refine.rs"] -->|pluginConfigs| mod["hooks/refine.ts"]
-  mod --> plan["hooks/plan.ts"]
-  mod --> report["hooks/report.ts (new)"]
-  classDef new stroke-dasharray: 5 5
-  class report new
-```
+## Why it is built this way
 
-### Before and after
-
-**When:** the plan changes how something behaves, looks or flows, and the
-change is easier to see than to read.
-
-Two figures in a `<div class="cols">`, the same kind of diagram on each side
-so the difference stands out: two flowcharts for a flow, two inline SVG
-mock-ups for a screen, two short code excerpts in `<pre>` for an interface.
-
-```html
-<div class="cols">
-  <figure><pre class="mermaid">flowchart TD
-  a[Ask] --> w[Write]
-  a --> c[Change]</pre><figcaption>Before: two answers.</figcaption></figure>
-  <figure><pre class="mermaid">flowchart TD
-  a[Ask] --> w[Write]
-  a --> r[Report] --> a
-  a --> c[Change]</pre><figcaption>After: a report, then ask again.</figcaption></figure>
-</div>
-```
-
-### Sequence
-
-**When:** several actors — the person, a CLI, a daemon, a mod, an external
-service — exchange calls or messages, and the order matters. arc42 calls this
-the runtime view.
-
-```mermaid
-sequenceDiagram
-  actor P as Person
-  participant M as Model
-  participant T as Mod
-  M->>T: write_task_plan(plan)
-  T->>P: Write this to the task?
-  P-->>T: Show me a report first
-  T-->>M: Nothing written: build the report
-  M->>T: show_task_report(title, body)
-  T->>P: opens the report
-  M->>T: write_task_plan(plan)
-```
-
-### Data flow
-
-**When:** data moves through stages — read, transformed, stored, sent —
-and the plan adds or changes a stage, a format or a store.
-
-A Mermaid `flowchart LR`, stores as cylinders (`[( )]`), processes as boxes,
-edges labelled with what moves.
-
-```mermaid
-flowchart LR
-  tw[(Taskwarrior)] -->|export JSON| mod[mod]
-  mod -->|merged task| imp[task import]
-  imp --> tw
-```
-
-### State machine
-
-**When:** something has states and transitions the plan adds, removes or
-guards: a task's status or tags, a mode, a session's lifecycle, a one-shot
-flag.
-
-```mermaid
-stateDiagram-v2
-  [*] --> Idle
-  Idle --> ReportAsked: person chose the report
-  ReportAsked --> Idle: report written
-  Idle --> Written: person chose Write
-  Written --> [*]
-```
-
-### Decision table
-
-**When:** behaviour branches on two or more inputs, and the plan sets or
-changes what each combination does.
-
-An HTML table: one column per condition, one for the outcome, one row per
-combination that behaves differently. Say what happens for the combinations
-left out.
-
-```html
-<table>
-  <thead><tr><th>uuid valid</th><th>sandbox on</th><th>reports folder</th><th>Offered</th></tr></thead>
-  <tbody>
-    <tr><td>yes</td><td>yes</td><td>absolute</td><td>both tools, three answers</td></tr>
-    <tr><td>yes</td><td>yes</td><td>missing</td><td>write tool, two answers</td></tr>
-    <tr><td>no</td><td>any</td><td>any</td><td>no tool</td></tr>
-  </tbody>
-</table>
-```
-
-### Component map
-
-**When:** the plan adds a module, process or service, or moves a
-responsibility between them. A C4 container or component view: one level,
-not the whole system.
-
-A Mermaid flowchart with a `subgraph` per process or package, the new or
-changed parts marked.
-
-```mermaid
-flowchart TB
-  subgraph niritasks
-    refine[refine.rs]
-  end
-  subgraph Claude session
-    skill[refine-task skill]
-    subgraph mod[refine mod]
-      write[write_task_plan]
-      report[show_task_report]
-    end
-  end
-  refine -->|--settings, --plugin-dir| mod
-  skill --> write
-  skill --> report
-```
-
-### Types and data shapes
-
-**When:** the plan adds or changes a type, a JSON shape, a table or a
-config's keys. A Mermaid `classDiagram` for types with methods, an
-`erDiagram` for stored records, or a table of field, type and meaning for a
-flat shape.
-
-```mermaid
-classDiagram
-  class Report {
-    title: string
-    body: string
-  }
-  class Plan {
-    description: string
-    notes: string[]
-  }
-```
-
-### Screen mock-up
-
-**When:** the plan changes something the person sees: a panel, a dialog, a
-card, a message. Inline SVG with boxes and text at roughly the real
-proportions, or HTML and CSS boxes. Pair it with Before and after when it
-replaces something.
-
-```html
-<svg viewBox="0 0 320 120" width="320" role="img" aria-label="The question with three answers">
-  <rect x="1" y="1" width="318" height="118" rx="8" fill="none" stroke="currentColor"/>
-  <text x="16" y="28" fill="currentColor">Write this to the task?</text>
-  <text x="16" y="56" fill="currentColor">1. Write it to the task</text>
-  <text x="16" y="80" fill="currentColor">2. Show me a report first</text>
-  <text x="16" y="104" fill="currentColor">3. Change something</text>
-</svg>
-```
-
-### Order of work
-
-**When:** the plan has steps that depend on one another, or that land as
-separate commits. An ordered list, one item per step with the files it
-touches; a Mermaid flowchart when the dependencies are not a straight line.
-
-### Options considered
-
-**When:** a Decided note chose between alternatives. A table: option, what it
-costs, what it gains, and which was chosen and why.
-
-### Risks
-
-**When:** the plan can break something already working, touches data the
-person cannot easily restore, changes a security boundary, or rests on an
-assumption not yet proven. arc42 calls these risks and technical debt.
-
-A table: risk, a `risk high|medium|low` chip, how likely, what it would
-break, and what the plan does about it.
-
-```html
-<table>
-  <thead><tr><th>Risk</th><th>Level</th><th>Mitigation</th></tr></thead>
-  <tbody>
-    <tr><td>The report's HTML runs script in the person's browser.</td>
-      <td><span class="risk high">high</span></td>
-      <td>The page's CSP allows only pinned Mermaid; script elements are refused.</td></tr>
-  </tbody>
-</table>
-```
-
-### Open questions and assumptions
-
-**When:** the plan rests on something not yet checked, or leaves a question
-for the person. A `<div class="callout">` per item, saying what would change
-if it turned out otherwise.
-
-### Done-when checks
-
-**When:** always.
-
-A table from the Done when note: each check, and how it will be verified —
-the test that runs, the command, or what to look for by hand.
-
-```html
-<table>
-  <thead><tr><th>Check</th><th>Verified by</th></tr></thead>
-  <tbody>
-    <tr><td>The report opens in the browser</td><td>A live refine, by hand</td></tr>
-    <tr><td>The mod's tests pass</td><td><code>claude plugin test claude/refine-mod</code></td></tr>
-  </tbody>
-</table>
-```
-
-## Sources
-
-- Mermaid syntax and usage: https://mermaid.js.org/intro/
-- The C4 model: https://c4model.com/
-- arc42: https://docs.arc42.org/home/
-- MDN, Content-Security-Policy:
-  https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy
+- W3C, Making Content Usable for People with Cognitive and Learning
+  Disabilities: https://www.w3.org/TR/coga-usable/
+- Nielsen Norman Group, How Users Read on the Web:
+  https://www.nngroup.com/articles/how-users-read-on-the-web/
+- WCAG 2.2, Understanding 1.4.8 Visual Presentation:
+  https://www.w3.org/WAI/WCAG22/Understanding/visual-presentation.html
+- Mayer's principles of multimedia learning, and Lorch on text signals.
+- Moody, The "Physics" of Notations (IEEE TSE, 2009).
+- Mermaid syntax: https://mermaid.js.org/intro/

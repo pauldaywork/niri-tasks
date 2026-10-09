@@ -52,6 +52,13 @@ description and a consolidated set of notes — marked with the `+planned` tag
 and a clipboard-check icon on its task card.
 _Avoid_: ready (Taskwarrior's `+READY` means something else), refined, groomed
 
+**Refine report**:
+An HTML page explaining a refine's plan — what changes, what needs the
+reader's judgement, diagrams, the files and the checks — that a refine
+session makes only when the user chooses Show me a report first. It is saved
+under the reviews folder and linked from the task's notes.
+_Avoid_: plan report, explainer
+
 **Up next task**:
 A pending task marked as the one to do next, with Taskwarrior's own `+next`
 tag, from Up next on its action row. Its task card is

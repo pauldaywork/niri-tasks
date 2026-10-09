@@ -110,7 +110,9 @@ what it will write and asks them. The proposal contains:
 2. **New notes** — each one line, each becoming one annotation, in this order
    where they apply: `Goal: …`, `Context: …`, `Decided: …` (one per decision),
    `Steps: …`, `Done when: …`, `Out of scope: …`. They **replace** the existing
-   notes, so fold in everything the old notes said that still holds.
+   notes, so fold in everything the old notes said that still holds. Keep any
+   `Report: …` or `Report (earlier draft): …` notes as they are: they link
+   earlier reports.
 3. **Before** — the current description and notes, so the user can see nothing
    was dropped.
 
@@ -155,8 +157,9 @@ it with:
 
 The tool shows the user the description and notes it was given, asks
 "Write this to the task?", and writes only if they choose **Write it to the
-task**. It writes the description, replaces the notes and adds `+planned` in
-one import, and touches nothing else. Its answer says what happened:
+task**. It writes the description, replaces the notes (adding a note that
+links each report made this session) and adds `+planned` in one import, and
+touches nothing else. Its answer says what happened:
 
 - **Wrote the plan …** — go to step 6.
 - **Nothing written: the person chose "Change something"** — ask them what to
@@ -194,24 +197,26 @@ way.
 The user wants to see the plan explained before they approve it. Write
 nothing to the task. Build the report:
 
-1. Read `report-catalogue.md` in this skill's base directory. It says what
-   every report holds, the classes its stylesheet gives you, and the
-   diagrams and tables that can explain a plan, each with when it applies.
-2. Pick what fits this task: the file-change map and the done-when checks
-   always, then each other entry whose **When** holds. Ground every one in
-   the code you read in step 2 — real paths, real function and type names —
-   and mark what the plan adds as new.
-3. Call `mcp__niri-tasks-refine__show_task_report` with `title` (the new
-   description) and `body` (the HTML inside `<body>`). Diagrams are
-   `<pre class="mermaid">` blocks or inline `<svg>`. No `<script>`, `<meta>`,
-   `<link>`, `<base>`, `<iframe>`, `<object>`, `<embed>` or `<form>`: the tool
-   adds the page around the body and refuses those.
+1. Read `report-catalogue.md` in this skill's base directory: who the report
+   is for, its fields and their limits, how to choose its parts and draw its
+   diagrams, and a worked example.
+2. Fill the fields from the plan you just proposed and the code you read in
+   step 2. Real paths go in `files`; everywhere else, plain words the user
+   would use.
+3. Call `mcp__niri-tasks-refine__show_task_report` with the fields. The tool
+   builds the page in its fixed layout, saves it under the reviews folder and
+   opens it in the browser.
 4. On **show_task_report: the person has not asked for a report**, call
    `write_task_plan` again instead; they can choose the report there. On any
-   other **show_task_report: …**, fix what it names and call it again. On
-   **Wrote the report to …**, tell the user the path in one line, then call
+   other **show_task_report: …**, the answer lists every field over its
+   limit or not allowed: fix them all and call it again. On **Wrote the
+   report to …**, tell the user the path in one line, then call
    `write_task_plan` again with the same `expected`, `description` and
    `notes`. The plan has not changed, so do not print the block again.
+
+When the task is written, the tool adds a note linking each report made in
+this session: `Report: <path>`, or `Report (earlier draft): <path>` for one
+made before the plan changed. Do not add these notes yourself.
 
 If, after reading the report, the user answers with changes, revise, print
 the block again (step 4) and call `write_task_plan` again.
@@ -219,9 +224,10 @@ the block again (step 4) and call `write_task_plan` again.
 ## 6. Verify and report
 
 Export once more and check: the description matches, the notes are exactly the
-new list, `planned` is in `tags`, and the other tags are unchanged. Tell the user
-what was written, and stop. Leave the session open — if the user then asks you
-to start on the task, that is a new request of theirs, not part of this skill.
+new list, followed by any `Report …` notes the tool added, `planned` is in
+`tags`, and the other tags are unchanged. Tell the user what was written, and
+stop. Leave the session open — if the user then asks you to start on the task,
+that is a new request of theirs, not part of this skill.
 
 Always address the task by uuid, never its numeric id: ids are renumbered as
 tasks complete.
