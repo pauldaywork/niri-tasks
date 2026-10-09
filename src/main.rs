@@ -10,8 +10,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use niri_tasks::{
     actions::Action,
-    caller_workspace, caller_workspace_tag, github, ipc, link, niri, notify, project, refine,
-    require_workspace_tag, session,
+    caller_workspace, caller_workspace_tag, dirs, github, ipc, link, niri, notify, project, refine,
+    require_workspace_tag,
     speak, task, text, work,
 };
 
@@ -428,9 +428,9 @@ fn project_open(name: Option<String>) -> Result<()> {
 /// the key doing nothing. The window still lands on the focused workspace:
 /// the running ghostty makes it, and niri places new windows by focus.
 fn terminal() -> Result<()> {
-    let home = std::env::var("HOME").context("HOME is unset")?;
+    let dirs = dirs::Dirs::from_env()?;
     let workspace = niri::focused_workspace_name()?.unwrap_or_default();
-    let dir = session::start_dir(std::path::Path::new(&home), &workspace);
+    let dir = dirs.start_dir(&workspace);
 
     let cmd = project::terminal_command(&dir);
     let status = std::process::Command::new(&cmd[0])

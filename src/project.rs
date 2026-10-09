@@ -289,8 +289,7 @@ pub fn substring_matches(folders: &[String], query: &str) -> Vec<String> {
 /// always offer the same set: a project you can open is a project you can
 /// move a task to.
 pub fn list() -> Result<(std::path::PathBuf, Vec<String>)> {
-    let home = std::env::var("HOME").context("HOME is unset")?;
-    let dir = std::path::Path::new(&home).join("Projects");
+    let dir = crate::dirs::Dirs::from_env()?.projects();
     let names = folders_in(&dir)?;
     Ok((dir, names))
 }
@@ -385,7 +384,7 @@ pub const SESSION_MANAGER: &str = "herdr";
 /// — with `-e` — starts a whole separate ghostty process. `+new-window` asks
 /// the running one for a window and hands it the directory and command; D-Bus
 /// starts ghostty first if nothing is running. It resolves `dir` before asking
-/// and fails on one that does not exist, which `session::start_dir` rules out.
+/// and fails on one that does not exist, which `Dirs::start_dir` rules out.
 pub fn terminal_command(dir: &std::path::Path) -> Vec<String> {
     vec![
         "ghostty".to_string(),

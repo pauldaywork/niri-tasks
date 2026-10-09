@@ -12,6 +12,7 @@
 //! the cache, so the repos are at most one invocation stale, and the very
 //! first open after install shows none at all. Cloning goes through `gh` too.
 
+use crate::dirs::Dirs;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
@@ -30,10 +31,7 @@ pub fn remote_only(remote: &[String], local: &[String]) -> Vec<String> {
 /// Where the repo list is cached: `$XDG_CACHE_HOME/niritasks/github-repos`,
 /// or `~/.cache/niritasks/github-repos`.
 pub fn cache_path() -> Option<PathBuf> {
-    std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
-        .map(|c| c.join("niritasks/github-repos"))
+    Dirs::from_env().ok().map(|d| d.cache().join("niritasks/github-repos"))
 }
 
 /// The cached repo names — one per line, written by [`spawn_refresh`]. A

@@ -5,6 +5,7 @@
 
 pub mod actions;
 pub mod daemon;
+pub mod dirs;
 pub mod github;
 pub mod ideas;
 pub mod ipc;
@@ -23,7 +24,6 @@ pub mod text;
 pub mod work;
 
 use anyhow::{Context, Result};
-use std::path::Path;
 
 /// The focused workspace's task tag.
 ///
@@ -103,9 +103,9 @@ fn session_workspace() -> Result<String> {
             format!("herdr session '{s}' does not match any named workspace — it may have been renamed since this terminal was opened")
         })?,
         None => {
-            let home = std::env::var("HOME").context("HOME is unset")?;
+            let dirs = dirs::Dirs::from_env()?;
             let cwd = std::env::current_dir().context("cannot read the current directory")?;
-            let project = session::project_from_cwd(Path::new(&home), &cwd).context(
+            let project = dirs.project_from_cwd(&cwd).context(
                 "not in a named herdr session or a ~/Projects folder, so there is no terminal to take the workspace from",
             )?;
             names.iter().find(|n| **n == project).with_context(|| {

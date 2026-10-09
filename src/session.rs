@@ -6,7 +6,8 @@
 //! to get from a terminal back to the workspace it was opened for:
 //!
 //! * **Folder**: a workspace named "hansard-votes" works in
-//!   `~/Projects/hansard-votes` ([`start_dir`]). Inverse: [`project_from_cwd`].
+//!   `~/Projects/hansard-votes` ([`Dirs::start_dir`]). Inverse:
+//!   [`Dirs::project_from_cwd`].
 //! * **Session**: its project terminal runs `herdr --session <name>`, with the
 //!   name made safe for herdr ([`herdr_session_name`]). Inverse:
 //!   [`workspace_for_session`], fed by [`session_from_env`].
@@ -24,8 +25,9 @@ mod herdr;
 #[cfg(test)]
 pub(crate) mod fake;
 
+use crate::dirs::Dirs;
 use anyhow::{bail, Context, Result};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// herdr refuses session names longer than this (herdr `src/session.rs`,
@@ -88,35 +90,6 @@ pub fn session_from_env(herdr_session: Option<&str>, socket_path: Option<&str>) 
     let dir = Path::new(socket_path?).parent()?;
     let is_named = dir.parent()?.file_name()? == "sessions";
     is_named.then(|| dir.file_name()?.to_str().map(str::to_string)).flatten()
-}
-
-/// Where a workspace's terminals start.
-///
-/// `~/Projects/<workspace>` -> `~/Projects` -> `~`. Uses the *raw* workspace
-/// name, not the sanitised one. Always an existing directory, which
-/// `ghostty +new-window` needs: it resolves the path before asking the running
-/// ghostty for a window, and fails outright on one that is not there.
-pub fn start_dir(home: &Path, workspace_raw: &str) -> PathBuf {
-    let projects = home.join("Projects");
-
-    let in_project = projects.join(workspace_raw);
-    if !workspace_raw.is_empty() && in_project.is_dir() {
-        return in_project;
-    }
-    if projects.is_dir() {
-        return projects;
-    }
-    home.to_path_buf()
-}
-
-/// The project folder `cwd` is inside, if it is inside one: the first path
-/// component under `~/Projects`. [`start_dir`] run backwards.
-pub fn project_from_cwd(home: &Path, cwd: &Path) -> Option<String> {
-    let rest = cwd.strip_prefix(home.join("Projects")).ok()?;
-    match rest.components().next()? {
-        Component::Normal(name) => name.to_str().map(str::to_string),
-        _ => None,
-    }
 }
 
 /// A failure herdr itself reported: its JSON error's code and message. The
@@ -307,10 +280,9 @@ pub struct Session {
 impl Session {
     /// The session for `workspace`, through the process adapter.
     pub fn for_workspace(workspace: &str) -> Result<Session> {
-        let home = std::env::var("HOME").context("HOME is unset")?;
         Ok(Session {
             name: herdr_session_name(workspace),
-            dir: start_dir(Path::new(&home), workspace),
+            dir: Dirs::from_env()?.start_dir(workspace),
             port: Box::new(herdr::Process),
         })
     }
@@ -642,49 +614,6 @@ mod tests {
     fn the_default_session_and_no_herdr_have_no_session() {
         assert_eq!(session_from_env(None, Some("/h/.config/herdr/herdr.sock")), None);
         assert_eq!(session_from_env(None, None), None);
-    }
-
-    #[test]
-    fn start_dir_falls_back_through_the_chain() {
-        let tmp = std::env::temp_dir().join(format!("niritasks-session-test-{}", std::process::id()));
-        let home = tmp.join("home");
-        let projects = home.join("Projects");
-        std::fs::create_dir_all(projects.join("alpha")).unwrap();
-        std::fs::create_dir_all(projects.join("my project")).unwrap();
-
-        // Exact project folder wins, by its raw name.
-        assert_eq!(start_dir(&home, "alpha"), projects.join("alpha"));
-        assert_eq!(start_dir(&home, "my project"), projects.join("my project"));
-        // Unknown project, or an unnamed workspace, falls back to ~/Projects.
-        assert_eq!(start_dir(&home, "nope"), projects);
-        assert_eq!(start_dir(&home, ""), projects);
-
-        // Without ~/Projects at all, fall back to home.
-        let bare = tmp.join("bare");
-        std::fs::create_dir_all(&bare).unwrap();
-        assert_eq!(start_dir(&bare, "anything"), bare);
-
-        std::fs::remove_dir_all(&tmp).ok();
-    }
-
-    #[test]
-    fn project_from_cwd_is_the_folder_under_projects() {
-        let home = Path::new("/home/x");
-        assert_eq!(
-            project_from_cwd(home, Path::new("/home/x/Projects/alpha")),
-            Some("alpha".to_string())
-        );
-        assert_eq!(
-            project_from_cwd(home, Path::new("/home/x/Projects/alpha/src/deep")),
-            Some("alpha".to_string())
-        );
-        assert_eq!(
-            project_from_cwd(home, Path::new("/home/x/Projects/my project")),
-            Some("my project".to_string())
-        );
-        assert_eq!(project_from_cwd(home, Path::new("/home/x/Projects")), None);
-        assert_eq!(project_from_cwd(home, Path::new("/home/x")), None);
-        assert_eq!(project_from_cwd(home, Path::new("/tmp/alpha")), None);
     }
 
     use super::fake::{Fake, StartOutcome};

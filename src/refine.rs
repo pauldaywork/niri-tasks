@@ -5,6 +5,7 @@
 //! nothing needs quoting through two CLIs and it always sees the current
 //! version rather than the one the panel showed.
 
+use crate::dirs::Dirs;
 use crate::session::{Claude, Session};
 use crate::{niri, notify, task, text};
 use anyhow::{bail, Context, Result};
@@ -88,12 +89,8 @@ pub const REFINE_MOD: &str = "niri-tasks-refine";
 /// where the repo is. Never under `~/.claude/skills`: a plugin there loads in
 /// every Claude session, not just a refine. A relative `XDG_DATA_HOME` is
 /// ignored, as the XDG spec says.
-pub fn refine_mod_dir(home: &Path, xdg_data_home: Option<&Path>) -> PathBuf {
-    xdg_data_home
-        .filter(|p| p.is_absolute())
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| home.join(".local/share"))
-        .join("niri-tasks/refine-mod")
+pub fn refine_mod_dir(dirs: &Dirs) -> PathBuf {
+    dirs.data().join("niri-tasks/refine-mod")
 }
 
 /// The Claude Code settings that fence a refine session in, as the JSON
@@ -248,15 +245,14 @@ fn ensure_no_exposed_sockets(hidden: &[PathBuf]) -> Result<()> {
 /// The task as found, not a uuid as typed: the session is found again by the
 /// uuid's first eight characters, and a typed task number has none of them.
 pub fn launch(workspace: &str, t: &task::Task, mode: Mode) -> Result<()> {
-    let home = std::env::var("HOME").context("HOME is unset")?;
-    let home = Path::new(&home);
+    let dirs = Dirs::from_env()?;
+    let home = dirs.home();
     let name = agent_name(&t.uuid);
 
     // Before anything opens: a refused refine should leave nothing behind.
     let hidden = hidden_paths(home);
     ensure_no_exposed_sockets(&hidden)?;
-    let xdg = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from);
-    let mod_dir = refine_mod_dir(home, xdg.as_deref());
+    let mod_dir = refine_mod_dir(&dirs);
     // Without the mod the session would have no way to write its plan, and
     // the user would find that out only at the end of the interview.
     anyhow::ensure!(
@@ -378,15 +374,15 @@ mod tests {
     /// ~/.claude/skills, where a plugin would load in every session.
     #[test]
     fn the_mod_lives_under_the_xdg_data_folder() {
-        let home = Path::new("/home/x");
-        assert_eq!(refine_mod_dir(home, None), PathBuf::from("/home/x/.local/share/niri-tasks/refine-mod"));
+        let home = Dirs::at(Path::new("/home/x"));
+        assert_eq!(refine_mod_dir(&home), PathBuf::from("/home/x/.local/share/niri-tasks/refine-mod"));
         assert_eq!(
-            refine_mod_dir(home, Some(Path::new("/data"))),
+            refine_mod_dir(&home.clone().with_data(Path::new("/data"))),
             PathBuf::from("/data/niri-tasks/refine-mod")
         );
         // The XDG spec says a relative path is to be ignored.
         assert_eq!(
-            refine_mod_dir(home, Some(Path::new("rel"))),
+            refine_mod_dir(&home.with_data(Path::new("rel"))),
             PathBuf::from("/home/x/.local/share/niri-tasks/refine-mod")
         );
     }

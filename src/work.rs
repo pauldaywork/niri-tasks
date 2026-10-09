@@ -4,8 +4,9 @@
 //! The worktree is found again by the task's uuid, never its description, so
 //! a description reworded since (by Refine, say) cannot fork a second one.
 
+use crate::dirs::Dirs;
 use crate::session::{current_pane, Claude, Session};
-use crate::{notify, project, session, task, text};
+use crate::{notify, project, task, text};
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -117,8 +118,7 @@ pub fn sh_quote(s: &str) -> String {
 /// The repository a workspace's tasks are worked in: its `~/Projects` folder,
 /// which has to be a git repository for there to be worktrees at all.
 fn repo_for(workspace: &str) -> Result<PathBuf> {
-    let home = std::env::var("HOME").context("HOME is unset")?;
-    let repo = session::start_dir(Path::new(&home), workspace);
+    let repo = Dirs::from_env()?.start_dir(workspace);
     anyhow::ensure!(
         repo.join(".git").exists(),
         "{} is not a git repository, so there is no worktree to make.",
