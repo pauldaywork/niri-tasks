@@ -18,7 +18,7 @@
 # daemon keeps running throughout and never sees these tasks.
 #
 # Because the screen is flat and fixed, the numbers are exact: the peek starts
-# at column 1566, the keyboard's cards span 420-1180, and a frame that should
+# at column 1567, the keyboard's cards span 420-1180, and a frame that should
 # not have changed is compared pixel for pixel. A parked nested niri draws only
 # when asked, so its first frame after a change can be stale; every frame is
 # shot until two in a row match.
@@ -55,10 +55,10 @@ NESTED_SPAWN_PATH="$SB/bin:/usr/bin:/bin"
 # The nested niri's one output (tests/lib/nested-niri.sh), in pixels.
 OUT_W=$NESTED_W
 OUT_H=$NESTED_H
-# Mirror PEEK_PX, RING_PX and SURFACE_WIDTH in src/panel/surface.rs, and
+# Mirror PEEK_PX and SURFACE_WIDTH in src/panel/layout.rs, and RING_PX and
 # CARD_WIDTH_PX in src/panel/style.rs.
 PEEK=30
-RING=4
+RING=3
 CARD=760
 SURFACE=784
 # Where the tucked peek starts: the peek, and the card's outline ring drawn
