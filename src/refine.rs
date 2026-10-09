@@ -77,6 +77,13 @@ pub fn refine_mod_dir(dirs: &Dirs) -> PathBuf {
     dirs.data().join("niri-tasks/refine-mod")
 }
 
+/// Where a refine's HTML report is written: beside the other reviews, under
+/// the XDG data folder. Outside the session's sandbox, so only the mod writes
+/// there.
+pub fn reports_dir(dirs: &Dirs) -> PathBuf {
+    dirs.data().join("niri-tasks/reviews")
+}
+
 /// The Claude Code settings that fence a refine session in, as the JSON
 /// `--settings` takes.
 ///
@@ -97,7 +104,8 @@ pub fn refine_mod_dir(dirs: &Dirs) -> PathBuf {
 /// it does not log — the skill reads with it, and it still runs sandboxed.
 /// The write itself is the refine mod's tool, which `pluginConfigs` tells
 /// which task it may write: `uuid`, never anything the model says.
-pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uuid: &str) -> String {
+/// It is told `reports` too, the folder its report tool writes to.
+pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uuid: &str, reports: &Path) -> String {
     let deny: Vec<String> = CREDENTIALS.iter().map(|c| format!("Read({c})")).collect();
     serde_json::json!({
         "permissions": {
@@ -117,7 +125,7 @@ pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uu
             },
         },
         "pluginConfigs": {
-            (REFINE_MOD): { "options": { "uuid": uuid } },
+            (REFINE_MOD): { "options": { "uuid": uuid, "reports": reports } },
         },
     })
     .to_string()
@@ -245,7 +253,7 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
         mod_dir.display()
     );
     let session = ws.session()?;
-    let settings = session_settings(session.dir(), &task::data_location()?, &hidden, &t.uuid);
+    let settings = session_settings(session.dir(), &task::data_location()?, &hidden, &t.uuid, &reports_dir(&dirs));
 
     let claude = Claude::Refiner { settings, mod_dir };
     let label = tab_label(mode, &t.description);
@@ -342,7 +350,7 @@ mod tests {
     #[test]
     fn the_sandbox_fences_the_session_to_the_task_database() {
         let hidden = [PathBuf::from("/run/user/1000"), PathBuf::from("/run/docker.sock")];
-        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden, "u");
+        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden, "u", Path::new("/r"));
         let v: Value = serde_json::from_str(&json).unwrap();
         let sb = &v["sandbox"];
         assert_eq!(sb["enabled"], true);
@@ -360,7 +368,7 @@ mod tests {
     /// No `python3`: the write is the mod's tool now.
     #[test]
     fn the_session_may_search_the_web_but_not_read_credentials() {
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u");
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"));
         let v: Value = serde_json::from_str(&json).unwrap();
         let allow = v["permissions"]["allow"].as_array().unwrap();
         for tool in ["WebSearch", "WebFetch", "Bash(task *)"] {
@@ -373,15 +381,29 @@ mod tests {
         assert_eq!(deny.len(), CREDENTIALS.len());
     }
 
-    /// The task the mod may write comes from these settings, never from the
-    /// model.
+    /// The task the mod may write, and where it may write a report, come from
+    /// these settings, never from the model.
     #[test]
-    fn the_mod_is_told_which_task_it_may_write() {
+    fn the_mod_is_told_which_task_it_may_write_and_where_reports_go() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/home/x/.local/share/niri-tasks/reviews"));
         let v: Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["uuid"], u);
+        let options = &v["pluginConfigs"][REFINE_MOD]["options"];
+        assert_eq!(options["uuid"], u);
+        assert_eq!(options["reports"], "/home/x/.local/share/niri-tasks/reviews");
         assert_eq!(REFINE_MOD, "niri-tasks-refine", "the name in claude/refine-mod's plugin.json");
+    }
+
+    /// Reports go beside the other reviews, under the XDG data folder: the
+    /// session's sandbox cannot write there, so only the mod can.
+    #[test]
+    fn reports_go_in_the_reviews_folder() {
+        let dirs = Dirs::at(Path::new("/home/x"));
+        assert_eq!(reports_dir(&dirs), PathBuf::from("/home/x/.local/share/niri-tasks/reviews"));
+        assert_eq!(
+            reports_dir(&dirs.with_data(Path::new("/data"))),
+            PathBuf::from("/data/niri-tasks/reviews")
+        );
     }
 
     /// Where install.sh links the mod: under the XDG data folder, never under

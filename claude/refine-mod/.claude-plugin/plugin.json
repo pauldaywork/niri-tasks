@@ -1,7 +1,7 @@
 {
   "name": "niri-tasks-refine",
   "version": "0.1.0",
-  "description": "Gives a refine session one tool, write_task_plan, that rewrites one Taskwarrior task's description and notes.",
+  "description": "Gives a refine session two tools: write_task_plan, which rewrites one Taskwarrior task's description and notes, and show_task_report, which writes and opens an HTML report of the plan when the person asks for one.",
   "author": {
     "name": "Paul Day"
   },
@@ -10,6 +10,13 @@
       "type": "string",
       "title": "Task UUID",
       "description": "The Taskwarrior task this session may rewrite. Unset, the tool is not offered.",
+      "required": false,
+      "default": ""
+    },
+    "reports": {
+      "type": "string",
+      "title": "Reports folder",
+      "description": "The absolute folder show_task_report writes its HTML reports to. Unset, the report is not offered.",
       "required": false,
       "default": ""
     }
