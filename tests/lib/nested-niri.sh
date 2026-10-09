@@ -201,7 +201,8 @@ nested_start() {
         shift
     done
 
-    # Animations off, so niri itself never draws a frame in between. Key
+    # For the tests only, not with --focused: animations off, so niri itself
+    # never draws a frame in between. Key
     # repeat off: these tests never hold a key, and a client still starting
     # up can handle a release late enough for its repeat to fire — the first
     # box in a fresh nested niri typed doubled letters that way. A flat

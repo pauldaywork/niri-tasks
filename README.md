@@ -451,8 +451,8 @@ but as an ordinary window, focused, on your workspace. Its one workspace is
 named after the project, so the panel shows the project's tasks from a copy
 of your task database, taken with an SQLite online backup; nothing is written
 back. `niri/niri-tasks.kdl` is included with Mod on Right Alt, since your own
-niri takes Super combinations first: Right Alt+Alt+T adds a task, Right
-Alt+Alt+Ctrl+T shows the panel. Notifications are printed in the terminal
+niri takes Super combinations first: Right Alt+left Alt+T adds a task, Right
+Alt+left Alt+Ctrl+T shows the panel. Notifications are printed in the terminal
 rather than shown on your desktop.
 
 The terminal becomes a try shell whose `niritasks`, `task` and `niri msg`
@@ -460,7 +460,13 @@ reach the nested niri. `reload` rebuilds and restarts the nested daemon,
 keeping the window and the copy; `exit` closes everything. The installed
 binary, the `niri-tasks` service and `install.sh`'s links are never touched,
 so tries in several worktrees run beside each other and beside `tests/all.sh`.
-herdr is kept out, so Start working and Go to session do nothing there.
+herdr is kept out, so Start working and Go to session fail there, with the
+reason printed in the try shell. Terminals, editors and clones are not opened
+either: `ghostty`, `code` and `gh` are stubs that print what would have run
+(`[notify] would run: …`), because ghostty and VS Code would otherwise hand
+off to your running instances and `gh` would clone into your real
+`~/Projects`. Mod+Alt+W can still make a folder under `~/Projects`, for a new
+name typed there.
 Installing a build for daily use is still `bash install.sh`, on main.
 
 ### Why the three scripts are not cargo tests

@@ -17,7 +17,12 @@
 #   exit     close the nested niri and throw the copy away
 #
 # Notifications are printed in the try shell rather than shown on your
-# desktop. Nothing is written back to your task database.
+# desktop. Nothing is written back to your task database. Terminals, editors
+# and clones are not opened from a try window either: ghostty and VS Code
+# hand off over the session bus to your running instances, and gh would
+# clone into your real ~/Projects, so stubs for ghostty, code and gh print
+# what would have run, as [notify] lines in the try shell. Mod+Alt+W can
+# still make a new folder under ~/Projects.
 #
 # It never touches what is installed: ~/.cargo/bin/niritasks, the
 # niri-tasks service and install.sh's links stay as they are, and your own
@@ -84,6 +89,19 @@ PY
 # nested PATH, finds this build for the shell, the daemon and the binds.
 mkdir -p "$SB/bin" "$SB/share"
 ln -sf "$BIN" "$SB/bin/niritasks"
+# Stubs for what would reach your real desktop or ~/Projects from a bind:
+# they record the call in the notification log and run nothing.
+for prog in ghostty code gh; do
+    cat > "$SB/bin/$prog" <<'STUB'
+#!/bin/sh
+echo "would run: ${0##*/} $*" >> "${NOTIFY_LOG:?}"
+exit 0
+STUB
+    chmod +x "$SB/bin/$prog"
+done
+# The Ideas tab saves under XDG_DATA_HOME: the sandbox's, never yours. Set
+# before the nested niri starts, so its bind spawns get it too.
+export XDG_DATA_HOME="$SB/share"
 NIRITASKS="$SB/bin/niritasks"
 # The binds' spawns get no herdr, as in the e2e tests.
 NESTED_SPAWN_PATH="$SB/bin:/usr/bin:/bin"
@@ -94,8 +112,6 @@ NESTED_WORKSPACE="$PROJECT"
 NESTED_EXTRA_KDL="input { keyboard { xkb { options \"lv3:ralt_switch\"; }; }; mod-key-nested \"ISO_Level3_Shift\"; }
 include \"$ROOT/niri/niri-tasks.kdl\""
 nested_start --focused
-# The Ideas tab saves under XDG_DATA_HOME: the sandbox's, never yours.
-NENV+=(XDG_DATA_HOME="$SB/share")
 
 # Notifications, as they come, in this terminal.
 touch "$SB/notifications"
@@ -104,6 +120,8 @@ tail -n0 -F --pid=$$ "$SB/notifications" 2>/dev/null | sed -u 's/^/[notify] /' &
 cat > "$SB/try.bashrc" <<'RC'
 # The try shell's rc, written by try.sh. Not ~/.bashrc, which could put
 # herdr back on PATH.
+# Its own history: the try shell's commands stay out of ~/.bash_history.
+HISTFILE="$TRY_SB/history"
 PS1="(try $TRY_PROJECT) \w \$ "
 
 # Stop the nested daemon, if one runs, and start one on the current build.
@@ -147,8 +165,12 @@ cat <<EOF
 The window that just opened is a nested niri on workspace "$PROJECT"
 (tag $(nested niritasks tag 2>/dev/null)), on a copy of your tasks and this
 checkout's $PROFILE build. Its binds are niri/niri-tasks.kdl's with Right
-Alt as Mod: Right Alt+Alt+T adds a task, Right Alt+Alt+Ctrl+T shows the
-panel. Here, niritasks, task and niri msg reach it.
+Alt as Mod: Right Alt+left Alt+T adds a task, Right Alt+left Alt+Ctrl+T
+shows the panel. Here, niritasks, task and niri msg reach it.
+
+Terminals, editors and clones are not opened from it: ghostty, code and gh
+are stubs, and what would have run is printed here as [notify] lines.
+Mod+Alt+W can still make a new folder under ~/Projects.
 
   reload   rebuild and restart the nested daemon
   exit     close it all; the copy is thrown away
