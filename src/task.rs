@@ -34,6 +34,14 @@ pub struct Task {
     /// virtual tag is derived from this.
     #[serde(default)]
     pub start: Option<String>,
+    /// When the task is parked until, as taskwarrior stamps it
+    /// (`20261101T090000Z`, or `99991229T130000Z` for `wait:someday`).
+    /// Taskwarrior's `+WAITING` is this date still being ahead of now; a date
+    /// that has passed stays on the task and means nothing. `Option` already
+    /// reads as `None` when the key is absent; the attribute keeps the
+    /// struct's house style.
+    #[serde(default)]
+    pub wait: Option<String>,
     /// Absent rather than empty on a task with no notes, hence the default.
     #[serde(default)]
     pub annotations: Vec<Annotation>,
@@ -238,6 +246,80 @@ pub fn pending_for_tag(tag: &str) -> Result<Vec<Task>> {
     let mut tasks = export(&[&format!("+{tag}"), "status:pending"])?;
     tasks.sort_by(|a, b| b.urgency.partial_cmp(&a.urgency).unwrap_or(std::cmp::Ordering::Equal));
     Ok(tasks)
+}
+
+/// A workspace tag's tasks, split the way the task panel's tabs want them,
+/// from one `task export`. Deleted tasks are not here: thrown away, not
+/// finished.
+#[derive(Debug, Default)]
+pub struct Listing {
+    /// Pending and not parked, most urgent first (the `task next` order).
+    pub pending: Vec<Task>,
+    /// Parked: pending with a wait date still to come, taskwarrior's
+    /// `+WAITING`. Each keeps the status `pending` it was exported with.
+    pub waiting: Vec<Task>,
+    /// The last [`FINISHED_CAP`] finished, the most recently finished first.
+    pub completed: Vec<Task>,
+}
+
+impl Listing {
+    /// Nothing on any tab: no pending, waiting or finished task.
+    pub fn is_empty(&self) -> bool {
+        self.pending.is_empty() && self.waiting.is_empty() && self.completed.is_empty()
+    }
+
+    /// The three parts as one list, pending then waiting then completed, for
+    /// `model::cards` as it is today. Marks the waiting part's status
+    /// `waiting`, which is what `model::cards` reads today; step 2 hands it
+    /// the Listing instead.
+    pub fn into_tasks(self) -> Vec<Task> {
+        let mut all = self.pending;
+        all.extend(self.waiting.into_iter().map(|mut t| {
+            t.status = "waiting".into();
+            t
+        }));
+        all.extend(self.completed);
+        all
+    }
+}
+
+/// Every task on `tag`, split for the task panel's tabs. One export, whatever
+/// the status, so the three parts are one snapshot: a write landing between
+/// separate exports could show a task in two tabs or none.
+pub fn listing(tag: &str) -> Result<Listing> {
+    Ok(partition(export(&[&format!("+{tag}")])?, now_secs()))
+}
+
+/// The split behind [`listing`], apart from the export so it is tested
+/// without a task database.
+///
+/// Taskwarrior 2.6's own rule: a pending task is waiting while its `wait` is
+/// after `now`; the stored status stays `pending` either way. A `wait` that
+/// does not parse counts as none, so a task is shown rather than hidden on a
+/// stamp this tool cannot read.
+fn partition(tasks: Vec<Task>, now: i64) -> Listing {
+    let mut l = Listing::default();
+    for t in tasks {
+        match t.status.as_str() {
+            "pending" => {
+                // Strictly after: the second the wait date arrives, the task
+                // is back on the list.
+                let parked = t.wait.as_deref().and_then(stamp_secs).is_some_and(|w| w > now);
+                if parked {
+                    l.waiting.push(t);
+                } else {
+                    l.pending.push(t);
+                }
+            }
+            "completed" => l.completed.push(t),
+            // Deleted, a recurring parent, or anything a later taskwarrior adds:
+            // on none of the panel's tabs.
+            _ => {}
+        }
+    }
+    l.pending.sort_by(|a, b| b.urgency.partial_cmp(&a.urgency).unwrap_or(std::cmp::Ordering::Equal));
+    l.completed = latest_finished(l.completed);
+    l
 }
 
 /// The tasks for `tag` parked as waiting, for the keyboard panel's Waiting
@@ -1059,5 +1141,167 @@ mod tests {
     fn with_text_drops_the_notes_key_when_every_note_is_deleted() {
         let out = with_text(exported(), "old", &[]).expect("changed");
         assert!(out.get("annotations").is_none());
+    }
+
+    /// The fixed "now" the split is tested against: noon on 2026-10-09.
+    fn noon() -> i64 {
+        stamp_secs("20261009T120000Z").unwrap()
+    }
+
+    /// A hand-built exported task: what `partition` sees from `task export`.
+    fn t(uuid: &str, status: &str, wait: Option<&str>, urgency: f64, end: &str) -> Task {
+        serde_json::from_value(serde_json::json!({
+            "uuid": uuid,
+            "description": uuid,
+            "status": status,
+            "wait": wait,
+            "urgency": urgency,
+            "end": end,
+        }))
+        .unwrap()
+    }
+
+    fn ids(tasks: &[Task]) -> Vec<&str> {
+        tasks.iter().map(|t| t.uuid.as_str()).collect()
+    }
+
+    /// `wait` is read from the export, and absent means none.
+    #[test]
+    fn parses_wait() {
+        let json = r#"[{"uuid":"a","description":"d","wait":"99991229T130000Z"},
+                       {"uuid":"b","description":"d"}]"#;
+        let tasks: Vec<Task> = serde_json::from_str(json).unwrap();
+        assert_eq!(tasks[0].wait.as_deref(), Some("99991229T130000Z"));
+        assert_eq!(tasks[1].wait, None);
+    }
+
+    #[test]
+    fn a_pending_task_without_a_wait_is_pending() {
+        let l = partition(vec![t("a", "pending", None, 1.0, "")], noon());
+        assert_eq!(ids(&l.pending), vec!["a"]);
+        assert!(l.waiting.is_empty() && l.completed.is_empty());
+    }
+
+    /// `wait:someday` and any other date still to come park the task.
+    #[test]
+    fn a_wait_still_to_come_is_waiting() {
+        let l = partition(
+            vec![
+                t("someday", "pending", Some("99991229T130000Z"), 1.0, ""),
+                t("soon", "pending", Some("20261009T120001Z"), 1.0, ""),
+            ],
+            noon(),
+        );
+        assert_eq!(ids(&l.waiting), vec!["someday", "soon"]);
+        assert!(l.pending.is_empty());
+    }
+
+    /// A passed wait date stays on the task and means nothing.
+    #[test]
+    fn a_passed_wait_is_pending() {
+        let l = partition(vec![t("a", "pending", Some("20261009T110000Z"), 1.0, "")], noon());
+        assert_eq!(ids(&l.pending), vec!["a"]);
+        assert!(l.waiting.is_empty());
+    }
+
+    /// Strictly after now is waiting, so a wait of exactly now is back on the
+    /// list, as it is in taskwarrior the moment that second arrives.
+    #[test]
+    fn a_wait_of_exactly_now_is_pending() {
+        let l = partition(vec![t("a", "pending", Some("20261009T120000Z"), 1.0, "")], noon());
+        assert_eq!(ids(&l.pending), vec!["a"]);
+        assert!(l.waiting.is_empty());
+    }
+
+    /// A stamp this tool cannot read shows the task rather than hiding it.
+    #[test]
+    fn an_unreadable_wait_is_pending() {
+        let l = partition(vec![t("a", "pending", Some("someday"), 1.0, "")], noon());
+        assert_eq!(ids(&l.pending), vec!["a"]);
+        assert!(l.waiting.is_empty());
+    }
+
+    #[test]
+    fn completed_come_newest_first_and_stop_at_the_cap() {
+        let tasks = (1..=15).map(|d| t(&format!("c{d}"), "completed", None, 0.0, &format!("202610{d:02}T120000Z")));
+        let l = partition(tasks.collect(), noon());
+        assert_eq!(l.completed.len(), FINISHED_CAP);
+        assert_eq!(l.completed[0].uuid, "c15");
+        assert_eq!(l.completed[FINISHED_CAP - 1].uuid, "c4");
+    }
+
+    /// Deleted was thrown away, not finished: no tab lists it.
+    #[test]
+    fn deleted_tasks_are_dropped() {
+        let l = partition(vec![t("d", "deleted", None, 0.0, "20261009T100000Z")], noon());
+        assert!(l.is_empty());
+    }
+
+    /// A recurring parent, or a status a later taskwarrior adds, is on no tab.
+    #[test]
+    fn an_unknown_status_is_dropped() {
+        let l = partition(
+            vec![t("r", "recurring", None, 0.0, ""), t("x", "", None, 0.0, "")],
+            noon(),
+        );
+        assert!(l.is_empty());
+    }
+
+    #[test]
+    fn no_tasks_is_an_empty_listing() {
+        let l = partition(Vec::new(), noon());
+        assert!(l.is_empty());
+        assert!(l.into_tasks().is_empty());
+    }
+
+    /// The split reports what taskwarrior exported; only `into_tasks` marks
+    /// the waiting ones for `model::cards`.
+    #[test]
+    fn waiting_tasks_keep_their_exported_status() {
+        let l = partition(vec![t("w", "pending", Some("99991229T130000Z"), 1.0, "")], noon());
+        assert_eq!(l.waiting[0].status, "pending");
+    }
+
+    /// The `task next` order, as `pending_for_tag` sorts it.
+    #[test]
+    fn pending_come_most_urgent_first() {
+        let l = partition(
+            vec![
+                t("low", "pending", None, 1.0, ""),
+                t("high", "pending", None, 9.5, ""),
+                t("mid", "pending", Some("20261001T000000Z"), 4.0, ""),
+            ],
+            noon(),
+        );
+        assert_eq!(ids(&l.pending), vec!["high", "mid", "low"]);
+    }
+
+    /// One list for `model::cards`: pending, then waiting marked `waiting`,
+    /// then completed.
+    #[test]
+    fn into_tasks_marks_the_waiting_part() {
+        let l = partition(
+            vec![
+                t("c", "completed", None, 0.0, "20261008T120000Z"),
+                t("w", "pending", Some("99991229T130000Z"), 1.0, ""),
+                t("p", "pending", None, 1.0, ""),
+            ],
+            noon(),
+        );
+        let all = l.into_tasks();
+        let got: Vec<(&str, &str)> = all.iter().map(|t| (t.uuid.as_str(), t.status.as_str())).collect();
+        assert_eq!(got, vec![("p", "pending"), ("w", "waiting"), ("c", "completed")]);
+    }
+
+    #[test]
+    fn a_listing_with_any_part_is_not_empty() {
+        assert!(Listing::default().is_empty());
+        for task in [
+            t("p", "pending", None, 1.0, ""),
+            t("w", "pending", Some("99991229T130000Z"), 1.0, ""),
+            t("c", "completed", None, 0.0, "20261008T120000Z"),
+        ] {
+            assert!(!partition(vec![task], noon()).is_empty());
+        }
     }
 }

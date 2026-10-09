@@ -65,26 +65,27 @@ fn db_mtimes(dir: &std::path::Path) -> [Option<SystemTime>; 2] {
 }
 
 /// Every task card for a workspace, or none when it is unnamed or empty. The
-/// panel does the capping.
+/// panel does the capping. Two `task export`s: the tag's tasks in one, split
+/// by [`task::listing`], and its blocked ones.
 fn cards_for_workspace(name: Option<&str>) -> Vec<model::Card> {
     let t = tag::workspace_tag(name.unwrap_or_default());
     if t.is_empty() {
         return Vec::new();
     }
-    let Ok(mut tasks) = task::pending_for_tag(&t) else {
+    // One export of every status on the tag, split here in Rust: pending
+    // for the list, waiting for the Waiting tab, the last few finished for
+    // the Finished tab. The panel keeps the last two off the hover and the
+    // peek.
+    let Ok(listing) = task::listing(&t) else {
         return Vec::new();
     };
-    // Waiting ones too, for the keyboard's Waiting tab; the panel keeps them
-    // off the hover and the peek.
-    tasks.extend(task::waiting_for_tag(&t).unwrap_or_default());
-    // The last few finished, for the Finished tab; the panel keeps them off
-    // every other tab, the hover and the peek, as it does waiting ones.
-    tasks.extend(task::completed_for_tag(&t).unwrap_or_default());
-    if tasks.is_empty() {
+    if listing.is_empty() {
         return Vec::new();
     }
+    // Still asked of taskwarrior: a dependency on another tag is invisible
+    // to this tag's export, and whether it still blocks depends on its status.
     let blocked = task::blocked_uuids_for_tag(&t).unwrap_or_default();
-    model::cards(&tasks, &blocked)
+    model::cards(&listing.into_tasks(), &blocked)
 }
 
 pub fn run() -> anyhow::Result<()> {

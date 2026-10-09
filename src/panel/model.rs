@@ -317,6 +317,7 @@ mod tests {
             description: uuid.into(),
             urgency: 0.0,
             start: active.then(|| "20260927T080000Z".to_string()),
+            wait: None,
             annotations: Vec::new(),
             tags: Vec::new(),
             status: "pending".into(),

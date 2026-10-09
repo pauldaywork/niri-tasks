@@ -610,4 +610,30 @@ fn write_path_lifecycle() {
             .any(|t| t.description == "not mine"),
         "a task on another tag must not appear in this tag's list"
     );
+
+    // ---- one listing agrees with taskwarrior's own three filters -----------
+    // `listing` splits one export in Rust by the +WAITING rule; the three
+    // per-status functions ask taskwarrior. The sandbox now holds pending,
+    // parked (`nx`, `wait:someday`), passed-wait (`waited`), reopened (`st`),
+    // completed past the cap, deleted (`second`, `del`) and other-tag tasks,
+    // so this is the comparison that keeps the Rust rule honest. Pending as
+    // sets: urgency ties make its order arbitrary. Completed in order: newest
+    // first and cut to twelve is part of the claim.
+    let uuids = |ts: &[task::Task]| ts.iter().map(|t| t.uuid.clone()).collect::<Vec<_>>();
+    let sorted = |ts: &[task::Task]| {
+        let mut u = uuids(ts);
+        u.sort();
+        u
+    };
+    let listing = task::listing(TAG).expect("listing");
+    assert_eq!(sorted(&listing.pending), sorted(&task::pending_for_tag(TAG).expect("pending")));
+    assert_eq!(sorted(&listing.waiting), sorted(&task::waiting_for_tag(TAG).expect("waiting")));
+    assert_eq!(uuids(&listing.completed), uuids(&task::completed_for_tag(TAG).expect("completed")));
+    assert!(listing.waiting.iter().any(|t| t.uuid == nx), "the sandbox has a parked task to compare");
+    assert!(listing.pending.iter().any(|t| t.uuid == waited), "a passed wait date is pending");
+    assert_eq!(listing.completed.len(), task::FINISHED_CAP);
+    assert!(
+        listing.waiting.iter().all(|t| t.status == "pending"),
+        "listing reports what taskwarrior exported"
+    );
 }
