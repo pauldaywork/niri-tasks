@@ -53,10 +53,11 @@ and a clipboard-check icon on its task card.
 _Avoid_: ready (Taskwarrior's `+READY` means something else), refined, groomed
 
 **Refine report**:
-HTML slides explaining a refine's plan — what changes, what needs the
-reader's judgement, diagrams, the files and the checks — that a refine
-session makes only when the user chooses Show me a report first. It is saved
-under the reviews folder and linked from the task's notes.
+HTML slides explaining a task's plan — what changes, what needs the reader's
+judgement, diagrams, the files and the checks — made by a refine session when
+the user chooses Show me a report first, or by a Report session from a planned
+task card's Report, on the plan the task already holds. It is saved under the
+reviews folder and linked from the task's notes as `Report: <path>`.
 _Avoid_: plan report, explainer
 
 **Up next task**:
@@ -96,24 +97,26 @@ _Avoid_: row (the action row is part of a card), item, block
 
 **Task action**:
 One thing that can be done to a task — Go to session, Back to list, Start
-working, Refine, Grill me, Edit, Speak, Up next, Complete, Move to workspace,
-Stop, Waiting or Remove — with its words, its icon and the `niritasks` command
-it runs. Which ones a task gets goes by its state: a waiting task gets only
-Back to list, Edit, Speak, Complete, Move to workspace and Remove, a finished
-one only Back to list, Edit, Speak and Remove, and Back to list reopens a
-finished one. The action row shows them.
+working, Refine, Grill me, Report, Edit, Speak, Up next, Complete, Move to
+workspace, Stop, Waiting or Remove — with its words, its icon and the
+`niritasks` command it runs. Which ones a task gets goes by its state: only a
+planned task on the list gets Report, a waiting task gets only Back to list,
+Edit, Speak, Complete, Move to workspace and Remove, a finished one only Back
+to list, Edit, Speak and Remove, and Back to list reopens a finished one. The
+action row shows them.
 _Avoid_: command (the CLI's word), button, verb
 
 **Action row**:
 The buttons along the focused task card's bottom edge while the task panel has
 the keyboard; the other cards hide theirs — Go to session, Start working,
-Refine, Grill me, Edit, Speak, Up next, Complete, Move to workspace, Stop,
-Waiting and Remove, an active task getting Stop in place of Start working, only
-a task with a live Claude getting Go to session, a waiting task getting just
-Back to list, Edit, Speak, Complete, Move to workspace and Remove, and a
-finished one just Back to list, Edit, Speak and Remove — each running its task
-action's `niritasks` command. Enter or a click on the card's body shows or
-hides the task's id, uuid and notes instead (see Task card).
+Refine, Grill me, Report, Edit, Speak, Up next, Complete, Move to workspace,
+Stop, Waiting and Remove, an active task getting Stop in place of Start
+working, only a planned task getting Report, only a task with a live Claude
+getting Go to session, a waiting task getting just Back to list, Edit, Speak,
+Complete, Move to workspace and Remove, and a finished one just Back to list,
+Edit, Speak and Remove — each running its task action's `niritasks` command.
+Enter or a click on the card's body shows or hides the task's id, uuid and
+notes instead (see Task card).
 After the buttons, dimmed, the hint names the keys that change from card to
 card: the focused button's, or on the card's body, `Space: view
 notes` or `Space: hide notes`; and what Ctrl+Enter does to the task: Refine

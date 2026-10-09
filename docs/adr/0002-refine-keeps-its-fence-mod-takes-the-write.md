@@ -18,6 +18,18 @@ report the person asked for during the session (`show_task_report`),
 the plan before the question, so what the person approves is still what is
 written.
 
+*2026-10-10:* a planned task's card gets Report, which opens the same
+fenced session (`refine.rs`'s `Mode::Report`, the same settings, mod and
+agent name as a refine) with the mod's `report` option set. In that mode
+the mod registers `show_task_report` alone, armed from the start on the
+task's own description and notes, and after writing and opening the report
+it adds the `Report: <path>` note to the task itself by `task import`, with
+no `$.ui.ask`: the button press was the ask, and the note's path is the
+one the mod just wrote, not one the model printed. `write_task_plan` is
+not offered there, so a Report session has no way to change the plan. The
+`report-task` skill drives it; `refine-task` and its "Show me a report
+first" are unchanged. The decision is unchanged.
+
 Refine starts Claude in a herdr tab fenced in from outside: `refine.rs` and
 `herdr.rs` hand it a Bash sandbox, hidden sockets and credentials, a list of
 removed tools and a standing instruction, all before Claude exists, and the
