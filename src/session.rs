@@ -188,9 +188,29 @@ pub enum Claude {
     Worker,
 }
 
+/// A hold on a session's launches, taken by [`Session::claim`] and given up
+/// when dropped. Whoever holds it is the one launch checking the session for
+/// its agent and starting it, so a second press of Refine or Start working
+/// waits, then finds the first one's agent instead of starting another.
+#[must_use = "the claim is given up as soon as it is dropped"]
+pub struct Claim {
+    // Whatever the adapter holds the claim by: an open, locked file for the
+    // process adapter, a logger of the release for the fake. Dropping it is
+    // what gives the claim up.
+    _held: Box<dyn std::any::Any>,
+}
+
+impl Claim {
+    /// A claim held for as long as `held` lives.
+    pub(crate) fn new(held: impl std::any::Any) -> Claim {
+        Claim { _held: Box::new(held) }
+    }
+}
+
 /// Everything the session module does outside itself: herdr, every call
-/// naming the session; niri's window list, focus and spawn; time; and the
-/// user's notifications. Two adapters make the seam real: [`herdr::Process`]
+/// naming the session; niri's window list, focus and spawn; time; the user's
+/// notifications; and the claim that keeps two launches in one session from
+/// both starting the same agent. Two adapters make the seam real: [`herdr::Process`]
 /// and, in tests, the fake.
 pub(crate) trait Port {
     fn workspace_list(&self, session: &str) -> HerdrResult<Vec<Workspace>>;
@@ -216,6 +236,10 @@ pub(crate) trait Port {
     /// Whether herdr is on `$PATH` at all, for the one place that starts a
     /// terminal to run it.
     fn herdr_installed(&self) -> bool;
+    /// Hold the session against every other launch in it until the returned
+    /// claim is dropped, waiting for one already held; an error when it is
+    /// still held after a bounded wait.
+    fn claim(&self, session: &str) -> Result<Claim>;
 }
 
 /// How long a just-opened project terminal gets to bring its herdr session up.
@@ -312,6 +336,17 @@ impl Session {
     /// The folder the session's terminals start in.
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// Hold this session against every other launch in it, waiting for one
+    /// under way, until the claim is dropped. A launch takes it before
+    /// [`open`](Session::open) and keeps it until Claude has started, so
+    /// that two quick presses cannot both find no agent and both start one,
+    /// nor both start a project terminal for a stopped session. Keyed by
+    /// the session rather than the agent for that reason; two different
+    /// tasks' launches in one session simply take turns.
+    pub fn claim(&self) -> Result<Claim> {
+        self.port.claim(&self.name)
     }
 
     /// Make the session running and in front of the user, and return its
@@ -838,6 +873,19 @@ mod tests {
     fn a_name_already_taken_is_not_renamed_to() {
         let (s, _) = session(Fake::running(&[]).with_agent(Some("work-abc"), "p1", "idle").with_agent(None, "p2", "idle"));
         assert!(s.rename_agent("p2", "work-abc").is_err());
+    }
+
+    /// The claim goes through the port by the session's name, and is given
+    /// up when dropped, not before: what the launches' ordering rests on.
+    #[test]
+    fn a_claim_is_held_until_dropped() {
+        let (s, f) = session(Fake::running(&[("w1", "alpha")]));
+        let claim = s.claim().unwrap();
+        s.open().unwrap();
+        assert_eq!(f.log().first().map(String::as_str), Some("claim alpha"));
+        assert!(!logged(&f, "release alpha"), "{:?}", f.log());
+        drop(claim);
+        assert_eq!(f.log().last().map(String::as_str), Some("release alpha"));
     }
 
     #[test]

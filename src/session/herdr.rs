@@ -11,10 +11,11 @@
 
 use anyhow::{Context, Result};
 use serde_json::Value;
-use std::path::Path;
-use std::time::Duration;
+use std::fs::{File, TryLockError};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
-use super::{Agent, Claude, Created, HerdrError, HerdrResult, Opened, Port, WindowInfo, Workspace};
+use super::{Agent, Claim, Claude, Created, HerdrError, HerdrResult, Opened, Port, WindowInfo, Workspace};
 
 fn cmd(session: &str, rest: &[&str]) -> Vec<String> {
     ["herdr", "--session", session]
@@ -346,6 +347,73 @@ impl Port for Process {
     fn herdr_installed(&self) -> bool {
         crate::programs::on_path(crate::programs::SESSION_MANAGER)
     }
+    fn claim(&self, session: &str) -> Result<Claim> {
+        Ok(Claim::new(claim_in(&claims_dir(), session, CLAIM_WAIT, CLAIM_POLL)?))
+    }
+}
+
+/// How long a launch waits for another one in the same session to finish
+/// starting its Claude. A healthy one is done well inside this: up to 10s for
+/// a stopped session to come up, and herdr's own 60s timeout on `agent
+/// start`. What outlasts it is a start waiting on the user (a folder-trust
+/// question, which can wait ten minutes) or something hung; failing then,
+/// with a reason, beats a press of Refine that silently never does anything.
+/// A holder that dies gives the lock up with its file, so a crash never
+/// leaves anyone waiting this long.
+const CLAIM_WAIT: Duration = Duration::from_secs(120);
+
+/// How often a waiting launch tries the lock again.
+const CLAIM_POLL: Duration = Duration::from_millis(100);
+
+/// Where the claims' lock files live: `$XDG_RUNTIME_DIR/niri-tasks`, which is
+/// per-user and per-boot, else the temp folder, as the daemon's socket does.
+fn claims_dir() -> PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("niri-tasks")
+}
+
+/// Take `session`'s claim: an exclusive `flock` on `session-<name>.lock` in
+/// `dir`, tried every `poll` until it is had or `wait` has passed. The lock
+/// goes with the returned file, when it is closed or this process exits.
+///
+/// `flock` and not a lock file's mere existence, because the kernel drops it
+/// with a holder that crashes: nothing stale is ever left to clean up. Tried
+/// rather than blocked on, so the wait has an end.
+pub(crate) fn claim_in(dir: &Path, session: &str, wait: Duration, poll: Duration) -> Result<File> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+        .with_context(|| format!("could not make {}", dir.display()))?;
+    // Through herdr's own naming rule, so a name from the environment can
+    // never carry a `/` out of the folder; a name herdr accepts is unchanged.
+    let path = dir.join(format!("session-{}.lock", super::herdr_session_name(session)));
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .with_context(|| format!("could not open {}", path.display()))?;
+    let deadline = Instant::now() + wait;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(file),
+            Err(TryLockError::WouldBlock) if Instant::now() < deadline => std::thread::sleep(poll),
+            Err(TryLockError::WouldBlock) => anyhow::bail!(
+                "Another Refine or Start working in herdr session {session} has still not started its \
+                 Claude after {}s; it may be waiting for an answer in its tab. Try again once it has.",
+                wait.as_secs()
+            ),
+            Err(TryLockError::Error(e)) => {
+                return Err(e).with_context(|| format!("could not lock {}", path.display()));
+            }
+        }
+    }
 }
 
 /// `tab create` and `workspace create` both answer with the pane they made
@@ -358,6 +426,73 @@ fn created(v: &Value) -> Result<Created> {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    /// A scratch folder of this test's own, so no real runtime folder is
+    /// touched and parallel tests never share a lock file.
+    fn scratch(test: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("niritasks-claim-{test}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    /// The real lock, raced from two threads, each opening the file itself:
+    /// `flock` conflicts between separate opens even within one process, as
+    /// it does between two `niritasks task refine` processes. The second
+    /// claim is had only once the first is dropped.
+    #[test]
+    fn a_second_claim_waits_for_the_first_to_go() {
+        let dir = scratch("race");
+        let session = format!("race-test-{}", std::process::id());
+        let first = claim_in(&dir, &session, Duration::from_secs(5), Duration::from_millis(10)).unwrap();
+        let (dir2, session2) = (dir.clone(), session.clone());
+        let second = std::thread::spawn(move || {
+            let held = claim_in(&dir2, &session2, Duration::from_secs(5), Duration::from_millis(10)).unwrap();
+            (Instant::now(), held)
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!second.is_finished(), "the second claim must wait while the first is held");
+        let released = Instant::now();
+        drop(first);
+        let (had, _held) = second.join().unwrap();
+        assert!(had >= released, "the second claim was had before the first went");
+        assert!(dir.join(format!("session-{session}.lock")).is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A claim held past the wait is an error that says why, after the wait
+    /// and not before it, and the lock is free again for whoever comes next
+    /// once its holder goes.
+    #[test]
+    fn a_claim_held_too_long_is_given_up_on() {
+        let dir = scratch("timeout");
+        let session = format!("race-test-{}", std::process::id());
+        let first = claim_in(&dir, &session, Duration::from_secs(5), Duration::from_millis(10)).unwrap();
+        let (dir2, session2) = (dir.clone(), session.clone());
+        let started = Instant::now();
+        let err = std::thread::spawn(move || {
+            claim_in(&dir2, &session2, Duration::from_millis(200), Duration::from_millis(10)).map(drop)
+        })
+        .join()
+        .unwrap()
+        .unwrap_err()
+        .to_string();
+        assert!(started.elapsed() >= Duration::from_millis(200), "gave up early");
+        assert!(err.contains("has still not started its Claude"), "{err}");
+        drop(first);
+        claim_in(&dir, &session, Duration::from_millis(200), Duration::from_millis(10)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A name herdr would refuse is folded by herdr's own rule, so it can
+    /// never reach outside the claims' folder.
+    #[test]
+    fn a_claims_file_stays_in_its_folder() {
+        let dir = scratch("name");
+        let held = claim_in(&dir, "../escape", Duration::from_millis(100), Duration::from_millis(10)).unwrap();
+        assert!(dir.join("session-.._escape.lock").is_file());
+        drop(held);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn every_call_names_its_session() {

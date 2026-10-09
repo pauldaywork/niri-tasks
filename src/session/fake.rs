@@ -2,9 +2,10 @@
 //! adapter the session module's tests run against, so every step is checked
 //! without a herdr server or a compositor. It models what the module reads:
 //! a session running or not, its workspaces, tabs and panes, its agents, the
-//! worktrees it has opened, niri's windows, and it logs every call it gets.
+//! worktrees it has opened, niri's windows, and it logs every call it gets,
+//! and every claim's release.
 
-use super::{Agent, Claude, Created, HerdrError, HerdrResult, Opened, Port, WindowInfo, Workspace};
+use super::{Agent, Claim, Claude, Created, HerdrError, HerdrResult, Opened, Port, WindowInfo, Workspace};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -184,6 +185,19 @@ impl Fake {
     }
 }
 
+/// What the fake's claim holds: the fake itself, to log the release when the
+/// claim is dropped, which is the moment the process adapter's lock goes.
+struct Release {
+    fake: Fake,
+    session: String,
+}
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        self.fake.note(format!("release {}", self.session));
+    }
+}
+
 impl Port for Fake {
     fn workspace_list(&self, session: &str) -> HerdrResult<Vec<Workspace>> {
         self.note(format!("workspace_list {session}"));
@@ -354,5 +368,9 @@ impl Port for Fake {
     }
     fn herdr_installed(&self) -> bool {
         self.state.borrow().installed
+    }
+    fn claim(&self, session: &str) -> anyhow::Result<Claim> {
+        self.note(format!("claim {session}"));
+        Ok(Claim::new(Release { fake: self.clone(), session: session.into() }))
     }
 }

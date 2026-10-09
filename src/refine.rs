@@ -6,7 +6,7 @@
 //! version rather than the one the panel showed.
 
 use crate::dirs::Dirs;
-use crate::session::Claude;
+use crate::session::{Claude, Session};
 use crate::workspace::Workspace;
 use crate::{names, niri, notify, task};
 use anyhow::{bail, Context, Result};
@@ -247,15 +247,42 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
     let session = ws.session()?;
     let settings = session_settings(session.dir(), &task::data_location()?, &hidden, &t.uuid);
 
-    let workspaces = session.open()?;
-    if session.focus_agent(&name)? {
+    let claude = Claude::Refiner { settings, mod_dir };
+    let label = tab_label(mode, &t.description);
+    if launch_in(&session, &name, &label, ws.name(), &claude, &prompt(&t.uuid, mode))? == Launched::AlreadyRunning {
         notify::tasks("Already being refined — switched to its tab.");
-        return Ok(());
+    }
+    Ok(())
+}
+
+/// Whether [`launch_in`] started the refine session or found it running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Launched {
+    /// A new Claude, prompted.
+    Started,
+    /// The task's refiner was live already, and is now focused.
+    AlreadyRunning,
+}
+
+/// Refine's steps in the session, apart from what reads the machine: open
+/// the session, go back to `name` if it is live, else start it in a new tab
+/// labelled `label` and hand it `text`. Kept apart so the order of the steps
+/// can be checked against the fake.
+///
+/// All of it up to Claude's start runs under the session's claim, so a
+/// second press of Refine waits here and then finds this one's Claude,
+/// rather than finding none and starting another beside it. The claim is let
+/// go before the prompt, whose retries can take seconds: by then the agent
+/// exists for that second press to find.
+fn launch_in(session: &Session, name: &str, label: &str, workspace_label: &str, claude: &Claude, text: &str) -> Result<Launched> {
+    let claim = session.claim()?;
+    let workspaces = session.open()?;
+    if session.focus_agent(name)? {
+        return Ok(Launched::AlreadyRunning);
     }
 
-    let tab = session.new_tab(&workspaces, session.dir(), &tab_label(mode, &t.description), ws.name())?;
-    let claude = Claude::Refiner { settings, mod_dir };
-    if let Err(e) = session.start_claude(&name, &tab.pane, &claude) {
+    let tab = session.new_tab(&workspaces, session.dir(), label, workspace_label)?;
+    if let Err(e) = session.start_claude(name, &tab.pane, claude) {
         // A retry should not find a pile of bare-shell tabs from every
         // failed attempt; closing is best effort, so the real error stands.
         if let Some(tab) = &tab.tab {
@@ -263,7 +290,9 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
         }
         return Err(e);
     }
-    session.prompt(&name, &prompt(&t.uuid, mode))
+    drop(claim);
+    session.prompt(name, text)?;
+    Ok(Launched::Started)
 }
 
 /// Refine's own command on `uuid`, with `exe` as the `niritasks` binary:
@@ -447,5 +476,68 @@ Num       RefCount Protocol Flags    Type St Inode Path
     fn the_tab_says_what_it_is_for() {
         assert_eq!(tab_label(Mode::Quick, "fix the peek"), "Refine: fix the peek");
         assert_eq!(tab_label(Mode::Grill, "fix the peek"), "Grill: fix the peek");
+    }
+
+    use crate::session::fake::{Fake, StartOutcome};
+
+    fn refiner() -> Claude {
+        Claude::Refiner { settings: "{}".into(), mod_dir: PathBuf::from("/m") }
+    }
+
+    /// Refine's session steps over `fake`, as `launch` runs them.
+    fn refine(fake: &Fake) -> Result<Launched> {
+        let session = Session::with_port("alpha", PathBuf::from("/p/alpha"), Box::new(fake.clone()));
+        launch_in(&session, "task-abc", "Refine: x", "alpha", &refiner(), "/refine-task abc")
+    }
+
+    /// Where `line` first appears in the log, failing the test when it is
+    /// not there at all.
+    fn at(log: &[String], line: &str) -> usize {
+        log.iter().position(|l| l.starts_with(line)).unwrap_or_else(|| panic!("no {line:?} in {log:?}"))
+    }
+
+    /// The race of two quick Refine presses: each would find no agent and
+    /// start one. The claim is what stops it, so it has to be taken before
+    /// the session is even opened (a stopped session would otherwise get two
+    /// project terminals) and held until Claude has started, then given up
+    /// before the prompt, whose retries can take seconds while the second
+    /// press could already find and focus the agent.
+    #[test]
+    fn refine_holds_the_session_from_opening_it_until_claude_has_started() {
+        let fake = Fake::running(&[("w1", "alpha")]);
+        assert_eq!(refine(&fake).unwrap(), Launched::Started);
+        let log = fake.log();
+        assert_eq!(log[0], "claim alpha", "{log:?}");
+        assert!(at(&log, "release alpha") > at(&log, "agent_start alpha task-abc"), "{log:?}");
+        assert!(at(&log, "release alpha") < at(&log, "agent_prompt alpha task-abc"), "{log:?}");
+    }
+
+    /// The second of two presses, once the first has let go: it opens the
+    /// session, finds the first one's Claude and focuses it, starting
+    /// nothing; one agent in all.
+    #[test]
+    fn refine_twice_on_one_task_ends_with_one_agent() {
+        let fake = Fake::running(&[("w1", "alpha")]);
+        assert_eq!(refine(&fake).unwrap(), Launched::Started);
+        assert_eq!(refine(&fake).unwrap(), Launched::AlreadyRunning);
+        let log = fake.log();
+        assert_eq!(log.iter().filter(|l| l.starts_with("agent_start ")).count(), 1, "{log:?}");
+        assert_eq!(fake.agents().len(), 1);
+        let second: Vec<&String> = log.iter().skip(at(&log, "agent_prompt ") + 1).collect();
+        assert_eq!(second.first().map(|l| l.as_str()), Some("claim alpha"), "{log:?}");
+        assert_eq!(second.last().map(|l| l.as_str()), Some("release alpha"), "{log:?}");
+        assert!(second.iter().any(|l| *l == "agent_focus alpha task-abc"), "{log:?}");
+    }
+
+    /// A failed start still lets go, but only once its bare tab is closed:
+    /// a press waiting on it must not find the tab half gone.
+    #[test]
+    fn a_failed_refine_closes_its_tab_then_lets_go() {
+        let fake = Fake::running(&[("w1", "alpha")]).with_start(StartOutcome::Fails);
+        assert!(refine(&fake).is_err());
+        let log = fake.log();
+        assert_eq!(log[0], "claim alpha", "{log:?}");
+        assert_eq!(log.last().map(String::as_str), Some("release alpha"), "{log:?}");
+        assert!(at(&log, "tab_close alpha") < at(&log, "release alpha"), "{log:?}");
     }
 }

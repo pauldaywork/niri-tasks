@@ -5,7 +5,7 @@
 //! a description reworded since (by Refine, say) cannot fork a second one.
 
 use crate::dirs::Dirs;
-use crate::session::{current_pane, Claude, Session};
+use crate::session::{current_pane, Claim, Claude, Session};
 use crate::workspace::Workspace;
 use crate::{names, notify, programs, task};
 use anyhow::{Context, Result};
@@ -136,12 +136,17 @@ fn wt_list(repo: &Path) -> Result<Value> {
 /// The task as found, not a uuid as typed: the worktree and the agent are
 /// found again by the uuid's first eight characters, and a typed task number
 /// has none of them.
+///
+/// Everything from opening the session to Claude's start, or to the setup
+/// tab's command, runs under the session's claim, so a second press waits
+/// and then finds this one's Claude or worktree rather than starting its own.
 pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
     let repo = repo_for(ws)?;
     anyhow::ensure!(programs::on_path("wt"), "worktrunk (wt) is not installed.");
     let session = ws.session()?;
     let name = names::work_agent(&t.uuid);
 
+    let claim = session.claim()?;
     let workspaces = session.open()?;
 
     if let Some(wt) = find_task_worktree(&wt_list(&repo)?, &t.uuid) {
@@ -153,8 +158,11 @@ pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
         // The worktree outlived its Claude: a fresh one, in a tab of its own
         // so whatever the workspace's first pane is doing is left alone.
         let tab = session.tab_in(&opened.workspace, &wt.path, "Claude")?;
-        return start_working(&session, &name, &tab.pane, &t.uuid);
+        return start_working(&session, claim, &name, &tab.pane, &t.uuid);
     }
+
+    // The claim goes when this returns: the setup tab's own process takes it
+    // again, in `set_up`, before it starts Claude.
 
     let label = format!("Start: {}", names::elide(&t.description));
     let tab = session.new_tab(&workspaces, &repo, &label, ws.name())?;
@@ -171,10 +179,20 @@ pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
 /// Start the working Claude in `pane`, hand it the task to plan, and mark the
 /// task active, as Update status → Active would. Other active tasks on the
 /// workspace stay active: they are other worktrees' agents at work.
-fn start_working(session: &Session, name: &str, pane: &str, uuid: &str) -> Result<()> {
-    session.start_claude(name, pane, &Claude::Worker)?;
-    session.prompt(name, &plan_prompt(uuid))?;
+fn start_working(session: &Session, claim: Claim, name: &str, pane: &str, uuid: &str) -> Result<()> {
+    start_and_prompt(session, claim, name, pane, &plan_prompt(uuid))?;
     task::set_active(uuid)
+}
+
+/// Start the working Claude in `pane` under `claim`, let the claim go, then
+/// send `text`. Let go once the start is over, either way: the prompt's
+/// retries can take seconds, and by then a second launch waiting on the
+/// claim finds the agent and focuses it.
+fn start_and_prompt(session: &Session, claim: Claim, name: &str, pane: &str, text: &str) -> Result<()> {
+    let started = session.start_claude(name, pane, &Claude::Worker);
+    drop(claim);
+    started?;
+    session.prompt(name, text)
 }
 
 /// The setup step, run inside the tab [`launch`] opened: make the worktree
@@ -222,9 +240,20 @@ fn set_up(ws: &Workspace, uuid: &str) -> Result<()> {
         None => create_worktree(&repo, &branch_name(&t.description, uuid))?,
     };
 
+    // Claimed only now the worktree exists: making it can wait minutes on the
+    // user approving the repo's hooks, and every other launch in the session
+    // would wait with it. Under the claim, the agent is looked for before one
+    // is started, so a second setup tab for the same task, from a second
+    // press, focuses the first one's Claude instead of starting another.
+    let name = names::work_agent(uuid);
+    let claim = session.claim()?;
     let opened = session.open_worktree(&repo, &wt.path, &wt.branch)?;
+    if session.focus_agent(&name)? {
+        notify::tasks("Back to its worktree.");
+        return Ok(());
+    }
     let pane = opened.pane.context("herdr did not say which pane it opened")?;
-    start_working(&session, &names::work_agent(uuid), &pane, uuid)
+    start_working(&session, claim, &name, &pane, uuid)
 }
 
 /// `wt switch --create`, with this tab's terminal on stdin and stderr so
@@ -314,5 +343,40 @@ mod tests {
     fn arguments_are_quoted_for_the_panes_shell() {
         assert_eq!(sh_quote("my project"), "'my project'");
         assert_eq!(sh_quote("it's"), r#"'it'\''s'"#);
+    }
+
+    use crate::session::fake::{Fake, StartOutcome};
+
+    fn session(fake: &Fake) -> Session {
+        Session::with_port("alpha", PathBuf::from("/p/alpha"), Box::new(fake.clone()))
+    }
+
+    fn at(log: &[String], line: &str) -> usize {
+        log.iter().position(|l| l.starts_with(line)).unwrap_or_else(|| panic!("no {line:?} in {log:?}"))
+    }
+
+    /// The claim a launch took goes once Claude has started and before the
+    /// prompt, whose retries can take seconds; a second press waiting on it
+    /// then finds the agent already there.
+    #[test]
+    fn the_claim_goes_after_the_start_and_before_the_prompt() {
+        let fake = Fake::running(&[("w1", "alpha")]);
+        let s = session(&fake);
+        start_and_prompt(&s, s.claim().unwrap(), "work-abc", "p1", "/plan").unwrap();
+        let log = fake.log();
+        assert_eq!(log[0], "claim alpha", "{log:?}");
+        assert!(at(&log, "agent_start alpha work-abc") < at(&log, "release alpha"), "{log:?}");
+        assert!(at(&log, "release alpha") < at(&log, "agent_prompt alpha work-abc"), "{log:?}");
+    }
+
+    /// A start that fails lets the claim go too, and sends no prompt.
+    #[test]
+    fn a_failed_start_lets_the_claim_go() {
+        let fake = Fake::running(&[("w1", "alpha")]).with_start(StartOutcome::Fails);
+        let s = session(&fake);
+        assert!(start_and_prompt(&s, s.claim().unwrap(), "work-abc", "p1", "/plan").is_err());
+        let log = fake.log();
+        assert_eq!(log.last().map(String::as_str), Some("release alpha"), "{log:?}");
+        assert!(!log.iter().any(|l| l.starts_with("agent_prompt")), "{log:?}");
     }
 }
