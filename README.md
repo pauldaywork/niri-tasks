@@ -450,9 +450,10 @@ nested niri — the same sandbox the e2e tests use (`tests/lib/nested-niri.sh`),
 but as an ordinary window, focused, on your workspace. Its one workspace is
 named after the project, so the panel shows the project's tasks from a copy
 of your task database, taken with an SQLite online backup; nothing is written
-back. `niri/niri-tasks.kdl` is included with Mod on Right Alt, since your own
-niri takes Super combinations first: Right Alt+left Alt+T adds a task, Right
-Alt+left Alt+Ctrl+T shows the panel. Notifications are printed in the terminal
+back. `niri/niri-tasks.kdl` is included with Mod on plain Alt, since your own
+niri takes Super combinations first: Alt+T adds a task, Alt+Shift+T adds and
+refines, Alt+Ctrl+T shows the panel, Alt+W opens a project and Alt+Return
+opens a terminal (stubbed in a try window). Notifications are printed in the terminal
 rather than shown on your desktop.
 
 The terminal becomes a try shell whose `niritasks`, `task` and `niri msg`

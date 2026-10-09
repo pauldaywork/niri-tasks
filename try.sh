@@ -8,7 +8,7 @@
 # opens a nested niri as an ordinary window on your workspace, focused. Its
 # one workspace is named after this project, so the panel shows the
 # project's real tasks; niri/niri-tasks.kdl is included as is, with Mod on
-# Right Alt, since your own niri takes any Super combination before the
+# plain Alt, since your own niri takes any Super combination before the
 # nested window sees it. A daemon built from this checkout serves it. This
 # terminal becomes the try shell, whose niritasks, task and niri msg reach
 # the nested niri and the copy:
@@ -106,11 +106,10 @@ NIRITASKS="$SB/bin/niritasks"
 # The binds' spawns get no herdr, as in the e2e tests.
 NESTED_SPAWN_PATH="$SB/bin:/usr/bin:/bin"
 NESTED_WORKSPACE="$PROJECT"
-# Right Alt as Mod: lv3:ralt_switch makes it ISO_Level3_Shift. Your niri
-# binds no Alt combination without Super, bar Alt+Print and Ctrl+Alt+Delete,
-# so these reach the nested window.
-NESTED_EXTRA_KDL="input { keyboard { xkb { options \"lv3:ralt_switch\"; }; }; mod-key-nested \"ISO_Level3_Shift\"; }
-include \"$ROOT/niri/niri-tasks.kdl\""
+# Alt as Mod, niri's own default for a nested niri: Right Alt as Mod did not
+# reach the binds. Your niri binds no Alt combination without Super, bar
+# Alt+Print and Ctrl+Alt+Delete, so these reach the nested window.
+NESTED_EXTRA_KDL="include \"$ROOT/niri/niri-tasks.kdl\""
 nested_start --focused
 
 # Notifications, as they come, in this terminal.
@@ -164,9 +163,10 @@ cat <<EOF
 
 The window that just opened is a nested niri on workspace "$PROJECT"
 (tag $(nested niritasks tag 2>/dev/null)), on a copy of your tasks and this
-checkout's $PROFILE build. Its binds are niri/niri-tasks.kdl's with Right
-Alt as Mod: Right Alt+left Alt+T adds a task, Right Alt+left Alt+Ctrl+T
-shows the panel. Here, niritasks, task and niri msg reach it.
+checkout's $PROFILE build. Its binds are niri/niri-tasks.kdl's with plain
+Alt as Mod: Alt+T adds a task, Alt+Shift+T adds and refines, Alt+Ctrl+T
+shows the panel, Alt+W opens a project and Alt+Return opens a terminal
+(stubbed in a try window). Here, niritasks, task and niri msg reach it.
 
 Terminals, editors and clones are not opened from it: ghostty, code and gh
 are stubs, and what would have run is printed here as [notify] lines.
