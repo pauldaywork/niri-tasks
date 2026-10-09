@@ -152,7 +152,7 @@ use super::notepad::Notepad;
 use super::model::{Card, Filter, Status, Tab};
 use super::projects::ProjectList;
 use super::state::{Armed, Effect, Focus, Mode, PanelState, Shown, Slot};
-use super::style::{CARD_WIDTH_PX, GAP_PX, RING_PX};
+use super::style::{CARD_WIDTH_PX, GAP_PX, PADDING_PX, RING_PX};
 use crate::project::{Projects, Row};
 use gtk4::prelude::*;
 use gtk4::{cairo, gdk, glib, Application, ApplicationWindow};
@@ -1014,7 +1014,7 @@ impl Panel {
         let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         content.append(&label);
         let notes = card.uuid.as_deref().zip(card.id_line()).filter(|_| keyboard).map(|(uuid, id_line)| {
-            let notes = notes_scroller(&notes_box(&id_line, &card.notes));
+            let notes = notes_scroller(&notes_box(&id_line, &card.notes), notes_fit(&id_line, &card.notes));
             notes.set_visible(self.state.borrow().shows_notes(uuid));
             content.append(&notes);
             notes
@@ -1382,16 +1382,27 @@ fn notes_box(id_line: &str, notes: &[String]) -> gtk4::Box {
     column
 }
 
+/// Whether the notes fit `NOTES_MAX_PX` with nothing to scroll. A scrolled
+/// window is never shorter than its scrollbar's minimum, even with nothing to
+/// scroll, which would make a line or two of notes taller than unscrolled; so
+/// notes that fit get no scrollbar. Measured on a column of its own, since a
+/// measure before the column is in the panel leaves its labels at the wrong
+/// height for the first time they show; a few paddings narrower than the
+/// card, where text wraps sooner, so a misjudged wrap keeps the scrollbar.
+fn notes_fit(id_line: &str, notes: &[String]) -> bool {
+    notes_box(id_line, notes).measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX - 4 * PADDING_PX).1 <= NOTES_MAX_PX
+}
+
 /// The notes column's scroller: as tall as the notes up to `NOTES_MAX_PX`,
 /// past which they scroll inside it, the id line with them, by wheel,
 /// touchpad or the scrollbar. Short notes take their own height, as they
 /// did unscrolled. A click on them still reaches the body and hides them;
 /// the scrollbar takes its own presses, so dragging it does not. It wears
 /// `card-notes`, so the padding stays over the area rather than scrolling.
-fn notes_scroller(column: &gtk4::Box) -> gtk4::ScrolledWindow {
+fn notes_scroller(column: &gtk4::Box, fits: bool) -> gtk4::ScrolledWindow {
     let scroller = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
-        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .vscrollbar_policy(if fits { gtk4::PolicyType::Never } else { gtk4::PolicyType::Automatic })
         .propagate_natural_height(true)
         .max_content_height(NOTES_MAX_PX)
         // Out of the focus chain: the state moves the focus between cards

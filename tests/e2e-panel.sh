@@ -63,6 +63,7 @@ CARD=760
 SURFACE=784
 NOTES_MAX=240
 PADDING=12
+SHORT_NOTES_GROWTH=50
 # Where the tucked peek starts: the peek, and the card's outline ring drawn
 # outside it.
 PEEK_X=$((OUT_W - PEEK - RING))
@@ -349,6 +350,15 @@ if command -v wtype >/dev/null; then
     else
         bad "after Enter the panel is $((y1 - y0))px tall against ${keyboard_h}px before —
       the focused card's notes should show and the panel grow to fit"
+    fi
+    # One short note must not cost the card more than its lines: the id line
+    # and the note, a padding over them, make up SHORT_NOTES_GROWTH, as
+    # measured on 1efd4c6, before the notes were put in a scroller.
+    if [ "$((y1 - y0 - keyboard_h))" -eq "$SHORT_NOTES_GROWTH" ]; then
+        ok "one short note grows the card by exactly its lines ($((y1 - y0 - keyboard_h))px)"
+    else
+        bad "one short note grew the card $((y1 - y0 - keyboard_h))px, expected ${SHORT_NOTES_GROWTH}px —
+      short notes should take their own height, as before the notes scrolled"
     fi
     settle
     shot notes_ticked || { summary; exit 1; }
