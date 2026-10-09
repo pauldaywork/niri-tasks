@@ -1,5 +1,6 @@
 //! Handing a task to Claude in its workspace's herdr session, to be worked up
-//! into a plan by the `refine-task` skill.
+//! into a plan by the `refine-task` skill, or, once it has one, reported on
+//! by `report-task`.
 //!
 //! Only the task's uuid crosses over: the skill reads the task itself, so
 //! nothing needs quoting through two CLIs and it always sees the current
@@ -12,15 +13,21 @@ use crate::{names, niri, notify, task};
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
-/// Which of a card's two buttons, Refine or Grill me, opened Claude. The two differ only in the
-/// prompt [`prompt`] sends — the skill on the other end reads it to decide
-/// whether to interview before drafting or draft straight away.
+/// Which of a card's buttons, Refine, Grill me or Report, opened Claude. They
+/// differ in the prompt [`prompt`] sends, and so in the skill on the other
+/// end: the two refines share `refine-task`, which reads the mode to decide
+/// whether to interview before drafting, while a report runs `report-task`
+/// on the plan the task already holds. A report session also tells the mod
+/// so, through [`session_settings`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     /// Draft straight away; ask only what the code cannot answer.
     Quick,
     /// A full interview, via the `grilling` skill, before the draft.
     Grill,
+    /// No refine: the report of a planned task's plan, opened in the browser
+    /// and linked from the task.
+    Report,
 }
 
 /// Only the uuid crosses to the skill — the description and everything else
@@ -30,6 +37,7 @@ pub fn prompt(uuid: &str, mode: Mode) -> String {
     match mode {
         Mode::Quick => format!("/refine-task {uuid}"),
         Mode::Grill => format!("/refine-task {uuid} grill"),
+        Mode::Report => format!("/report-task {uuid}"),
     }
 }
 
@@ -39,6 +47,7 @@ pub fn tab_label(mode: Mode, description: &str) -> String {
     let verb = match mode {
         Mode::Quick => "Refine",
         Mode::Grill => "Grill",
+        Mode::Report => "Report",
     };
     format!("{verb}: {}", names::elide(description))
 }
@@ -104,8 +113,10 @@ pub fn reports_dir(dirs: &Dirs) -> PathBuf {
 /// it does not log — the skill reads with it, and it still runs sandboxed.
 /// The write itself is the refine mod's tool, which `pluginConfigs` tells
 /// which task it may write: `uuid`, never anything the model says.
-/// It is told `reports` too, the folder its report tool writes to.
-pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uuid: &str, reports: &Path) -> String {
+/// It is told `reports` too, the folder its report tool writes to, and
+/// `report`: true in a Report session, where it offers only the report tool
+/// and links the report from the task itself.
+pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uuid: &str, reports: &Path, mode: Mode) -> String {
     let deny: Vec<String> = CREDENTIALS.iter().map(|c| format!("Read({c})")).collect();
     serde_json::json!({
         "permissions": {
@@ -125,7 +136,7 @@ pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uu
             },
         },
         "pluginConfigs": {
-            (REFINE_MOD): { "options": { "uuid": uuid, "reports": reports } },
+            (REFINE_MOD): { "options": { "uuid": uuid, "reports": reports, "report": (mode == Mode::Report) } },
         },
     })
     .to_string()
@@ -253,12 +264,17 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
         mod_dir.display()
     );
     let session = ws.session()?;
-    let settings = session_settings(session.dir(), &task::data_location()?, &hidden, &t.uuid, &reports_dir(&dirs));
+    let settings = session_settings(session.dir(), &task::data_location()?, &hidden, &t.uuid, &reports_dir(&dirs), mode);
 
     let claude = Claude::Refiner { settings, mod_dir };
     let label = tab_label(mode, &t.description);
     if launch_in(&session, &name, &label, ws.name(), &claude, &prompt(&t.uuid, mode))? == Launched::AlreadyRunning {
-        session.notify("Already being refined — switched to its tab.");
+        // The same agent name for all three, so a Report on a task being
+        // refined lands in the refine's tab, and the other way round.
+        session.notify(match mode {
+            Mode::Report => "Already open on this task — switched to its tab.",
+            Mode::Quick | Mode::Grill => "Already being refined — switched to its tab.",
+        });
     }
     Ok(())
 }
@@ -350,7 +366,7 @@ mod tests {
     #[test]
     fn the_sandbox_fences_the_session_to_the_task_database() {
         let hidden = [PathBuf::from("/run/user/1000"), PathBuf::from("/run/docker.sock")];
-        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden, "u", Path::new("/r"));
+        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden, "u", Path::new("/r"), Mode::Quick);
         let v: Value = serde_json::from_str(&json).unwrap();
         let sb = &v["sandbox"];
         assert_eq!(sb["enabled"], true);
@@ -368,7 +384,7 @@ mod tests {
     /// No `python3`: the write is the mod's tool now.
     #[test]
     fn the_session_may_search_the_web_but_not_read_credentials() {
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"));
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), Mode::Quick);
         let v: Value = serde_json::from_str(&json).unwrap();
         let allow = v["permissions"]["allow"].as_array().unwrap();
         for tool in ["WebSearch", "WebFetch", "Bash(task *)"] {
@@ -386,12 +402,31 @@ mod tests {
     #[test]
     fn the_mod_is_told_which_task_it_may_write_and_where_reports_go() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/home/x/.local/share/niri-tasks/reviews"));
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/home/x/.local/share/niri-tasks/reviews"), Mode::Quick);
         let v: Value = serde_json::from_str(&json).unwrap();
         let options = &v["pluginConfigs"][REFINE_MOD]["options"];
         assert_eq!(options["uuid"], u);
         assert_eq!(options["reports"], "/home/x/.local/share/niri-tasks/reviews");
+        assert_eq!(options["report"], false, "a refine is not a report session");
         assert_eq!(REFINE_MOD, "niri-tasks-refine", "the name in claude/refine-mod's plugin.json");
+    }
+
+    /// A Report session tells the mod so: it offers only the report tool,
+    /// armed from the start, and links the report from the task itself.
+    #[test]
+    fn a_report_session_tells_the_mod_so() {
+        let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), Mode::Report);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        let options = &v["pluginConfigs"][REFINE_MOD]["options"];
+        assert_eq!(options["report"], true);
+        assert_eq!(options["uuid"], u, "the same fence and task as a refine");
+        assert_eq!(options["reports"], "/r");
+        for mode in [Mode::Quick, Mode::Grill] {
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), mode);
+            let v: Value = serde_json::from_str(&json).unwrap();
+            assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["report"], false, "{mode:?}");
+        }
     }
 
     /// Reports go beside the other reviews, under the XDG data folder: the
@@ -493,12 +528,15 @@ Num       RefCount Protocol Flags    Type St Inode Path
     fn the_prompt_invokes_the_skill_with_the_uuid() {
         assert_eq!(prompt("u-1", Mode::Quick), "/refine-task u-1");
         assert_eq!(prompt("u-1", Mode::Grill), "/refine-task u-1 grill");
+        // Its own skill: it reports on the plan, never refines.
+        assert_eq!(prompt("u-1", Mode::Report), "/report-task u-1");
     }
 
     #[test]
     fn the_tab_says_what_it_is_for() {
         assert_eq!(tab_label(Mode::Quick, "fix the peek"), "Refine: fix the peek");
         assert_eq!(tab_label(Mode::Grill, "fix the peek"), "Grill: fix the peek");
+        assert_eq!(tab_label(Mode::Report, "fix the peek"), "Report: fix the peek");
     }
 
     use crate::session::fake::{Fake, StartOutcome};

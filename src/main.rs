@@ -169,6 +169,18 @@ enum TaskCommand {
         #[arg(long)]
         grill: bool,
     },
+    /// Report on a planned task's plan with Claude, in a new tab of the workspace's herdr session
+    ///
+    /// Claude builds the HTML report of the plan the task already holds, as a
+    /// refine's "Show me a report first" does, opens it in the browser and
+    /// links it from the task's notes as `Report: <path>`, without refining
+    /// again. Refused for a task that is not pending or not tagged planned:
+    /// refine it first. The workspace is this herdr session's in a herdr
+    /// pane, else the focused one.
+    Report {
+        /// The task's uuid, or its first 8 characters
+        uuid: String,
+    },
     /// Start working on a task in its own git worktree, with Claude planning it
     ///
     /// Opens a herdr tab that makes the worktree (branch
@@ -365,6 +377,16 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             anyhow::ensure!(t.status == "pending", "Only a pending task can be refined.");
             let mode = if grill { refine::Mode::Grill } else { refine::Mode::Quick };
             refine::launch(&workspace, &t, mode)?;
+        }
+
+        TaskCommand::Report { uuid } => {
+            let workspace = Workspace::of_caller()?;
+            let t = task::get(&uuid)?.context("task not found")?;
+            anyhow::ensure!(t.status == "pending", "Only a pending task can be reported on.");
+            // An unplanned task has no plan to report on: the card offers
+            // Refine or Grill me instead, and a script gets the same refusal.
+            anyhow::ensure!(t.is_planned(), "Only a planned task has a plan to report on. Refine it first.");
+            refine::launch(&workspace, &t, refine::Mode::Report)?;
         }
 
         TaskCommand::Session { uuid } => {
