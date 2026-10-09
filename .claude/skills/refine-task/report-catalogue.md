@@ -4,6 +4,10 @@ How to fill `show_task_report` when the user chooses **Show me a report
 first**. The tool builds the page itself, in one fixed layout, from the
 fields you give it. Your job is the words and the diagrams.
 
+The page also adds "Exactly what will be written" itself, from the plan the
+user was shown: the description and every note, as the tool will write
+them. So your parts explain the plan rather than repeat its notes.
+
 ## Who reads it, and what for
 
 One person, deciding one thing: approve this plan, or say what to change.
@@ -38,22 +42,33 @@ listing every reason, so fix them all and call again.
 | `terms` | Words the report uses that the reader may not know, each with a plain `meaning`. | 0–5; term 4 words, meaning 20 |
 | `sections` | The parts that explain the plan, in reading order. | 1–6 |
 | `sections[].heading` | A statement of what the part shows: "What you will see", not "Overview". | 10 words |
-| `sections[].diagram` | One diagram: `{ "mermaid": "…" }` or `{ "svg": "<svg …>…</svg>" }`. | Mermaid 40 lines |
+| `sections[].diagram` | One diagram: `{ "mermaid": "…" }` or `{ "svg": "<svg …>…</svg>" }`. | Mermaid 40 lines; 50,000 characters |
 | `sections[].look_at` | With a diagram, and only then: what to look at in it. | 25 words |
 | `sections[].points` | What the part says, one idea per line. | 1–5 lines, 25 words each |
 | `sections[].detail` | Optional HTML, shown collapsed under "More detail", for whoever wants it. | 20,000 characters |
-| `files` | Every file the plan touches: `path`, `change` (`new`, `change` or `remove`) and `why`. | 1–40; why 20 words |
+| `files` | Every file the plan touches: `path`, `change` (`new`, `change` or `remove`) and `why`. Leave it empty only when the plan touches no file. | 0–40; path 200 characters, why 20 words |
 | `checks` | The Done when checks: the `check`, and `how` it is checked. | 1–6; 20 words each |
 
 Every field except `detail` and the diagram is one line of plain text. Two
 marks are drawn specially: text in backticks as code, and a short label
 before the first `: ` in bold. Start a line with a label when it helps the
 reader scan: `"Approval: the task is still written only when you choose."`
+Use `Label: ` only when you mean a label; reword any other `: ` in the
+first 40 characters.
 
 `detail`, an SVG and a Mermaid diagram may not contain `<script>`, `<meta>`,
 `<link>`, `<base>`, `<iframe>`, `<frame>`, `<frameset>`, `<object>`,
 `<embed>`, `<form>` or `<portal>`: the page runs no script but Mermaid,
 loads nothing but Mermaid, and sends nothing.
+
+`detail` and an SVG are shown as given, so they may not break the page's one
+layout either: no HTML comment (`<!--`), and no closing tag of the page's own
+`<details>`, `<section>`, `<main>`, `<footer>`, `<nav>`, `<figure>`,
+`<header>`, `<body>` or `<html>`. `detail` may not contain `<style>`,
+`<plaintext>`, `<xmp>`, `<textarea>`, `<title>`, `<noscript>`, `<template>`,
+`<html>`, `<head>` or `<body>`, which swallow or restyle the page. An SVG may
+not contain `<style>`: use attributes and `currentColor`. An SVG `<title>` is
+fine.
 
 ## Choosing the parts
 
@@ -80,11 +95,14 @@ The files and the checks are always there: they are fields, not parts.
   two parts.
 - **Plain names on the boxes:** "the panel", "Claude", "the task". File
   names belong in `files`.
-- **Mark what the plan changes.** In a flowchart or a state diagram, add
-  `class <node> new`, `change` or `remove`, or `:::new` after a node. The page
-  draws them green, amber and dashed red, the same as the file badges, and
-  says so above the first part. Do not define those classes yourself. In a
-  sequence diagram, wrap the new steps in `rect rgb(220, 252, 231)` … `end`.
+- **Mark what the plan changes.** The change colours apply to flowcharts
+  and state diagrams only. In one, add `class <node> new`, `change` or
+  `remove`, or `:::new` after a node. The page draws them green, amber and
+  dashed red, the same as the file badges, and says so above the first part.
+  Do not define those classes yourself. In a sequence diagram, wrap the new
+  steps in `rect rgb(220, 252, 231)` … `end`.
+- **Generics in a class diagram** are written `Vec~Frame~`, not
+  `Vec<Frame>`, which is refused.
 - **Label the arrows** with what moves or happens.
 - **`look_at` points at the change:** "The new middle answer, and the loop
   back to the question", not "The flow".

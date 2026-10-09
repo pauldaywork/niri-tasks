@@ -216,7 +216,9 @@ nothing to the task. Build the report:
 
 When the task is written, the tool adds a note linking each report made in
 this session: `Report: <path>`, or `Report (earlier draft): <path>` for one
-made before the plan changed. Do not add these notes yourself.
+made before the plan changed. Do not add these notes yourself. The tool
+relabels any `Report …` note for this session's reports, so keeping earlier
+ones is always safe.
 
 If, after reading the report, the user answers with changes, revise, print
 the block again (step 4) and call `write_task_plan` again.
