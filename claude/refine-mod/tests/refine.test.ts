@@ -112,12 +112,14 @@ const world = (
   answer: Answers = WRITE,
   exports: readonly object[] = [TASK],
   fonts = false,
+  draw?: (argv: readonly string[]) => ReturnType<typeof ran>,
 ) => {
   const { registered, seen, writes, reads } = engine(on, settings, answer, undefined, fonts)
   const runs: Run[] = []
   let exported = 0
   on('process.run', ($, e) => {
     runs.push(e)
+    if (e.argv[0] === 'bwrap') return draw?.(e.argv) ?? ran('', 1)
     if (!e.argv.includes('export')) return ran('')
     const task = exports[Math.min(exported++, exports.length - 1)]
     return ran(JSON.stringify([task]))
@@ -453,4 +455,38 @@ test('a report is still written when its fonts cannot be read', { options: REPOR
   const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
   expect(shown.result).toContain(`Wrote the report to ${REPORT_PATH}`)
   expect(writes[0]?.text).not.toContain('@font-face')
+})
+
+const DRAWN = {
+  ...MINIMAL,
+  sections: [{ heading: 'What changes', points: ['The words.'], look_at: 'The arrow.', diagram: { mermaid: 'flowchart LR\n a --> b' } }],
+}
+
+test('diagrams are drawn in the fenced renderer, and the page then runs no script', { options: REPORTS }, async ($, on) => {
+  const { runs, writes } = world(on, SANDBOX, REPORT, [TASK], false, () =>
+    ran(JSON.stringify({ svgs: ['<svg viewBox="0 0 1 1"><rect/></svg>'], errors: [null] })),
+  )
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  await $.tool.call({ tool: REPORT_TOOL, ...DRAWN })
+  const draw = runs.find(r => r.argv[0] === 'bwrap')
+  expect(draw?.argv.slice(-2)).toEqual(['bun', expect.stringMatching(/\/render\/diagrams\.mjs$/)])
+  expect(JSON.parse(draw?.init?.stdin ?? 'null').diagrams[0]).toStartWith('flowchart LR\n a --> b\nclassDef new')
+  expect(writes[0]?.text).toContain('<div class="drawn"><svg viewBox="0 0 1 1"><rect/></svg></div>')
+  expect(writes[0]?.text).not.toContain('<script')
+})
+
+test('without bun the renderer runs on node, and without either the browser draws', { options: REPORTS }, async ($, on) => {
+  const tried: string[] = []
+  const { writes } = world(on, SANDBOX, REPORT, [TASK], false, argv => {
+    tried.push(argv.at(-2) ?? '')
+    return ran('', 127)
+  })
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...DRAWN })
+  expect(shown.result).toContain('Wrote the report to')
+  expect(tried).toEqual(['bun', 'node'])
+  expect(writes[0]?.text).toContain('<pre class="mermaid">')
+  expect(writes[0]?.text).toContain(`<script src="https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js"`)
 })

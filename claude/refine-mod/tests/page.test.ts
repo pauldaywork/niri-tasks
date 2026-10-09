@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { CSP, MERMAID_SRI, MERMAID_URL, inline, readingMinutes, reportPage } from '../hooks/page'
+import { CSP, CSP_STATIC, MERMAID_SRI, MERMAID_URL, inline, readingMinutes, reportPage } from '../hooks/page'
 import { parseReport } from '../hooks/report'
 import type { Report } from '../hooks/report'
 import { EXAMPLE, EXAMPLE_PLAN } from './example-report'
@@ -29,14 +29,23 @@ const slides = (page: string): string[] =>
 
 describe('the head', () => {
   const page = reportPage(report(), PLAN)
+  // A page with a Mermaid diagram left to the browser, so it has a script.
+  const undrawn = reportPage(
+    report({ sections: [{ heading: 'h', points: ['p'], look_at: 'x', diagram: { mermaid: 'flowchart LR\n a --> b' } }] }),
+    PLAN,
+  )
 
   test('puts the policy first, before anything it governs', () => {
-    const csp = page.indexOf(`<meta http-equiv="Content-Security-Policy" content="${CSP}">`)
+    const csp = undrawn.indexOf(`<meta http-equiv="Content-Security-Policy" content="${CSP}">`)
     expect(csp).toBeGreaterThan(-1)
-    expect(csp).toBeLessThan(page.indexOf('<title>'))
-    expect(csp).toBeLessThan(page.indexOf('<style>'))
-    expect(csp).toBeLessThan(page.indexOf('<script'))
-    expect(csp).toBeLessThan(page.indexOf('<body>'))
+    expect(csp).toBeLessThan(undrawn.indexOf('<title>'))
+    expect(csp).toBeLessThan(undrawn.indexOf('<style>'))
+    expect(csp).toBeLessThan(undrawn.indexOf('<script'))
+    expect(csp).toBeLessThan(undrawn.indexOf('<body>'))
+    const fixed = page.indexOf(`<meta http-equiv="Content-Security-Policy" content="${CSP_STATIC}">`)
+    expect(fixed).toBeGreaterThan(-1)
+    expect(fixed).toBeLessThan(page.indexOf('<title>'))
+    expect(fixed).toBeLessThan(page.indexOf('<style>'))
   })
 
   test('allows no script but pinned Mermaid, and nothing fetched or sent', () => {
@@ -45,7 +54,8 @@ describe('the head', () => {
         "img-src data:; font-src data:; form-action 'none'; base-uri 'none'",
     )
     expect(MERMAID_URL).toBe('https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js')
-    expect(page).toContain(`<script src="${MERMAID_URL}" integrity="${MERMAID_SRI}" crossorigin="anonymous"></script>`)
+    expect(undrawn).toContain(`<script src="${MERMAID_URL}" integrity="${MERMAID_SRI}" crossorigin="anonymous"></script>`)
+    expect(page).not.toContain('<script')
   })
 
   test("escapes the model's text", () => {
@@ -65,7 +75,7 @@ describe('the head', () => {
     const page = reportPage(report(), PLAN)
     expect(page).toContain('scroll-snap-type: y mandatory')
     expect(page).toContain('scroll-snap-align: start')
-    expect(page.split('<script').length - 1).toBe(1)
+    expect(page).not.toContain('<script')
   })
 })
 
@@ -212,6 +222,45 @@ describe('diagrams', () => {
     expect(flow.indexOf('<p class="legend">')).toBeGreaterThan(flow.indexOf('<pre class="mermaid">'))
     expect(part({ mermaid: 'sequenceDiagram\n A->>B: hi' })).not.toContain('<p class="legend">')
     expect(part({ svg: '<svg viewBox="0 0 1 1"><rect/></svg>' })).not.toContain('<p class="legend">')
+  })
+
+  test('a drawn diagram replaces the Mermaid block, and a page with all drawn runs no script', () => {
+    const page = reportPage(
+      report({ sections: [{ heading: 'h', points: ['p'], look_at: 'x', diagram: { mermaid: 'flowchart LR\n a --> b' } }] }),
+      PLAN,
+      undefined,
+      ['<svg viewBox="0 0 1 1"></svg>'],
+    )
+    expect(page).toContain('<div class="drawn"><svg viewBox="0 0 1 1"></svg></div>')
+    expect(page).not.toContain('<pre class="mermaid">')
+    expect(page).not.toContain('<script')
+    expect(page).toContain(`<meta http-equiv="Content-Security-Policy" content="${CSP_STATIC}">`)
+    expect(CSP_STATIC).toBe(
+      "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; " +
+        "img-src data:; font-src data:; form-action 'none'; base-uri 'none'",
+    )
+  })
+
+  test('a diagram left undrawn still gets Mermaid in the browser', () => {
+    const flow = { mermaid: 'flowchart LR\n a --> b' }
+    const page = reportPage(
+      report({
+        sections: [
+          { heading: 'h', points: ['p'], look_at: 'x', diagram: flow },
+          { heading: 'i', points: ['p'], look_at: 'x', diagram: flow },
+        ],
+      }),
+      PLAN,
+      undefined,
+      ['<svg viewBox="0 0 1 1"></svg>', undefined],
+    )
+    expect(page.split('<pre class="mermaid">').length - 1).toBe(1)
+    expect(page).toContain(`<script src="${MERMAID_URL}"`)
+    expect(page).toContain(`<meta http-equiv="Content-Security-Policy" content="${CSP}">`)
+  })
+
+  test('a highlighted block in a sequence diagram carries the legend', () => {
+    expect(part({ mermaid: 'sequenceDiagram\n rect rgb(153, 232, 133)\n A->>B: hi\n end' })).toContain('<p class="legend">')
   })
 })
 

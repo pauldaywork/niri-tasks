@@ -19,11 +19,12 @@ import {
   refusal,
 } from './plan'
 import type { Plan, Task } from './plan'
+import { RENDERER, drawArgv, drawSources, drawnSvgs } from './draw'
 import { reportPage } from './page'
 import { FONT_FILES } from './style'
 import type { Fonts } from './style'
 import { openArgv, parseReport, reportPath, reportsDir, withReportNotes } from './report'
-import type { MadeReport } from './report'
+import type { MadeReport, Report } from './report'
 
 // The tool's listed name: mcp__<plugin>__<name>, hyphens kept.
 export const TOOL = 'mcp__niri-tasks-refine__write_task_plan'
@@ -151,6 +152,28 @@ const readFonts = async ($: EngineInterface, kept: { read?: Fonts }): Promise<Fo
   }
 }
 
+// Draws each Mermaid diagram before the page opens, in the shipped renderer
+// inside its fence: bun if there is one, else node. Undefined for any it
+// could not draw, which the page leaves to Mermaid in the browser.
+const drawDiagrams = async ($: EngineInterface, report: Report): Promise<(string | undefined)[]> => {
+  const sources = drawSources(report)
+  const diagrams = sources.filter((s): s is string => s !== undefined)
+  if (diagrams.length === 0) return sources.map(() => undefined)
+  const script = `${$.plugin.root}/${RENDERER}`
+  for (const runtime of ['bun', 'node'] as const) {
+    try {
+      const run = await $.process.run(drawArgv(runtime, script), {
+        stdin: JSON.stringify({ diagrams }),
+        timeoutMs: 20_000,
+      })
+      if (run.exitCode === 0) return drawnSvgs(run.stdout, sources)
+    } catch {
+      // No bwrap, or this runtime would not start: try the next.
+    }
+  }
+  return sources.map(() => undefined)
+}
+
 export const register: Register = (on, options) => {
   // Where reports go, or undefined when this session offers none.
   const reports = reportsDir(options.reports)
@@ -243,7 +266,7 @@ export const register: Register = (on, options) => {
     const shown = askedFor
     askedFor = undefined
     const path = reportPath(reports, uuid, await $.clock.now())
-    await $.fs.write(path, reportPage(report, shown, await readFonts($, fonts)))
+    await $.fs.write(path, reportPage(report, shown, await readFonts($, fonts), await drawDiagrams($, report)))
     made.push({ path, plan: shown })
     $.ui.log(`Report: ${path}`)
     await $.process.run(openArgv(path))
