@@ -1,12 +1,22 @@
 # Refine report catalogue
 
 How to fill `show_task_report` when the user chooses **Show me a report
-first**. The tool builds the page itself, in one fixed layout, from the
-fields you give it. Your job is the words and the diagrams.
+first**. The tool builds the report itself, as full-screen slides in one
+fixed order, from the fields you give it:
 
-The page also adds "Exactly what will be written" itself, from the plan the
-user was shown: the description and every note, as the tool will write
-them. So your parts explain the plan rather than repeat its notes.
+1. the cover: the title, how long it takes, and what to do at the end;
+2. **At a glance**: `summary`, `changes` and `unchanged`;
+3. **Needs your eye**: `needs_your_eye`, when you give any;
+4. **Words used here**: `terms`, when you give any;
+5. one slide per part in `sections`;
+6. **Files**: `files`, when the plan touches any;
+7. **Done when**: `checks`;
+8. **Your decision**: exactly what will be written, taken from the plan
+   itself, and the next step.
+
+Your job is the words and the diagrams. Each part is one screen: a heading,
+at most one diagram, and a few points beside it. Write it so it reads
+whole without scrolling.
 
 ## Who reads it, and what for
 
@@ -91,16 +101,19 @@ The files and the checks are always there: they are fields, not parts.
 
 ## Drawing diagrams
 
+- **The mod draws them before the page opens**, with beautiful-mermaid:
+  flowcharts, state, sequence, class and ER diagrams. Write ordinary
+  Mermaid. A diagram it cannot draw falls back to Mermaid in the browser.
 - **One idea per diagram, at most about nine boxes.** Split a bigger one in
   two parts.
 - **Plain names on the boxes:** "the panel", "Claude", "the task". File
   names belong in `files`.
 - **Mark what the plan changes.** The change colours apply to flowcharts
   and state diagrams only. In one, add `class <node> new`, `change` or
-  `remove`, or `:::new` after a node. The page draws them green, amber and
-  dashed red, the same as the file badges, and says so above the first part.
-  Do not define those classes yourself. In a sequence diagram, wrap the new
-  steps in `rect rgb(220, 252, 231)` … `end`.
+  `remove`, or `:::new` after a node. The slides draw them green, yellow
+  and dashed pink, the same as the file badges, with a legend under the
+  diagram. Do not define those classes yourself. In a sequence diagram, wrap the new
+  steps in `rect rgb(153, 232, 133)` … `end`.
 - **Generics in a class diagram** are written `Vec~Frame~`, not
   `Vec<Frame>`, which is refused.
 - **Label the arrows** with what moves or happens.
@@ -137,7 +150,7 @@ This very feature, explained:
     "Every refine: no report is made unless you ask for one."
   ],
   "needs_your_eye": [
-    "Diagrams need the internet: offline, Mermaid diagrams show as their source text.",
+    "Diagrams: if the mod cannot run its renderer, they fall back to Mermaid, which needs the internet.",
     "Script: the page runs no script but pinned Mermaid, so the model cannot act in your browser."
   ],
   "terms": [
@@ -171,12 +184,12 @@ This very feature, explained:
       "heading": "How the report is made",
       "look_at": "The mod, not Claude, writes the page and opens it.",
       "diagram": {
-        "mermaid": "sequenceDiagram\n  actor You\n  participant C as Claude\n  participant M as The mod\n  C->>M: write_task_plan(plan)\n  M->>You: Write this to the task?\n  rect rgb(220, 252, 231)\n  You-->>M: Show me a report first\n  M-->>C: Build the report\n  C->>M: show_task_report(report)\n  M->>You: Opens the page\n  end\n  C->>M: write_task_plan(plan)"
+        "mermaid": "sequenceDiagram\n  actor You\n  participant C as Claude\n  participant M as The mod\n  C->>M: write_task_plan(plan)\n  M->>You: Write this to the task?\n  rect rgb(153, 232, 133)\n  You-->>M: Show me a report first\n  M-->>C: Build the report\n  C->>M: show_task_report(report)\n  M->>You: Opens the page\n  end\n  C->>M: write_task_plan(plan)"
       },
       "points": [
         "Claude fills in fixed fields: summary, changes, diagrams, files and checks.",
         "The mod builds the page, so every report has the same layout.",
-        "The page runs no script of Claude's: only the pinned Mermaid library."
+        "Nothing runs: diagrams are drawn before the page opens."
       ]
     },
     {

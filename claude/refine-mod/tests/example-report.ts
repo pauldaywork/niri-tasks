@@ -14,7 +14,7 @@ export const EXAMPLE = {
     'Every refine: no report is made unless you ask for one.',
   ],
   needs_your_eye: [
-    'Diagrams need the internet: offline, Mermaid diagrams show as their source text.',
+    'Diagrams: if the mod cannot run its renderer, they fall back to Mermaid, which needs the internet.',
     'Script: the page runs no script but pinned Mermaid, so the model cannot act in your browser.',
   ],
   terms: [
@@ -53,7 +53,7 @@ export const EXAMPLE = {
           '  participant M as The mod',
           '  C->>M: write_task_plan(plan)',
           '  M->>You: Write this to the task?',
-          '  rect rgb(220, 252, 231)',
+          '  rect rgb(153, 232, 133)',
           '  You-->>M: Show me a report first',
           '  M-->>C: Build the report',
           '  C->>M: show_task_report(report)',
@@ -65,7 +65,7 @@ export const EXAMPLE = {
       points: [
         'Claude fills in fixed fields: summary, changes, diagrams, files and checks.',
         'The mod builds the page, so every report has the same layout.',
-        "The page runs no script of Claude's: only the pinned Mermaid library.",
+        'Nothing runs: diagrams are drawn before the page opens.',
       ],
     },
     {
