@@ -259,3 +259,50 @@ describe('withReportNotes', () => {
     expect(withReportNotes([], plan)).toEqual(['Goal: x'])
   })
 })
+
+describe('lenses', () => {
+  const flow = { mermaid: 'flowchart LR\n a --> b' }
+  const at = (over: Record<string, unknown>) => ({
+    ...MINIMAL,
+    sections: [{ heading: 'h', points: ['p'], ...over }],
+  })
+
+  test('a part may name its lens, and one that does not is a plain part', () => {
+    const parsed = parseReport(at({ kind: 'data-flow', look_at: 'x', diagram: flow }))
+    expect(typeof parsed !== 'string' && parsed.sections[0]?.kind).toBe('data-flow')
+    expect(parseReport(at({ kind: 'gossip' }))).toBe(
+      'sections[0].kind must be one of before-after, part, structure, data-flow, outside-tools, styling, code, newcomer',
+    )
+  })
+
+  test('a before/after pair needs both halves, a look_at line, and no diagram beside it', () => {
+    expect(typeof parseReport(at({ kind: 'before-after', look_at: 'x', before: flow, after: flow }))).toBe('object')
+    expect(parseReport(at({ look_at: 'x', before: flow }))).toBe('sections[0] needs both before and after')
+    expect(parseReport(at({ before: flow, after: flow }))).toBe('sections[0].look_at must be a non-empty string')
+    expect(parseReport(at({ look_at: 'x', diagram: flow, before: flow, after: flow }))).toBe(
+      'sections[0] has a diagram and a before/after pair; give one',
+    )
+  })
+
+  test('code pairs: a file, a before or an after, and no more than fits a pane', () => {
+    const pair = (over: Record<string, unknown>) => at({ kind: 'code', code: [{ file: 'a.sh', before: 'x', after: 'y', ...over }] })
+    expect(typeof parseReport(pair({}))).toBe('object')
+    expect(typeof parseReport(pair({ before: '' }))).toBe('object')
+    expect(parseReport(pair({ before: '', after: '' }))).toBe('sections[0].code[0] needs a before or an after')
+    const long = Array.from({ length: LIMITS.code.lines + 1 }, () => 'line').join('\n')
+    expect(parseReport(pair({ after: long }))).toBe(
+      `sections[0].code[0].after has ${LIMITS.code.lines + 1} lines; at most ${LIMITS.code.lines}`,
+    )
+    expect(parseReport(pair({ after: 'a\u0007b' }))).toBe(
+      'sections[0].code[0].after must hold no control characters but tabs and line breaks',
+    )
+    expect(typeof parseReport(pair({ after: 'a\tb\nc' }))).toBe('object')
+  })
+
+  test('outside tools: each rated easy, medium or hard to swap', () => {
+    const tools = (swap: string) =>
+      at({ kind: 'outside-tools', tools: [{ tool: 'herdr', how: 'Runs the sessions.', swap, why: 'One module.' }] })
+    expect(typeof parseReport(tools('medium'))).toBe('object')
+    expect(parseReport(tools('trivial'))).toBe('sections[0].tools[0].swap must be easy, medium or hard')
+  })
+})

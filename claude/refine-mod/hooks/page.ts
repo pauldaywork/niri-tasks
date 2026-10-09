@@ -5,9 +5,9 @@
 // it scrolls, so moving through it needs no script. No `$`, so the unit tests
 // reach it directly.
 
-import { WRITE } from './plan'
 import type { Plan } from './plan'
-import type { Change, Check, Diagram, FileChange, Report, Section, Term } from './report'
+import { LENSES, SLOTS } from './report'
+import type { Change, Check, CodePair, Diagram, FileChange, Lens, Report, Section, Swap, Term, Tool } from './report'
 import { slideCss } from './style'
 import type { Fonts } from './style'
 
@@ -86,15 +86,9 @@ const bullets = (lines: readonly string[]): string => `<ul>${lines.map(l => `<li
 
 const pad = (n: number): string => String(n).padStart(2, '0')
 
-// What to do with the report, said on the first slide and again on the last.
-const NEXT =
-  `<p class="next-step">Back in the terminal: choose <strong>${escapeHtml(WRITE)}</strong> ` +
-  'to save this plan, or type what to change.</p>'
-
 // What the colours mean, under a drawing that takes them; under a sequence
 // diagram, whose only mark is a highlighted block of new steps, what that
 // block means.
-const LEGEND = `<p class="legend">${badge('new')} ${badge('change')} ${badge('remove')} Everything else is unchanged.</p>`
 const STEPS_LEGEND = `<p class="legend">${badge('new')} Highlighted steps are new.</p>`
 
 // What kind of Mermaid diagram a source is: its first word, past any front
@@ -114,28 +108,109 @@ export const withMarks = (source: string): string => (takesMarks(source) ? `${so
 // The legend a diagram carries: the change colours under a flowchart or a
 // state diagram, the highlighted block under a sequence diagram with a
 // `rect`, and none under any other.
+// The change marks a diagram uses, in the legend's order: the legend names
+// only those, so it never explains a colour the reader cannot see.
+const marksUsed = (source: string): Change[] =>
+  (['new', 'change', 'remove'] as const).filter(mark =>
+    new RegExp(`(?::::|\\bclass\\s+[\\w,-]+\\s+)${mark}\\b`).test(source),
+  )
+
 const legendFor = (diagram: Diagram): string => {
   if (!('mermaid' in diagram)) return ''
-  if (takesMarks(diagram.mermaid)) return LEGEND
+  if (takesMarks(diagram.mermaid)) {
+    const used = marksUsed(diagram.mermaid)
+    return used.length === 0
+      ? ''
+      : `<p class="legend">${used.map(badge).join(' ')} Everything else is unchanged.</p>`
+  }
   return /^\s*rect\b/m.test(diagram.mermaid) ? STEPS_LEGEND : ''
 }
 
-const figure = (diagram: Diagram, lookAt: string, svg?: string): string => {
-  const drawing =
-    svg !== undefined
-      ? `<div class="drawn">${svg}</div>`
-      : 'mermaid' in diagram
-        ? `<pre class="mermaid">${escapeHtml(withMarks(diagram.mermaid))}</pre>`
-        : diagram.svg
-  return [
+// A drawn diagram's width: its own width at one and a half times, so its
+// labels (11 px in the renderer) read at about 16 px; the stylesheet caps it
+// at the figure's width.
+const drawnWidth = (svg: string): string => {
+  const width = Number(/viewBox="\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+[\d.]+\s*"/.exec(svg)?.[1])
+  return Number.isFinite(width) && width > 0 ? ` style="--w: ${Math.round(width * 1.5)}px"` : ''
+}
+
+// Whether a drawn diagram is wide and short: it then takes the card's whole
+// width, the points below it, or its labels would shrink to fit a column.
+const isWide = (svg?: string): boolean => {
+  const box = svg && /viewBox="\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)\s*"/.exec(svg)
+  return box ? Number(box[1]) > 1.8 * Number(box[2]) : false
+}
+
+// One diagram as the page shows it: drawn before the page opened, else
+// Mermaid in the browser, else the model's own SVG.
+const drawing = (diagram: Diagram, svg?: string): string =>
+  svg !== undefined
+    ? `<div class="drawn"${drawnWidth(svg)}>${svg}</div>`
+    : 'mermaid' in diagram
+      ? `<pre class="mermaid">${escapeHtml(withMarks(diagram.mermaid))}</pre>`
+      : diagram.svg
+
+const figure = (diagram: Diagram, lookAt: string, svg?: string): string =>
+  [
     '<figure>',
     `<figcaption class="look"><strong>Look at:</strong> ${plain(lookAt)}</figcaption>`,
-    drawing,
+    drawing(diagram, svg),
     legendFor(diagram),
     '</figure>',
   ]
     .filter(Boolean)
     .join('\n')
+
+// The same thing as it is and as it will be, side by side, so the difference
+// is seen rather than read.
+const pairFigure = (before: Diagram, after: Diagram, lookAt: string, svgs: readonly (string | undefined)[]): string =>
+  [
+    '<figure class="pair-figure">',
+    `<figcaption class="look"><strong>Look at:</strong> ${plain(lookAt)}</figcaption>`,
+    `<div class="pair${isWide(svgs[1]) || isWide(svgs[2]) ? ' rows' : ''}">`,
+    `<div class="pane"><p class="pane-label">Before</p>\n${drawing(before, svgs[1])}\n</div>`,
+    `<div class="pane"><p class="pane-label">After</p>\n${drawing(after, svgs[2])}\n</div>`,
+    '</div>',
+    legendFor(after),
+    '</figure>',
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+// Code as it is and as it will be, a pair of panes per file.
+const codePanes = (pairs: readonly CodePair[]): string =>
+  pairs
+    .map(c =>
+      [
+        '<div class="code-pair">',
+        `<p class="code-file"><code class="path">${escapeHtml(c.file).replace(/\//g, '/<wbr>')}</code></p>`,
+        '<div class="pair">',
+        `<div class="pane"><p class="pane-label">Before</p><pre class="before">${c.before === '' ? '<span class="muted">(new file)</span>' : escapeHtml(c.before)}</pre></div>`,
+        `<div class="pane"><p class="pane-label">After</p><pre class="after">${c.after === '' ? '<span class="muted">(removed)</span>' : escapeHtml(c.after)}</pre></div>`,
+        '</div>',
+        '</div>',
+      ].join('\n'),
+    )
+    .join('\n')
+
+const SWAP_LABELS: Record<Swap, string> = { easy: 'easy to swap', medium: 'some work to swap', hard: 'hard to swap' }
+
+// The outside tools the change touches, how each is connected, and how hard
+// it would be to swap for another.
+const toolTable = (list: readonly Tool[]): string => {
+  const rows = list
+    .map(
+      t =>
+        `<tr><td><strong>${plain(t.tool)}</strong></td><td>${inline(t.how)}</td>` +
+        `<td><span class="badge ${t.swap}">${SWAP_LABELS[t.swap]}</span></td><td>${inline(t.why)}</td></tr>`,
+    )
+    .join('')
+  return [
+    '<table class="tools">',
+    '<thead><tr><th>Tool</th><th>How it connects</th><th>Swap</th><th>Why</th></tr></thead>',
+    `<tbody>${rows}</tbody>`,
+    '</table>',
+  ].join('\n')
 }
 
 // A ground colour per kind of slide, so each chunk is told apart at a glance.
@@ -149,7 +224,6 @@ const cover = (report: Report, meta: string): string =>
   [
     `<h1>${plain(report.title)}</h1>`,
     `<p class="meta">${meta}</p>`,
-    NEXT,
     '<p class="hint">Scroll, or press Page Down, to go through it one slide at a time.</p>',
   ].join('\n')
 
@@ -169,17 +243,41 @@ const eye = (lines: readonly string[]): string => `<h2>Where your judgement is n
 const terms = (list: readonly Term[]): string =>
   `<h2>Words used here</h2>\n<dl>${list.map(t => `<dt>${plain(t.term)}</dt><dd>${inline(t.meaning)}</dd>`).join('')}</dl>`
 
-const part = (s: Section, svg?: string): string => {
+const part = (s: Section, svgs: readonly (string | undefined)[]): string => {
   const points = bullets(s.points)
+  const extras = [
+    s.code !== undefined ? codePanes(s.code) : '',
+    s.tools !== undefined ? toolTable(s.tools) : '',
+  ].filter(Boolean)
+  // A pair, code panes or a table take the card's width, the points below.
+  const visual =
+    s.before !== undefined && s.after !== undefined
+      ? `<div class="stack">\n${pairFigure(s.before, s.after, s.look_at ?? '', svgs)}\n${extras.join('\n')}\n<div class="points">${points}</div>\n</div>`
+      : s.diagram !== undefined && extras.length === 0
+        ? `<div class="split${isWide(svgs[0]) ? ' wide' : ''}">\n${figure(s.diagram, s.look_at ?? '', svgs[0])}\n<div class="points">${points}</div>\n</div>`
+        : s.diagram !== undefined || extras.length > 0
+          ? `<div class="stack">\n${s.diagram !== undefined ? figure(s.diagram, s.look_at ?? '', svgs[0]) : ''}\n${extras.join('\n')}\n<div class="points">${points}</div>\n</div>`
+          : `<div class="points solo">${points}</div>`
   return [
     `<h2>${plain(s.heading)}</h2>`,
-    s.diagram !== undefined
-      ? `<div class="split">\n${figure(s.diagram, s.look_at ?? '', svg)}\n<div class="points">${points}</div>\n</div>`
-      : `<div class="points solo">${points}</div>`,
+    visual,
     s.detail !== undefined ? `<details>\n<summary>More detail</summary>\n${s.detail}\n</details>` : '',
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+// Each lens's slide name and ground: the same every report, so the reader
+// learns where to look.
+const LENS_SLIDES: Record<Lens, { pill: string; ground: Ground }> = {
+  'before-after': { pill: 'Before → after', ground: 'cream' },
+  part: { pill: 'Part', ground: 'paper' },
+  structure: { pill: 'Structure', ground: 'blue' },
+  'data-flow': { pill: 'Data flow', ground: 'paper' },
+  'outside-tools': { pill: 'Outside tools', ground: 'cream' },
+  styling: { pill: 'Styling', ground: 'pink' },
+  code: { pill: 'Code changes', ground: 'paper' },
+  newcomer: { pill: 'For a newcomer', ground: 'green' },
 }
 
 const files = (list: readonly FileChange[]): string => {
@@ -210,21 +308,19 @@ const checks = (list: readonly Check[]): string => {
   ].join('\n')
 }
 
-// The description and notes as the tool will write them, from the plan the
-// person was shown, never from the report's fields: what they approve is
-// what they read here, on the slide where they decide.
+// The plan itself, description and notes, from the plan the person was
+// shown, never from the report's fields.
 const decision = (plan: Plan): string => {
   const notes =
     plan.notes.length === 0
       ? '<p>No notes.</p>'
-      : `<ol>${plan.notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ol>`
+      : `<ol>${plan.notes.map(n => `<li>${inline(n)}</li>`).join('')}</ol>`
   return [
-    '<h2>Your decision</h2>',
-    '<h3>Exactly what will be written</h3>',
+    '<h2>The plan</h2>',
+    '<div class="written">',
     `<p><strong>Description:</strong> ${escapeHtml(plan.description)}</p>`,
     notes,
-    '<p class="muted">The tool also adds a note linking this report.</p>',
-    NEXT,
+    '</div>',
   ].join('\n')
 }
 
@@ -256,6 +352,32 @@ const rail = (all: readonly Slide[]): string => {
 
 // The whole page: the policy before anything it governs, then the title, the
 // stylesheet and Mermaid, then the slides in their fixed order.
+// The parts as slides, in lens order (the model's order within a lens): plain
+// parts numbered among themselves, every other lens under its own name.
+const lensSlides = (parts: readonly Section[], drawn: readonly (string | undefined)[]): Slide[] => {
+  const order = parts
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => LENSES.indexOf(a.s.kind ?? 'part') - LENSES.indexOf(b.s.kind ?? 'part') || a.i - b.i)
+  const numbered = order.filter(o => (o.s.kind ?? 'part') === 'part')
+  const seen = new Map<Lens, number>()
+  return order.map(({ s, i }): Slide => {
+    const kind = s.kind ?? 'part'
+    const n = (seen.get(kind) ?? 0) + 1
+    seen.set(kind, n)
+    const lens = LENS_SLIDES[kind]
+    const svgs = drawn.slice(i * SLOTS, i * SLOTS + SLOTS)
+    return kind === 'part'
+      ? {
+          id: `part-${n}`,
+          pill: `Part ${n} of ${numbered.length}`,
+          name: s.heading,
+          ground: n % 2 === 1 ? 'paper' : 'blue',
+          body: part(s, svgs),
+        }
+      : { id: n === 1 ? kind : `${kind}-${n}`, pill: lens.pill, name: s.heading, ground: lens.ground, body: part(s, svgs) }
+  })
+}
+
 export const reportPage = (
   report: Report,
   plan: Plan,
@@ -272,25 +394,19 @@ export const reportPage = (
     ...(report.terms.length > 0
       ? [{ id: 'terms', pill: 'Words used here', name: 'Words used here', ground: 'blue', body: terms(report.terms) } as Slide]
       : []),
-    ...parts.map(
-      (s, i): Slide => ({
-        id: `part-${i + 1}`,
-        pill: `Part ${i + 1} of ${parts.length}`,
-        name: s.heading,
-        ground: i % 2 === 0 ? 'paper' : 'blue',
-        body: part(s, drawn[i]),
-      }),
-    ),
+    ...lensSlides(parts, drawn),
     ...(touched ? [{ id: 'files', pill: 'Files', name: 'Files', ground: 'paper', body: files(report.files) } as Slide] : []),
     { id: 'checks', pill: 'Done when', name: 'Done when', ground: 'green', body: checks(report.checks) },
-    { id: 'decision', pill: 'Your decision', name: 'Your decision', ground: 'ink', body: decision(plan) },
+    { id: 'decision', pill: 'The plan', name: 'The plan', ground: 'ink', body: decision(plan) },
   ]
   const total = rest.length + 1
   const meta =
     `About ${readingMinutes(report)} min to read · ${count(total, 'slide')}` +
     (touched ? ` · ${count(report.files.length, 'file')}` : '')
   // Mermaid in the browser only for a diagram the renderer did not draw.
-  const browser = parts.some((s, i) => s.diagram !== undefined && 'mermaid' in s.diagram && drawn[i] === undefined)
+  const browser = parts.some((s, i) =>
+    [s.diagram, s.before, s.after].some((d, slot) => d !== undefined && 'mermaid' in d && drawn[i * SLOTS + slot] === undefined),
+  )
   const all: Slide[] = [{ id: 'cover', pill: 'Refine report', name: 'Start', ground: 'cream', body: cover(report, meta) }, ...rest]
   return [
     '<!doctype html>',

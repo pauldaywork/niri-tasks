@@ -103,7 +103,7 @@ describe('the slides', () => {
     expect(page).toContain('<span class="count">06 / 06</span>')
     expect(page).toContain('<a class="next" href="#glance">Next: At a glance ↓</a>')
     expect(page).toContain('<a class="next" href="#part-1">Next: What changes ↓</a>')
-    expect(page).toContain('<a class="next" href="#decision">Next: Your decision ↓</a>')
+    expect(page).toContain('<a class="next" href="#decision">Next: The plan ↓</a>')
     expect(page.split('<a class="next"').length - 1).toBe(5)
   })
 
@@ -120,11 +120,11 @@ describe('the slides', () => {
     expect(page).toContain('Next: The <code>task</code> command ↓')
   })
 
-  test('the next step is said on the first slide and the last', () => {
+  test('says nothing about writing the task: a report explains, the terminal decides', () => {
     const page = reportPage(report(), PLAN)
-    expect(page.split(NEXT).length - 1).toBe(2)
-    expect(page.indexOf(NEXT)).toBeLessThan(page.indexOf('id="glance"'))
-    expect(page.lastIndexOf(NEXT)).toBeGreaterThan(page.indexOf('id="decision"'))
+    for (const words of [NEXT, 'Back in the terminal', 'Write it to the task', 'Your decision']) {
+      expect(page).not.toContain(words)
+    }
   })
 
   test('the cover says how long it takes and how much there is', () => {
@@ -161,11 +161,13 @@ describe('the decision slide', () => {
   test('repeats the plan, escaped, from the plan the person was shown', () => {
     const page = reportPage(report({ summary: 'Something else entirely.' }), PLAN)
     const decision = page.slice(page.indexOf('id="decision"'))
-    expect(decision).toContain('<h3>Exactly what will be written</h3>')
+    expect(decision).toContain('<h2>The plan</h2>')
+    expect(decision).toContain('<span class="pill">The plan</span>')
     expect(decision).toContain('<p><strong>Description:</strong> feat: &lt;A&gt; &amp; &quot;B&quot;</p>')
-    expect(decision).toContain('<li>Goal: &lt;x&gt; &amp; y</li>')
-    expect(decision).toContain('<li>Done when: `z` shows</li>')
-    expect(decision).toContain('<p class="muted">The tool also adds a note linking this report.</p>')
+    expect(decision).toContain('<li><strong>Goal:</strong> &lt;x&gt; &amp; y</li>')
+    expect(decision).toContain('<li><strong>Done when:</strong> <code>z</code> shows</li>')
+    expect(decision).not.toContain('Exactly what will be written')
+    expect(decision).not.toContain('also adds a note')
   })
 
   test('says so when the plan has no notes', () => {
@@ -218,8 +220,9 @@ describe('diagrams', () => {
   })
 
   test('carry the legend under the drawing, only where the change colours apply', () => {
-    const flow = part({ mermaid: 'flowchart LR\n a --> b' })
+    const flow = part({ mermaid: 'flowchart LR\n a --> b:::new' })
     expect(flow.indexOf('<p class="legend">')).toBeGreaterThan(flow.indexOf('<pre class="mermaid">'))
+    expect(part({ mermaid: 'flowchart LR\n a --> b' })).not.toContain('<p class="legend">')
     expect(part({ mermaid: 'sequenceDiagram\n A->>B: hi' })).not.toContain('<p class="legend">')
     expect(part({ svg: '<svg viewBox="0 0 1 1"><rect/></svg>' })).not.toContain('<p class="legend">')
   })
@@ -231,7 +234,7 @@ describe('diagrams', () => {
       undefined,
       ['<svg viewBox="0 0 1 1"></svg>'],
     )
-    expect(page).toContain('<div class="drawn"><svg viewBox="0 0 1 1"></svg></div>')
+    expect(page).toContain('<div class="drawn" style="--w: 2px"><svg viewBox="0 0 1 1"></svg></div>')
     expect(page).not.toContain('<pre class="mermaid">')
     expect(page).not.toContain('<script')
     expect(page).toContain(`<meta http-equiv="Content-Security-Policy" content="${CSP_STATIC}">`)
@@ -279,9 +282,12 @@ describe('diagrams', () => {
     const figure = page.slice(page.indexOf('<figure>'), page.indexOf('</figure>'))
     expect(figure).not.toContain('<span class="badge change">')
     expect(figure).not.toContain('<span class="badge remove">')
-    expect(part({ mermaid: 'flowchart LR\n a --> b' })).toContain(
+    expect(part({ mermaid: 'flowchart LR\n a:::new --> b:::change --> c:::remove' })).toContain(
       '<p class="legend"><span class="badge new">new</span> <span class="badge change">changed</span> ' +
         '<span class="badge remove">removed</span> Everything else is unchanged.</p>',
+    )
+    expect(part({ mermaid: 'flowchart LR\n a --> b:::new' })).toContain(
+      '<p class="legend"><span class="badge new">new</span> Everything else is unchanged.</p>',
     )
   })
 })
@@ -324,5 +330,84 @@ test('the worked example renders every part', () => {
   if (typeof parsed === 'string') throw new Error(parsed)
   const page = reportPage(parsed, EXAMPLE_PLAN)
   for (const section of parsed.sections) expect(page).toContain(section.heading)
-  expect(page.split('<pre class="mermaid">').length - 1).toBe(2)
+  // A before/after pair and six single diagrams, all left to the browser here.
+  expect(page.split('<pre class="mermaid">').length - 1).toBe(8)
+})
+
+describe('lens slides', () => {
+  const flow = { mermaid: 'flowchart LR\n a --> b:::new' }
+
+  test('come in lens order under their own names, plain parts numbered among themselves', () => {
+    const page = reportPage(
+      report({
+        sections: [
+          { kind: 'code', heading: 'The code', points: ['c'], code: [{ file: 'a.sh', before: 'x', after: 'y' }] },
+          { heading: 'One', points: ['a'] },
+          { kind: 'before-after', heading: 'Then and now', points: ['b'], look_at: 'x', before: flow, after: flow },
+          { heading: 'Two', points: ['d'] },
+        ],
+      }),
+      PLAN,
+    )
+    expect(slides(page)).toEqual(['cover', 'glance', 'before-after', 'part-1', 'part-2', 'code', 'files', 'checks', 'decision'])
+    expect(page).toContain('<span class="pill">Before → after</span>')
+    expect(page).toContain('<span class="pill">Part 2 of 2</span>')
+    expect(page).toContain('<span class="pill">Code changes</span>')
+  })
+
+  test('a before/after pair sits side by side, Before first, and stacks when its diagrams are wide', () => {
+    const pair = { kind: 'before-after' as const, heading: 'h', points: ['p'], look_at: 'x', before: flow, after: flow }
+    const page = reportPage(report({ sections: [pair] }), PLAN)
+    expect(page).toContain('<div class="pair">')
+    expect(page.indexOf('<p class="pane-label">Before</p>')).toBeLessThan(page.indexOf('<p class="pane-label">After</p>'))
+    const wide = '<svg viewBox="0 0 900 100"></svg>'
+    expect(reportPage(report({ sections: [pair] }), PLAN, undefined, [undefined, wide, wide])).toContain(
+      '<div class="pair rows">',
+    )
+  })
+
+  test('code panes escape the code, and say when a file is new or removed', () => {
+    const page = reportPage(
+      report({
+        sections: [
+          {
+            kind: 'code',
+            heading: 'h',
+            points: ['p'],
+            code: [
+              { file: 'src/a.rs', before: 'if a < b && c {', after: '' },
+              { file: 'b.sh', before: '', after: 'echo "<hi>"' },
+            ],
+          },
+        ],
+      }),
+      PLAN,
+    )
+    expect(page).toContain('<pre class="before">if a &lt; b &amp;&amp; c {</pre>')
+    expect(page).toContain('<pre class="after"><span class="muted">(removed)</span></pre>')
+    expect(page).toContain('<pre class="before"><span class="muted">(new file)</span></pre>')
+    expect(page).toContain('<pre class="after">echo &quot;&lt;hi&gt;&quot;</pre>')
+    expect(page).toContain('<code class="path">src/<wbr>a.rs</code>')
+  })
+
+  test('outside tools come as a table, each with a labelled swap badge', () => {
+    const page = reportPage(
+      report({
+        sections: [
+          {
+            kind: 'outside-tools',
+            heading: 'h',
+            points: ['p'],
+            tools: [{ tool: 'herdr', how: 'Runs the sessions.', swap: 'medium', why: 'Behind `src/session.rs`.' }],
+          },
+        ],
+      }),
+      PLAN,
+    )
+    expect(page).toContain('<span class="pill">Outside tools</span>')
+    expect(page).toContain(
+      '<tr><td><strong>herdr</strong></td><td>Runs the sessions.</td>' +
+        '<td><span class="badge medium">some work to swap</span></td><td>Behind <code>src/session.rs</code>.</td></tr>',
+    )
+  })
 })

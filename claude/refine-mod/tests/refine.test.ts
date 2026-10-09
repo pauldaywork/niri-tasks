@@ -477,7 +477,7 @@ test('diagrams are drawn in the fenced renderer, and the page then runs no scrip
   expect(bind('/run/r/diagrams.mjs')).toEqual(expect.stringMatching(/\/render\/diagrams\.mjs$/))
   expect(draw?.argv.slice(-2)).toEqual(['/run/r/runtime', '/run/r/diagrams.mjs'])
   expect(JSON.parse(draw?.init?.stdin ?? 'null').diagrams[0]).toStartWith('flowchart LR\n a --> b\nclassDef new')
-  expect(writes[0]?.text).toContain('<div class="drawn"><svg viewBox="0 0 1 1"><rect/></svg></div>')
+  expect(writes[0]?.text).toContain('<div class="drawn" style="--w: 2px"><svg viewBox="0 0 1 1"><rect/></svg></div>')
   expect(writes[0]?.text).not.toContain('<script')
   expect(seen.filter(line => line.includes('Diagrams'))).toEqual([])
 })

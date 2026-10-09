@@ -45,10 +45,11 @@ describe('drawSources', () => {
         { heading: 'd', points: ['p'], look_at: 'x', diagram: { mermaid: 'sequenceDiagram\n A->>B: hi' } },
       ]),
     )
+    // Three slots a part: its diagram, its before, its after.
+    expect(sources).toHaveLength(12)
     expect(sources[0]).toStartWith('flowchart LR\n a --> b\nclassDef new fill:#99E885')
-    expect(sources[1]).toBeUndefined()
-    expect(sources[2]).toBeUndefined()
-    expect(sources[3]).toBe('sequenceDiagram\n A->>B: hi')
+    expect(sources.slice(1, 9).every(s => s === undefined)).toBe(true)
+    expect(sources[9]).toBe('sequenceDiagram\n A->>B: hi')
   })
 
   // beautiful-mermaid draws a state diagram without the change colours, so
@@ -129,4 +130,22 @@ test("cleanSvg removes the renderer's stylesheet, whose rules the page carries",
     "<svg><style>\n  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap');\n" +
     "  text { font-family: 'Inter', system-ui, sans-serif; }\n</style><rect/><STYLE media=\"x\">svg{}</STYLE ></svg>"
   expect(cleanSvg(svg)).toBe('<svg><rect/></svg>')
+})
+
+test('drawSources gives a before/after pair its own two slots', () => {
+  const sources = drawSources(
+    report([
+      {
+        kind: 'before-after',
+        heading: 'h',
+        points: ['p'],
+        look_at: 'x',
+        before: { mermaid: 'flowchart LR\n a --> b' },
+        after: { mermaid: 'flowchart LR\n a --> c:::new' },
+      },
+    ]),
+  )
+  expect(sources[0]).toBeUndefined()
+  expect(sources[1]).toStartWith('flowchart LR\n a --> b\n')
+  expect(sources[2]).toStartWith('flowchart LR\n a --> c:::new\n')
 })

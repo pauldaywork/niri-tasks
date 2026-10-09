@@ -43,14 +43,14 @@ const MARKED = /^\s*class\s+\S[^\n]*\s(?:new|change|remove)\s*;?\s*$|:::(?:new|c
 // marks a change would lose its colours: Mermaid in the browser draws it.
 const drawable = (source: string): boolean => !(diagramKind(source).startsWith('stateDiagram') && MARKED.test(source))
 
-// Each part's Mermaid source as it is to be drawn, flowcharts and state
-// diagrams with the change colours; undefined for a part with none, or with
-// one left to the browser.
+// Each slot's Mermaid source as it is to be drawn, flowcharts and state
+// diagrams with the change colours; undefined for an empty slot, or one left
+// to the browser.
 export const drawSources = (report: Report): (string | undefined)[] =>
-  report.sections.map(s =>
-    s.diagram !== undefined && 'mermaid' in s.diagram && drawable(s.diagram.mermaid)
-      ? withMarks(s.diagram.mermaid)
-      : undefined,
+  report.sections.flatMap(s =>
+    [s.diagram, s.before, s.after].map(d =>
+      d !== undefined && 'mermaid' in d && drawable(d.mermaid) ? withMarks(d.mermaid) : undefined,
+    ),
   )
 
 // What an SVG from the renderer may not hold: it is put in the page as it is,

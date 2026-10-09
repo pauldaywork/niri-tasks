@@ -57,6 +57,7 @@ const SPEC = {
 
 const TEXT = { type: 'string' }
 const TEXTS = { type: 'array', items: TEXT }
+const DIAGRAM = { type: 'object', properties: { mermaid: TEXT, svg: TEXT } }
 
 const REPORT_SPEC = {
   name: 'show_task_report',
@@ -80,14 +81,41 @@ const REPORT_SPEC = {
       },
       sections: {
         type: 'array',
-        description: '1-6 parts: a heading, 1-5 points, optionally one diagram with a look_at line, and collapsed detail.',
+        description:
+          '1-9 parts, each looking at the change through one lens (kind): before-after (always, unless nothing ' +
+          'changes), part, structure, data-flow, outside-tools, styling, code, newcomer. Each has a heading, 1-5 ' +
+          'points, and a diagram (or a before/after pair) with a look_at line wherever one helps.',
         items: {
           type: 'object',
           properties: {
+            kind: {
+              type: 'string',
+              enum: ['before-after', 'part', 'structure', 'data-flow', 'outside-tools', 'styling', 'code', 'newcomer'],
+            },
             heading: TEXT,
             look_at: TEXT,
-            diagram: { type: 'object', properties: { mermaid: TEXT, svg: TEXT } },
+            diagram: DIAGRAM,
+            before: DIAGRAM,
+            after: DIAGRAM,
             points: TEXTS,
+            code: {
+              type: 'array',
+              description: '1-3 files: the key code as it is and as it will be, at most 16 lines each.',
+              items: {
+                type: 'object',
+                properties: { file: TEXT, before: TEXT, after: TEXT },
+                required: ['file', 'before', 'after'],
+              },
+            },
+            tools: {
+              type: 'array',
+              description: 'For outside-tools: each tool, how it connects, and how hard it is to swap.',
+              items: {
+                type: 'object',
+                properties: { tool: TEXT, how: TEXT, swap: { type: 'string', enum: ['easy', 'medium', 'hard'] }, why: TEXT },
+                required: ['tool', 'how', 'swap', 'why'],
+              },
+            },
             detail: { ...TEXT, description: 'HTML, shown collapsed under "More detail".' },
           },
           required: ['heading', 'points'],
