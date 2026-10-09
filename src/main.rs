@@ -9,8 +9,8 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use niri_tasks::{
-    actions::Action, dirs, github, ipc, link, niri, notify, project, refine, speak, task, text,
-    work, workspace::Workspace,
+    actions::Action, dirs, github, ipc, link, niri, notify, programs, project, refine, speak, task,
+    text, work, workspace::Workspace,
 };
 
 #[derive(Parser)]
@@ -426,7 +426,7 @@ fn terminal() -> Result<()> {
     let workspace = niri::focused_workspace_name()?.unwrap_or_default();
     let dir = dirs.start_dir(&workspace);
 
-    let cmd = project::terminal_command(&dir);
+    let cmd = programs::terminal_command(&dir);
     let status = std::process::Command::new(&cmd[0])
         .args(&cmd[1..])
         .status()

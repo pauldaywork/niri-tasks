@@ -10,7 +10,7 @@
 //! detached in a process group of its own and does the slow part. The group is
 //! what makes a stop whole — `claude`, `curl` and `ffplay` are all in it.
 
-use crate::{notify, project, task};
+use crate::{notify, programs, task};
 use anyhow::{bail, Context, Result};
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -365,7 +365,7 @@ fn ensure_kokoro() -> Result<()> {
         return Ok(());
     }
     anyhow::ensure!(
-        project::on_path("docker"),
+        programs::on_path("docker"),
         "Kokoro isn't running, and docker is not installed to start it."
     );
     let exists = Command::new("docker")
@@ -548,7 +548,7 @@ pub fn toggle(uuid: &str, description: &str) -> Result<()> {
     }
 
     for program in ["claude", "curl", PLAYER[0]] {
-        anyhow::ensure!(project::on_path(program), "{program} is not installed.");
+        anyhow::ensure!(programs::on_path(program), "{program} is not installed.");
     }
     let exe = std::env::current_exe().context("could not find the niritasks binary")?;
     // The directory is made before the speech starts, so the likeliest write

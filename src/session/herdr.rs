@@ -344,7 +344,7 @@ impl Port for Process {
         crate::notify::tasks(text)
     }
     fn herdr_installed(&self) -> bool {
-        crate::project::on_path(crate::project::SESSION_MANAGER)
+        crate::programs::on_path(crate::programs::SESSION_MANAGER)
     }
 }
 

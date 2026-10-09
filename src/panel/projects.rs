@@ -22,7 +22,8 @@ pub enum Purpose {
 }
 
 /// Ranks `names` for `query`, best first. The daemon hands in fzf with its
-/// substring fallback; tests hand in [`project::substring_matches`].
+/// substring fallback; tests hand in
+/// [`substring_matches`](super::matching::substring_matches).
 pub type Matcher<'a> = &'a dyn Fn(&[String], &str) -> Vec<String>;
 
 /// What Enter or a click on the list does.
@@ -256,7 +257,7 @@ mod tests {
     }
 
     fn substring(names: &[String], query: &str) -> Vec<String> {
-        project::substring_matches(names, query)
+        crate::panel::matching::substring_matches(names, query)
     }
 
     fn folders(names: &[&str]) -> Vec<Row> {

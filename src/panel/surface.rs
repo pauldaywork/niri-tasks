@@ -55,7 +55,7 @@
 //! `~/Projects` folders the task can move to, drawn as cards under a line
 //! naming it, with a footer of its own. A text field takes the tab bar's
 //! place and the keyboard: what is typed narrows the folders to fzf's
-//! matches, best first (`project::fzf_matches`), or to those holding the
+//! matches, best first (`matching::fzf_matches`), or to those holding the
 //! text when fzf cannot run. The highlighted folder is darkened by a class,
 //! the field keeping the focus; each keystroke puts it on the top match. Up
 //! and Down move it, Enter or a click runs `task move` and goes back to the
@@ -744,13 +744,13 @@ impl Panel {
     /// with a notification the first time saying why. The list never asks
     /// with nothing typed: it shows every row then.
     fn rank(&self, folders: &[String], query: &str) -> Vec<String> {
-        match crate::project::fzf_matches(folders, query) {
+        match crate::panel::matching::fzf_matches(folders, query) {
             Ok(matches) => matches,
             Err(e) => {
                 if !self.fzf_missing.replace(true) {
                     crate::notify::tasks(&format!("{e:#}; the project list matches plain text instead."));
                 }
-                crate::project::substring_matches(folders, query)
+                crate::panel::matching::substring_matches(folders, query)
             }
         }
     }

@@ -1940,7 +1940,7 @@ mod tests {
 
     /// The matcher the tests rank with: fzf is the daemon's.
     fn substring(names: &[String], query: &str) -> Vec<String> {
-        crate::project::substring_matches(names, query)
+        crate::panel::matching::substring_matches(names, query)
     }
 
     /// The panel on `a`'s project list, of folders x and y.

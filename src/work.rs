@@ -7,7 +7,7 @@
 use crate::dirs::Dirs;
 use crate::session::{current_pane, Claude, Session};
 use crate::workspace::Workspace;
-use crate::{notify, project, task, text};
+use crate::{notify, programs, task, text};
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -153,7 +153,7 @@ fn wt_list(repo: &Path) -> Result<Value> {
 /// has none of them.
 pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
     let repo = repo_for(ws)?;
-    anyhow::ensure!(project::on_path("wt"), "worktrunk (wt) is not installed.");
+    anyhow::ensure!(programs::on_path("wt"), "worktrunk (wt) is not installed.");
     let session = ws.session()?;
     let name = work_agent_name(&t.uuid);
 

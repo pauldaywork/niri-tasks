@@ -5,7 +5,7 @@
 //! Two rules, and the inverse of each, because `niritasks tag --session` has
 //! to get from a terminal back to the workspace it was opened for. The
 //! lookup itself is `Workspace::of_session`'s, in the `workspace` module;
-//! the inverses here are what it is made of:
+//! the inverses below are what it is made of:
 //!
 //! * **Folder**, defined in `dirs`: a workspace named "hansard-votes" works in
 //!   `~/Projects/hansard-votes` ([`Dirs::start_dir`]). Inverse:
@@ -282,8 +282,9 @@ pub struct Session {
 }
 
 impl Session {
-    /// A session by name, with the folder its terminals start in: what a
-    /// workspace's session is, built by `Workspace::session`.
+    /// A session by name, with the folder its terminals start in, through the
+    /// process adapter: what a workspace's session is, built by
+    /// `Workspace::session`.
     pub fn at(name: String, dir: PathBuf) -> Session {
         Session { name, dir, port: Box::new(herdr::Process) }
     }
@@ -331,7 +332,7 @@ impl Session {
                 anyhow::ensure!(self.port.herdr_installed(), "herdr is not installed.");
                 // Through niri, so the window lands on the focused workspace,
                 // the one the task belongs to, as the project list's does.
-                self.port.spawn(crate::project::project_terminal_command(&self.dir, &self.name, true))?;
+                self.port.spawn(crate::programs::project_terminal_command(&self.dir, &self.name, true))?;
                 self.wait_for_start()
             }
         }
@@ -352,7 +353,7 @@ impl Session {
         let windows = self.port.windows()?;
         match find_session_window(&windows, &labels) {
             Some(id) => self.port.focus_window(id),
-            None => self.port.spawn(crate::project::project_terminal_command(&self.dir, &self.name, true)),
+            None => self.port.spawn(crate::programs::project_terminal_command(&self.dir, &self.name, true)),
         }
     }
 
