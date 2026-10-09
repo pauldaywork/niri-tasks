@@ -99,7 +99,7 @@ Remove to ask. Apart from Ctrl+Shift+Delete, the Waiting tab's Clear all
 
 Above the cards, tabs narrow them while the panel has the keyboard: **All**,
 **Active** (started), **Planned** (refined or grilled into a plan, and not
-started yet), **To refine** (not planned yet), **Waiting** (parked) and
+started yet), **To refine** (neither planned nor started yet), **Waiting** (parked) and
 **Finished** (the last 12 completed, the most recently finished first, each
 aged from when it was finished). A tab shows only while it has a task under it,
 All apart. `1` to `6` pick one, each always the same tab and doing nothing

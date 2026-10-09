@@ -108,9 +108,10 @@ impl Card {
 ///
 /// A filter, not a status: Planned and To refine go by the `+planned` tag,
 /// which a card's icon can hide behind ▶ or the lock. A started task is
-/// under Active and not Planned, which is for picking what to start next. A
-/// waiting task is under Waiting and no other tab, and a finished one under
-/// Finished: it is parked or done, and All is what the hover shows.
+/// under Active and neither Planned nor To refine, which are for picking what
+/// to start or refine next. A waiting task is under Waiting and no other tab,
+/// and a finished one under Finished: it is parked or done, and All is what
+/// the hover shows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Filter {
     #[default]
@@ -119,7 +120,7 @@ pub enum Filter {
     Active,
     /// Tasks carrying `+planned`, from Refine or Grill me, and not started.
     Planned,
-    /// Tasks without `+planned`: the ones still worth refining.
+    /// Tasks without `+planned`, and not started: the ones still worth refining.
     ToRefine,
     /// Tasks parked as waiting.
     Waiting,
@@ -173,7 +174,7 @@ impl Filter {
             Filter::All => true,
             Filter::Active => card.status == Status::Active,
             Filter::Planned => card.planned && card.status != Status::Active,
-            Filter::ToRefine => !card.planned,
+            Filter::ToRefine => !card.planned && card.status != Status::Active,
         }
     }
 
@@ -661,9 +662,9 @@ mod tests {
         assert_eq!(Filter::Finished.empty_text(), "No finished tasks");
     }
 
-    /// A filter, not a status. A started planned task is under Active alone:
-    /// Planned is for picking what to start, and it is started. Not under To
-    /// refine either, which it is past.
+    /// A filter, not a status. A started task is under Active alone, planned
+    /// or not: Planned is for picking what to start, and To refine for what
+    /// to refine before starting, and it is started.
     #[test]
     fn each_tab_picks_its_tasks_in_order() {
         let all = cards(
@@ -678,7 +679,15 @@ mod tests {
         assert_eq!(texts(&Filter::All.pick(&all)), texts(&all));
         assert_eq!(texts(&Filter::Active.pick(&all)), vec!["started", "started-planned"]);
         assert_eq!(texts(&Filter::Planned.pick(&all)), vec!["planned"]);
-        assert_eq!(texts(&Filter::ToRefine.pick(&all)), vec!["started", "plain"]);
+        assert_eq!(texts(&Filter::ToRefine.pick(&all)), vec!["plain"]);
+    }
+
+    /// A started task alone leaves no tab to refine: To refine is shown only
+    /// while an unstarted unplanned task is under it.
+    #[test]
+    fn to_refine_hides_when_every_unplanned_task_is_started() {
+        let all = cards(&todo(vec![task("started", 5, true), planned("planned", false)]), &[]);
+        assert_eq!(Filter::shown(&all), vec![Filter::All, Filter::Active, Filter::Planned]);
     }
 
     /// Clear all deletes what the Waiting tab lists, and nothing it does not.
