@@ -99,27 +99,27 @@ Remove to ask. Apart from Ctrl+Shift+Delete, the Waiting tab's Clear all
 
 Above the cards, tabs narrow them while the panel has the keyboard: **All**,
 **Active** (started), **Planned** (refined or grilled into a plan, and not
-started yet), **To refine** (neither planned nor started yet), **Waiting** (parked) and
-**Finished** (the last 12 completed, the most recently finished first, each
-aged from when it was finished). A tab shows only while it has a task under it,
-All apart. `1` to `6` pick one, each always the same tab and doing nothing
-while it is hidden, and each tab's label ends in its key, as **To refine (4)**;
-`[` and `]` step to the shown tab either side; a click picks one too. The arrows
-and Tab still move only between cards and buttons. A started planned task is
-under Active, not Planned. Waiting tasks are on the Waiting tab only: not on
-All, the hover or the peek. Finished tasks are on the Finished tab only, the
-same way, and Back to list on one reopens it, back on All. The panel opens on
-All every time, and goes back to All when the tab it is on runs out of tasks. On
-the Waiting tab alone, **Clear all** sits under the tabs on a strip of its own,
-which `Ctrl+Shift+Delete` presses (`Ctrl+Delete` and `Delete` are still the
-focused card's). Like Remove it asks first, as **Confirm clear all**, and its
-second press deletes every waiting task on this workspace, one `task status
-<uuid> deleted --yes` after another, putting the panel back on All with the
-keyboard kept. Armed, it takes the focus off the cards, so no card's buttons
-show and `Enter` confirms as a second `Ctrl+Shift+Delete` does; a card's own
-keys, `Ctrl+Delete` among them, do nothing until it is put back. `Escape`, an
-arrow or Tab puts it back with the focus on the card it was on, and the panel
-stays up; switching tab puts it back too.
+started yet), **To refine** (neither planned nor started yet), **Waiting**
+(parked) and **Finished** (the last 12 completed, the most recently finished
+first, each aged from when it was finished). A tab shows only while it has a
+task under it, All apart. `1` to `6` pick one, each always the same tab and
+doing nothing while it is hidden, and each tab's label ends in its key, as **To
+refine (4)**; `[` and `]` step to the shown tab either side; a click picks one
+too. The arrows and Tab still move only between cards and buttons. A started
+task is under Active alone, not Planned or To refine. Waiting tasks are on the
+Waiting tab only: not on All, the hover or the peek. Finished tasks are on the
+Finished tab only, the same way, and Back to list on one reopens it, back on
+All. The panel opens on All every time, and goes back to All when the tab it is
+on runs out of tasks. On the Waiting tab alone, **Clear all** sits under the
+tabs on a strip of its own, which `Ctrl+Shift+Delete` presses (`Ctrl+Delete` and
+`Delete` are still the focused card's). Like Remove it asks first, as **Confirm
+clear all**, and its second press deletes every waiting task on this workspace,
+one `task status <uuid> deleted --yes` after another, putting the panel back on
+All with the keyboard kept. Armed, it takes the focus off the cards, so no
+card's buttons show and `Enter` confirms as a second `Ctrl+Shift+Delete` does; a
+card's own keys, `Ctrl+Delete` among them, do nothing until it is put back.
+`Escape`, an arrow or Tab puts it back with the focus on the card it was on, and
+the panel stays up; switching tab puts it back too.
 
 The last tab, **Ideas**, is not a filter: in place of the cards it shows one
 large text area, a notepad for this workspace's ideas that are not tasks yet. It
