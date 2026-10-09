@@ -145,7 +145,8 @@ use crate::actions::{Action, TaskState};
 use super::blur::Blur;
 use super::keys;
 use super::layout::{
-    centre_margin, scroll_to_show, Layout, Measured, CENTRED_X, EXPANDED_X, SURFACE_WIDTH, TUCKED_X,
+    centre_margin, scroll_to_show, Layout, Measured, CENTRED_X, EXPANDED_X, PROJECT_LIST_MAX_PX,
+    SURFACE_WIDTH, TUCKED_X,
 };
 use super::notepad::Notepad;
 use super::model::{Card, Filter, Status, Tab};
@@ -810,6 +811,7 @@ impl Panel {
             clear,
             footer_h,
             screen_h: self.monitor.geometry().height(),
+            max_h: self.state.borrow().projects().map(|_| PROJECT_LIST_MAX_PX),
         });
         let height = layout.surface_height();
         *self.layout.borrow_mut() = layout;

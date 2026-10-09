@@ -63,7 +63,16 @@ pub struct Measured {
     pub footer_h: i32,
     /// The monitor's height, which the cards are cut to.
     pub screen_h: i32,
+    /// The tallest the panel may show, from the top of the tabs to the
+    /// bottom of the footer, when its mode sets one: the project list's
+    /// [`PROJECT_LIST_MAX_PX`]. None lets the screen alone decide.
+    pub max_h: Option<i32>,
 }
+
+/// The project list's tallest, tabs to footer. A long `~/Projects` and
+/// GitHub list would otherwise fill a tall monitor top to bottom; past this
+/// the rows scroll, as the task cards do at the screen's edge.
+pub(crate) const PROJECT_LIST_MAX_PX: i32 = 800;
 
 /// Where everything is, worked out from what was measured: the surface's
 /// size, and the rectangles the input region and the blur need.
@@ -80,7 +89,11 @@ impl Layout {
     /// cards' height on screen is cut here once, since every answer below
     /// depends on it.
     pub fn new(measured: Measured) -> Layout {
-        let cards_h = shown_height(measured.column_h, measured.tabs_h + measured.footer_h, measured.screen_h);
+        let bars_h = measured.tabs_h + measured.footer_h;
+        let mut cards_h = shown_height(measured.column_h, bars_h, measured.screen_h);
+        if let Some(max_h) = measured.max_h {
+            cards_h = cards_h.min((max_h - bars_h).max(0));
+        }
         Layout { measured, cards_h }
     }
 
@@ -316,6 +329,7 @@ mod tests {
             clear: (0, 0),
             footer_h: 32,
             screen_h: 1000,
+            max_h: None,
         }
     }
 
@@ -368,6 +382,26 @@ mod tests {
         assert_eq!(bottom, cards_top + layout.cards_h() + GAP_PX + (32 - GAP_PX), "down to the footer's bottom");
         // The gap under the bar is not blurred: no strip starts between the bar's bottom and the first card.
         assert!(rects.iter().all(|r| !(r.1 > SHADOW_PX + 32 && r.1 < cards_top)), "{rects:?}");
+    }
+
+    /// The project list stops at its cap, tabs to footer, however tall the
+    /// screen; under the cap, or with none, it is as tall as its rows.
+    #[test]
+    fn a_capped_panel_stops_at_its_maximum() {
+        let mut m = measured();
+        m.column_h = 2000;
+        m.screen_h = 1440;
+        m.max_h = Some(PROJECT_LIST_MAX_PX);
+        let capped = Layout::new(m.clone());
+        assert_eq!(capped.visible_height(), PROJECT_LIST_MAX_PX);
+        assert_eq!(capped.cards_h(), PROJECT_LIST_MAX_PX - 48 - 32);
+
+        m.max_h = None;
+        assert_eq!(Layout::new(m.clone()).visible_height(), 1440 - 2 * (SHADOW_PX + EDGE_GAP_PX));
+
+        m.column_h = 300;
+        m.max_h = Some(PROJECT_LIST_MAX_PX);
+        assert_eq!(Layout::new(m).cards_h(), 300, "a short list is not stretched");
     }
 
     #[test]
