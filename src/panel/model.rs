@@ -34,6 +34,10 @@ pub struct Card {
     /// The task a click on the card acts on. `None` on the "+N more" card,
     /// which stands for no one task.
     pub uuid: Option<String>,
+    /// The task's id, read off the export: what the line above its notes
+    /// shows. 0 on a finished task, which taskwarrior numbers 0, and on
+    /// "+N more".
+    pub id: u64,
     /// The task carries `+planned`. Apart from `status`, which shows a
     /// started or blocked planned task as Active or Blocked: the Planned and
     /// To refine tabs go by the tag, whatever the card's icon says.
@@ -81,6 +85,14 @@ impl Card {
     /// and the dot too.
     pub fn shows_up_next(&self) -> bool {
         self.up_next && !matches!(self.status, Status::Active | Status::Waiting | Status::Finished)
+    }
+
+    /// The first line of the pressed card's notes: `#48 · <uuid>`, or the
+    /// uuid alone when the id is 0, as on a finished task. Either can be
+    /// read off for a `task` or `niritasks` command. None on "+N more".
+    pub fn id_line(&self) -> Option<String> {
+        let uuid = self.uuid.as_deref()?;
+        Some(if self.id == 0 { uuid.to_string() } else { format!("#{} · {uuid}", self.id) })
     }
 
     /// How long ago the task was added, or finished on a finished card,
@@ -292,6 +304,7 @@ pub fn cards(listing: &Listing, blocked: &[String]) -> Vec<Card> {
             },
             text: crate::text::collapse_whitespace(&t.description),
             uuid: Some(t.uuid.clone()),
+            id: t.id,
             planned: t.is_planned(),
             up_next: t.is_up_next(),
             since: if finished(part) { t.end.clone() } else { t.entry.clone() },
@@ -319,6 +332,7 @@ pub fn cap(cards: &[Card], n: usize) -> Vec<Card> {
             status: Status::More,
             text: format!("+{} more", cards.len() - n),
             uuid: None,
+            id: 0,
             planned: false,
             up_next: false,
             since: String::new(),
@@ -336,6 +350,7 @@ mod tests {
     /// it sorts higher, as a higher urgency used to.
     fn task(uuid: &str, day: u32, active: bool) -> Task {
         Task {
+            id: 0,
             uuid: uuid.into(),
             description: uuid.into(),
             urgency: 0.0,
@@ -458,6 +473,34 @@ mod tests {
         assert!(cards[1].notes.is_empty());
         let capped = cap(&cards, 1);
         assert!(capped[1].notes.is_empty(), "+N more stands for no one task");
+    }
+
+    /// A card carries its task's id from the export; "+N more" has none.
+    #[test]
+    fn a_card_carries_its_tasks_id() {
+        let mut numbered = task("n", 2, false);
+        numbered.id = 48;
+        let cards = cards(&todo(vec![numbered, task("plain", 1, false)]), &[]);
+        assert_eq!(cards[0].id, 48);
+        assert_eq!(cards[1].id, 0);
+        assert_eq!(cap(&cards, 1)[1].id, 0, "+N more stands for no one task");
+    }
+
+    /// The line a pressed card shows above its notes: the id and the uuid,
+    /// or the uuid alone when taskwarrior numbers the task 0, as it does a
+    /// finished one. "+N more" has no line.
+    #[test]
+    fn the_id_line_is_the_id_and_the_uuid() {
+        let mut numbered = task("e44118a7-122d-4667-8300-0e7e98fd3131", 2, false);
+        numbered.id = 48;
+        let got = cards(&todo(vec![numbered]), &[]);
+        assert_eq!(got[0].id_line().as_deref(), Some("#48 · e44118a7-122d-4667-8300-0e7e98fd3131"));
+
+        let got = cards(&done(vec![finished("f", 3)]), &[]);
+        assert_eq!(got[0].id_line().as_deref(), Some("f"), "a finished task's id is 0");
+
+        let capped = cap(&cards(&todo(vec![task("a", 1, false), task("b", 2, false)]), &[]), 1);
+        assert_eq!(capped[1].id_line(), None);
     }
 
     #[test]
@@ -775,7 +818,7 @@ mod tests {
     /// A card's status and tags are its task's state; "+N more" has none.
     #[test]
     fn a_cards_state_is_its_tasks() {
-        let card = |status, planned, up_next| Card { status, text: "t".into(), uuid: Some("u".into()), planned, up_next, since: String::new(), notes: Vec::new() };
+        let card = |status, planned, up_next| Card { status, text: "t".into(), uuid: Some("u".into()), id: 0, planned, up_next, since: String::new(), notes: Vec::new() };
         assert_eq!(
             card(Status::Active, true, true).state(true),
             Some(TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true })

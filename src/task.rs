@@ -26,6 +26,11 @@ pub const UP_NEXT_TAG: &str = "next";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Task {
+    /// Taskwarrior's working-set number, what `task 48 …` takes: 0 on a
+    /// completed or deleted task, which has none. Absent only on a
+    /// hand-built task in a test, hence the default.
+    #[serde(default)]
+    pub id: u64,
     pub uuid: String,
     pub description: String,
     #[serde(default)]
@@ -843,6 +848,19 @@ mod tests {
         let tasks: Vec<Task> = serde_json::from_str(json).unwrap();
         assert_eq!(tasks[0].end, "20261007T040233Z");
         assert_eq!(tasks[1].end, "");
+    }
+
+    /// `id` is read from the export, and absent means 0, as taskwarrior
+    /// writes it on a completed or deleted task.
+    #[test]
+    fn parses_id() {
+        let json = r#"[{"id":48,"uuid":"a","description":"d"},
+                       {"id":0,"uuid":"b","description":"d","status":"completed"},
+                       {"uuid":"c","description":"d"}]"#;
+        let tasks: Vec<Task> = serde_json::from_str(json).unwrap();
+        assert_eq!(tasks[0].id, 48);
+        assert_eq!(tasks[1].id, 0);
+        assert_eq!(tasks[2].id, 0);
     }
 
     fn finished(uuid: &str, day: u32) -> Task {
