@@ -93,6 +93,26 @@ describe('the layout', () => {
     expect(full).toContain('<dt>Refine</dt><dd>Turning a task into a plan.</dd>')
   })
 
+  test('shows backticks in a part heading as code in the contents bar', () => {
+    const page = reportPage(report({ sections: [{ heading: 'Run `task` <now>', points: ['a'] }] }), PLAN)
+    expect(page).toContain('<a href="#part-1">1. Run <code>task</code> &lt;now&gt;</a>')
+  })
+
+  test('leaves out the files, their link and their count when the plan touches none', () => {
+    const page = reportPage(report({ files: [] }), PLAN)
+    expect(page).not.toContain('id="files"')
+    expect(page).not.toContain('href="#files"')
+    expect(page).toContain('<p class="meta">About 1 min to read · 1 part</p>')
+  })
+
+  test('shows the legend only beside a diagram that takes the change colours', () => {
+    const with_ = (diagram: { mermaid: string } | { svg: string }) =>
+      reportPage(report({ sections: [{ heading: 'h', points: ['p'], look_at: 'x', diagram }] }), PLAN)
+    expect(with_({ mermaid: 'sequenceDiagram\n A->>B: hi' })).not.toContain('class="legend"')
+    expect(with_({ svg: '<svg viewBox="0 0 1 1"><rect/></svg>' })).not.toContain('class="legend"')
+    expect(with_({ mermaid: '%% the flow\nstateDiagram-v2\n [*] --> A' })).toContain('class="legend"')
+  })
+
   test('shows the files with a labelled badge each', () => {
     expect(reportPage(report(), PLAN)).toContain(
       '<tr><td><span class="badge change">changed</span></td><td><code>src/words.rs</code></td><td>Holds the words.</td></tr>',
@@ -149,6 +169,15 @@ describe('diagrams', () => {
     expect(part({ mermaid: 'sequenceDiagram\n A->>B: hi' })).not.toContain('classDef')
   })
 
+  test('find the kind of diagram past comments, directives and front matter', () => {
+    expect(part({ mermaid: "%%{init: {'theme': 'base'}}%%\n%% the flow\nflowchart LR\n a --> b" })).toContain(
+      'classDef new fill:#dcfce7',
+    )
+    expect(part({ mermaid: '---\ntitle: The flow\n---\nflowchart LR\n a --> b' })).toContain('classDef new fill:#dcfce7')
+    expect(part({ mermaid: '---\ntitle: flowchart\n---\nsequenceDiagram\n A->>B: hi' })).not.toContain('classDef')
+    expect(part({ mermaid: '%% flowchart\nsequenceDiagram\n A->>B: hi' })).not.toContain('classDef')
+  })
+
   test('pass SVG through as given', () => {
     expect(part({ svg: '<svg viewBox="0 0 1 1"><rect/></svg>' })).toContain('<svg viewBox="0 0 1 1"><rect/></svg>')
   })
@@ -176,8 +205,19 @@ describe('readingMinutes', () => {
   test('is at least one', () => {
     expect(readingMinutes(report())).toBe(1)
   })
-  test('counts detail at 200 words a minute', () => {
-    expect(readingMinutes(report({ sections: [{ heading: 'h', points: ['p'], detail: `<p>${words(600)}</p>` }] }))).toBe(4)
+  test('leaves out detail, which is shown collapsed', () => {
+    expect(readingMinutes(report({ sections: [{ heading: 'h', points: ['p'], detail: `<p>${words(600)}</p>` }] }))).toBe(1)
+  })
+  test('counts what is shown at 200 words a minute', () => {
+    // Two parts of five 25-word points (250) and their one-word headings (2),
+    // with the summary (5), the change (4), the file's why (3) and the check
+    // (3 + 2): 269 words, so ceil(269 / 200) = 2.
+    const points = Array.from({ length: 5 }, () => words(25))
+    const sections = [
+      { heading: 'One', points },
+      { heading: 'Two', points },
+    ]
+    expect(readingMinutes(report({ sections }))).toBe(2)
   })
 })
 

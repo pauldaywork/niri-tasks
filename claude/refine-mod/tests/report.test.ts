@@ -33,6 +33,16 @@ describe('parseReport', () => {
     expect(parseReport(MINIMAL)).toEqual({ ...MINIMAL, unchanged: [], needs_your_eye: [], terms: [] })
   })
 
+  test('takes a plan that touches no file', () => {
+    expect(parseReport({ ...MINIMAL, files: [] })).toEqual({
+      ...MINIMAL,
+      files: [],
+      unchanged: [],
+      needs_your_eye: [],
+      terms: [],
+    })
+  })
+
   test('takes the worked example', () => {
     expect(typeof parseReport(EXAMPLE)).toBe('object')
   })

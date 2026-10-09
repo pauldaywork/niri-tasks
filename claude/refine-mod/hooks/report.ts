@@ -45,7 +45,7 @@ export const LIMITS = {
   mermaidLines: 40,
   diagramChars: 50_000,
   detailChars: 20_000,
-  files: { min: 1, max: 40, pathChars: 200, whyWords: 20 },
+  files: { min: 0, max: 40, pathChars: 200, whyWords: 20 },
   checks: { min: 1, max: 6, words: 20 },
 } as const
 

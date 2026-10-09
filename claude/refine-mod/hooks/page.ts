@@ -113,8 +113,9 @@ export const inline = (text: string): string => {
   return label === null ? plain(text) : `<strong>${plain(label[1] ?? '')}:</strong> ${plain(label[2] ?? '')}`
 }
 
-// Minutes to read at 200 words a minute, plus half a minute a diagram; at
-// least one. Shown first, so the reader knows what they are taking on.
+// Minutes to read what is shown, at 200 words a minute, plus half a minute a
+// diagram; at least one. Detail, shown collapsed, is not counted. Shown
+// first, so the reader knows what they are taking on.
 export const readingMinutes = (report: Report): number => {
   const prose = [
     report.summary,
@@ -122,7 +123,7 @@ export const readingMinutes = (report: Report): number => {
     ...report.unchanged,
     ...report.needs_your_eye,
     ...report.terms.flatMap(t => [t.term, t.meaning]),
-    ...report.sections.flatMap(s => [s.heading, s.look_at ?? '', ...s.points, (s.detail ?? '').replace(/<[^>]*>/g, ' ')]),
+    ...report.sections.flatMap(s => [s.heading, s.look_at ?? '', ...s.points]),
     ...report.files.map(f => f.why),
     ...report.checks.flatMap(c => [c.check, c.how]),
   ].join(' ')
@@ -152,10 +153,10 @@ const contents = (report: Report): string => {
     ...(report.terms.length > 0 ? [['terms', 'Words used here'] as [string, string]] : []),
     ...report.sections.map((s, i): [string, string] => [`part-${i + 1}`, `${i + 1}. ${s.heading}`]),
     ['plan', 'What will be written'],
-    ['files', 'Files'],
+    ...(report.files.length > 0 ? [['files', 'Files'] as [string, string]] : []),
     ['checks', 'Done when'],
   ]
-  const items = links.map(([id, label]) => `<li><a href="#${id}">${escapeHtml(label)}</a></li>`).join('')
+  const items = links.map(([id, label]) => `<li><a href="#${id}">${plain(label)}</a></li>`).join('')
   return `<nav class="contents" aria-label="Contents"><ol>${items}</ol></nav>`
 }
 
@@ -184,9 +185,15 @@ const terms = (list: readonly Term[]): string =>
     '</section>',
   ].join('\n')
 
+// Whether a Mermaid diagram takes the change colours: a flowchart or a state
+// diagram, named past any front matter and `%%` comment or directive lines.
+const takesMarks = (source: string): boolean => {
+  const body = source.replace(/^\s*---[^\S\n]*\n[\s\S]*?\n\s*---[^\S\n]*(?:\n|$)/, '')
+  return /^(?:\s*%%[^\n]*(?:\n|$))*\s*(?:flowchart|graph|stateDiagram)/.test(body)
+}
+
 // Flowcharts and state diagrams get the change colours after their own lines.
-const withMarks = (source: string): string =>
-  /^\s*(flowchart|graph|stateDiagram)/.test(source) ? `${source.trimEnd()}\n${MARKS}` : source
+const withMarks = (source: string): string => (takesMarks(source) ? `${source.trimEnd()}\n${MARKS}` : source)
 
 const figure = (diagram: Diagram, lookAt: string): string => {
   const drawing =
@@ -260,9 +267,12 @@ const checks = (list: readonly Check[]): string => {
 // the person was shown just before the files.
 export const reportPage = (report: Report, plan: Plan): string => {
   const parts = report.sections
+  const touched = report.files.length > 0
   const meta =
-    `About ${readingMinutes(report)} min to read · ` +
-    `${count(parts.length, 'part')} · ${count(report.files.length, 'file')}`
+    `About ${readingMinutes(report)} min to read · ${count(parts.length, 'part')}` +
+    (touched ? ` · ${count(report.files.length, 'file')}` : '')
+  // The legend says what the colours mean, so only where a diagram takes them.
+  const marked = parts.some(s => s.diagram !== undefined && 'mermaid' in s.diagram && takesMarks(s.diagram.mermaid))
   return [
     '<!doctype html>',
     '<html lang="en">',
@@ -284,10 +294,10 @@ export const reportPage = (report: Report, plan: Plan): string => {
     contents(report),
     glance(report),
     report.terms.length > 0 ? terms(report.terms) : '',
-    parts.some(s => s.diagram !== undefined) ? LEGEND : '',
+    marked ? LEGEND : '',
     ...parts.map((s, i) => part(s, i + 1, parts.length)),
     written(plan),
-    files(report.files),
+    touched ? files(report.files) : '',
     checks(report.checks),
     `<footer>${NEXT}</footer>`,
     '</main>',
