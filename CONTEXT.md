@@ -12,6 +12,9 @@ been called several things.
 **Workspace tag**:
 The Taskwarrior tag derived from a niri workspace's name — lowercased, with
 every run of other characters collapsed to `_`. An unnamed workspace has none.
+In the code, `workspace::Workspace` is a named workspace whose name folds to a
+usable tag, built once per command by the focused, session or caller policy;
+`dirs::Dirs` is where its folder, and every other path, comes from.
 _Avoid_: project, label, context (Taskwarrior has its own contexts)
 
 **Focused workspace**:
