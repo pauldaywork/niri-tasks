@@ -36,6 +36,9 @@ git branch --show-current
 - The second line is `M`.
 - **The branch must not be the base branch.** If it is, stop: rejecting would
   delete `main`. Nothing has changed.
+- If `git branch --show-current` prints nothing, HEAD is detached (a rebase
+  left open, say). Stop and say so: there is no branch to remove by, and
+  `wt remove` with an empty branch would aim at `M`. Nothing has changed.
 - A branch named `task/<slug>-<uuid8>` belongs to a Taskwarrior task. Look it up
   with `task rc.json.array=on <uuid8> export`. If it's missing, or its status
   isn't `pending`, the task step (4) is skipped and the report says why. Never
@@ -96,7 +99,7 @@ also uses, and it sends the same notification. With no reason, add no note.
   git collects garbage, `git -C M branch <branch> <sha>` brings them back.
 - the task: stopped and pending, with the note if one was added — or why the
   step was skipped ("no task: branch isn't `task/…`", "task missing", "task is
-  completed")
+  <status>")
 
 Don't close the herdr workspace. This session runs in it, and closing it would
 end the session before the user reads the report. Say that closing it tidies it
@@ -107,6 +110,7 @@ away.
 | Stop | Left behind | Resumes with |
 |---|---|---|
 | The branch is the base branch | nothing changed | nothing: there is no attempt to reject |
+| HEAD is detached | nothing changed | finish or abort the rebase, then rerun |
 | The user says no at step 2 | nothing changed | nothing, or rerun once the work is saved elsewhere |
 | `wt` wants a hook approval | nothing removed | the user runs the command with `!` |
 | `wt remove` fails | whatever `wt` left; the task untouched | fix what it reports, then rerun |
