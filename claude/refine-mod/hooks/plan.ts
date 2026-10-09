@@ -28,7 +28,9 @@ export const isSandboxed = (settings: Readonly<Record<string, unknown>>): boolea
   return sandbox?.enabled === true && sandbox?.failIfUnavailable === true
 }
 
-const HIDDEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u
+// Control and invisible characters, which could make text shown to the
+// person look unlike what is written.
+export const HIDDEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u
 
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every(item => typeof item === 'string')
