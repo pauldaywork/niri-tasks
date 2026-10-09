@@ -53,6 +53,13 @@ This plan follows `docs/superpowers/plans/2026-10-09-readable-refine-report.md`,
   - No italics. Capitals only in the pills, the table headers and the badges, never in the report's own words.
 - **Fonts:** `@fontsource-variable/space-grotesk@5.3.0` `files/space-grotesk-latin-wght-normal.woff2`, sha256 `0640890476fc1198ab4de571fb658de443c4d85b66466ec09534a8737ab1ce9d`, and `@fontsource-variable/inter@5.3.0` `files/inter-latin-wght-normal.woff2`, sha256 `3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62`. Both are SIL OFL 1.1, and their licence texts ship beside them. If the fonts cannot be read, the report is still written, in system fonts.
 - **Light only.** BlockFrame is a light system.
+- **Diagrams are drawn before the page opens**, by beautiful-mermaid `1.1.3`, bundled into `claude/refine-mod/render/diagrams.mjs`.
+  - The mod runs the renderer once per report, inside `bwrap --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --unshare-all --die-with-parent --new-session`: the file system read-only, no network. It tries `bun` first, then `node`.
+  - The renderer runs outside the session's sandbox, on text the model wrote, which is why it gets this fence of its own.
+  - A drawn diagram goes into the page inline, with no web-font `@import` and only if it contains nothing that could run or load.
+  - Any diagram the renderer could not draw falls back to Mermaid in the browser.
+  - When every diagram is drawn, the page's policy is `script-src 'none'` and the Mermaid script is left out.
+- **A highlighted block** (`rect …` in a sequence diagram) is drawn green, the `new` colour, with its "rect […]" label hidden. Its slide carries the legend.
 - **Commits:** Conventional Commits, scope `refine`, subject ≤ 72 characters, each ending with a `Co-Authored-By:` trailer naming the model that wrote it.
 
 ## Why these choices
@@ -224,10 +231,15 @@ describe('the slides', () => {
     expect(page).toContain('<dt>Refine</dt><dd>Turning a task into a plan.</dd>')
   })
 
-  test('shows the files with a labelled badge each', () => {
+  test('shows the files with a labelled badge each, paths breaking only at a slash', () => {
     expect(reportPage(report(), PLAN)).toContain(
-      '<tr><td><span class="badge change">changed</span></td><td><code>src/words.rs</code></td><td>Holds the words.</td></tr>',
+      '<tr><td><span class="badge change">changed</span></td><td><code class="path">src/<wbr>words.rs</code></td><td>Holds the words.</td></tr>',
     )
+  })
+
+  test('the cover names the report once, in its pill', () => {
+    const page = reportPage(report(), PLAN)
+    expect(page.split('Refine report').length - 1).toBe(1)
   })
 })
 
@@ -369,7 +381,11 @@ ol { padding-left: 1.4em; }
 .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 0 2.5rem; max-width: none; }
 .split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(16rem, 2fr); gap: 2rem; align-items: start; }
 @media (max-width: 56rem) { .split { grid-template-columns: 1fr; } }
-.solo { font-size: 1.15em; }
+.solo { font-size: 1.3em; }
+.drawn svg { display: block; width: 100%; height: auto; max-height: 56vh; }
+.drawn g.block[data-type="rect"] > rect:first-of-type { fill: var(--green); stroke: var(--black); stroke-width: 1.5px; }
+.drawn g.block[data-type="rect"] > rect:nth-of-type(2), .drawn g.block[data-type="rect"] > text { display: none; }
+code.path { overflow-wrap: normal; word-break: normal; }
 figure { background: var(--white); border: 3px solid var(--black); padding: 1rem; overflow-x: auto; margin: 0; }
 figcaption.look { font-weight: 600; margin: 0 0 0.75rem; }
 pre.mermaid { margin: 0; text-align: center; font-family: inherit; }
@@ -485,7 +501,6 @@ type Slide = { id: string; pill: string; name: string; ground: Ground; body: str
 
 const cover = (report: Report, meta: string): string =>
   [
-    '<p class="kicker">Refine report</p>',
     `<h1>${plain(report.title)}</h1>`,
     `<p class="meta">${meta}</p>`,
     NEXT,
@@ -523,7 +538,11 @@ const part = (s: Section): string => {
 
 const files = (list: readonly FileChange[]): string => {
   const rows = list
-    .map(f => `<tr><td>${badge(f.change)}</td><td><code>${escapeHtml(f.path)}</code></td><td>${inline(f.why)}</td></tr>`)
+    .map(
+      f =>
+        `<tr><td>${badge(f.change)}</td><td><code class="path">${escapeHtml(f.path).replace(/\//g, '/<wbr>')}</code></td>` +
+        `<td>${inline(f.why)}</td></tr>`,
+    )
     .join('')
   return [
     '<h2>Files</h2>',
@@ -864,7 +883,509 @@ EOF
 
 ---
 
-### Task 3: Say it in the catalogue
+### Task 3: Draw the diagrams before the page opens
+
+A prototype on 2026-10-10 found:
+- **The mod can't load the renderer itself.** beautiful-mermaid with its layout engine bundles to 1.57 MB, and the mod's runtime refuses modules over 1 MiB.
+- **It runs fine as a separate process.** Run with `bun` or `node` from a file the mod ships, it drew both example diagrams in 0.18–0.3 s.
+- **The fence holds.** Inside the `bwrap` fence below, a file write failed and a network request was refused.
+- **Its SVGs are plain shapes:** no `<use>`, `<image>`, links or event handlers.
+- **Its fonts load from the web.** Its `<style>` holds a Google Fonts `@import`, which must be stripped.
+
+**Files:**
+- Create: `claude/refine-mod/render/package.json`, `claude/refine-mod/render/bun.lock` (generated), `claude/refine-mod/render/entry.ts`, `claude/refine-mod/render/diagrams.mjs` (generated), `claude/refine-mod/render/README.md`
+- Modify: `.gitignore`
+- Create: `claude/refine-mod/hooks/draw.ts`
+- Create: `claude/refine-mod/tests/draw.test.ts`
+- Modify: `claude/refine-mod/hooks/page.ts` (export `withMarks`, add `CSP_STATIC`, the `drawn` parameter)
+- Modify: `claude/refine-mod/hooks/refine.ts`
+- Test: `claude/refine-mod/tests/page.test.ts`, `claude/refine-mod/tests/refine.test.ts`
+
+**Interfaces:**
+- Consumes: `reportPage`, `withMarks` and `takesMarks` from `./page` (Task 1); `Report` from `./report`.
+- Produces:
+  - from `hooks/draw.ts`: `RENDERER = 'render/diagrams.mjs'`, `drawArgv(runtime: 'bun' | 'node', script: string): string[]`, `drawSources(report: Report): (string | undefined)[]`, `drawnSvgs(stdout: string, sources: readonly (string | undefined)[]): (string | undefined)[]` and `cleanSvg(svg: string): string`;
+  - from `hooks/page.ts`: `reportPage(report, plan, fonts?, drawn: readonly (string | undefined)[] = [])` and `CSP_STATIC`.
+
+- [ ] **Step 1: Build the renderer**
+
+Create `claude/refine-mod/render/package.json`:
+
+```json
+{
+  "name": "niri-tasks-report-renderer",
+  "private": true,
+  "type": "module",
+  "dependencies": { "beautiful-mermaid": "1.1.3" },
+  "scripts": { "build": "bun build entry.ts --target=node --format=esm --minify --outfile diagrams.mjs" }
+}
+```
+
+Create `claude/refine-mod/render/entry.ts`:
+
+```ts
+// The refine report's diagram renderer, run by the mod in a bwrap fence:
+// reads {"diagrams": [Mermaid source, ...]} on stdin and writes
+// {"svgs": [svg or null, ...], "errors": [message or null, ...]} on stdout,
+// one of each per diagram, in order. Black on white, every text colour
+// black, so labels stay readable; the page styles the rest.
+import { renderMermaidSVG } from 'beautiful-mermaid'
+
+const THEME = {
+  bg: '#FFFFFF',
+  fg: '#000000',
+  line: '#000000',
+  accent: '#000000',
+  muted: '#000000',
+  border: '#000000',
+  transparent: true,
+}
+
+let input = ''
+for await (const chunk of process.stdin) input += chunk
+const { diagrams } = JSON.parse(input) as { diagrams: string[] }
+const svgs: (string | null)[] = []
+const errors: (string | null)[] = []
+for (const diagram of diagrams) {
+  try {
+    svgs.push(renderMermaidSVG(diagram, THEME))
+    errors.push(null)
+  } catch (error) {
+    svgs.push(null)
+    errors.push(error instanceof Error ? error.message : String(error))
+  }
+}
+process.stdout.write(JSON.stringify({ svgs, errors }))
+```
+
+Build it, and leave no `node_modules` in the mod:
+
+```bash
+cd claude/refine-mod/render && bun install && bun run build && rm -rf node_modules && cd -
+ls -la claude/refine-mod/render/diagrams.mjs
+echo '{"diagrams":["flowchart LR\n a --> b","nonsense ((("]}' | bun claude/refine-mod/render/diagrams.mjs | head -c 200; echo
+```
+
+Expected: `diagrams.mjs` of about 1.5 MB, and output beginning `{"svgs":["<svg`, whose `errors` names the second diagram.
+
+Add to `.gitignore`:
+
+```
+/claude/refine-mod/render/node_modules
+```
+
+Create `claude/refine-mod/render/README.md`:
+
+```markdown
+# Report diagram renderer
+
+`diagrams.mjs` draws a refine report's Mermaid diagrams as SVG before the
+page opens, so the page runs no script and works offline. It is
+[beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid) 1.1.3 (MIT)
+and its layout engine, elkjs (EPL-2.0), bundled from `entry.ts`.
+
+The mod cannot import it (the mod runtime refuses modules over 1 MiB), so it
+runs it as a process, `bun` or else `node`, inside a `bwrap` fence: the file
+system read-only, a blank `/tmp`, no network (`hooks/draw.ts`).
+
+Rebuild after changing `entry.ts` or the version in `package.json`:
+
+    bun install && bun run build && rm -rf node_modules
+```
+
+- [ ] **Step 2: Write the failing unit tests**
+
+Create `claude/refine-mod/tests/draw.test.ts`:
+
+```ts
+import { describe, expect, test } from 'claude-code/testing'
+import { RENDERER, cleanSvg, drawArgv, drawSources, drawnSvgs } from '../hooks/draw'
+import type { Report } from '../hooks/report'
+
+const report = (sections: Report['sections']): Report => ({
+  title: 't',
+  summary: 's',
+  changes: ['c'],
+  unchanged: [],
+  needs_your_eye: [],
+  terms: [],
+  sections,
+  files: [],
+  checks: [{ check: 'c', how: 'h' }],
+})
+
+test('the renderer runs fenced: read-only, no network, nothing else shared', () => {
+  expect(RENDERER).toBe('render/diagrams.mjs')
+  expect(drawArgv('bun', '/m/render/diagrams.mjs')).toEqual([
+    'bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
+    '--unshare-all', '--die-with-parent', '--new-session', 'bun', '/m/render/diagrams.mjs',
+  ])
+})
+
+describe('drawSources', () => {
+  test('gives each Mermaid part its source, flowcharts with the change colours', () => {
+    const sources = drawSources(
+      report([
+        { heading: 'a', points: ['p'], look_at: 'x', diagram: { mermaid: 'flowchart LR\n a --> b' } },
+        { heading: 'b', points: ['p'] },
+        { heading: 'c', points: ['p'], look_at: 'x', diagram: { svg: '<svg></svg>' } },
+        { heading: 'd', points: ['p'], look_at: 'x', diagram: { mermaid: 'sequenceDiagram\n A->>B: hi' } },
+      ]),
+    )
+    expect(sources[0]).toStartWith('flowchart LR\n a --> b\nclassDef new fill:#99E885')
+    expect(sources[1]).toBeUndefined()
+    expect(sources[2]).toBeUndefined()
+    expect(sources[3]).toBe('sequenceDiagram\n A->>B: hi')
+  })
+})
+
+describe('drawnSvgs', () => {
+  const sources = ['flowchart LR\n a --> b', undefined, 'sequenceDiagram\n A->>B: hi']
+
+  test('maps the answers back to the parts they were drawn for', () => {
+    const out = JSON.stringify({ svgs: ['<svg id="one"></svg>', '<svg id="two"></svg>'] })
+    expect(drawnSvgs(out, sources)).toEqual(['<svg id="one"></svg>', undefined, '<svg id="two"></svg>'])
+  })
+
+  test('leaves a part undrawn when the renderer could not draw it', () => {
+    const out = JSON.stringify({ svgs: [null, '<svg id="two"></svg>'] })
+    expect(drawnSvgs(out, sources)).toEqual([undefined, undefined, '<svg id="two"></svg>'])
+  })
+
+  test('drops anything that could run or load, or is not an SVG', () => {
+    for (const bad of [
+      '<svg><script>x</script></svg>',
+      '<svg><foreignObject></foreignObject></svg>',
+      '<svg onload="x"></svg>',
+      '<svg><a href="javascript:x"></a></svg>',
+      '<svg><image href="x"/></svg>',
+      '<svg><use href="#x"/></svg>',
+      '<div></div>',
+    ]) {
+      expect(drawnSvgs(JSON.stringify({ svgs: [bad, null] }), sources)[0]).toBeUndefined()
+    }
+  })
+
+  test('draws nothing from output that is not its JSON', () => {
+    expect(drawnSvgs('', sources)).toEqual([undefined, undefined, undefined])
+    expect(drawnSvgs('{"svgs": 7}', sources)).toEqual([undefined, undefined, undefined])
+  })
+})
+
+test('cleanSvg drops the web font and uses the report body font', () => {
+  const svg =
+    "<svg><style>\n  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap');\n" +
+    "  text { font-family: 'Inter', system-ui, sans-serif; }\n</style></svg>"
+  const clean = cleanSvg(svg)
+  expect(clean).not.toContain('@import')
+  expect(clean).not.toContain('googleapis')
+  expect(clean).toContain("font-family: 'Report Body', 'Inter', system-ui, sans-serif;")
+})
+```
+
+- [ ] **Step 3: Write the failing page and tool tests**
+
+In `claude/refine-mod/tests/page.test.ts`, add `CSP_STATIC` to the `../hooks/page` import, and append to `describe('diagrams', …)`:
+
+```ts
+  test('a drawn diagram replaces the Mermaid block, and a page with all drawn runs no script', () => {
+    const page = reportPage(
+      report({ sections: [{ heading: 'h', points: ['p'], look_at: 'x', diagram: { mermaid: 'flowchart LR\n a --> b' } }] }),
+      PLAN,
+      undefined,
+      ['<svg viewBox="0 0 1 1"></svg>'],
+    )
+    expect(page).toContain('<div class="drawn"><svg viewBox="0 0 1 1"></svg></div>')
+    expect(page).not.toContain('<pre class="mermaid">')
+    expect(page).not.toContain('<script')
+    expect(page).toContain(`<meta http-equiv="Content-Security-Policy" content="${CSP_STATIC}">`)
+    expect(CSP_STATIC).toBe(
+      "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; " +
+        "img-src data:; font-src data:; form-action 'none'; base-uri 'none'",
+    )
+  })
+
+  test('a diagram left undrawn still gets Mermaid in the browser', () => {
+    const flow = { mermaid: 'flowchart LR\n a --> b' }
+    const page = reportPage(
+      report({
+        sections: [
+          { heading: 'h', points: ['p'], look_at: 'x', diagram: flow },
+          { heading: 'i', points: ['p'], look_at: 'x', diagram: flow },
+        ],
+      }),
+      PLAN,
+      undefined,
+      ['<svg viewBox="0 0 1 1"></svg>', undefined],
+    )
+    expect(page.split('<pre class="mermaid">').length - 1).toBe(1)
+    expect(page).toContain(`<script src="${MERMAID_URL}"`)
+    expect(page).toContain(`<meta http-equiv="Content-Security-Policy" content="${CSP}">`)
+  })
+
+  test('a highlighted block in a sequence diagram carries the legend', () => {
+    expect(part({ mermaid: 'sequenceDiagram\n rect rgb(153, 232, 133)\n A->>B: hi\n end' })).toContain('<p class="legend">')
+  })
+```
+
+In `claude/refine-mod/tests/refine.test.ts`:
+
+1. Give `world` a sixth parameter, `draw?: (argv: readonly string[]) => ReturnType<typeof ran>`. In its `process.run` hook, before the `export` check, add:
+
+```ts
+    if (e.argv[0] === 'bwrap') return draw?.(e.argv) ?? ran('', 1)
+```
+
+2. Append:
+
+```ts
+const DRAWN = {
+  ...MINIMAL,
+  sections: [{ heading: 'What changes', points: ['The words.'], look_at: 'The arrow.', diagram: { mermaid: 'flowchart LR\n a --> b' } }],
+}
+
+test('diagrams are drawn in the fenced renderer, and the page then runs no script', { options: REPORTS }, async ($, on) => {
+  const { runs, writes } = world(on, SANDBOX, REPORT, [TASK], false, () =>
+    ran(JSON.stringify({ svgs: ['<svg viewBox="0 0 1 1"><rect/></svg>'], errors: [null] })),
+  )
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  await $.tool.call({ tool: REPORT_TOOL, ...DRAWN })
+  const draw = runs.find(r => r.argv[0] === 'bwrap')
+  expect(draw?.argv.slice(-2)).toEqual(['bun', expect.stringMatching(/\/render\/diagrams\.mjs$/)])
+  expect(JSON.parse(draw?.init?.stdin ?? 'null').diagrams[0]).toStartWith('flowchart LR\n a --> b\nclassDef new')
+  expect(writes[0]?.text).toContain('<div class="drawn"><svg viewBox="0 0 1 1"><rect/></svg></div>')
+  expect(writes[0]?.text).not.toContain('<script')
+})
+
+test('without bun the renderer runs on node, and without either the browser draws', { options: REPORTS }, async ($, on) => {
+  const tried: string[] = []
+  const { writes } = world(on, SANDBOX, REPORT, [TASK], false, argv => {
+    tried.push(argv.at(-2) ?? '')
+    return ran('', 127)
+  })
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...DRAWN })
+  expect(shown.result).toContain('Wrote the report to')
+  expect(tried).toEqual(['bun', 'node'])
+  expect(writes[0]?.text).toContain('<pre class="mermaid">')
+  expect(writes[0]?.text).toContain(`<script src="https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js"`)
+})
+```
+
+If `expect.stringMatching` is not in `claude-code/testing` (grep the declaration file), assert `draw?.argv.at(-2)` is `'bun'` and `draw?.argv.at(-1)` ends with `/render/diagrams.mjs` instead.
+
+- [ ] **Step 4: Run them to verify they fail**
+
+Run: `claude plugin test claude/refine-mod`
+Expected: `draw.test.ts` fails to load (no `hooks/draw`). The new page and tool tests fail. Every other test passes.
+
+- [ ] **Step 5: Write draw.ts**
+
+Create `claude/refine-mod/hooks/draw.ts`:
+
+```ts
+// The pure half of drawing a report's diagrams before the page opens: what
+// the mod hands the shipped renderer, the fence it runs it in, and what it
+// keeps of what comes back. No `$`, so the unit tests reach it directly.
+
+import { withMarks } from './page'
+import type { Report } from './report'
+
+// The renderer the mod ships: beautiful-mermaid, bundled (render/README.md).
+export const RENDERER = 'render/diagrams.mjs'
+
+// The renderer runs outside the session's sandbox, on text the model wrote,
+// so in a fence of its own: the whole file system read-only, a blank /tmp,
+// no network and no namespace shared, gone with the mod.
+export const drawArgv = (runtime: 'bun' | 'node', script: string): string[] => [
+  'bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
+  '--unshare-all', '--die-with-parent', '--new-session', runtime, script,
+]
+
+// Each part's Mermaid source as it is to be drawn, flowcharts and state
+// diagrams with the change colours; undefined for a part with none.
+export const drawSources = (report: Report): (string | undefined)[] =>
+  report.sections.map(s => (s.diagram !== undefined && 'mermaid' in s.diagram ? withMarks(s.diagram.mermaid) : undefined))
+
+// What an SVG from the renderer may not hold: it is put in the page as it is,
+// so nothing that runs, loads or links. beautiful-mermaid draws plain shapes
+// and escapes its labels; this holds it to that.
+const UNSAFE = /<\s*\/?\s*(script|foreignObject|iframe|object|embed|image|use|a)\b|\son[a-z]+\s*=|javascript:/i
+
+// The web font beautiful-mermaid asks for, which the page's policy would
+// refuse anyway, and its font, swapped for the one the page embeds.
+export const cleanSvg = (svg: string): string =>
+  svg.replace(/@import\s+url\([^)]*\)\s*;?/g, '').replace(/'Inter',/g, "'Report Body', 'Inter',")
+
+// The SVG for each part, from the renderer's answer for the sources that
+// were drawn, in order; undefined where it could not draw one, or drew
+// something the page will not take.
+export const drawnSvgs = (stdout: string, sources: readonly (string | undefined)[]): (string | undefined)[] => {
+  let svgs: unknown
+  try {
+    svgs = (JSON.parse(stdout) as { svgs?: unknown }).svgs
+  } catch {
+    return sources.map(() => undefined)
+  }
+  const answers = Array.isArray(svgs) ? svgs : []
+  let next = 0
+  return sources.map(source => {
+    if (source === undefined) return undefined
+    const svg: unknown = answers[next++]
+    if (typeof svg !== 'string' || !/^\s*<svg[\s>]/.test(svg) || UNSAFE.test(svg)) return undefined
+    return cleanSvg(svg)
+  })
+}
+```
+
+- [ ] **Step 6: Let the page take drawn diagrams**
+
+In `claude/refine-mod/hooks/page.ts`:
+
+1. Export `takesMarks` and `withMarks` (`export const takesMarks …`, `export const withMarks …`).
+2. After `CSP`, add:
+
+```ts
+// The policy when every diagram was drawn before the page opened: no script
+// at all, Mermaid's included.
+export const CSP_STATIC = CSP.replace(`script-src ${MERMAID_URL}`, "script-src 'none'")
+```
+
+3. Replace `figure` with:
+
+```ts
+const figure = (diagram: Diagram, lookAt: string, svg?: string): string => {
+  // The change colours, or a highlighted block, show on a flowchart, a state
+  // diagram, or a sequence diagram with a `rect`.
+  const marked = 'mermaid' in diagram && (takesMarks(diagram.mermaid) || /^\s*rect\b/m.test(diagram.mermaid))
+  const drawing =
+    svg !== undefined
+      ? `<div class="drawn">${svg}</div>`
+      : 'mermaid' in diagram
+        ? `<pre class="mermaid">${escapeHtml(withMarks(diagram.mermaid))}</pre>`
+        : diagram.svg
+  return [
+    '<figure>',
+    `<figcaption class="look"><strong>Look at:</strong> ${plain(lookAt)}</figcaption>`,
+    drawing,
+    marked ? LEGEND : '',
+    '</figure>',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+```
+
+4. Give `part` a second parameter, `svg?: string`, and pass it on: `figure(s.diagram, s.look_at ?? '', svg)`.
+5. Give `reportPage` a fourth parameter, `drawn: readonly (string | undefined)[] = []`. In the parts' `.map((s, i): Slide => …)`, change `body: part(s)` to `body: part(s, drawn[i])`. Before the `return`, add:
+
+```ts
+  // Mermaid in the browser only for a diagram the renderer did not draw.
+  const browser = parts.some((s, i) => s.diagram !== undefined && 'mermaid' in s.diagram && drawn[i] === undefined)
+```
+
+and in the head, use `content="${browser ? CSP : CSP_STATIC}"` for the policy and replace the Mermaid `<script …>` line with:
+
+```ts
+    browser ? `<script src="${MERMAID_URL}" integrity="${MERMAID_SRI}" crossorigin="anonymous"></script>` : '',
+```
+
+then add `.filter(Boolean)` before the final `.join('\n')`.
+
+- [ ] **Step 7: Draw them in refine.ts**
+
+In `claude/refine-mod/hooks/refine.ts`, add the imports:
+
+```ts
+import { RENDERER, drawArgv, drawSources, drawnSvgs } from './draw'
+import type { Report } from './report'
+```
+
+Inside `register`, after `readFonts`, add:
+
+```ts
+  // Draws each Mermaid diagram before the page opens, in the shipped renderer
+  // inside its fence: bun if there is one, else node. Undefined for any it
+  // could not draw, which the page leaves to Mermaid in the browser.
+  const drawDiagrams = async ($: EngineInterface, report: Report): Promise<(string | undefined)[]> => {
+    const sources = drawSources(report)
+    const diagrams = sources.filter((s): s is string => s !== undefined)
+    if (diagrams.length === 0) return sources.map(() => undefined)
+    const script = `${$.plugin.root}/${RENDERER}`
+    for (const runtime of ['bun', 'node'] as const) {
+      try {
+        const run = await $.process.run(drawArgv(runtime, script), {
+          stdin: JSON.stringify({ diagrams }),
+          timeoutMs: 20_000,
+        })
+        if (run.exitCode === 0) return drawnSvgs(run.stdout, sources)
+      } catch {
+        // No bwrap, or this runtime would not start: try the next.
+      }
+    }
+    return sources.map(() => undefined)
+  }
+```
+
+and change the write to:
+
+```ts
+    await $.fs.write(path, reportPage(report, shown, await readFonts($), await drawDiagrams($, report)))
+```
+
+If `Report` is already imported as a type in `refine.ts`, do not import it twice.
+
+- [ ] **Step 8: Run the tests, validate, type-check**
+
+Run: `claude plugin test claude/refine-mod`, then `claude plugin validate claude/refine-mod`, then the type-check from Task 1 Step 8.
+Expected: every test passes, `✔ Validation passed`, `tsc exit 0`.
+
+- [ ] **Step 9: Look at it**
+
+Run Task 1 Step 7 again, but render through the real renderer. In its bun command, add the import `import { drawSources, drawnSvgs } from "./claude/refine-mod/hooks/draw.ts"` and `import { spawnSync } from "node:child_process"`, and replace the `reportPage(...)` call with:
+
+```ts
+const sources = drawSources(report)
+const run = spawnSync("bwrap", ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
+  "--unshare-all", "--die-with-parent", "--new-session", "bun", `${process.cwd()}/claude/refine-mod/render/diagrams.mjs`],
+  { input: JSON.stringify({ diagrams: sources.filter(Boolean) }) })
+const drawn = drawnSvgs(run.stdout.toString(), sources)
+reportPage(report, EXAMPLE_PLAN, { display: font(FONT_FILES.display), body: font(FONT_FILES.body) }, drawn)
+```
+
+Screenshot as Task 1 Step 7 does. Headless Chrome mishandles a page loaded at an anchor with scroll snap, so render one slide at a time: for each id, copy the page with `<style>html{scroll-snap-type:none}.slide:not(#ID){display:none}</style>` added before `</head>`, and screenshot that copy. Check:
+- both diagrams are drawn as inline SVG, with no `<pre class="mermaid">`;
+- the page has no `<script`;
+- the sequence diagram's highlighted steps show as a green band, with no "rect [rgb…]" label;
+- the labels are black and readable.
+
+Keep the PNGs as evidence.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add .gitignore claude/refine-mod/render claude/refine-mod/hooks/draw.ts claude/refine-mod/hooks/page.ts \
+  claude/refine-mod/hooks/refine.ts claude/refine-mod/tests/draw.test.ts claude/refine-mod/tests/page.test.ts \
+  claude/refine-mod/tests/refine.test.ts
+git commit -m "$(cat <<'EOF'
+feat(refine): draw report diagrams before the page opens
+
+The mod draws each Mermaid diagram with beautiful-mermaid, shipped as a
+bundle and run by bun or node inside a bwrap fence with no network and
+a read-only file system. A page with every diagram drawn runs no script
+and works offline; any diagram left undrawn falls back to Mermaid in
+the browser.
+
+Co-Authored-By: <the model that wrote it> <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 4: Say it in the catalogue
 
 **Files:**
 - Modify: `claude/refine-mod/tests/example-report.ts`
@@ -877,7 +1398,11 @@ EOF
 
 - [ ] **Step 1: Match the example's highlight to the palette**
 
-In `claude/refine-mod/tests/example-report.ts`, change `'  rect rgb(220, 252, 231)',` to `'  rect rgb(153, 232, 133)',`, the BlockFrame green `#99E885`.
+In `claude/refine-mod/tests/example-report.ts`:
+- Change `'  rect rgb(220, 252, 231)',` to `'  rect rgb(153, 232, 133)',`, the BlockFrame green `#99E885`.
+- Bring two lines up to date with Task 3:
+  - Replace the `needs_your_eye` line beginning `Diagrams need the internet:` with `'Diagrams: if the mod cannot run its renderer, they fall back to Mermaid, which needs the internet.'`.
+  - Replace the point `"The page runs no script of Claude's: only the pinned Mermaid library."` with `"Nothing runs: diagrams are drawn before the page opens."`.
 
 - [ ] **Step 2: Update the catalogue**
 
@@ -906,7 +1431,7 @@ whole without scrolling.
 ```
 
 2. Delete the paragraph that begins "The page also adds "Exactly what will be written" itself": the list above now says it.
-3. In "Drawing diagrams", change "The page draws them green, amber and dashed red, the same as the file badges, and says so above the first part" to "The slides draw them green, yellow and dashed pink, the same as the file badges, with a legend under the diagram", and change `rect rgb(220, 252, 231)` to `rect rgb(153, 232, 133)`. Re-wrap the paragraph.
+3. In "Drawing diagrams", add as its first bullet: "**The mod draws them before the page opens**, with beautiful-mermaid: flowcharts, state, sequence, class and ER diagrams. Write ordinary Mermaid. A diagram it cannot draw falls back to Mermaid in the browser." Then change "The page draws them green, amber and dashed red, the same as the file badges, and says so above the first part" to "The slides draw them green, yellow and dashed pink, the same as the file badges, with a legend under the diagram", and change `rect rgb(220, 252, 231)` to `rect rgb(153, 232, 133)`. Re-wrap the paragraph.
 4. Regenerate the worked example from `EXAMPLE` and replace the JSON in the "Worked example" fence with it:
 
 ```bash
@@ -936,7 +1461,7 @@ EOF
 
 ---
 
-### Task 4: Put the slides in front of the reader
+### Task 5: Put the slides in front of the reader
 
 This task needs the user.
 
