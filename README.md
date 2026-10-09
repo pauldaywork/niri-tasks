@@ -208,7 +208,9 @@ VS Code is optional. `niritasks project open` starts one on the project folder w
 is there because niri answers a spawn of a missing binary with a desktop
 notification, which would otherwise fire on every project you opened.
 
-Tested against niri 26.04 and taskwarrior 2.6.2.
+Tested against niri 26.04 and Taskwarrior 3.5.0. It still runs on Taskwarrior
+2.6.2, whose data lives in `pending.data` and `completed.data` rather than
+3.x's `taskchampion.sqlite3`; the panel watches both.
 
 ### Privacy
 

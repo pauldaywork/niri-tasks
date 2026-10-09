@@ -4,6 +4,14 @@
 `refine.rs`, and the refiner flags it places in `herdr.rs`, now live in
 `src/session.rs` and `src/session/herdr.rs`; the decision is unchanged.
 
+*2026-10-09:* Taskwarrior is now 3.5.0, whose whole store is one SQLite
+file, `~/.task/taskchampion.sqlite3`, with `-wal` and `-shm` files beside it.
+The decision is unchanged. Where this record says 2.6.2 needs `allowWrite` on
+its data even to export, 3.x needs it too, since SQLite in WAL mode writes
+its `-shm` file on a read. Where it says a session could rewrite
+`pending.data`, read `taskchampion.sqlite3`. Taskwarrior's undo, named below
+as one of the bounds, reaches back only to the move to 3.5.0.
+
 Refine starts Claude in a herdr tab fenced in from outside: `refine.rs` and
 `herdr.rs` hand it a Bash sandbox, hidden sockets and credentials, a list of
 removed tools and a standing instruction, all before Claude exists, and the
