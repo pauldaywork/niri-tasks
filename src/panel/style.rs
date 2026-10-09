@@ -36,14 +36,14 @@ pub const BACKGROUND: &str = "rgba(0, 0, 0, 0.375)";
 /// A terminal window's own fill, before niri touches it: ghostty's black
 /// `background` at `background-opacity = 0.5`. For the task box, which is a
 /// window rather than a layer surface, niri adds the rest itself — the window
-/// `opacity 0.75` that turns this into [`BACKGROUND`], the blur, and the 4px
+/// `opacity 0.75` that turns this into [`BACKGROUND`], the blur, and the 3px
 /// focus ring [`OUTLINE`] imitates — so the box fills with this and draws no
 /// outline of its own.
 pub const WINDOW_BACKGROUND: &str = "rgba(0, 0, 0, 0.5)";
-/// A terminal window's outline: niri's 4px focus ring, `#00000020`, drawn as a
+/// A terminal window's outline: niri's 3px focus ring, `#00000020`, drawn as a
 /// spread shadow so it sits outside the card the way the ring sits outside the
 /// window.
-pub const OUTLINE: &str = "0 0 0 4px rgba(0, 0, 0, 0.125)";
+pub const OUTLINE: &str = "0 0 0 3px rgba(0, 0, 0, 0.125)";
 /// mako `text-color`.
 pub const TEXT: &str = "#f0f0f0";
 /// The active task's ▶ and text. A green between Catppuccin's two, nearer
@@ -269,7 +269,7 @@ mod tests {
         let css = css();
         for want in [
             "background-color: rgba(0, 0, 0, 0.375)",
-            "box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.125)",
+            "box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.125)",
             "border-radius: 8px",
             ".task-card.active { color: #8cd283; }",
             "padding: 12px",

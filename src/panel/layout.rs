@@ -21,7 +21,7 @@ pub(crate) const SHADOW_PX: i32 = 16;
 /// drawn outside the card's box. The scroller clips its content, so the column
 /// keeps this much margin inside it and the scroller is this much bigger than
 /// the cards on every side; SHADOW_PX already leaves the surface room for it.
-pub(crate) const RING_PX: i32 = 4;
+pub(crate) const RING_PX: i32 = 3;
 
 /// The expanded cards' distance from the screen edge, matching mako's
 /// `outer-margin`.
