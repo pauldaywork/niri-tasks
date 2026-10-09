@@ -250,7 +250,7 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
     let claude = Claude::Refiner { settings, mod_dir };
     let label = tab_label(mode, &t.description);
     if launch_in(&session, &name, &label, ws.name(), &claude, &prompt(&t.uuid, mode))? == Launched::AlreadyRunning {
-        notify::tasks("Already being refined — switched to its tab.");
+        session.notify("Already being refined — switched to its tab.");
     }
     Ok(())
 }

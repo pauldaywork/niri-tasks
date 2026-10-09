@@ -7,7 +7,7 @@
 use crate::dirs::Dirs;
 use crate::session::{current_pane, Claim, Claude, Session};
 use crate::workspace::Workspace;
-use crate::{names, notify, programs, task};
+use crate::{names, programs, task};
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -157,7 +157,7 @@ pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
     if let Some(wt) = find_task_worktree(&wt_list(&repo)?, &t.uuid) {
         let opened = session.open_worktree(&repo, &wt.path, &wt.branch)?;
         if session.focus_agent(&name)? {
-            notify::tasks("Back to its worktree.");
+            session.notify("Back to its worktree.");
             return Ok(());
         }
         // The worktree outlived its Claude: a fresh one, in a tab of its own
@@ -301,7 +301,7 @@ fn set_up(ws: &Workspace, uuid: &str) -> Result<()> {
     let claim = session.claim()?;
     let opened = session.open_worktree(&repo, &wt.path, &wt.branch)?;
     if session.focus_agent(&name)? {
-        notify::tasks("Back to its worktree.");
+        session.notify("Back to its worktree.");
         return Ok(());
     }
     let pane = opened.pane.context("herdr did not say which pane it opened")?;
