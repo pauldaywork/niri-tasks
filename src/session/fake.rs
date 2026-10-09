@@ -51,6 +51,10 @@ struct State {
     /// One per confirmed `agent prompt` attempt: None delivered, Some(code)
     /// failed with it. Once they run out, every prompt is delivered.
     prompt_codes: Vec<Option<String>>,
+    /// How many more setup-lock tries are granted before the lock is found
+    /// held on every try after, as once a setup tab has taken it; None, the
+    /// default, grants every one.
+    setup_free_tries: Option<u32>,
     windows: Vec<WindowInfo>,
     log: Vec<String>,
 }
@@ -137,6 +141,13 @@ impl Fake {
     /// How each confirmed prompt attempt goes, in order.
     pub fn with_prompt_codes(self, codes: &[Option<&str>]) -> Fake {
         self.state.borrow_mut().prompt_codes = codes.iter().map(|c| c.map(String::from)).collect();
+        self
+    }
+
+    /// A setup lock granted `tries` times, then held by someone else: 0 is a
+    /// setup tab already under way.
+    pub fn with_setup_held_after(self, tries: u32) -> Fake {
+        self.state.borrow_mut().setup_free_tries = Some(tries);
         self
     }
 
@@ -375,6 +386,18 @@ impl Port for Fake {
     }
     fn setup_lock(&self, task: &str, wait: Duration) -> anyhow::Result<Option<Claim>> {
         self.note(format!("setup_lock {task} {}ms", wait.as_millis()));
+        let held = match self.state.borrow_mut().setup_free_tries.as_mut() {
+            None => false,
+            Some(0) => true,
+            Some(n) => {
+                *n -= 1;
+                false
+            }
+        };
+        if held {
+            self.note(format!("setup_held {task}"));
+            return Ok(None);
+        }
         Ok(Some(Claim::new(Release { fake: self.clone(), line: format!("setup_release {task}") })))
     }
 }

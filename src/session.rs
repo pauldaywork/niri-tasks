@@ -254,12 +254,18 @@ const SESSION_WAIT: Duration = Duration::from_secs(10);
 const SESSION_POLL: Duration = Duration::from_millis(250);
 /// How many times a stalled prompt is sent before giving up.
 const PROMPT_TRIES: u32 = 4;
+/// The pause before a stalled prompt is sent again.
+const PROMPT_RETRY: Duration = Duration::from_secs(2);
 /// How long a setup tab waits for its task's setup lock: a launch looking to
 /// see whether it is held takes it for a moment, so a tab starting just then
 /// must not fail. Far longer than a look, far shorter than any real setup.
 const SETUP_TAKE_WAIT: Duration = Duration::from_secs(2);
-/// The pause before a stalled prompt is sent again.
-const PROMPT_RETRY: Duration = Duration::from_secs(2);
+/// How many times, [`SETUP_POLL`] apart, a launch looks for the setup tab it
+/// opened to hold its task's setup lock before letting its claim go anyway:
+/// five seconds, against the moment a shell takes to start a command.
+const SETUP_POLLS: u32 = 50;
+/// The pause between those looks.
+const SETUP_POLL: Duration = Duration::from_millis(100);
 
 /// What a confirmed prompt's result means for sending it again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -369,6 +375,32 @@ impl Session {
         self.port
             .setup_lock(task, SETUP_TAKE_WAIT)?
             .context("This task is already being set up in another tab.")
+    }
+
+    /// Whether a setup tab holds `task`'s setup lock now. Looks once, without
+    /// waiting, and lets a free lock go at once, so a setup tab starting just
+    /// then gets it within its brief wait.
+    pub fn setup_under_way(&self, task: &str) -> Result<bool> {
+        Ok(self.port.setup_lock(task, Duration::ZERO)?.is_none())
+    }
+
+    /// Wait for the setup tab a launch just opened to hold `task`'s setup
+    /// lock, for a few seconds at most: a tab whose command never starts must
+    /// not keep the launch's claim, and every launch in the session with it.
+    pub fn wait_for_setup(&self, task: &str) -> Result<()> {
+        for _ in 0..SETUP_POLLS {
+            if self.setup_under_way(task)? {
+                return Ok(());
+            }
+            self.port.sleep(SETUP_POLL);
+        }
+        Ok(())
+    }
+
+    /// Tell the user something, as the port does: for a step whose outcome
+    /// is only a notification, such as a press that finds its work under way.
+    pub fn notify(&self, text: &str) {
+        self.port.notify(text)
     }
 
     /// Make the session running and in front of the user, and return its
@@ -710,6 +742,51 @@ mod tests {
         assert!(!logged(&f, "setup_release 7cd9fd3a-0000"));
         drop(held);
         assert!(logged(&f, "setup_release 7cd9fd3a-0000"), "{:?}", f.log());
+    }
+
+    /// A second setup tab for a task finds the lock held past its brief wait
+    /// and says another tab has it.
+    #[test]
+    fn a_second_setup_tab_says_another_has_it() {
+        let (s, _f) = session(Fake::running(&[("w1", "alpha")]).with_setup_held_after(0));
+        let err = s.hold_setup("7cd9fd3a-0000").map(drop).unwrap_err().to_string();
+        assert!(err.contains("already being set up in another tab"), "{err}");
+    }
+
+    /// A look at the setup lock tries once, without waiting, and lets a free
+    /// lock go at once so the setup tab can take it.
+    #[test]
+    fn a_look_at_the_setup_lock_lets_it_go_at_once() {
+        let (s, f) = session(Fake::running(&[("w1", "alpha")]));
+        assert!(!s.setup_under_way("7cd9fd3a-0000").unwrap());
+        assert_eq!(f.log(), ["setup_lock 7cd9fd3a-0000 0ms", "setup_release 7cd9fd3a-0000"]);
+        let (s, _f) = session(Fake::running(&[("w1", "alpha")]).with_setup_held_after(0));
+        assert!(s.setup_under_way("7cd9fd3a-0000").unwrap());
+    }
+
+    /// Waiting for a setup tab looks until it holds the lock, sleeping
+    /// between looks, and stops there.
+    #[test]
+    fn waiting_for_a_setup_tab_stops_once_it_holds_the_lock() {
+        let (s, f) = session(Fake::running(&[("w1", "alpha")]).with_setup_held_after(2));
+        s.wait_for_setup("7cd9fd3a-0000").unwrap();
+        let log = f.log();
+        assert_eq!(log.iter().filter(|l| *l == "sleep 100ms").count(), 2, "{log:?}");
+        assert_eq!(log.last().map(String::as_str), Some("setup_held 7cd9fd3a-0000"), "{log:?}");
+    }
+
+    /// A setup tab that never takes the lock is waited for five seconds at
+    /// most.
+    #[test]
+    fn waiting_for_a_setup_tab_gives_up_after_a_few_seconds() {
+        let (s, f) = session(Fake::running(&[("w1", "alpha")]));
+        s.wait_for_setup("7cd9fd3a-0000").unwrap();
+        let slept: u128 = f
+            .log()
+            .iter()
+            .filter_map(|l| l.strip_prefix("sleep ")?.strip_suffix("ms")?.parse::<u128>().ok())
+            .sum();
+        assert_eq!(slept, 5000);
     }
 
     /// The first `workspace_list` finds it stopped; the terminal is spawned

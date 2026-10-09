@@ -138,8 +138,10 @@ fn wt_list(repo: &Path) -> Result<Value> {
 /// has none of them.
 ///
 /// Everything from opening the session to Claude's start, or to the setup
-/// tab's command, runs under the session's claim, so a second press waits
-/// and then finds this one's Claude or worktree rather than starting its own.
+/// tab's process holding the task's setup lock, runs under the session's
+/// claim, so a second press waits and then finds this one's Claude,
+/// worktree or setup tab rather than starting its own. A press that finds a
+/// setup tab under way, even one showing an error, points at it instead.
 pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
     let repo = repo_for(ws)?;
     anyhow::ensure!(programs::on_path("wt"), "worktrunk (wt) is not installed.");
@@ -161,11 +163,6 @@ pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
         return start_working(&session, claim, &name, &tab.pane, &t.uuid);
     }
 
-    // The claim goes when this returns: the setup tab's own process takes it
-    // again, in `set_up`, before it starts Claude.
-
-    let label = format!("Start: {}", names::elide(&t.description));
-    let tab = session.new_tab(&workspaces, &repo, &label, ws.name())?;
     let exe = std::env::current_exe().context("could not find the niritasks binary")?;
     let command = format!(
         "{} task start --here --workspace {} {}",
@@ -173,7 +170,40 @@ pub fn launch(ws: &Workspace, t: &task::Task) -> Result<()> {
         sh_quote(ws.name()),
         sh_quote(&t.uuid)
     );
-    session.run_in_pane(&tab.pane, &command)
+    open_setup_tab(&session, claim, &workspaces, &repo, ws.name(), t, &command)
+}
+
+/// What a press of Start working says when a setup tab for its task, from an
+/// earlier press, is still open.
+const SETUP_UNDER_WAY: &str = "Already being set up — see its tab.";
+
+/// Open `t`'s setup tab and run `command` in it, under the launch's `claim`
+/// — unless a setup tab for it is under way already, from an earlier press,
+/// in which case the user is pointed at that one and nothing opens.
+///
+/// The claim is kept past `run_in_pane` until the tab's process is seen
+/// holding the setup lock: in between, a second press waiting on the claim
+/// would find neither a worktree nor a held lock, and open a second tab. A
+/// tab whose command never starts is waited for a few seconds at most.
+fn open_setup_tab(
+    session: &Session,
+    claim: Claim,
+    workspaces: &[crate::session::Workspace],
+    repo: &Path,
+    workspace_label: &str,
+    t: &task::Task,
+    command: &str,
+) -> Result<()> {
+    if session.setup_under_way(&t.uuid)? {
+        session.notify(SETUP_UNDER_WAY);
+        return Ok(());
+    }
+    let label = format!("Start: {}", names::elide(&t.description));
+    let tab = session.new_tab(workspaces, repo, &label, workspace_label)?;
+    session.run_in_pane(&tab.pane, command)?;
+    session.wait_for_setup(&t.uuid)?;
+    drop(claim);
+    Ok(())
 }
 
 /// Start the working Claude in `pane`, hand it the task to plan, and mark the
@@ -404,5 +434,61 @@ mod tests {
         let log = fake.log();
         assert_eq!(log[at(&log, "agent_start alpha work-abc") + 1], "release alpha", "{log:?}");
         assert!(!log.iter().any(|l| l.starts_with("agent_prompt")), "{log:?}");
+    }
+
+    fn task(uuid: &str, description: &str) -> task::Task {
+        serde_json::from_value(serde_json::json!({"uuid": uuid, "description": description})).unwrap()
+    }
+
+    fn workspaces() -> Vec<crate::session::Workspace> {
+        vec![crate::session::Workspace { id: "w1".into(), label: "alpha".into() }]
+    }
+
+    const U: &str = "7cd9fd3a-d27b-4387-8249-aaf0d6785f90";
+
+    /// A press that finds a setup tab already under way for its task opens
+    /// no tab, runs nothing and points the user at the tab there is.
+    #[test]
+    fn a_launch_finding_its_setup_under_way_opens_no_tab() {
+        let fake = Fake::running(&[("w1", "alpha")]).with_setup_held_after(0);
+        let s = session(&fake);
+        let claim = s.claim().unwrap();
+        open_setup_tab(&s, claim, &workspaces(), Path::new("/p/alpha"), "alpha", &task(U, "Fix it"), "setup").unwrap();
+        let log = fake.log();
+        assert!(
+            !log.iter().any(|l| l.starts_with("tab_create") || l.starts_with("workspace_create") || l.starts_with("pane_run")),
+            "{log:?}"
+        );
+        assert!(log.contains(&format!("notify {SETUP_UNDER_WAY}")), "{log:?}");
+    }
+
+    /// A launch keeps its claim past running the setup command until it sees
+    /// the tab holding the setup lock, so a second press waiting on the
+    /// claim finds the lock held rather than opening a tab of its own.
+    #[test]
+    fn a_launch_keeps_its_claim_until_its_setup_tab_holds_the_lock() {
+        // One free try for the look before the tab, two while the tab starts.
+        let fake = Fake::running(&[("w1", "alpha")]).with_setup_held_after(3);
+        let s = session(&fake);
+        let claim = s.claim().unwrap();
+        open_setup_tab(&s, claim, &workspaces(), Path::new("/p/alpha"), "alpha", &task(U, "Fix it"), "setup").unwrap();
+        let log = fake.log();
+        assert!(at(&log, "setup_release") < at(&log, "tab_create alpha w1 /p/alpha Start: Fix it"), "{log:?}");
+        assert!(at(&log, "pane_run alpha") < at(&log, "setup_held"), "{log:?}");
+        assert!(at(&log, "setup_held") < at(&log, "release alpha"), "{log:?}");
+        assert!(!log.iter().any(|l| l.starts_with("notify")), "{log:?}");
+    }
+
+    /// A setup tab that never takes the lock is waited for a few seconds,
+    /// then the claim goes anyway.
+    #[test]
+    fn a_launch_lets_its_claim_go_when_its_setup_tab_never_shows() {
+        let fake = Fake::running(&[("w1", "alpha")]);
+        let s = session(&fake);
+        let claim = s.claim().unwrap();
+        open_setup_tab(&s, claim, &workspaces(), Path::new("/p/alpha"), "alpha", &task(U, "Fix it"), "setup").unwrap();
+        let log = fake.log();
+        assert_eq!(log.last().map(String::as_str), Some("release alpha"), "{log:?}");
+        assert!(at(&log, "pane_run alpha") < at(&log, "release alpha"), "{log:?}");
     }
 }
