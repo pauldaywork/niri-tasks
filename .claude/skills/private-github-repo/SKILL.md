@@ -43,11 +43,17 @@ If either fails, stop. The user logs in with `! gh auth login`.
 ```bash
 top="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 name="$(basename "$top")"
+cd "$top"
 ```
 - Inside a git repo, the project is the repo's top level, not the
-  subfolder you're in. Run everything after this from `$top`.
-- If `git rev-parse --git-dir` and `git rev-parse --git-common-dir` differ,
-  this is a linked worktree. Stop: the repo belongs to its main checkout.
+  subfolder you're in. The `cd` is part of the step: later commands
+  (`git ls-files`, `git add -A`) assume the working directory is the top
+  level, so stay there for the rest of the skill.
+- Inside a git repo, if
+  `git rev-parse --path-format=absolute --git-dir` and
+  `git rev-parse --path-format=absolute --git-common-dir` print different
+  paths, this is a linked worktree. Stop: the repo belongs to its main checkout.
+  (Both are absolute, so running from a subfolder doesn't make them differ.)
 - `name` must match `^[A-Za-z0-9._-]+$`. GitHub would change any other
   name, and a different name is out of scope, so stop.
 
