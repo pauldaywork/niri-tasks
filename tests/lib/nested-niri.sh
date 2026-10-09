@@ -34,6 +34,11 @@
 # with every directory that holds a herdr taken out, and the run stops if
 # herdr can still be found on it. The nested niri's own spawns get
 # NESTED_SPAWN_PATH when a test sets one.
+#
+# try.sh starts the same sandbox by hand with `nested_start --focused`: the
+# window is not parked but left where niri opens it, on your workspace with
+# the focus, sized like any other window, and nothing watches it. Its config
+# keeps niri's animations and key repeat, which only a test wants off.
 
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
 command -v task >/dev/null || { echo "taskwarrior is required" >&2; exit 1; }
@@ -45,6 +50,9 @@ command -v flock >/dev/null || { echo "flock is required (util-linux)" >&2; exit
 
 NIRITASKS="${NIRITASKS:-niritasks}"
 # NESTED_SPAWN_PATH (optional): the PATH the nested niri's own spawns run with.
+# NESTED_WORKSPACE (optional): the nested niri's one named workspace, which is
+# the tag tasks are filed under; e2e when unset.
+# NESTED_EXTRA_KDL (optional): more of the nested niri's config, appended as is.
 
 # The nested niri's one output, in pixels: the size its window is parked at.
 NESTED_W=1600
@@ -184,6 +192,15 @@ guard() {
 }
 
 nested_start() {
+    local focused=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --focused) focused=1 ;;
+            *) die "nested_start: unknown option $1" ;;
+        esac
+        shift
+    done
+
     # Animations off, so niri itself never draws a frame in between. Key
     # repeat off: these tests never hold a key, and a client still starting
     # up can handle a release late enough for its repeat to fire — the first
@@ -206,15 +223,19 @@ nested_start() {
     if [ -n "${NESTED_SPAWN_PATH:-}" ]; then
         spawn_env="environment { PATH \"$NESTED_SPAWN_PATH\"; NOTIFY_LOG \"$SB/notifications\"; }"
     fi
+    # By hand (--focused), niri keeps its animations and key repeat.
+    local test_kdl='animations { off; }
+input { keyboard { repeat-rate 0; }; }'
+    [ -n "$focused" ] && test_kdl=""
     cat > "$SB/niri.kdl" <<EOF
 hotkey-overlay { skip-at-startup; }
-animations { off; }
-input { keyboard { repeat-rate 0; }; }
+$test_kdl
 xwayland-satellite { off; }
 output "winit" { scale 1; }
 layout { background-color "#406080"; }
-workspace "e2e"
+workspace "${NESTED_WORKSPACE:-e2e}"
 $spawn_env
+${NESTED_EXTRA_KDL:-}
 spawn-sh-at-startup "env > $SB/nested.env.tmp && mv $SB/nested.env.tmp $SB/nested.env"
 EOF
 
@@ -315,6 +336,10 @@ STUB
     done
     [ -n "$WIN" ] || die "the nested niri's window never appeared on this niri"
     echo "nested niri: window $WIN, sockets in $RT"
+
+    # By hand, the window stays where niri opened it: on your workspace, with
+    # the focus, which is the point. Nothing below applies.
+    [ -n "$focused" ] && return 0
 
     # Floating, so its size is exactly what is set; on the last workspace of
     # its monitor, which niri always keeps empty; and without the focus:
