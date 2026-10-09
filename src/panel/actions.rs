@@ -32,12 +32,15 @@ impl Action {
     }
 
     /// The button Ctrl+Enter presses for a card: Refine until the task has a
-    /// plan, then Start working. Nothing once a planned task is being
-    /// worked, nor on a waiting or finished task, which have no step to take.
+    /// plan, then Start working; once it is being worked, Go to session while
+    /// a Claude is on it, planned or not. Nothing on a planned task being
+    /// worked with no Claude, nor on a waiting or finished task, which have
+    /// no step to take.
     pub fn advance(state: TaskState) -> Option<Action> {
         match state {
             TaskState { finished: true, .. } => None,
             TaskState { waiting: true, .. } => None,
+            TaskState { active: true, has_session: true, .. } => Some(Session),
             TaskState { active: true, planned: true, .. } => None,
             TaskState { planned: true, .. } => Some(Start),
             _ => Some(Refine),
@@ -158,6 +161,21 @@ mod tests {
         assert_eq!(Action::advance(active(true)), None);
         assert_eq!(Action::advance(waiting(false)), None);
         assert_eq!(Action::advance(waiting(true)), None);
+    }
+
+    /// An active task with a live Claude goes to it, planned or not; one
+    /// with none is left as it was: Refine without a plan, nothing with one.
+    #[test]
+    fn ctrl_enter_goes_to_the_session_of_an_active_task_with_a_claude() {
+        assert_eq!(Action::advance(with_claude(active(false))), Some(Session));
+        assert_eq!(Action::advance(with_claude(active(true))), Some(Session));
+        assert_eq!(Action::advance(active(false)), Some(Refine));
+        assert_eq!(Action::advance(active(true)), None);
+        // A refine open on a task not yet started is not a task being worked.
+        assert_eq!(Action::advance(with_claude(on_list(false))), Some(Refine));
+        assert_eq!(Action::advance(with_claude(on_list(true))), Some(Start));
+        assert_eq!(Action::advance(with_claude(waiting(true))), None);
+        assert_eq!(Action::advance(with_claude(finished(true))), None);
     }
 
     /// What Ctrl+Enter picks is always one of the card's own buttons, so the
@@ -356,6 +374,18 @@ mod tests {
         assert_eq!(hint(active(true), None), "Space: view notes");
         assert_eq!(hint(waiting(false), None), "Space: view notes");
         assert_eq!(hint(with_claude(waiting(true)), None), "Space: view notes");
+    }
+
+    /// The hint names Go to session in Ctrl+Enter's place, on the body and
+    /// on a button.
+    #[test]
+    fn an_active_task_with_a_claude_hints_ctrl_enter_go_to_session() {
+        for planned in [false, true] {
+            let state = with_claude(active(planned));
+            assert_eq!(hint(state, None), "Space: view notes · Ctrl+Enter: Go to session", "planned={planned}");
+            assert_eq!(hint(state, Some(Session)), "g: Go to session · Ctrl+Enter: Go to session", "planned={planned}");
+            assert_eq!(hint(state, Some(Stop)), "t: Stop · Ctrl+Enter: Go to session", "planned={planned}");
+        }
     }
 
     #[test]
