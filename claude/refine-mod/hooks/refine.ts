@@ -19,7 +19,8 @@ import {
   refusal,
 } from './plan'
 import type { Plan, Task } from './plan'
-import { openArgv, parseReport, reportPage, reportPath, reportsDir } from './report'
+import { reportPage } from './page'
+import { openArgv, parseReport, reportPath, reportsDir } from './report'
 
 // The tool's listed name: mcp__<plugin>__<name>, hyphens kept.
 export const TOOL = 'mcp__niri-tasks-refine__write_task_plan'
@@ -50,19 +51,58 @@ const SPEC = {
   },
 }
 
+const TEXT = { type: 'string' }
+const TEXTS = { type: 'array', items: TEXT }
+
 const REPORT_SPEC = {
   name: 'show_task_report',
   description:
-    'Writes an HTML report of the plan and opens it in the browser, once the person has chosen ' +
-    '"Show me a report first" in write_task_plan. `body` is the HTML inside <body>: no script, ' +
-    'meta, link, base, iframe, object, embed or form; diagrams as <pre class="mermaid"> or inline <svg>.',
+    'Writes an HTML report of the plan in one fixed, easy-to-read layout and opens it in the browser, once the ' +
+    'person has chosen "Show me a report first" in write_task_plan. Fill the fields as the refine-task skill\'s ' +
+    'report-catalogue.md says. Every text field is one line of plain text; a report over the limits is refused ' +
+    'with every reason at once.',
   inputSchema: {
     type: 'object',
     properties: {
-      title: { type: 'string', description: "The page's title: the task's new description." },
-      body: { type: 'string', description: 'The HTML inside <body>.' },
+      title: { ...TEXT, description: "The task's new description." },
+      summary: { ...TEXT, description: 'One sentence, at most 35 words: what the task does.' },
+      changes: { ...TEXTS, description: '1-3 lines, at most 20 words each: what will be different.' },
+      unchanged: { ...TEXTS, description: '0-3 lines, at most 20 words each: what stays the same.' },
+      needs_your_eye: { ...TEXTS, description: '0-3 lines, at most 30 words each: where the person should judge.' },
+      terms: {
+        type: 'array',
+        description: '0-5 words the report uses, each with a plain meaning.',
+        items: { type: 'object', properties: { term: TEXT, meaning: TEXT }, required: ['term', 'meaning'] },
+      },
+      sections: {
+        type: 'array',
+        description: '1-6 parts: a heading, 1-5 points, optionally one diagram with a look_at line, and collapsed detail.',
+        items: {
+          type: 'object',
+          properties: {
+            heading: TEXT,
+            look_at: TEXT,
+            diagram: { type: 'object', properties: { mermaid: TEXT, svg: TEXT } },
+            points: TEXTS,
+            detail: { ...TEXT, description: 'HTML, shown collapsed under "More detail".' },
+          },
+          required: ['heading', 'points'],
+        },
+      },
+      files: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { path: TEXT, change: { type: 'string', enum: ['new', 'change', 'remove'] }, why: TEXT },
+          required: ['path', 'change', 'why'],
+        },
+      },
+      checks: {
+        type: 'array',
+        items: { type: 'object', properties: { check: TEXT, how: TEXT }, required: ['check', 'how'] },
+      },
     },
-    required: ['title', 'body'],
+    required: ['title', 'summary', 'changes', 'sections', 'files', 'checks'],
   },
 }
 

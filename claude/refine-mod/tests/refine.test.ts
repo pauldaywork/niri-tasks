@@ -10,7 +10,15 @@ const REPORT = 'Show me a report first'
 const REPORT_TOOL = 'mcp__niri-tasks-refine__show_task_report'
 const REPORTS = { uuid: UUID, reports: '/r' }
 const REPORT_PATH = '/r/refine-0b8f6a52-20261006-010203.html'
-const BODY = '<h1>feat: New words</h1><pre class="mermaid">flowchart LR\n a --> b</pre>'
+// The smallest report show_task_report takes.
+const MINIMAL = {
+  title: 'feat: New words',
+  summary: 'The task gets new words.',
+  changes: ['Words: the description changes.'],
+  sections: [{ heading: 'What changes', points: ['The words.'] }],
+  files: [{ path: 'src/words.rs', change: 'change', why: 'Holds the words.' }],
+  checks: [{ check: 'The words show', how: 'By eye' }],
+}
 
 const TASK = {
   uuid: UUID,
@@ -291,7 +299,7 @@ test('"Show me a report first": writes nothing, the model is told to build it', 
 test('a report no one asked for is refused', { options: REPORTS }, async ($, on) => {
   const { runs, writes } = world(on, SANDBOX)
   await $.session.start(START)
-  const answer = await $.tool.call({ tool: REPORT_TOOL, title: 'feat: New words', body: BODY })
+  const answer = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
   expect(answer.deny).toBe(
     'show_task_report: the person has not asked for a report. Call write_task_plan; ' +
       'they can choose "Show me a report first" there.',
@@ -306,20 +314,20 @@ test('report, then approve: writes the page, opens it, then writes the task', { 
 
   expect((await $.tool.call(CALL)).deny).toContain(`the person chose "${REPORT}"`)
 
-  const shown = await $.tool.call({ tool: REPORT_TOOL, title: 'feat: New words', body: BODY })
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
   expect(shown.deny).toBeUndefined()
   expect(shown.result).toBe(
     `Wrote the report to ${REPORT_PATH} and opened it in the browser. ` +
       'Now call write_task_plan again with the same plan; the person approves or changes it there.',
   )
   expect(writes.map(w => w.path)).toEqual([REPORT_PATH])
-  expect(writes[0]?.text).toContain(BODY)
+  expect(writes[0]?.text).toContain('<p class="lede">The task gets new words.</p>')
   expect(writes[0]?.text).toContain('Content-Security-Policy')
   expect(seen).toContain(`log: Report: ${REPORT_PATH}`)
   expect(runs.at(-1)?.argv).toEqual(['sh', '-c', 'xdg-open "$1" >/dev/null 2>&1 </dev/null &', 'sh', REPORT_PATH])
 
   // One report per ask: a second needs the person to choose it again.
-  const again = await $.tool.call({ tool: REPORT_TOOL, title: 'feat: New words', body: BODY })
+  const again = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
   expect(again.deny).toStartWith('show_task_report: the person has not asked for a report.')
 
   const written = await $.tool.call(CALL)
@@ -332,22 +340,38 @@ test('a report choice is superseded by the next question', { options: REPORTS },
   await $.session.start(START)
   expect((await $.tool.call(CALL)).deny).toContain(`the person chose "${REPORT}"`)
   expect((await $.tool.call(CALL)).deny).toContain('the person chose "Change something"')
-  const shown = await $.tool.call({ tool: REPORT_TOOL, title: 'feat: New words', body: BODY })
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
   expect(shown.deny).toStartWith('show_task_report: the person has not asked for a report.')
   expect(writes).toEqual([])
 })
 
-test('a body with a script is refused, and the person may still get a report', { options: REPORTS }, async ($, on) => {
+test('a report with a script is refused, and the person may still get one', { options: REPORTS }, async ($, on) => {
   const { writes } = world(on, SANDBOX, REPORT)
   await $.session.start(START)
   await $.tool.call(CALL)
-  const refused = await $.tool.call({ tool: REPORT_TOOL, title: 't', body: '<script>alert(1)</script>' })
+  const refused = await $.tool.call({
+    tool: REPORT_TOOL,
+    ...MINIMAL,
+    sections: [{ heading: 'What changes', points: ['The words.'], detail: '<script>alert(1)</script>' }],
+  })
   expect(refused.deny).toBe(
-    'show_task_report: body must not contain <script>: the page runs no script but Mermaid, loads nothing and sends nothing',
+    'show_task_report: sections[0].detail must not contain <script>: ' +
+      'the page runs no script but Mermaid, loads nothing and sends nothing',
   )
   expect(writes).toEqual([])
-  const fixed = await $.tool.call({ tool: REPORT_TOOL, title: 't', body: BODY })
+  const fixed = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
   expect(fixed.result).toContain(`Wrote the report to ${REPORT_PATH}`)
+})
+
+test('a report over its limits is refused with every reason', { options: REPORTS }, async ($, on) => {
+  const { writes } = world(on, SANDBOX, REPORT)
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  const answer = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL, changes: [], checks: [] })
+  expect(answer.deny).toBe(
+    'show_task_report: changes must have 1 to 3 items, not 0; checks must have 1 to 6 items, not 0',
+  )
+  expect(writes).toEqual([])
 })
 
 test('a report that cannot be written is denied by its .catch', { options: REPORTS }, async ($, on) => {
@@ -355,7 +379,7 @@ test('a report that cannot be written is denied by its .catch', { options: REPOR
   on('process.run', ($, e) => (e.argv.includes('export') ? ran(JSON.stringify([TASK])) : ran('')))
   await $.session.start(START)
   await $.tool.call(CALL)
-  const answer = await $.tool.call({ tool: REPORT_TOOL, title: 't', body: BODY })
+  const answer = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
   expect(answer.deny).toBe('niri-tasks-refine: show_task_report failed.')
 })
 

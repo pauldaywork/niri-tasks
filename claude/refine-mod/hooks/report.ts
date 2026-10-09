@@ -1,32 +1,54 @@
-// The pure half of show_task_report: what it takes from the model, and the
-// page it writes around it. No `$`, so the unit tests reach it directly.
+// The pure half of show_task_report: the fields it takes from the model, the
+// limits that keep a report short enough to take in, and where it is saved.
+// No `$`, so the unit tests reach it directly.
 
 import { HIDDEN } from './plan'
 
-export type Report = { title: string; body: string }
+export type Change = 'new' | 'change' | 'remove'
+export type Diagram = { mermaid: string } | { svg: string }
+export type Section = {
+  heading: string
+  look_at?: string
+  diagram?: Diagram
+  points: string[]
+  detail?: string
+}
+export type Term = { term: string; meaning: string }
+export type FileChange = { path: string; change: Change; why: string }
+export type Check = { check: string; how: string }
 
-// Mermaid's own bundle, pinned and checked: it renders every
-// `<pre class="mermaid">` on load, so the page needs no script of its own.
-// Mermaid decodes entities in a block before sanitizing, so its sanitizer is
-// the only barrier against an entity-encoded <meta> or <base> inside one:
-// re-check that on any version bump.
-export const MERMAID_URL = 'https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js'
-export const MERMAID_SRI = 'sha384-EOXBFmc3gx5mb+vn0vPvvGqACToJD24hhacX5Yx+8NUUQrHIle/Qi5Bg9o3zKwW2'
+export type Report = {
+  title: string
+  summary: string
+  changes: string[]
+  unchanged: string[]
+  needs_your_eye: string[]
+  terms: Term[]
+  sections: Section[]
+  files: FileChange[]
+  checks: Check[]
+}
 
-// The page is the model's HTML in the person's own browser, outside the
-// sandbox: it runs no script but Mermaid, fetches nothing, and sends nothing.
-export const CSP = [
-  "default-src 'none'",
-  `script-src ${MERMAID_URL}`,
-  "style-src 'unsafe-inline'",
-  'img-src data:',
-  'font-src data:',
-  "form-action 'none'",
-  "base-uri 'none'",
-].join('; ')
+// What keeps a report easy to take in: about four things held in mind at
+// once, one idea per line, short plain sentences. A report over them is
+// refused with every reason at once, so it is fixed in one go.
+export const LIMITS = {
+  titleChars: 120,
+  summaryWords: 35,
+  changes: { min: 1, max: 3, words: 20 },
+  unchanged: { min: 0, max: 3, words: 20 },
+  needsYourEye: { min: 0, max: 3, words: 30 },
+  terms: { min: 0, max: 5, termWords: 4, meaningWords: 20 },
+  sections: { min: 1, max: 6, headingWords: 10, lookAtWords: 25 },
+  points: { min: 1, max: 5, words: 25 },
+  mermaidLines: 40,
+  diagramChars: 50_000,
+  detailChars: 20_000,
+  files: { min: 1, max: 40, pathChars: 200, whyWords: 20 },
+  checks: { min: 1, max: 6, words: 20 },
+} as const
 
-export const MAX_TITLE = 120
-export const MAX_BODY = 1_000_000
+const CHANGES: readonly string[] = ['new', 'change', 'remove']
 
 // Elements refused by name: a <meta> refresh navigates and a <meta> policy
 // could be added to, which the page's own policy does not stop; the rest would
@@ -34,86 +56,162 @@ export const MAX_BODY = 1_000_000
 // hears why rather than finding a blank figure.
 const FORBIDDEN = /<\s*(script|meta|base|link|iframe|frameset|frame|object|embed|form|portal)(?![\w-])/i
 
-// Answers the report, or a string saying what is wrong with it.
-export const parseReport = (e: Record<string, unknown>): Report | string => {
-  const { title, body } = e
-  if (typeof title !== 'string' || title.trim() === '') return 'title must be a non-empty string'
-  if (/[\r\n]/.test(title)) return 'title must be one line'
-  if (HIDDEN.test(title)) return 'title must be plain text: no control or invisible characters'
-  if (title.length > MAX_TITLE) return `title must be at most ${MAX_TITLE} characters`
-  if (typeof body !== 'string' || body.trim() === '') return 'body must be a non-empty string'
-  if (body.length > MAX_BODY) return `body must be at most ${MAX_BODY} characters`
-  const tag = FORBIDDEN.exec(body)?.[1]?.toLowerCase()
-  if (tag !== undefined) {
-    return `body must not contain <${tag}>: the page runs no script but Mermaid, loads nothing and sends nothing`
+// How many problems one refusal lists before it says how many more.
+const MAX_ERRORS = 20
+
+type Errors = string[]
+type Count = { readonly min: number; readonly max: number }
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const wordCount = (text: string): number => text.split(/\s+/).filter(Boolean).length
+
+// One line of plain text within its limit. A problem is noted, never thrown,
+// so the refusal can list them all.
+const text = (errors: Errors, at: string, value: unknown, limit: { words?: number; chars?: number }): string => {
+  if (typeof value !== 'string' || value.trim() === '') {
+    errors.push(`${at} must be a non-empty string`)
+    return ''
   }
-  return { title, body }
+  if (/[\r\n]/.test(value)) errors.push(`${at} must be one line`)
+  else if (HIDDEN.test(value)) errors.push(`${at} must be plain text: no control or invisible characters`)
+  const n = wordCount(value)
+  if (limit.words !== undefined && n > limit.words) errors.push(`${at} has ${n} words; at most ${limit.words}`)
+  if (limit.chars !== undefined && value.length > limit.chars) {
+    errors.push(`${at} has ${value.length} characters; at most ${limit.chars}`)
+  }
+  return value
 }
 
-const escapeHtml = (text: string): string =>
-  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-
-// Light and dark from the system; the classes the report catalogue names.
-// Mermaid draws its default (light) theme, so its figures sit on a light card.
-const BASE_CSS = `
-:root { color-scheme: light dark; --bg: #fafaf9; --fg: #1c1917; --muted: #57534e; --line: #d6d3d1;
-  --card: #ffffff; --code: #f5f5f4; --add: #15803d; --change: #b45309; --remove: #b91c1c; --note: #1d4ed8; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #1c1917; --fg: #f5f5f4; --muted: #a8a29e; --line: #44403c;
-    --card: #292524; --code: #292524; --add: #4ade80; --change: #fbbf24; --remove: #f87171; --note: #93c5fd; }
+// Markup the page shows as given: within its size, and holding nothing the
+// page must not.
+const markup = (errors: Errors, at: string, value: unknown, maxChars: number): string => {
+  if (typeof value !== 'string' || value.trim() === '') {
+    errors.push(`${at} must be a non-empty string`)
+    return ''
+  }
+  if (value.length > maxChars) errors.push(`${at} has ${value.length} characters; at most ${maxChars}`)
+  const tag = FORBIDDEN.exec(value)?.[1]?.toLowerCase()
+  if (tag !== undefined) {
+    errors.push(`${at} must not contain <${tag}>: the page runs no script but Mermaid, loads nothing and sends nothing`)
+  }
+  return value
 }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg);
-  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
-main { max-width: 64rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
-h1 { font-size: 1.8rem; line-height: 1.25; margin: 0 0 1rem; }
-h2 { font-size: 1.3rem; margin: 2.5rem 0 0.75rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--line); }
-h3 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
-.lede { font-size: 1.15rem; }
-.muted { color: var(--muted); }
-code, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.9em; }
-code { background: var(--code); padding: 0.1em 0.3em; border-radius: 4px; }
-pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 8px; overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; display: block; overflow-x: auto; }
-th, td { text-align: left; vertical-align: top; padding: 0.4rem 0.75rem 0.4rem 0; border-top: 1px solid var(--line); }
-th { color: var(--muted); font-weight: 600; border-top: 0; }
-figure { margin: 1rem 0; }
-figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 0.4rem; }
-pre.mermaid { background: #ffffff; color: #1c1917; border: 1px solid var(--line); text-align: center; }
-svg { max-width: 100%; height: auto; }
-.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; }
-.callout { border-left: 4px solid var(--note); background: var(--card); padding: 0.75rem 1rem; margin: 1rem 0; border-radius: 0 8px 8px 0; }
-.badge, .risk { display: inline-block; font-size: 0.8rem; font-weight: 600; padding: 0.05rem 0.5rem;
-  border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
-.badge.add, .risk.low { color: var(--add); }
-.badge.change, .risk.medium { color: var(--change); }
-.badge.remove, .risk.high { color: var(--remove); }
-details { margin: 0.75rem 0; }
-summary { cursor: pointer; font-weight: 600; }
-`
 
-// The whole page: the policy before anything it governs, then the title,
-// the stylesheet and Mermaid, then the model's body as given.
-export const reportPage = (report: Report): string =>
-  [
-    '<!doctype html>',
-    '<html lang="en">',
-    '<head>',
-    `<meta http-equiv="Content-Security-Policy" content="${CSP}">`,
-    '<meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<title>${escapeHtml(report.title)}</title>`,
-    `<style>${BASE_CSS}</style>`,
-    `<script src="${MERMAID_URL}" integrity="${MERMAID_SRI}" crossorigin="anonymous"></script>`,
-    '</head>',
-    '<body>',
-    '<main>',
-    report.body,
-    '</main>',
-    '</body>',
-    '</html>',
-    '',
-  ].join('\n')
+// A list within its count; an optional list may be left out.
+const list = <T>(
+  errors: Errors,
+  at: string,
+  value: unknown,
+  count: Count,
+  item: (value: unknown, at: string) => T,
+): T[] => {
+  if (value === undefined && count.min === 0) return []
+  if (!Array.isArray(value)) {
+    errors.push(`${at} must be an array`)
+    return []
+  }
+  if (value.length < count.min || value.length > count.max) {
+    errors.push(`${at} must have ${count.min} to ${count.max} items, not ${value.length}`)
+  }
+  return value.map((v, i) => item(v, `${at}[${i}]`))
+}
+
+const term = (errors: Errors, at: string, value: unknown): Term => {
+  if (!isObject(value)) {
+    errors.push(`${at} must be an object`)
+    return { term: '', meaning: '' }
+  }
+  return {
+    term: text(errors, `${at}.term`, value.term, { words: LIMITS.terms.termWords }),
+    meaning: text(errors, `${at}.meaning`, value.meaning, { words: LIMITS.terms.meaningWords }),
+  }
+}
+
+const diagram = (errors: Errors, at: string, value: unknown): Diagram | undefined => {
+  if (!isObject(value) || ('mermaid' in value) === ('svg' in value)) {
+    errors.push(`${at} must have exactly one of mermaid or svg`)
+    return undefined
+  }
+  if ('mermaid' in value) {
+    const source = markup(errors, `${at}.mermaid`, value.mermaid, LIMITS.diagramChars)
+    const lines = source.split('\n').length
+    if (lines > LIMITS.mermaidLines) {
+      errors.push(`${at}.mermaid has ${lines} lines; at most ${LIMITS.mermaidLines}: split it into two diagrams`)
+    }
+    return { mermaid: source }
+  }
+  const svg = markup(errors, `${at}.svg`, value.svg, LIMITS.diagramChars)
+  if (svg !== '' && !/^\s*<svg[\s>][\s\S]*<\/svg>\s*$/i.test(svg)) errors.push(`${at}.svg must be one <svg> element`)
+  return { svg }
+}
+
+const section = (errors: Errors, at: string, value: unknown): Section => {
+  if (!isObject(value)) {
+    errors.push(`${at} must be an object`)
+    return { heading: '', points: [] }
+  }
+  const part: Section = {
+    heading: text(errors, `${at}.heading`, value.heading, { words: LIMITS.sections.headingWords }),
+    points: list(errors, `${at}.points`, value.points, LIMITS.points, (v, i) =>
+      text(errors, i, v, { words: LIMITS.points.words }),
+    ),
+  }
+  if (value.diagram !== undefined) {
+    const drawn = diagram(errors, `${at}.diagram`, value.diagram)
+    if (drawn !== undefined) part.diagram = drawn
+    part.look_at = text(errors, `${at}.look_at`, value.look_at, { words: LIMITS.sections.lookAtWords })
+  } else if (value.look_at !== undefined) {
+    errors.push(`${at}.look_at needs a diagram to point at`)
+  }
+  if (value.detail !== undefined) part.detail = markup(errors, `${at}.detail`, value.detail, LIMITS.detailChars)
+  return part
+}
+
+const file = (errors: Errors, at: string, value: unknown): FileChange => {
+  if (!isObject(value)) {
+    errors.push(`${at} must be an object`)
+    return { path: '', change: 'change', why: '' }
+  }
+  const path = text(errors, `${at}.path`, value.path, { chars: LIMITS.files.pathChars })
+  const change = value.change
+  if (typeof change !== 'string' || !CHANGES.includes(change)) errors.push(`${at}.change must be new, change or remove`)
+  const why = text(errors, `${at}.why`, value.why, { words: LIMITS.files.whyWords })
+  return { path, change: change as Change, why }
+}
+
+const check = (errors: Errors, at: string, value: unknown): Check => {
+  if (!isObject(value)) {
+    errors.push(`${at} must be an object`)
+    return { check: '', how: '' }
+  }
+  return {
+    check: text(errors, `${at}.check`, value.check, { words: LIMITS.checks.words }),
+    how: text(errors, `${at}.how`, value.how, { words: LIMITS.checks.words }),
+  }
+}
+
+// Answers the report, or every problem with it, joined.
+export const parseReport = (e: Record<string, unknown>): Report | string => {
+  const errors: Errors = []
+  const lines = (at: string, value: unknown, count: Count & { readonly words: number }): string[] =>
+    list(errors, at, value, count, (v, i) => text(errors, i, v, { words: count.words }))
+  const report: Report = {
+    title: text(errors, 'title', e.title, { chars: LIMITS.titleChars }),
+    summary: text(errors, 'summary', e.summary, { words: LIMITS.summaryWords }),
+    changes: lines('changes', e.changes, LIMITS.changes),
+    unchanged: lines('unchanged', e.unchanged, LIMITS.unchanged),
+    needs_your_eye: lines('needs_your_eye', e.needs_your_eye, LIMITS.needsYourEye),
+    terms: list(errors, 'terms', e.terms, LIMITS.terms, (v, at) => term(errors, at, v)),
+    sections: list(errors, 'sections', e.sections, LIMITS.sections, (v, at) => section(errors, at, v)),
+    files: list(errors, 'files', e.files, LIMITS.files, (v, at) => file(errors, at, v)),
+    checks: list(errors, 'checks', e.checks, LIMITS.checks, (v, at) => check(errors, at, v)),
+  }
+  if (errors.length === 0) return report
+  const more = errors.length > MAX_ERRORS ? `; and ${errors.length - MAX_ERRORS} more` : ''
+  return errors.slice(0, MAX_ERRORS).join('; ') + more
+}
 
 // The folder the reports go in, from the session's settings: absolute, or
 // none, and then the tool is not offered.
