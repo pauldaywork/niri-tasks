@@ -10,6 +10,8 @@ const REPORT = 'Show me a report first'
 const REPORT_TOOL = 'mcp__niri-tasks-refine__show_task_report'
 const REPORTS = { uuid: UUID, reports: '/r' }
 const REPORT_PATH = '/r/refine-0b8f6a52-20261006-010203.html'
+// A Report session: the card's Report button, not a refine.
+const REPORT_MODE = { uuid: UUID, reports: '/r', report: true }
 // The smallest report show_task_report takes.
 const MINIMAL = {
   title: 'feat: New words',
@@ -28,6 +30,9 @@ const TASK = {
   annotations: [{ entry: '20260101T000001Z', description: 'first note' }],
   tags: ['zeta'],
 }
+
+// TASK once a refine has written it: the plan a Report reports on.
+const PLANNED = { ...TASK, tags: ['planned', 'zeta'] }
 
 const CALL = {
   tool: TOOL as typeof TOOL,
@@ -535,4 +540,125 @@ test('with neither bun nor node the browser draws', { options: REPORTS }, async 
   expect(writes[0]?.text).toContain('<pre class="mermaid">')
   expect(writes[0]?.text).toContain(`<script src="https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js"`)
   expect(seen).toContain('log: Diagrams left to Mermaid in the browser: no bun or node found.')
+})
+
+test('report mode: only the report tool, armed from the start', { options: REPORT_MODE }, async ($, on) => {
+  const { registered } = world(on, SANDBOX, WRITE, [PLANNED])
+  await $.session.start(START)
+  expect(registered).toEqual([REPORT_TOOL])
+})
+
+test('report mode without a reports folder: no tool at all', { options: { uuid: UUID, report: true } }, async ($, on) => {
+  const { registered } = world(on, SANDBOX)
+  await $.session.start(START)
+  expect(registered).toEqual([])
+})
+
+test('report mode: writes the page, opens it, and links it from the task, asking nothing', { options: REPORT_MODE }, async ($, on) => {
+  const { runs, seen, writes } = world(on, SANDBOX, { deny: 'nobody should be asked' }, [PLANNED])
+  await $.session.start(START)
+
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+
+  expect(shown.deny).toBeUndefined()
+  expect(shown.result).toBe(
+    `Wrote the report to ${REPORT_PATH}, opened it in the browser, and linked it from the task ` +
+      `as the note "Report: ${REPORT_PATH}".`,
+  )
+  expect(writes.map(w => w.path)).toEqual([REPORT_PATH])
+  // The plan the page shows is the task's own description and notes.
+  const page = writes[0]?.text ?? ''
+  const block = page.slice(page.indexOf('id="decision"'))
+  expect(block).toContain('<p><strong>Description:</strong> feat: Old words</p>')
+  expect(block).toContain('<li>first note</li>')
+  expect(seen).toEqual([`log: Report: ${REPORT_PATH}`])
+  expect(runs.map(run => run.argv)).toEqual([
+    ['task', 'rc.hooks=off', 'rc.json.array=on', UUID, 'export'],
+    ['sh', '-c', 'xdg-open "$1" >/dev/null 2>&1 </dev/null &', 'sh', REPORT_PATH],
+    ['task', 'rc.hooks=off', 'rc.verbose=nothing', 'import'],
+  ])
+  // One note added; the description, the other notes and the tags kept.
+  expect(JSON.parse(runs[2]?.init?.stdin ?? 'null')).toEqual([
+    {
+      ...PLANNED,
+      annotations: [
+        { entry: '20260101T000001Z', description: 'first note' },
+        { entry: '20261006T010203Z', description: `Report: ${REPORT_PATH}` },
+      ],
+    },
+  ])
+})
+
+test('report mode: one report a session; the second names the first', { options: REPORT_MODE }, async ($, on) => {
+  const { runs, writes } = world(on, SANDBOX, WRITE, [PLANNED])
+  await $.session.start(START)
+  await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  const again = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(again.deny).toBe(
+    `show_task_report: this session's report is made and linked from the task: ${REPORT_PATH}. ` +
+      'Press Report on the card again for another.',
+  )
+  expect(writes).toHaveLength(1)
+  expect(verbs(runs).filter(v => v === 'import')).toHaveLength(1)
+})
+
+test('report mode: an unplanned task is refused before anything is written', { options: REPORT_MODE }, async ($, on) => {
+  const { runs, writes } = world(on, SANDBOX, WRITE, [TASK])
+  await $.session.start(START)
+  const answer = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(answer.deny).toBe('show_task_report: nothing written: the task has no plan: it is not tagged planned. Refine it first.')
+  expect(writes).toEqual([])
+  expect(verbs(runs)).toEqual(['export'])
+})
+
+test('report mode: a task no longer pending is refused', { options: REPORT_MODE }, async ($, on) => {
+  const { writes } = world(on, SANDBOX, WRITE, [{ ...PLANNED, status: 'completed' }])
+  await $.session.start(START)
+  const answer = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(answer.deny).toBe('show_task_report: nothing written: the task is completed, not pending.')
+  expect(writes).toEqual([])
+})
+
+test('report mode: a report over its limits is refused with every reason, and nothing is linked', { options: REPORT_MODE }, async ($, on) => {
+  const { runs, writes } = world(on, SANDBOX, WRITE, [PLANNED])
+  await $.session.start(START)
+  const answer = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL, changes: [], checks: [] })
+  expect(answer.deny).toBe(
+    'show_task_report: changes must have 1 to 3 items, not 0; checks must have 1 to 6 items, not 0',
+  )
+  expect(writes).toEqual([])
+  expect(verbs(runs)).toEqual(['export'])
+  // Fixed, it goes through: the refusal did not spend the session's one report.
+  expect((await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })).result).toContain(`Wrote the report to ${REPORT_PATH}`)
+})
+
+test('report mode: a failed import is reported, with the page already open', { options: REPORT_MODE }, async ($, on) => {
+  engine(on, SANDBOX)
+  on('process.run', ($, e) =>
+    e.argv.includes('export')
+      ? ran(JSON.stringify([PLANNED]))
+      : e.argv.includes('import')
+        ? { value: { ...ran('', 2).value, stderr: 'Not a valid JSON value.' } }
+        : ran(''),
+  )
+  await $.session.start(START)
+  const answer = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(answer.deny).toBe(
+    `Wrote the report to ${REPORT_PATH} and opened it, but task import failed (2): Not a valid JSON value. ` +
+      'The task does not link it.',
+  )
+})
+
+test('report mode: sandbox off, no tool', { options: REPORT_MODE }, async ($, on) => {
+  const { registered } = world(on, { sandbox: { enabled: true, failIfUnavailable: false } })
+  await $.session.start(START)
+  expect(registered).toEqual([])
+})
+
+test('refine mode is unchanged by the option being false', { options: { ...REPORTS, report: false } }, async ($, on) => {
+  const { registered, seen } = world(on, SANDBOX)
+  await $.session.start(START)
+  expect(registered).toEqual([TOOL, REPORT_TOOL])
+  await $.tool.call(CALL)
+  expect(seen.at(-1)).toBe(`ask: Write this to the task? [${WRITE} | ${REPORT} | Change something] (Task plan)`)
 })

@@ -1,7 +1,7 @@
 {
   "name": "niri-tasks-refine",
   "version": "0.1.0",
-  "description": "Gives a refine session two tools: write_task_plan, which rewrites one Taskwarrior task's description and notes, and show_task_report, which writes and opens an HTML report of the plan when the person asks for one.",
+  "description": "Gives a refine session two tools: write_task_plan, which rewrites one Taskwarrior task's description and notes, and show_task_report, which writes and opens an HTML report of the plan when the person asks for one. With `report` set, a Report session gets show_task_report alone, on the task's own plan, and the mod links the report from the task.",
   "author": {
     "name": "Paul Day"
   },
@@ -19,6 +19,13 @@
       "description": "The absolute folder show_task_report writes its HTML reports to. Unset, the report is not offered.",
       "required": false,
       "default": ""
+    },
+    "report": {
+      "type": "boolean",
+      "title": "Report only",
+      "description": "The session is a Report on a planned task, not a refine: only show_task_report is offered, armed from the start on the task's own description and notes, and the mod adds a Report: <path> note to the task when the report is written. Unset, the session is a refine.",
+      "required": false,
+      "default": false
     }
   }
 }

@@ -2,8 +2,8 @@
 // limits that keep a report short enough to take in, and where it is saved.
 // No `$`, so the unit tests reach it directly.
 
-import { HIDDEN } from './plan'
-import type { Plan } from './plan'
+import { HIDDEN, taskDate } from './plan'
+import type { Plan, Task } from './plan'
 
 export type Change = 'new' | 'change' | 'remove'
 export type Diagram = { mermaid: string } | { svg: string }
@@ -399,3 +399,31 @@ export const withReportNotes = (made: readonly MadeReport[], plan: Plan): string
     ),
   ]
 }
+
+// Report mode: the card's Report button on a planned task, with no refine
+// before it. Why the task may not be reported on, or undefined when it is
+// pending and has a plan.
+export const unreportable = (task: Task | undefined): string | undefined => {
+  if (task === undefined) return 'the task no longer exists'
+  if (task.status !== 'pending') return `the task is ${task.status}, not pending`
+  if (!(task.tags ?? []).includes('planned')) return 'the task has no plan: it is not tagged planned. Refine it first'
+  return undefined
+}
+
+// The task with one more note, linking the report, after the others: at
+// `nowMs`, or the first later second no note has yet, since Taskwarrior keys
+// a note by its entry time and two at one second would collapse into one.
+// Everything else about the task is kept.
+export const withReportNote = (task: Task, path: string, nowMs: number): Task => {
+  const notes = task.annotations ?? []
+  const taken = new Set(notes.map(note => note.entry))
+  let at = Math.floor(nowMs / 1000) * 1000
+  while (taken.has(taskDate(at))) at += 1000
+  return { ...task, annotations: [...notes, { entry: taskDate(at), description: `Report: ${path}` }] }
+}
+
+// What the model reads when it calls show_task_report a second time in a
+// report session: one report per press of the button.
+export const madeAlready = (path: string): string =>
+  `show_task_report: this session's report is made and linked from the task: ${path}. ` +
+  'Press Report on the card again for another.'

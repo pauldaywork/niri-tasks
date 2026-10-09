@@ -12,6 +12,7 @@ import {
   merge,
   notApproved,
   notAsked,
+  notesOf,
   overlong,
   parseExport,
   parseInput,
@@ -23,7 +24,7 @@ import { RENDERER, drawArgv, drawSources, drawnSvgs, runtimePath, whichArgv } fr
 import { reportPage } from './page'
 import { FONT_FILES } from './style'
 import type { Fonts } from './style'
-import { openArgv, parseReport, reportPath, reportsDir, withReportNotes } from './report'
+import { madeAlready, openArgv, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from './report'
 import type { MadeReport, Report } from './report'
 
 // The tool's listed name: mcp__<plugin>__<name>, hyphens kept.
@@ -59,13 +60,20 @@ const TEXT = { type: 'string' }
 const TEXTS = { type: 'array', items: TEXT }
 const DIAGRAM = { type: 'object', properties: { mermaid: TEXT, svg: TEXT } }
 
-const REPORT_SPEC = {
+// The report tool's schema is one; what the model is told differs by mode:
+// in a refine the report follows the person's "Show me a report first", in a
+// report session it is the whole job.
+const reportSpec = (reportOnly: boolean) => ({
   name: 'show_task_report',
-  description:
-    'Writes an HTML report of the plan in one fixed, easy-to-read layout and opens it in the browser, once the ' +
-    'person has chosen "Show me a report first" in write_task_plan. Fill the fields as the refine-task skill\'s ' +
-    'report-catalogue.md says. Every text field is one line of plain text; a report over the limits is refused ' +
-    'with every reason at once.',
+  description: reportOnly
+    ? "Writes an HTML report of this task's plan, its own description and notes as they are now, in one fixed, " +
+      'easy-to-read layout, opens it in the browser and links it from the task as a Report: <path> note. ' +
+      "Fill the fields as the refine-task skill's report-catalogue.md says. Every text field is one line of " +
+      'plain text; a report over the limits is refused with every reason at once. One report a session.'
+    : 'Writes an HTML report of the plan in one fixed, easy-to-read layout and opens it in the browser, once the ' +
+      'person has chosen "Show me a report first" in write_task_plan. Fill the fields as the refine-task skill\'s ' +
+      'report-catalogue.md says. Every text field is one line of plain text; a report over the limits is refused ' +
+      'with every reason at once.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -136,7 +144,7 @@ const REPORT_SPEC = {
     },
     required: ['title', 'summary', 'changes', 'sections', 'files', 'checks'],
   },
-}
+})
 
 // The task this session may write, or undefined when the tool must not be
 // offered: no valid uuid, or the sandbox is not on and enforced. Asked again
@@ -237,6 +245,13 @@ const drawDiagrams = async ($: EngineInterface, report: Report): Promise<(string
 export const register: Register = (on, options) => {
   // Where reports go, or undefined when this session offers none.
   const reports = reportsDir(options.reports)
+  // Report mode: the card's Report button on a planned task, not a refine.
+  // Only the report tool is offered, armed from the start on the task's own
+  // description and notes, and the mod links the report from the task
+  // itself: the button press was the ask, so no question is put. One a
+  // session, as a refine makes one per ask. Module state, like `askedFor`.
+  const reportOnly = options.report === true
+  let linked: string | undefined
   // The plan the person was shown when they chose REPORT in answer to the
   // latest question, spent by the first well-formed report. Module state: a
   // reload forgets it, and the model is told to ask again.
@@ -251,8 +266,8 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     if ((await armedUuid($, options.uuid)) !== undefined) {
-      await $.tool.register(SPEC)
-      if (reports !== undefined) await $.tool.register(REPORT_SPEC)
+      if (!reportOnly) await $.tool.register(SPEC)
+      if (reports !== undefined) await $.tool.register(reportSpec(reportOnly))
     }
     return next(e)
   })
@@ -262,6 +277,7 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: TOOL }, async ($, e) => {
     const uuid = await armedUuid($, options.uuid)
     if (uuid === undefined) return { deny: 'write_task_plan is not armed in this session.' }
+    if (reportOnly) return { deny: 'write_task_plan is not offered in a report session: nothing here refines.' }
 
     const input = parseInput(e)
     if (typeof input === 'string') return { deny: `write_task_plan: ${input}` }
@@ -317,6 +333,46 @@ export const register: Register = (on, options) => {
     const uuid = await armedUuid($, options.uuid)
     if (uuid === undefined || reports === undefined) {
       return { deny: 'show_task_report is not armed in this session.' }
+    }
+    if (reportOnly) {
+      if (linked !== undefined) return { deny: madeAlready(linked) }
+      // The plan is the task as it is now: read here, not at session start,
+      // so an edit made since the button was pressed is what is reported.
+      const exported = await $.process.run([...TASK, 'rc.json.array=on', uuid, 'export'])
+      if (exported.exitCode !== 0) {
+        return { deny: `task export failed (${exported.exitCode}): ${exported.stderr.trim()}` }
+      }
+      const task = parseExport(exported.stdout)
+      const why = unreportable(task)
+      if (why !== undefined || task === undefined) return { deny: `show_task_report: nothing written: ${why}.` }
+
+      const report = parseReport(e)
+      if (typeof report === 'string') return { deny: `show_task_report: ${report}` }
+
+      const shown = { description: task.description, notes: notesOf(task) }
+      const path = reportPath(reports, uuid, await $.clock.now())
+      await $.fs.write(path, reportPage(report, shown, await readFonts($, fonts), await drawDiagrams($, report)))
+      $.ui.log(`Report: ${path}`)
+      await $.process.run(openArgv(path))
+
+      // The session's one write to the task, and the mod's, not the model's:
+      // the note's path is the one just written.
+      const imported = await $.process.run([...TASK, 'rc.verbose=nothing', 'import'], {
+        stdin: JSON.stringify([withReportNote(task, path, await $.clock.now())]),
+      })
+      if (imported.exitCode !== 0) {
+        return {
+          deny:
+            `Wrote the report to ${path} and opened it, but task import failed (${imported.exitCode}): ` +
+            `${imported.stderr.trim()} The task does not link it.`,
+        }
+      }
+      linked = path
+      return {
+        result:
+          `Wrote the report to ${path}, opened it in the browser, and linked it from the task ` +
+          `as the note "Report: ${path}".`,
+      }
     }
     if (askedFor === undefined) return { deny: NOT_ASKED_FOR }
 

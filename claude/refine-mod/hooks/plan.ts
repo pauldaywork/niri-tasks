@@ -71,7 +71,8 @@ export const parseExport = (stdout: string): Task | undefined => {
   return tasks[0] as Task | undefined
 }
 
-const notesOf = (task: Task): string[] =>
+// The task's notes as the plan holds them: each annotation's text, in order.
+export const notesOf = (task: Task): string[] =>
   (task.annotations ?? []).map(annotation => annotation.description)
 
 const same = (a: readonly string[], b: readonly string[]): boolean =>

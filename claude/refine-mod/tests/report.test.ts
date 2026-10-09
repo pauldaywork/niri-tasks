@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { LIMITS, openArgv, parseReport, reportPath, reportsDir, withReportNotes } from '../hooks/report'
+import { LIMITS, madeAlready, openArgv, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from '../hooks/report'
+import type { Task } from '../hooks/plan'
 import { EXAMPLE } from './example-report'
 
 const UUID = '0b8f6a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b'
@@ -304,5 +305,64 @@ describe('lenses', () => {
       at({ kind: 'outside-tools', tools: [{ tool: 'herdr', how: 'Runs the sessions.', swap, why: 'One module.' }] })
     expect(typeof parseReport(tools('medium'))).toBe('object')
     expect(parseReport(tools('trivial'))).toBe('sections[0].tools[0].swap must be easy, medium or hard')
+  })
+})
+
+const planned = (over: Partial<Task> = {}): Task => ({
+  uuid: UUID,
+  status: 'pending',
+  description: 'feat: Old words',
+  annotations: [{ entry: '20260101T000001Z', description: 'first note' }],
+  tags: ['planned', 'zeta'],
+  ...over,
+})
+
+describe('report mode', () => {
+  test('a pending, planned task can be reported on', () => {
+    expect(unreportable(planned())).toBeUndefined()
+  })
+
+  test('a task that is gone, not pending or not planned cannot, and the reason says which', () => {
+    expect(unreportable(undefined)).toBe('the task no longer exists')
+    expect(unreportable(planned({ status: 'completed' }))).toBe('the task is completed, not pending')
+    expect(unreportable(planned({ tags: ['zeta'] }))).toBe('the task has no plan: it is not tagged planned. Refine it first')
+    expect(unreportable(planned({ tags: undefined }))).toBe('the task has no plan: it is not tagged planned. Refine it first')
+  })
+
+  test('the report note goes after the others, at now, with everything else kept', () => {
+    const now = Date.UTC(2026, 9, 6, 1, 2, 3)
+    expect(withReportNote(planned(), '/r/refine-0b8f6a52-20261006-010203.html', now)).toEqual({
+      ...planned(),
+      annotations: [
+        { entry: '20260101T000001Z', description: 'first note' },
+        { entry: '20261006T010203Z', description: 'Report: /r/refine-0b8f6a52-20261006-010203.html' },
+      ],
+    })
+  })
+
+  test('a task with no notes yet gets its first', () => {
+    const task = withReportNote(planned({ annotations: undefined }), '/r/x.html', Date.UTC(2026, 9, 6, 1, 2, 3))
+    expect(task.annotations).toEqual([{ entry: '20261006T010203Z', description: 'Report: /r/x.html' }])
+  })
+
+  test('the note never takes a second a note already has: Taskwarrior keys a note by it', () => {
+    const now = Date.UTC(2026, 9, 6, 1, 2, 3)
+    const task = planned({
+      annotations: [
+        { entry: '20261006T010203Z', description: 'at now' },
+        { entry: '20261006T010204Z', description: 'a second later' },
+      ],
+    })
+    expect(withReportNote(task, '/r/x.html', now).annotations?.at(-1)).toEqual({
+      entry: '20261006T010205Z',
+      description: 'Report: /r/x.html',
+    })
+  })
+
+  test('a second report in one session is refused, naming the first', () => {
+    expect(madeAlready('/r/x.html')).toBe(
+      "show_task_report: this session's report is made and linked from the task: /r/x.html. " +
+        'Press Report on the card again for another.',
+    )
   })
 })
