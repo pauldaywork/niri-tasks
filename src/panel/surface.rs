@@ -993,6 +993,7 @@ impl Panel {
         match card.status {
             Status::Active => root.add_css_class("active"),
             Status::Blocked => root.add_css_class("blocked"),
+            Status::Processing => root.add_css_class("processing"),
             Status::Planned => root.add_css_class("planned"),
             Status::More => root.add_css_class("more"),
             Status::Waiting => root.add_css_class("waiting"),

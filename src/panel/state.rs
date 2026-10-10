@@ -937,12 +937,17 @@ mod tests {
     use crate::panel::model::Status;
 
     fn card(uuid: &str, status: Status) -> Card {
-        Card { status, text: uuid.into(), uuid: Some(uuid.into()), id: 0, planned: status == Status::Planned, up_next: false, since: String::new(), notes: Vec::new(), has_report: false }
+        Card { status, text: uuid.into(), uuid: Some(uuid.into()), id: 0, planned: status == Status::Planned, up_next: false, since: String::new(), notes: Vec::new(), has_report: false, processing: false }
     }
 
     /// A pending card whose task has one note.
     fn noted(uuid: &str) -> Card {
         Card { notes: vec![format!("a note on {uuid}")], ..card(uuid, Status::Pending) }
+    }
+
+    /// A card being planned in the background.
+    fn processing(uuid: &str) -> Card {
+        Card { processing: true, ..card(uuid, Status::Processing) }
     }
 
     fn pending(uuids: &[&str]) -> Vec<Card> {
@@ -1687,6 +1692,35 @@ mod tests {
     fn ctrl_delete_with_no_card_does_nothing() {
         let mut state = keyboard(vec![card("w", Status::Waiting)]);
         assert_eq!(key(&mut state, KeyAction::Delete), Vec::new());
+    }
+
+    // ─── processing ──────────────────────────────────────────────────────
+
+    /// A card being planned in the background has no buttons, its hint says
+    /// so, and the keys that act on a task do nothing to it: not Ctrl+Enter,
+    /// not Ctrl+Delete, not a letter or Delete. The list stays up and the
+    /// focus stays on its body; the next card is untouched.
+    #[test]
+    fn a_processing_card_has_no_buttons_and_the_keys_leave_it_alone() {
+        let mut state = keyboard(vec![processing("a"), card("b", Status::Pending)]);
+        assert_eq!(state.visible()[0].actions, Vec::<Action>::new());
+        assert_eq!(state.card_hint("a"), Action::PROCESSING_HINT);
+        assert_eq!(key(&mut state, KeyAction::Advance), Vec::new(), "Ctrl+Enter");
+        assert_eq!(key(&mut state, KeyAction::Delete), Vec::new(), "Ctrl+Delete");
+        assert_eq!(key(&mut state, KeyAction::Run(Action::Remove)), Vec::new(), "Delete");
+        assert_eq!(key(&mut state, KeyAction::Run(Action::Refine)), Vec::new(), "r");
+        assert_eq!(
+            key(&mut state, KeyAction::NextSlot),
+            vec![Effect::Focus(focused("a", Slot::Body))],
+            "the only slot is the body: Tab stays on it",
+        );
+        assert!(state.keyboard());
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+        key(&mut state, KeyAction::NextCard);
+        assert_eq!(
+            key(&mut state, KeyAction::Advance),
+            vec![Effect::Notify("Refine: b".into()), Effect::Spawn(Action::Refine.args("b"))],
+        );
     }
 
     // ─── arming ──────────────────────────────────────────────────────────

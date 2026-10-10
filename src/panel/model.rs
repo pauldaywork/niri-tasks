@@ -17,6 +17,9 @@ pub enum Status {
     Blocked,
     /// Worked up into a plan by the `refine-task` skill.
     Planned,
+    /// Being planned in the background by `task refine --unattended`:
+    /// tagged `+processing` until its two Claude runs end.
+    Processing,
     /// Parked with the Waiting button. Off the hover panel and the peek, and
     /// on the keyboard's Waiting tab only.
     Waiting,
@@ -59,6 +62,10 @@ pub struct Card {
     /// The task's notes link a refine report, `Report: <path>`: its Report
     /// button reads Open report and opens that. False on "+N more".
     pub has_report: bool,
+    /// The task carries `+processing`, whatever its status: an active task
+    /// being planned shows Active, and still offers nothing. False on
+    /// "+N more".
+    pub processing: bool,
 }
 
 impl Card {
@@ -70,6 +77,8 @@ impl Card {
             // Font Awesome's lock, from the Nerd Font waybar already uses: flat
             // and one colour, where the emoji lock is a picture.
             Status::Blocked => "\u{f023}",
+            // Font Awesome's hourglass, half run: being planned, wait.
+            Status::Processing => "\u{f252}",
             // The pending circle filled in: still waiting, but worked up.
             Status::Planned => "●",
             // Font Awesome's pause, the Waiting button's own icon.
@@ -116,7 +125,7 @@ impl Card {
             up_next: self.up_next,
             has_session,
             has_report: self.has_report,
-            processing: false,
+            processing: self.processing,
         })
     }
 }
@@ -257,6 +266,11 @@ impl Tab {
 /// Whether a task is waiting or finished is which part of the [`Listing`] it
 /// is in, not its status: taskwarrior 2.6 exports a waiting task as
 /// `pending`.
+///
+/// Processing comes above blocked and planned: a task being planned in the
+/// background cannot be acted on, which matters more than why it waits or
+/// whether it has a plan already; a started one stays Active, its card
+/// knowing all the same.
 pub fn cards(listing: &Listing, blocked: &[String]) -> Vec<Card> {
     // Only below up next: an active or up next task stays on top blocked.
     let sinks = |t: &Task| !t.is_active() && !t.is_up_next() && blocked.contains(&t.uuid);
@@ -300,6 +314,8 @@ pub fn cards(listing: &Listing, blocked: &[String]) -> Vec<Card> {
                 Status::Waiting
             } else if t.is_active() {
                 Status::Active
+            } else if t.is_processing() {
+                Status::Processing
             } else if blocked.contains(&t.uuid) {
                 Status::Blocked
             } else if t.is_planned() {
@@ -317,6 +333,7 @@ pub fn cards(listing: &Listing, blocked: &[String]) -> Vec<Card> {
             since: if finished(part) { t.end.clone() } else { t.entry.clone() },
             notes: t.annotations.iter().map(|a| a.description.clone()).collect(),
             has_report: t.report_path().is_some(),
+            processing: t.is_processing(),
         })
         .collect()
 }
@@ -346,6 +363,7 @@ pub fn cap(cards: &[Card], n: usize) -> Vec<Card> {
             since: String::new(),
             notes: Vec::new(),
             has_report: false,
+            processing: false,
         });
     }
     shown
@@ -402,6 +420,12 @@ mod tests {
     fn up_next(uuid: &str, day: u32, active: bool) -> Task {
         let mut t = task(uuid, day, active);
         t.tags = vec![crate::task::UP_NEXT_TAG.into()];
+        t
+    }
+
+    fn processing(uuid: &str) -> Task {
+        let mut t = task(uuid, 1, false);
+        t.tags = vec![crate::task::PROCESSING_TAG.into()];
         t
     }
 
@@ -554,6 +578,48 @@ mod tests {
     fn blocked_outranks_planned() {
         let got = cards(&todo(vec![planned("p", false)]), &["p".into()]);
         assert_eq!(got[0].status, Status::Blocked);
+    }
+
+    /// A task an unattended refine is planning shows the hourglass, and its
+    /// card knows it, so its state offers nothing. Above blocked and planned:
+    /// you cannot act on it either way, and that is the fact to show; the
+    /// Planned tab still goes by the tag.
+    #[test]
+    fn a_processing_task_gets_the_hourglass_and_offers_nothing() {
+        let got = cards(&todo(vec![processing("p")]), &["p".into()]);
+        assert_eq!(got[0].status, Status::Processing);
+        assert_eq!(got[0].icon(), "\u{f252}");
+        assert!(got[0].processing);
+        assert_eq!(got[0].state(false), Some(TaskState { processing: true, ..TaskState::default() }));
+
+        let mut planned_too = processing("q");
+        planned_too.tags.push(crate::task::PLANNED_TAG.into());
+        let got = cards(&todo(vec![planned_too]), &[]);
+        assert_eq!(got[0].status, Status::Processing);
+        assert!(got[0].planned, "still planned, for the Planned tab");
+    }
+
+    /// Started outranks processing, as it outranks everything on the list;
+    /// the card still knows, so an active card being planned offers nothing.
+    #[test]
+    fn started_outranks_processing() {
+        let got = cards(&todo(vec![processing("s")]), &[]);
+        assert_eq!(got[0].status, Status::Processing);
+        let mut started = processing("s");
+        started.start = Some("20260927T080000Z".into());
+        let got = cards(&todo(vec![started]), &[]);
+        assert_eq!(got[0].status, Status::Active);
+        assert!(got[0].processing);
+        assert_eq!(got[0].state(false).map(crate::actions::Action::row), Some(Vec::new()));
+    }
+
+    /// "+N more" is being planned by no one.
+    #[test]
+    fn the_more_card_is_not_processing() {
+        let many: Vec<Task> = (0..CAP + 1).map(|i| processing(&format!("t{i}"))).collect();
+        let last = cap(&cards(&todo(many), &[]), CAP).last().unwrap().clone();
+        assert_eq!(last.status, Status::More);
+        assert!(!last.processing);
     }
 
     #[test]
@@ -871,6 +937,7 @@ mod tests {
             since: String::new(),
             notes: Vec::new(),
             has_report,
+            processing: false,
         };
         assert_eq!(
             card(Status::Active, true, true, true).state(true),

@@ -9,7 +9,7 @@
 //! No card has a border. The one the keyboard is on is filled a darker black
 //! than the rest. The active task is marked by colour alone: its ▶ and its
 //! text are green. An up next task's icon and text are yellow, unless it is
-//! active or waiting. Blocked, waiting and finished cards are dimmed.
+//! active or waiting. Blocked, processing, waiting and finished cards are dimmed.
 //!
 //! A card is a box holding a body button and, while the panel has the
 //! keyboard, a row of action buttons along its bottom edge. The theme's button
@@ -236,6 +236,7 @@ window.task-panel {{ background-color: transparent; }}
 .task-panel .task-card.picked {{ background-color: {FOCUSED_BACKGROUND}; }}
 .task-panel .task-card.active {{ color: {ACTIVE}; }}
 .task-panel .task-card.blocked,
+.task-panel .task-card.processing,
 .task-panel .task-card.waiting,
 .task-panel .task-card.finished,
 .task-panel .task-card.more {{ color: alpha({TEXT}, 0.55); }}
@@ -493,6 +494,15 @@ mod tests {
     fn a_finished_card_is_dimmed() {
         assert!(css().contains(
             ".task-panel .task-card.waiting,\n.task-panel .task-card.finished,\n.task-panel .task-card.more"
+        ));
+    }
+
+    /// A processing card is dimmed like a blocked one: nothing can be done
+    /// to it yet.
+    #[test]
+    fn a_processing_card_is_dimmed() {
+        assert!(css().contains(
+            ".task-panel .task-card.blocked,\n.task-panel .task-card.processing,\n.task-panel .task-card.waiting,"
         ));
     }
 
