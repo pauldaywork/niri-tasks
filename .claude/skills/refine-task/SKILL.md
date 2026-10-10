@@ -179,11 +179,11 @@ links each report made this session) and adds `+planned` in one import, and
 touches nothing else. Its answer says what happened:
 
 In `auto` mode the tool asks no one: it logs the plan, reads the task again,
-writes and answers **Wrote the plan …**. Call it once. Of the answers below,
-only the ones that name something to fix in the plan itself (a line too
-long, a hidden character, a note on two lines) are worth a second call; on
-any other **Nothing written** or failure, stop and say what it answered —
-there is no one to ask, and the run reports the task as unplanned.
+writes and answers **Wrote the plan …**. Call it once; if it names a defect in
+the plan itself (a line too long, a hidden character, a note on two lines), fix
+that and call once more. That is the only retry: on any other **Nothing
+written** or failure, stop and say what it answered — there is no one to ask,
+and the run reports the task as unplanned.
 
 - **Wrote the plan …** — go to step 6.
 - **Nothing written: the person chose "Change something"** — ask them what to
