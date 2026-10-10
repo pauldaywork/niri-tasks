@@ -114,7 +114,8 @@ pub fn reports_dir(dirs: &Dirs) -> PathBuf {
 /// The Read tool may read the installed skills too, and the real folders
 /// the links point into ([`skill_dirs`]): the report catalogue lives there,
 /// outside the project, where Read would otherwise ask, and sandboxed Bash
-/// can read it regardless.
+/// can read it regardless. The rule names ~/.claude, Claude Code's default; a
+/// CLAUDE_CONFIG_DIR elsewhere would bring the prompt back.
 /// The write itself is the refine mod's tool, which `pluginConfigs` tells
 /// which task it may write: `uuid`, never anything the model says.
 /// It is told `reports` too, the folder its report tool writes to, and
@@ -301,12 +302,8 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
     let claude = Claude::Refiner { settings, mod_dir };
     let label = tab_label(mode, &t.description);
     if launch_in(&session, &name, &label, ws.name(), &claude, &prompt(&t.uuid, mode))? == Launched::AlreadyRunning {
-        // The same agent name for all three, so a Report on a task being
-        // refined lands in the refine's tab, and the other way round.
-        session.notify(match mode {
-            Mode::Report => "Already open on this task — switched to its tab.",
-            Mode::Quick | Mode::Grill => "Already being refined — switched to its tab.",
-        });
+        // The same agent name for all three modes, so a press of any lands in the tab already open on the task.
+        session.notify("Already open on this task — switched to its tab.");
     }
     Ok(())
 }

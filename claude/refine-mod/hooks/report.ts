@@ -426,4 +426,4 @@ export const withReportNote = (task: Task, path: string, nowMs: number): Task =>
 // report session: one report per press of the button.
 export const madeAlready = (path: string): string =>
   `show_task_report: this session's report is made and linked from the task: ${path}. ` +
-  'Press Report on the card again for another.'
+  'Close this tab and press Report on the card again for another.'

@@ -596,7 +596,7 @@ test('report mode: one report a session; the second names the first', { options:
   const again = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
   expect(again.deny).toBe(
     `show_task_report: this session's report is made and linked from the task: ${REPORT_PATH}. ` +
-      'Press Report on the card again for another.',
+      'Close this tab and press Report on the card again for another.',
   )
   expect(writes).toHaveLength(1)
   expect(verbs(runs).filter(v => v === 'import')).toHaveLength(1)
@@ -634,19 +634,24 @@ test('report mode: a report over its limits is refused with every reason, and no
 
 test('report mode: a failed import is reported, with the page already open', { options: REPORT_MODE }, async ($, on) => {
   engine(on, SANDBOX)
-  on('process.run', ($, e) =>
-    e.argv.includes('export')
-      ? ran(JSON.stringify([PLANNED]))
-      : e.argv.includes('import')
-        ? { value: { ...ran('', 2).value, stderr: 'Not a valid JSON value.' } }
-        : ran(''),
-  )
+  let imports = 0
+  on('process.run', ($, e) => {
+    if (e.argv.includes('export')) return ran(JSON.stringify([PLANNED]))
+    if (e.argv.includes('import')) {
+      imports += 1
+      return imports === 1 ? { value: { ...ran('', 2).value, stderr: 'Not a valid JSON value.' } } : ran('')
+    }
+    return ran('')
+  })
   await $.session.start(START)
   const answer = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
   expect(answer.deny).toBe(
     `Wrote the report to ${REPORT_PATH} and opened it, but task import failed (2): Not a valid JSON value. ` +
       'The task does not link it.',
   )
+  const again = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(again.result).toContain(`Wrote the report to ${REPORT_PATH}`)
+  expect(imports).toBe(2)
 })
 
 test('report mode: sandbox off, no tool', { options: REPORT_MODE }, async ($, on) => {

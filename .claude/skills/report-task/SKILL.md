@@ -105,6 +105,7 @@ Export the task once more and check: the description and the earlier notes
 are as you read them in step 1, the last note is `Report: <path>` with the
 path the tool answered, and the tags are unchanged, `planned` still among
 them. Tell the user the path in one line, and stop. Leave the session open.
+A second Report press switches back to this tab; to make another report they close this tab first.
 
 Always address the task by uuid, never its numeric id: ids are renumbered as
 tasks complete.

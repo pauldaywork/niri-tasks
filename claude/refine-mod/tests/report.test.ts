@@ -362,7 +362,7 @@ describe('report mode', () => {
   test('a second report in one session is refused, naming the first', () => {
     expect(madeAlready('/r/x.html')).toBe(
       "show_task_report: this session's report is made and linked from the task: /r/x.html. " +
-        'Press Report on the card again for another.',
+        'Close this tab and press Report on the card again for another.',
     )
   })
 })
