@@ -162,13 +162,22 @@ enum TaskCommand {
     /// Work a task up into a plan with Claude, in a new tab of the workspace's herdr session
     ///
     /// The workspace is this herdr session's in a herdr pane, else the
-    /// focused one, as for task add, task start and task session.
+    /// focused one, as for task add, task start and task session. With
+    /// --unattended there is no tab: Claude runs headless in the project
+    /// folder, plans the task asking nothing, then builds and links its
+    /// report, as the task box's Add & all does; the task carries
+    /// +processing meanwhile and a notification says when it is done, or
+    /// which step failed and where its log is.
     Refine {
         /// The task's uuid, or its first 8 characters
         uuid: String,
         /// Interview first, via the `grilling` skill, rather than drafting straight away
-        #[arg(long)]
+        #[arg(long, conflicts_with = "unattended")]
         grill: bool,
+        /// Plan and report in the background with no questions, no tab and no browser:
+        /// what the task box's Add & all runs
+        #[arg(long)]
+        unattended: bool,
     },
     /// Open the report of a planned task's plan, or have Claude build it in a new tab of the workspace's herdr session
     ///
@@ -180,7 +189,8 @@ enum TaskCommand {
     /// that is refused for a task that is not pending or not tagged planned:
     /// refine it first. A linked file that is gone is built afresh, and the
     /// notification says so. The workspace is this herdr session's in a
-    /// herdr pane, else the focused one.
+    /// herdr pane, else the focused one. Refused while the task is being
+    /// planned in the background (+processing).
     Report {
         /// The task's uuid, or its first 8 characters
         uuid: String,
@@ -193,7 +203,8 @@ enum TaskCommand {
     /// Opens a herdr tab that makes the worktree (branch
     /// `task/<slug>-<uuid8>`) and starts Claude in it. Run again on the same
     /// task, it goes back to both. The workspace is this herdr session's in a
-    /// herdr pane, else the focused one.
+    /// herdr pane, else the focused one. Refused while the task is being
+    /// planned in the background (+processing).
     Start {
         /// The task's uuid, or its first 8 characters
         uuid: String,
@@ -371,23 +382,36 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             let workspace = Workspace::of_caller()?;
             let t = task::get(&uuid)?.context("task not found")?;
             anyhow::ensure!(t.status == "pending", "Only a pending task can be started.");
+            // Its plan is still being written: the worktree's Claude would
+            // read half a plan.
+            anyhow::ensure!(!t.is_processing(), "{}", task::PROCESSING_REFUSAL);
             work::launch(&workspace, &t)?;
         }
 
-        TaskCommand::Refine { uuid, grill } => {
+        TaskCommand::Refine { uuid, grill, unattended } => {
             // The same refusal every entry point makes: a task refined on an
-            // unnamed workspace would have no session to open in.
+            // unnamed workspace would have no session, or project folder, to
+            // run in.
             let workspace = Workspace::of_caller()?;
             let t = task::get(&uuid)?.context("task not found")?;
             // task::get is unfiltered by status; a completed or deleted task
             // has nothing left to work up into a plan.
             anyhow::ensure!(t.status == "pending", "Only a pending task can be refined.");
+            // A second run on the task, or a tab opened over one, would race
+            // the first for the write.
+            anyhow::ensure!(!t.is_processing(), "{}", task::PROCESSING_REFUSAL);
+            if unattended {
+                return refine::run_unattended(&workspace, &t);
+            }
             let mode = if grill { refine::Mode::Grill } else { refine::Mode::Quick };
             refine::launch(&workspace, &t, mode)?;
         }
 
         TaskCommand::Report { uuid, fresh } => {
             let t = task::get(&uuid)?.context("task not found")?;
+            // Its plan is still being written, and the second run will link
+            // a report itself.
+            anyhow::ensure!(!t.is_processing(), "{}", task::PROCESSING_REFUSAL);
             // Opening what is already written needs no session and no
             // pending or planned check: the report is a file, and reading it
             // is harmless on any task. Building one needs both.
@@ -566,6 +590,16 @@ mod tests {
     fn a_fresh_report_is_a_flag_on_task_report() {
         assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d"]).is_ok());
         assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d", "--fresh"]).is_ok());
+    }
+
+    /// Add & all starts this in the background, so it has to be a command
+    /// the CLI accepts; and a run with no one to answer cannot grill.
+    #[test]
+    fn the_unattended_refine_is_a_command_the_cli_accepts_and_never_grills() {
+        let argv = refine::unattended_command("niritasks", "c53b6e3d");
+        assert!(Cli::try_parse_from(&argv).is_ok(), "{argv:?}");
+        assert!(Cli::try_parse_from(["niritasks", "task", "refine", "c53b6e3d", "--grill", "--unattended"]).is_err());
+        assert!(Cli::try_parse_from(["niritasks", "task", "refine", "c53b6e3d", "--unattended", "--grill"]).is_err());
     }
 
     /// A card's Speak runs this.

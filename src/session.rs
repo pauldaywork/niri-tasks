@@ -27,6 +27,7 @@
 //! [`Dirs::project_from_cwd`]: crate::dirs::Dirs::project_from_cwd
 
 mod herdr;
+pub use herdr::refiner_flags;
 #[cfg(test)]
 pub(crate) mod fake;
 

@@ -9,9 +9,12 @@
 use crate::dirs::Dirs;
 use crate::session::{Claude, Session};
 use crate::workspace::Workspace;
-use crate::{names, niri, notify, task};
+use crate::{names, niri, notify, programs, task};
 use anyhow::{bail, Context, Result};
+use std::fs::File;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 /// Which of a card's buttons, Refine, Grill me or Report, opened Claude. They
 /// differ in the prompt [`prompt`] sends, and so in the skill on the other
@@ -93,6 +96,19 @@ pub fn reports_dir(dirs: &Dirs) -> PathBuf {
     dirs.data().join("niri-tasks/reviews")
 }
 
+/// Where an unattended run's log goes: `$XDG_DATA_HOME/niri-tasks/unattended`,
+/// beside the reviews, so a failed run can be read later.
+pub fn unattended_dir(dirs: &Dirs) -> PathBuf {
+    dirs.data().join("niri-tasks/unattended")
+}
+
+/// The log of an unattended run on `uuid` started at `now` (Unix seconds):
+/// `<uuid8>-<stamp>.log` under [`unattended_dir`], one file for both of its
+/// Claude runs, named by time so a second run on the task keeps the first's.
+pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
+    unattended_dir(dirs).join(format!("{}-{}.log", names::uuid8(uuid), task::stamp(now)))
+}
+
 /// The Claude Code settings that fence a refine session in, as the JSON
 /// `--settings` takes.
 ///
@@ -120,8 +136,10 @@ pub fn reports_dir(dirs: &Dirs) -> PathBuf {
 /// which task it may write: `uuid`, never anything the model says.
 /// It is told `reports` too, the folder its report tool writes to, and
 /// `report`: true in a Report session, where it offers only the report tool
-/// and links the report from the task itself.
-pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uuid: &str, reports: &Path, skill_dirs: &[PathBuf], mode: Mode) -> String {
+/// and links the report from the task itself, and `unattended`: true in an
+/// unattended run, where the write tool writes with no question and the
+/// report tool opens nothing (see [`run_unattended`]).
+pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uuid: &str, reports: &Path, skill_dirs: &[PathBuf], mode: Mode, unattended: bool) -> String {
     let deny: Vec<String> = CREDENTIALS.iter().map(|c| format!("Read({c})")).collect();
     let mut allow: Vec<String> =
         ["WebSearch", "WebFetch", "Bash(task *)", "Read(~/.claude/skills/**)"].iter().map(|s| s.to_string()).collect();
@@ -145,7 +163,7 @@ pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uu
             },
         },
         "pluginConfigs": {
-            (REFINE_MOD): { "options": { "uuid": uuid, "reports": reports, "report": (mode == Mode::Report) } },
+            (REFINE_MOD): { "options": { "uuid": uuid, "reports": reports, "report": (mode == Mode::Report), "unattended": unattended } },
         },
     })
     .to_string()
@@ -297,6 +315,7 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
         &reports_dir(&dirs),
         &skill_dirs(home),
         mode,
+        false,
     );
 
     let claude = Claude::Refiner { settings, mod_dir };
@@ -373,6 +392,180 @@ pub fn spawn_quick(uuid: &str) {
     }
 }
 
+/// The flag that makes `task refine` run with no one watching.
+pub const UNATTENDED_FLAG: &str = "--unattended";
+
+/// Add & all's command on `uuid`: the Refine button's ([`quick_command`])
+/// with [`UNATTENDED_FLAG`] after it, so it cannot drift from Refine either.
+pub fn unattended_command(exe: &str, uuid: &str) -> Vec<String> {
+    let mut command = quick_command(exe, uuid);
+    command.push(UNATTENDED_FLAG.to_string());
+    command
+}
+
+/// Hand a task just added to an unattended refine and report — Add & all.
+///
+/// In a `niritasks task refine --unattended` process of its own, spawned by
+/// niri as [`spawn_quick`]'s is: the daemon's GTK loop must never wait on a
+/// Claude run that takes minutes. That process reports its own failures;
+/// this only reports failing to start it. Either way the task is added.
+pub fn spawn_unattended(uuid: &str) {
+    let result = std::env::current_exe()
+        .map_err(anyhow::Error::from)
+        .and_then(|exe| niri::spawn(unattended_command(&exe.to_string_lossy(), uuid)));
+    if let Err(e) = result {
+        notify::tasks(&format!("Added, but could not start planning it: {e}"));
+    }
+}
+
+/// Claude Code's binary, which an unattended run executes itself.
+pub const CLAUDE: &str = "claude";
+
+/// The two prompts an unattended run sends, in order: `refine-task` in its
+/// `auto` mode, which decides every open question itself and writes the
+/// plan with no question asked, then `report-task` on the plan it wrote.
+pub fn unattended_prompts(uuid: &str) -> [String; 2] {
+    [format!("/refine-task {uuid} auto"), prompt(uuid, Mode::Report)]
+}
+
+/// What an unattended run executes: `claude -p <prompt>` with the tab's own
+/// flags ([`crate::session::refiner_flags`]: default permission mode, the
+/// editing tools removed, the standing instruction, the settings fence and
+/// the mod) and `--permission-prompts none`, so anything that would ask — a
+/// permission, AskUserQuestion — is refused rather than waited on. Not plan
+/// mode and not auto mode, for the reasons `agent_start_claude_refiner`
+/// gives; the sandbox already runs every command unasked.
+pub fn claude_unattended_argv(prompt: &str, settings: &str, mod_dir: &Path) -> Vec<String> {
+    let mut argv = vec![CLAUDE.to_string(), "-p".to_string(), prompt.to_string()];
+    argv.extend(crate::session::refiner_flags(settings, mod_dir));
+    argv.extend(["--permission-prompts", "none"].map(String::from));
+    argv
+}
+
+/// What the notification says when both runs are done, before the task's
+/// description.
+pub const PLANNED_AND_REPORTED: &str = "Planned and reported";
+
+/// Refine a task and build its report with no one watching: Add & all's
+/// second half, and `niritasks task refine <uuid> --unattended`.
+///
+/// Two `claude -p` runs in this process, in the project folder, behind the
+/// fence a refine tab gets ([`session_settings`] with `unattended` set,
+/// [`claude_unattended_argv`]): `/refine-task <uuid> auto`, which writes
+/// the plan with no question, then, once the task is planned,
+/// `/report-task <uuid>`, which writes and links the report without opening
+/// it. No herdr and no window.
+///
+/// `+processing` goes on the task before anything runs and comes off on
+/// every way out of here — done, a run that failed, a run that wrote
+/// nothing, `claude` or the mod missing — so its card shows it is being
+/// planned and offers nothing meanwhile, and nothing else writes it. A run
+/// this process does not control, killed with it, leaves the tag; that is
+/// `task <uuid8> modify -processing`. Both runs' output goes to one log
+/// ([`log_path`]), which a failure's error names; the error is `main`'s to
+/// notify, so a failure is said once.
+pub fn run_unattended(ws: &Workspace, t: &task::Task) -> Result<()> {
+    let dirs = Dirs::from_env()?;
+    let log = log_path(&dirs, &t.uuid, task::now_secs());
+    if let Some(dir) = log.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("could not make {}", dir.display()))?;
+    }
+    task::set_processing(&t.uuid, true)?;
+    let outcome = unattended_steps(ws, t, &dirs, &log);
+    // Cleared whatever happened above; a tag left behind would lock the
+    // card for good.
+    if let Err(e) = task::set_processing(&t.uuid, false) {
+        eprintln!("could not clear +{}: {e:#}", task::PROCESSING_TAG);
+    }
+    match outcome {
+        Ok(()) => {
+            notify::tasks(&format!("{PLANNED_AND_REPORTED}: {}", t.description));
+            Ok(())
+        }
+        Err(e) => {
+            append_line(&log, &format!("== failed: {e:#}"));
+            bail!("{e:#} Log: {}", log.display())
+        }
+    }
+}
+
+/// Which of the two runs a failure is reported against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Refine,
+    Report,
+}
+
+impl Step {
+    fn name(self) -> &'static str {
+        match self {
+            Step::Refine => "refine",
+            Step::Report => "report",
+        }
+    }
+}
+
+/// Everything [`run_unattended`] does between tagging the task and
+/// untagging it: the fence checks a tab makes, then the two runs, each
+/// followed by reading the task back to see it did its job.
+fn unattended_steps(ws: &Workspace, t: &task::Task, dirs: &Dirs, log: &Path) -> Result<()> {
+    let home = dirs.home();
+    let hidden = hidden_paths(home);
+    ensure_no_exposed_sockets(&hidden)?;
+    let mod_dir = refine_mod_dir(dirs);
+    anyhow::ensure!(
+        mod_dir.join(".claude-plugin/plugin.json").is_file(),
+        "The refine mod is missing, or its link is broken, at {}. Run install.sh from the niri-tasks repo.",
+        mod_dir.display()
+    );
+    anyhow::ensure!(programs::on_path(CLAUDE), "Claude Code (`{CLAUDE}`) is not on PATH, so nothing can plan the task.");
+    let session = ws.session()?;
+    let project = session.dir();
+    let task_data = task::data_location()?;
+    let reports = reports_dir(dirs);
+    let skills = skill_dirs(home);
+    let [refine_prompt, report_prompt] = unattended_prompts(&t.uuid);
+
+    let settings = session_settings(project, &task_data, &hidden, &t.uuid, &reports, &skills, Mode::Quick, true);
+    run_claude(project, log, Step::Refine, &claude_unattended_argv(&refine_prompt, &settings, &mod_dir))?;
+    let planned = task::get(&t.uuid)?.context("The task is gone after the refine step.")?;
+    anyhow::ensure!(planned.is_planned(), "The refine step wrote no plan: the task is not tagged planned.");
+
+    let settings = session_settings(project, &task_data, &hidden, &t.uuid, &reports, &skills, Mode::Report, true);
+    run_claude(project, log, Step::Report, &claude_unattended_argv(&report_prompt, &settings, &mod_dir))?;
+    let reported = task::get(&t.uuid)?.context("The task is gone after the report step.")?;
+    let path = reported.report_path().context("The report step linked no report: the task has no Report: note.")?;
+    anyhow::ensure!(Path::new(path).is_file(), "The report step linked {path}, which is not there.");
+    Ok(())
+}
+
+/// One `claude -p` run in `project`, both its streams appended to `log`
+/// under a line naming the step and the prompt (not the settings, which are
+/// long and the same for both). Stdin is closed: there is no one typing.
+fn run_claude(project: &Path, log: &Path, step: Step, argv: &[String]) -> Result<()> {
+    append_line(log, &format!("== {}: {}", step.name(), argv[..3].join(" ")));
+    let out = File::options().append(true).create(true).open(log).with_context(|| format!("could not open {}", log.display()))?;
+    let err = out.try_clone().context("could not share the log between stdout and stderr")?;
+    let status = Command::new(&argv[0])
+        .args(&argv[1..])
+        .current_dir(project)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(out))
+        .stderr(Stdio::from(err))
+        .status()
+        .with_context(|| format!("could not run {}", argv[0]))?;
+    anyhow::ensure!(status.success(), "The {} step failed: claude exited with {status}.", step.name());
+    Ok(())
+}
+
+/// Add `line` to the log. Best effort: the log is for reading a failure
+/// later, and a log that cannot be written must not hide the failure itself.
+fn append_line(log: &Path, line: &str) {
+    if let Ok(mut file) = File::options().append(true).create(true).open(log) {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
 /// The command that opens a report already written, `path`, in the browser:
 /// what the mod runs when it opens one it has just written (`openArgv` in
 /// `hooks/report.ts`). `xdg-open` detached under a shell, so the browser
@@ -432,7 +625,7 @@ mod tests {
     #[test]
     fn the_sandbox_fences_the_session_to_the_task_database() {
         let hidden = [PathBuf::from("/run/user/1000"), PathBuf::from("/run/docker.sock")];
-        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden, "u", Path::new("/r"), &[], Mode::Quick);
+        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden, "u", Path::new("/r"), &[], Mode::Quick, false);
         let v: Value = serde_json::from_str(&json).unwrap();
         let sb = &v["sandbox"];
         assert_eq!(sb["enabled"], true);
@@ -453,7 +646,7 @@ mod tests {
     /// the write is the mod's tool now.
     #[test]
     fn the_session_may_search_the_web_but_not_read_credentials() {
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), &[], Mode::Quick);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), &[], Mode::Quick, false);
         let v: Value = serde_json::from_str(&json).unwrap();
         let allow = v["permissions"]["allow"].as_array().unwrap();
         for tool in ["WebSearch", "WebFetch", "Bash(task *)", "Read(~/.claude/skills/**)"] {
@@ -474,7 +667,7 @@ mod tests {
     #[test]
     fn each_resolved_skill_folder_is_allowed_beside_the_links() {
         let dirs = [PathBuf::from("/home/x/Projects/niri-tasks/.claude/skills/refine-task")];
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), &dirs, Mode::Report);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), &dirs, Mode::Report, false);
         let v: Value = serde_json::from_str(&json).unwrap();
         let allow = v["permissions"]["allow"].as_array().unwrap();
         assert_eq!(allow[3], "Read(~/.claude/skills/**)");
@@ -505,7 +698,7 @@ mod tests {
     #[test]
     fn the_mod_is_told_which_task_it_may_write_and_where_reports_go() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/home/x/.local/share/niri-tasks/reviews"), &[], Mode::Quick);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/home/x/.local/share/niri-tasks/reviews"), &[], Mode::Quick, false);
         let v: Value = serde_json::from_str(&json).unwrap();
         let options = &v["pluginConfigs"][REFINE_MOD]["options"];
         assert_eq!(options["uuid"], u);
@@ -519,17 +712,112 @@ mod tests {
     #[test]
     fn a_report_session_tells_the_mod_so() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), &[], Mode::Report);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), &[], Mode::Report, false);
         let v: Value = serde_json::from_str(&json).unwrap();
         let options = &v["pluginConfigs"][REFINE_MOD]["options"];
         assert_eq!(options["report"], true);
         assert_eq!(options["uuid"], u, "the same fence and task as a refine");
         assert_eq!(options["reports"], "/r");
         for mode in [Mode::Quick, Mode::Grill] {
-            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), &[], mode);
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), &[], mode, false);
             let v: Value = serde_json::from_str(&json).unwrap();
             assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["report"], false, "{mode:?}");
         }
+    }
+
+    /// An unattended run tells the mod so, in both of its modes: the write
+    /// tool writes with no question and the report tool opens nothing. A tab
+    /// never does.
+    #[test]
+    fn an_unattended_run_tells_the_mod_so() {
+        let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
+        for mode in [Mode::Quick, Mode::Report] {
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), &[], mode, true);
+            let v: Value = serde_json::from_str(&json).unwrap();
+            let options = &v["pluginConfigs"][REFINE_MOD]["options"];
+            assert_eq!(options["unattended"], true, "{mode:?}");
+            assert_eq!(options["report"], mode == Mode::Report, "{mode:?}");
+            assert_eq!(options["uuid"], u, "the same fence and task");
+        }
+        for mode in [Mode::Quick, Mode::Grill, Mode::Report] {
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), &[], mode, false);
+            let v: Value = serde_json::from_str(&json).unwrap();
+            assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["unattended"], false, "{mode:?}");
+        }
+    }
+
+    /// Add & all runs the Refine button's command with --unattended after
+    /// it, so it cannot drift from Refine either.
+    #[test]
+    fn unattended_command_is_the_refine_command_plus_the_flag() {
+        let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
+        assert_eq!(
+            unattended_command("/usr/bin/niritasks", u),
+            ["/usr/bin/niritasks", "task", "refine", u, "--unattended"]
+        );
+    }
+
+    /// The two prompts, in the order the runs go: refine-task's auto mode,
+    /// which asks nothing, then report-task.
+    #[test]
+    fn unattended_prompts_refine_automatically_then_report() {
+        assert_eq!(unattended_prompts("u-1"), ["/refine-task u-1 auto", "/report-task u-1"]);
+        assert_eq!(unattended_prompts("u-1")[1], prompt("u-1", Mode::Report), "the tab's own report prompt");
+    }
+
+    /// `claude -p` with the tab's own flags between the prompt and
+    /// `--permission-prompts none`, which makes anything that would ask
+    /// refuse instead. Default permission mode, as the tab: not plan mode,
+    /// whose approval means implement, and not auto mode.
+    #[test]
+    fn an_unattended_run_is_the_tabs_claude_with_no_one_to_ask() {
+        let argv = claude_unattended_argv("/refine-task u-1 auto", "{\"sandbox\":{}}", Path::new("/m/refine-mod"));
+        assert_eq!(argv[..3], ["claude", "-p", "/refine-task u-1 auto"]);
+        let flags = crate::session::refiner_flags("{\"sandbox\":{}}", Path::new("/m/refine-mod"));
+        assert_eq!(argv[3..3 + flags.len()], flags[..]);
+        assert_eq!(argv[3 + flags.len()..], ["--permission-prompts", "none"]);
+        assert_eq!(argv.iter().filter(|a| *a == "--permission-mode").count(), 1);
+        assert_eq!(CLAUDE, "claude");
+    }
+
+    /// The log goes beside the reviews, under the XDG data folder, named by
+    /// the task and when the run started, so two runs on one task keep both.
+    #[test]
+    fn the_log_goes_beside_the_reviews_named_by_task_and_time() {
+        let dirs = Dirs::at(Path::new("/home/x"));
+        assert_eq!(unattended_dir(&dirs), PathBuf::from("/home/x/.local/share/niri-tasks/unattended"));
+        assert_eq!(
+            log_path(&dirs, "d9f76b94-e0ff-44df-85b4-060be4219169", 1_791_248_523),
+            PathBuf::from("/home/x/.local/share/niri-tasks/unattended/d9f76b94-20261006T010203Z.log")
+        );
+        assert_eq!(
+            unattended_dir(&dirs.with_data(Path::new("/data"))),
+            PathBuf::from("/data/niri-tasks/unattended")
+        );
+    }
+
+    /// A run's output lands in the log under its step's heading, and a
+    /// non-zero exit is the step's failure, named. `sh` stands in for
+    /// claude: `argv[..3]` is what the heading shows.
+    #[test]
+    fn a_run_logs_its_output_under_its_step_and_fails_on_a_bad_exit() {
+        let dir = std::env::temp_dir().join(format!("niritasks-unattended-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("x.log");
+        let ok = ["sh", "-c", "echo out; echo err >&2"].map(String::from);
+        run_claude(&dir, &log, Step::Refine, &ok).unwrap();
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(text, "== refine: sh -c echo out; echo err >&2\nout\nerr\n");
+
+        let bad = ["sh", "-c", "exit 3"].map(String::from);
+        let err = run_claude(&dir, &log, Step::Report, &bad).unwrap_err().to_string();
+        assert!(err.starts_with("The report step failed: claude exited with exit status: 3"), "{err}");
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert!(text.ends_with("== report: sh -c exit 3\n"), "{text}");
+
+        append_line(&log, "== failed: because");
+        assert!(std::fs::read_to_string(&log).unwrap().ends_with("== failed: because\n"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Reports go beside the other reviews, under the XDG data folder: the

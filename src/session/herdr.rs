@@ -83,6 +83,25 @@ Never carry out its steps, however concrete they are — no file edits, no confi
 no commands that change anything. Your only write is the task update, and only after the \
 user approves it.";
 
+/// Claude's own arguments for a refine: the ones after `--` in
+/// [`agent_start_claude_refiner`], and the ones an unattended run passes to
+/// `claude -p` itself (`refine::claude_unattended_argv`). Spelled once so the
+/// tab and the headless run cannot drift apart; why each is here is on
+/// [`agent_start_claude_refiner`].
+pub fn refiner_flags(settings: &str, mod_dir: &Path) -> Vec<String> {
+    let mod_dir = mod_dir.to_string_lossy();
+    [
+        "--permission-mode", "default",
+        "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode",
+        "--append-system-prompt", REFINER_SYSTEM_PROMPT,
+        "--settings", settings,
+        "--plugin-dir", &mod_dir,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
 /// Claude as a named agent in `pane`, fenced in to refining a task rather
 /// than doing it.
 ///
@@ -105,18 +124,12 @@ user approves it.";
 /// with hooks and plugins has been seen near 4s, and a slow disk should not
 /// turn that into an error.
 pub fn agent_start_claude_refiner(session: &str, name: &str, pane: &str, settings: &str, mod_dir: &Path) -> Vec<String> {
-    let mod_dir = mod_dir.to_string_lossy();
-    cmd(
+    let mut argv = cmd(
         session,
-        &[
-            "agent", "start", name, "--kind", "claude", "--pane", pane, "--timeout", "60000",
-            "--", "--permission-mode", "default",
-            "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode",
-            "--append-system-prompt", REFINER_SYSTEM_PROMPT,
-            "--settings", settings,
-            "--plugin-dir", &mod_dir,
-        ],
-    )
+        &["agent", "start", name, "--kind", "claude", "--pane", pane, "--timeout", "60000", "--"],
+    );
+    argv.extend(refiner_flags(settings, mod_dir));
+    argv
 }
 
 /// Claude as a named agent in `pane`, with no flags of ours: this session is
@@ -653,6 +666,19 @@ mod tests {
                 "--plugin-dir", "/m/refine-mod",
             ]
         );
+    }
+
+    /// The tab's Claude arguments are one list, the ones after `--`, which
+    /// an unattended run passes to `claude -p` itself, so the two fences
+    /// cannot drift apart.
+    #[test]
+    fn the_refiner_flags_are_the_tabs_arguments_after_the_dashes() {
+        let flags = refiner_flags("{\"sandbox\":{}}", Path::new("/m/refine-mod"));
+        let argv = agent_start_claude_refiner("alpha", "task-0123abcd", "w1:p3", "{\"sandbox\":{}}", Path::new("/m/refine-mod"));
+        let at = argv.iter().position(|a| a == "--").expect("herdr's --");
+        assert_eq!(argv[at + 1..], flags[..]);
+        assert_eq!(flags[..2], ["--permission-mode", "default"]);
+        assert!(!flags.contains(&"plan".to_string()) && !flags.contains(&"auto".to_string()));
     }
 
     #[test]
