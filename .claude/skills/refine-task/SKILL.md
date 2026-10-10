@@ -3,14 +3,15 @@ name: refine-task
 description: >
   Work one Taskwarrior task up into a plan — a sharper one-line description and a
   consolidated set of notes — then write it back and tag it +planned. Invoked by
-  niri-tasks' task card's Refine and Grill me buttons as `/refine-task <uuid> [grill]`.
+  niri-tasks' task card's Refine and Grill me buttons as `/refine-task <uuid> [grill]`,
+  and by `niritasks task refine <uuid> --unattended` as `/refine-task <uuid> auto`.
 disable-model-invocation: true
-argument-hint: <uuid> [grill]
+argument-hint: <uuid> [grill|auto]
 ---
 
 # refine-task: turn a terse task into a plan
 
-Arguments: `$ARGUMENTS` — a task uuid, then optionally `grill`.
+Arguments: `$ARGUMENTS` — a task uuid, then optionally `grill` or `auto`.
 
 Tasks are typed into a one-line box, so they are terse. Your job is to turn one
 into something an agent or the user could pick up cold: a description that
@@ -18,11 +19,12 @@ still fits a task card, and notes that carry the goal, the decisions and what
 "done" means.
 
 **You refine the task; you never do it.** However concrete the steps you write
-into its notes, do not carry out any of them — no file edits, no config
-changes, no commands beyond reading. Your one write is the Taskwarrior update in
-step 5, and the write tool asks the user itself before it writes. A report
-the user asks for there is written by the report tool, not by you. The session
-was started without file-editing tools and without plan mode for exactly this
+into its notes, do not carry out any of them — no file edits, no config changes,
+no commands beyond reading. Your one write is the Taskwarrior update in step 5,
+and the write tool asks the user itself before it writes (in `auto` mode it
+writes at once: the command that started you was the approval). A report the
+user asks for there is written by the report tool, not by you. The session was
+started without file-editing tools and without plan mode for exactly this
 reason: approving a plan in plan mode means "implement it", which is not what
 the user is approving here.
 
@@ -93,6 +95,17 @@ here changes a file.
   later round, so never put both in one dialog. Grilling's final confirmation
   is the write tool's question in step 5; don't ask for it in a separate
   dialog.
+- **`auto`:** an unattended run — `niritasks task refine <uuid> --unattended`,
+  or the task box's Add & all — in a `claude -p` process with no one at the
+  keyboard. Ask nothing: AskUserQuestion is not available, and a question
+  would end the run with the task unplanned. Where quick mode would have
+  asked, take the answer you would have recommended and record it as its own
+  `Decided: …` note, saying in it that it was decided for the user, so they
+  can see what was chosen and change it. Decide at most three such questions;
+  past that, the task is too open for an unattended plan: write the plan with
+  what you have and say so in a `Decided:` note. Never offer or build a
+  report: the run builds one itself afterwards, with `report-task`. Grilling
+  is never unattended.
 
 ## 4. Propose
 
@@ -140,6 +153,10 @@ block, so it must match the proposal above it.
 If the user asks for a report of the plan in chat, go on to step 5 all the
 same: the tool's question offers **Show me a report first**.
 
+In `auto` mode, show the proposal and print the block all the same: the
+transcript is the run's log, and the block is what the user reads later to
+see what was written and why. Nothing waits on them.
+
 Then go straight to step 5.
 
 ## 5. Write
@@ -160,6 +177,13 @@ The tool shows the user the description and notes it was given, asks
 task**. It writes the description, replaces the notes (adding a note that
 links each report made this session) and adds `+planned` in one import, and
 touches nothing else. Its answer says what happened:
+
+In `auto` mode the tool asks no one: it logs the plan, reads the task again,
+writes and answers **Wrote the plan …**. Call it once. Of the answers below,
+only the ones that name something to fix in the plan itself (a line too
+long, a hidden character, a note on two lines) are worth a second call; on
+any other **Nothing written** or failure, stop and say what it answered —
+there is no one to ask, and the run reports the task as unplanned.
 
 - **Wrote the plan …** — go to step 6.
 - **Nothing written: the person chose "Change something"** — ask them what to

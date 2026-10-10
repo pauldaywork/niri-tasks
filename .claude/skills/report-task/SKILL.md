@@ -82,8 +82,16 @@ fields from the task's plan and the code you read in step 2:
 Call `mcp__niri-tasks-refine__show_task_report` with the fields. The tool
 builds the page in its fixed layout, saves it under the reviews folder,
 opens it in the browser, and adds a `Report: <path>` note to the task. It
-asks the user nothing: pressing Report was the ask. Its answer says what
-happened:
+asks the user nothing: pressing Report was the ask.
+
+In an unattended run (`niritasks task refine <uuid> --unattended`'s second
+step, after `refine-task` in `auto` mode) the tool does not open the
+browser: nobody is at the screen, and the `Report: <path>` note is how the
+report is found later. Its answer then reads **Wrote the report to … and
+linked it from the task**, without *opened it*; everything else is the
+same, and you still end at step 5.
+
+Its answer says what happened:
 
 - **Wrote the report to … and linked it from the task** — go to step 5.
 - **show_task_report: nothing written: the task has no plan**, **… is
