@@ -473,20 +473,50 @@ pub fn run_unattended(ws: &Workspace, t: &task::Task) -> Result<()> {
     task::set_processing(&t.uuid, true)?;
     let outcome = unattended_steps(ws, t, &dirs, &log);
     // Cleared whatever happened above; a tag left behind would lock the
-    // card for good.
-    if let Err(e) = task::set_processing(&t.uuid, false) {
-        eprintln!("could not clear +{}: {e:#}", task::PROCESSING_TAG);
+    // card for good. Retried once, and a failure that stays is the run's
+    // to report, not a line on stderr nobody reads.
+    let cleared = task::set_processing(&t.uuid, false).or_else(|_| task::set_processing(&t.uuid, false));
+    if let Err(e) = &cleared {
+        append_line(&log, &format!("== could not clear +{}: {e:#}", task::PROCESSING_TAG));
     }
-    match outcome {
-        Ok(()) => {
-            notify::tasks(&format!("{PLANNED_AND_REPORTED}: {}", t.description));
+    match settle(outcome, cleared, t) {
+        Ok(message) => {
+            notify::tasks(&message);
             Ok(())
         }
         Err(e) => {
             append_line(&log, &format!("== failed: {e:#}"));
-            bail!("{e:#} Log: {}", log.display())
+            bail!("{}", with_log(&format!("{e:#}"), &log))
         }
     }
+}
+
+/// `message` followed by the log's path as a sentence of its own, whether or
+/// not `message` ends with a full stop.
+fn with_log(message: &str, log: &Path) -> String {
+    let stop = if message.ends_with('.') { "" } else { "." };
+    format!("{message}{stop} Log: {}", log.display())
+}
+
+/// What [`run_unattended`] tells the user, from how the steps ended and
+/// whether `+processing` came off: the notification text when both went
+/// well, otherwise the error. A tag that stayed on is an error even after
+/// two good runs, for the card is locked until it is cleared by hand.
+fn settle(steps: Result<()>, cleared: Result<()>, t: &task::Task) -> Result<String> {
+    let Err(clear) = cleared else {
+        return steps.map(|()| format!("{PLANNED_AND_REPORTED}: {}", t.description));
+    };
+    let ran = match steps {
+        Ok(()) => "Both runs finished".to_string(),
+        Err(e) => format!("{e:#}"),
+    };
+    let ran = ran.trim_end_matches('.');
+    bail!(
+        "{ran}, and +{} could not be cleared ({clear:#}): clear it with `task {} modify -{}`.",
+        task::PROCESSING_TAG,
+        names::uuid8(&t.uuid),
+        task::PROCESSING_TAG,
+    )
 }
 
 /// Which of the two runs a failure is reported against.
@@ -526,17 +556,52 @@ fn unattended_steps(ws: &Workspace, t: &task::Task, dirs: &Dirs, log: &Path) -> 
     let skills = skill_dirs(home);
     let [refine_prompt, report_prompt] = unattended_prompts(&t.uuid);
 
+    // What the task held before the runs, so a read-back that only finds
+    // what was already there does not pass for a run that wrote it.
+    let before = task::get(&t.uuid)?.context("The task is gone before the refine step.")?;
+    let was_planned = before.is_planned();
+    let notes_before = note_texts(&before);
+    let report_before = before.report_path().map(String::from);
+
     let settings = session_settings(project, &task_data, &hidden, &t.uuid, &reports, &skills, Mode::Quick, true);
     run_claude(project, log, Step::Refine, &claude_unattended_argv(&refine_prompt, &settings, &mod_dir))?;
     let planned = task::get(&t.uuid)?.context("The task is gone after the refine step.")?;
-    anyhow::ensure!(planned.is_planned(), "The refine step wrote no plan: the task is not tagged planned.");
+    refine_wrote(was_planned, &notes_before, planned.is_planned(), &note_texts(&planned))?;
 
     let settings = session_settings(project, &task_data, &hidden, &t.uuid, &reports, &skills, Mode::Report, true);
     run_claude(project, log, Step::Report, &claude_unattended_argv(&report_prompt, &settings, &mod_dir))?;
     let reported = task::get(&t.uuid)?.context("The task is gone after the report step.")?;
-    let path = reported.report_path().context("The report step linked no report: the task has no Report: note.")?;
+    let path = report_wrote(report_before.as_deref(), reported.report_path())?;
     anyhow::ensure!(Path::new(path).is_file(), "The report step linked {path}, which is not there.");
     Ok(())
+}
+
+/// The text of each of the task's notes, in order.
+fn note_texts(t: &task::Task) -> Vec<String> {
+    t.annotations.iter().map(|a| a.description.clone()).collect()
+}
+
+/// Whether the refine step left evidence of its own write: the task is
+/// planned, and if it already was before the run, its notes changed too,
+/// since the plan is written as notes.
+fn refine_wrote(was_planned: bool, notes_before: &[String], planned: bool, notes_after: &[String]) -> Result<()> {
+    anyhow::ensure!(planned, "The refine step wrote no plan: the task is not tagged planned.");
+    anyhow::ensure!(
+        !was_planned || notes_before != notes_after,
+        "The refine step wrote no plan: the task was planned already and its notes are unchanged."
+    );
+    Ok(())
+}
+
+/// The report path the report step linked, if it linked one: a `Report:`
+/// note whose path differs from the one the task had before the run.
+fn report_wrote<'a>(before: Option<&str>, after: Option<&'a str>) -> Result<&'a str> {
+    let path = after.context("The report step linked no report: the task has no Report: note.")?;
+    anyhow::ensure!(
+        before != Some(path),
+        "The report step linked no new report: the task's Report: note is still {path}."
+    );
+    Ok(path)
 }
 
 /// One `claude -p` run in `project`, both its streams appended to `log`
@@ -553,7 +618,7 @@ fn run_claude(project: &Path, log: &Path, step: Step, argv: &[String]) -> Result
         .stdout(Stdio::from(out))
         .stderr(Stdio::from(err))
         .status()
-        .with_context(|| format!("could not run {}", argv[0]))?;
+        .with_context(|| format!("could not run {} for the {} step", argv[0], step.name()))?;
     anyhow::ensure!(status.success(), "The {} step failed: claude exited with {status}.", step.name());
     Ok(())
 }
@@ -592,6 +657,60 @@ pub fn open_report(path: &str) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    fn tk() -> task::Task {
+        serde_json::from_str(r#"{"uuid":"7cd9fd3a-d27b-4387-8249-aaf0d6785f90","description":"fix: a thing"}"#).unwrap()
+    }
+
+    fn failing<T>(msg: &str) -> Result<T> {
+        Err(anyhow::anyhow!("{msg}"))
+    }
+
+    /// The notification comes only when both runs went well and the tag
+    /// came off; a tag that stayed is an error naming how to clear it and
+    /// the step that failed, if one did.
+    #[test]
+    fn settle_announces_success_only_when_the_tag_came_off() {
+        let t = tk();
+        assert_eq!(settle(Ok(()), Ok(()), &t).unwrap(), "Planned and reported: fix: a thing");
+        let e = settle(failing("The report step failed: claude exited with 1."), Ok(()), &t).unwrap_err();
+        assert_eq!(format!("{e:#}"), "The report step failed: claude exited with 1.");
+        let e = format!("{:#}", settle(Ok(()), failing("db locked"), &t).unwrap_err());
+        assert!(e.starts_with("Both runs finished, and +processing could not be cleared"), "{e}");
+        assert!(e.contains("task 7cd9fd3a modify -processing"), "{e}");
+        let e = format!("{:#}", settle(failing("The refine step failed: x."), failing("db locked"), &t).unwrap_err());
+        assert!(e.starts_with("The refine step failed: x, and +processing"), "{e}");
+        assert!(!e.contains(".,"), "{e}");
+    }
+
+    /// The log is a sentence of its own after any message.
+    #[test]
+    fn with_log_ends_the_message_before_the_log() {
+        let log = Path::new("/l/x.log");
+        assert_eq!(with_log("It failed.", log), "It failed. Log: /l/x.log");
+        assert_eq!(with_log("could not run claude: no such file", log), "could not run claude: no such file. Log: /l/x.log");
+    }
+
+    /// A plan already there before the run does not count as the run's.
+    #[test]
+    fn refine_must_have_written_something() {
+        let a = vec!["plan v1".to_string()];
+        let b = vec!["plan v2".to_string()];
+        assert!(refine_wrote(false, &[], true, &a).is_ok());
+        assert!(refine_wrote(true, &a, true, &b).is_ok());
+        assert!(refine_wrote(false, &[], false, &[]).is_err());
+        assert!(refine_wrote(true, &a, true, &a).is_err(), "planned before, nothing changed");
+    }
+
+    /// A report note already there before the run does not count as the run's.
+    #[test]
+    fn report_must_be_a_new_path() {
+        assert_eq!(report_wrote(None, Some("/r/a.html")).unwrap(), "/r/a.html");
+        assert_eq!(report_wrote(Some("/r/a.html"), Some("/r/b.html")).unwrap(), "/r/b.html");
+        assert!(report_wrote(None, None).is_err());
+        assert!(report_wrote(Some("/r/a.html"), None).is_err());
+        assert!(report_wrote(Some("/r/a.html"), Some("/r/a.html")).is_err());
+    }
 
     /// Add & refine runs exactly what the panel's Refine button runs, so the
     /// two cannot drift apart.

@@ -39,7 +39,7 @@ pub const PROCESSING_TAG: &str = "processing";
 /// carrying [`PROCESSING_TAG`]: a Claude is writing it, and a second one, or
 /// a worktree, would race that write.
 pub const PROCESSING_REFUSAL: &str =
-    "This task is being planned in the background; wait for its notification, or clear +processing if the run died.";
+    "This task is being planned in the background; wait for its notification, or clear +processing with `task <uuid8> modify -processing` if the run died.";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Task {
@@ -1112,7 +1112,7 @@ mod tests {
         assert!(PROCESSING_REFUSAL.contains("background"));
     }
 
-    /// A stamp for now, in taskwarrior's own shape, so [`stamp_secs`] reads
+    /// A stamp for a time, in taskwarrior's own shape, so [`stamp_secs`] reads
     /// it back: what an unattended run's log is named by.
     #[test]
     fn stamp_writes_what_stamp_secs_reads() {
@@ -1124,6 +1124,9 @@ mod tests {
         // The last day of February in a leap year, and the first of March.
         assert_eq!(stamp(1_709_164_800), "20240229T000000Z");
         assert_eq!(stamp(1_709_251_200), "20240301T000000Z");
+        // 2100 is not a leap year: no 29 February, so 28 February is
+        // followed by 1 March.
+        assert_eq!(stamp(4_107_542_400), "21000301T000000Z");
     }
 
     /// The report the mod linked from the task: the last `Report: <path>`
