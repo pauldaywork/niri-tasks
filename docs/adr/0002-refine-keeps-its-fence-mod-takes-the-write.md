@@ -30,6 +30,24 @@ not offered there, so a Report session has no way to change the plan. The
 `report-task` skill drives it; `refine-task` and its "Show me a report
 first" are unchanged. The decision is unchanged.
 
+*2026-10-10:* the fence also runs with no tab. `niritasks task refine <uuid>
+--unattended`, which the task box's Add & all starts, runs `claude -p` twice
+in the project folder with the tab's own Claude arguments
+(`session::refiner_flags`, now shared with `agent_start_claude_refiner` so
+the two cannot drift) and `--permission-prompts none`, so anything that
+would ask is refused instead of waited on: `/refine-task <uuid> auto`, then
+`/report-task <uuid>`. The mod's `unattended` option makes `write_task_plan`
+write with no `$.ui.ask` (which rejects in a `-p` run) and
+`show_task_report` not open the browser; the plan lines are still logged and
+the stale-read refusal still stands. Candidate B's approval is therefore not
+enforced in this mode: the person's approval is the button press or the
+command, given up front, as a Report session's is, and the skill's `auto`
+mode records every question it decided for them as a `Decided:` note. What
+bounds the run is unchanged: the sandbox, the hidden sockets and
+credentials, the removed tools and the standing instruction, none of which
+the mode touches. The task carries `+processing` while it runs, so nothing
+else writes it meanwhile. The decision is unchanged.
+
 Refine starts Claude in a herdr tab fenced in from outside: `refine.rs` and
 `herdr.rs` hand it a Bash sandbox, hidden sockets and credentials, a list of
 removed tools and a standing instruction, all before Claude exists, and the

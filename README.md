@@ -178,7 +178,7 @@ and says so once.
 
 [herdr](https://herdr.dev) is optional. With it on `$PATH`, `niritasks project
 open` runs the workspace's herdr session in the project terminal; without it the
-terminal is a plain shell in the project folder. A card's **Refine**, **Grill me** and **Report** need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod) on `$PATH` — they open
+terminal is a plain shell in the project folder. A card's **Refine**, **Grill me** and **Report** need both herdr and Claude Code, and the box's **Add & all** Claude Code alone, (`claude`, 2.1.287 or later for Refine's mod) on `$PATH` — they open
 Claude inside that session — plus `bubblewrap` and `socat` for the Bash
 sandbox that keeps that Claude to reading the project and writing only the
 task (`sudo apt install bubblewrap socat`). Without them Claude refuses to
@@ -315,10 +315,19 @@ One window adds a task and edits one. Edit opens it on the task's description
 and every note, and `niritasks task note <uuid>` opens it the same way with the cursor in a
 new empty row at the end. Each note is a row: it wraps, you edit it in place,
 its date sits small at its right end, and × deletes it. "+ Add note" appends a
-row. Adding has a second button, **Add & refine**: it adds the task and hands it
+row. Adding has two more buttons. **Add & refine** adds the task and hands it
 straight to Claude's refine-task skill, in a new tab of the workspace's herdr
-session, as a card's Refine does. If the refine fails, the task stays added
-and a notification says why.
+session, as a card's Refine does. **Add & all** adds it and plans it in the
+background instead: `niritasks task refine <uuid> --unattended` runs Claude
+headless in the project folder, behind the same fence as a refine tab, first
+to write the plan asking nothing (each question it would have asked is
+decided with its recommended answer and recorded as a `Decided:` note), then
+to build the report and link it from the task's notes as `Report: <path>`,
+without opening it. The card is dimmed with an hourglass meanwhile and offers
+nothing; a notification says `Planned and reported` when both are done, or
+which step failed and where its log is (`~/.local/share/niri-tasks/unattended/`).
+Add & all has no key and needs Claude Code but not herdr. If a refine fails,
+either way the task stays added and a notification says why.
 
 There is only ever one box. Mod+Alt+T, or Edit or Note on a card, while a box
 is open brings that box forward and opens nothing, so nothing typed into it is

@@ -69,6 +69,16 @@ yellow and sits directly under the active tasks, above any priority, unless
 it is active itself (green) or waiting; the tag adds urgency, so `task next` lifts it too. Up next again takes the mark off.
 _Avoid_: priority, starred, pinned
 
+**Processing task**:
+A pending task an unattended refine — `niritasks task refine <uuid>
+--unattended`, the task box's Add & all — is planning, marked with the
+`+processing` tag from before its first Claude run until the run ends,
+however it ends. Its task card is dimmed, with an hourglass, and has no
+action row, its hint reading Planning in the background; Refine, Report and
+Start working refuse it at the CLI too. A tag a killed run left is cleared
+with `task <uuid8> modify -processing`.
+_Avoid_: busy, locked, running (an active task is the one being worked)
+
 ### On screen
 
 **Task panel**:
@@ -86,6 +96,8 @@ description wrapped, above its action row while it has focus. The cards run
 active, then up next, then by Taskwarrior priority, newest first, with blocked
 tasks under the rest. A finished task's card, on the Finished tab alone, is
 dimmed, carries a check, and counts its age from when the task was finished.
+A processing task's card is dimmed too, carries an hourglass, and has no
+action row.
 While the task panel has the keyboard, Enter or a click on a card's body shows,
 dimmed under its description, the task's id and uuid on one line (`#48 ·
 <uuid>`, the uuid alone on a finished task, which has no id) and then its
@@ -104,10 +116,11 @@ workspace, Stop, Waiting or Remove — with its words, its icon and the
 `niritasks` command it runs. Two read as the step they take: Up next reads Not
 up next on a task already up next, and Report reads Open report on a task
 whose notes link a refine report, which it opens instead of building another.
-Which ones a task gets goes by its state: only a planned task on the list gets
-Report, a waiting task gets only Back to list, Edit, Speak, Complete, Move to
-workspace and Remove, a finished one only Back to list, Edit, Speak and
-Remove, and Back to list reopens a finished one. The action row shows them.
+Which ones a task gets goes by its state: a processing task gets none, only
+a planned task on the list gets Report, a waiting task gets only Back to
+list, Edit, Speak, Complete, Move to workspace and Remove, a finished one
+only Back to list, Edit, Speak and Remove, and Back to list reopens a
+finished one. The action row shows them.
 _Avoid_: command (the CLI's word), button, verb
 
 **Action row**:
@@ -191,9 +204,11 @@ _Avoid_: resolution, selection, pick (the act of choosing a row)
 
 **Task box**:
 The GTK window for adding a task or editing one — its description and its
-note rows. Edit and Note open the same box. When adding, a second button,
-Add & refine (Ctrl+Shift+Enter), adds the task and refines it straight away;
-Mod+Alt+Shift+T opens the box with that as the default.
+note rows. Edit and Note open the same box. When adding, two more buttons:
+Add & refine (Ctrl+Shift+Enter) adds the task and refines it straight away
+in a herdr tab, and Add & all, with no key, adds it and plans and reports it
+unattended in the background (see Processing task); Mod+Alt+Shift+T opens
+the box with Add & refine as the default.
 Only one is ever open: asking for another brings the open one forward.
 _Avoid_: dialog, prompt
 
