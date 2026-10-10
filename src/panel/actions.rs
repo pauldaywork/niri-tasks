@@ -139,13 +139,20 @@ mod tests {
         TaskState { has_session: true, ..state }
     }
 
-    /// Every state a task card can be in, with a Claude on it and without.
+    fn with_report(state: TaskState) -> TaskState {
+        TaskState { has_report: true, ..state }
+    }
+
+    /// Every state a task card can be in, with a Claude on it and without,
+    /// and with a report linked and without.
     fn every_state() -> Vec<TaskState> {
         let mut all = Vec::new();
         for planned in [false, true] {
             for state in [on_list(planned), active(planned), waiting(planned), finished(planned)] {
-                all.push(state);
-                all.push(with_claude(state));
+                for state in [state, with_claude(state)] {
+                    all.push(state);
+                    all.push(with_report(state));
+                }
             }
         }
         all
@@ -418,6 +425,19 @@ mod tests {
         assert_eq!(hint(on_list(true), Some(Move)), "m: Move to workspace · Ctrl+Enter: Start working");
         assert_eq!(hint(active(true), Some(Stop)), "t: Stop");
         assert_eq!(hint(waiting(false), Some(Back)), "b: Back to list");
+    }
+
+    /// On a task whose notes link a report, Report's hint reads Open report,
+    /// as its tooltip does: the press opens that file rather than building
+    /// another. Ctrl+Enter's words are untouched.
+    #[test]
+    fn report_hints_open_report_on_a_task_with_one() {
+        assert_eq!(hint(with_report(on_list(true)), Some(Report)), "p: Open report · Ctrl+Enter: Start working");
+        assert_eq!(hint(with_report(active(true)), Some(Report)), "p: Open report");
+        assert_eq!(hint(with_report(with_claude(active(true))), Some(Report)), "p: Open report · Ctrl+Enter: Go to session");
+        // A report changes Report's words alone.
+        assert_eq!(hint(with_report(on_list(true)), Some(Start)), "s: Start working · Ctrl+Enter: Start working");
+        assert_eq!(hint(with_report(on_list(true)), None), "Space: view notes · Ctrl+Enter: Start working");
     }
 
     /// Remove's key is Delete, not a letter.

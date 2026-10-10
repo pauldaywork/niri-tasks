@@ -56,6 +56,9 @@ pub struct Card {
     /// shows under the description once the card's body is pressed. Empty on
     /// "+N more" and on a task with none.
     pub notes: Vec<String>,
+    /// The task's notes link a refine report, `Report: <path>`: its Report
+    /// button reads Open report and opens that. False on "+N more".
+    pub has_report: bool,
 }
 
 impl Card {
@@ -112,8 +115,7 @@ impl Card {
             planned: self.planned,
             up_next: self.up_next,
             has_session,
-            // The card does not carry its notes' report yet.
-            has_report: false,
+            has_report: self.has_report,
         })
     }
 }
@@ -313,6 +315,7 @@ pub fn cards(listing: &Listing, blocked: &[String]) -> Vec<Card> {
             up_next: t.is_up_next(),
             since: if finished(part) { t.end.clone() } else { t.entry.clone() },
             notes: t.annotations.iter().map(|a| a.description.clone()).collect(),
+            has_report: t.report_path().is_some(),
         })
         .collect()
 }
@@ -341,6 +344,7 @@ pub fn cap(cards: &[Card], n: usize) -> Vec<Card> {
             up_next: false,
             since: String::new(),
             notes: Vec::new(),
+            has_report: false,
         });
     }
     shown
@@ -477,6 +481,29 @@ mod tests {
         assert!(cards[1].notes.is_empty());
         let capped = cap(&cards, 1);
         assert!(capped[1].notes.is_empty(), "+N more stands for no one task");
+    }
+
+    /// A card knows whether its task's notes link a report, so its Report
+    /// button can read Open report; "+N more" stands for no one task.
+    #[test]
+    fn a_card_knows_its_task_has_a_report() {
+        let mut reported = planned("reported", false);
+        reported.annotations = vec![
+            crate::task::Annotation { entry: "20261006T010000Z".into(), description: "Goal: x".into() },
+            crate::task::Annotation { entry: "20261006T020000Z".into(), description: "Report: /r/a.html".into() },
+        ];
+        let mut drafted = planned("drafted", false);
+        drafted.annotations = vec![crate::task::Annotation {
+            entry: "20261006T010000Z".into(),
+            description: "Report (earlier draft): /r/old.html".into(),
+        }];
+        let got = cards(&todo(vec![reported, drafted, planned("plain", false)]), &[]);
+        let by = |text: &str| got.iter().find(|c| c.text == text).unwrap();
+        assert!(by("reported").has_report);
+        assert!(!by("drafted").has_report, "an earlier draft's report is not the plan's");
+        assert!(!by("plain").has_report);
+        let many: Vec<Task> = (0..CAP + 1).map(|i| planned(&format!("t{i}"), false)).collect();
+        assert!(!cap(&cards(&todo(many), &[]), CAP).last().unwrap().has_report);
     }
 
     /// A card carries its task's id from the export; "+N more" has none.
@@ -830,20 +857,34 @@ mod tests {
         assert!(!more.shows_up_next());
     }
 
-    /// A card's status and tags are its task's state; "+N more" has none.
+    /// A card's status, tags and report are its task's state; "+N more" has none.
     #[test]
     fn a_cards_state_is_its_tasks() {
-        let card = |status, planned, up_next| Card { status, text: "t".into(), uuid: Some("u".into()), id: 0, planned, up_next, since: String::new(), notes: Vec::new() };
+        let card = |status, planned, up_next, has_report| Card {
+            status,
+            text: "t".into(),
+            uuid: Some("u".into()),
+            id: 0,
+            planned,
+            up_next,
+            since: String::new(),
+            notes: Vec::new(),
+            has_report,
+        };
         assert_eq!(
-            card(Status::Active, true, true).state(true),
-            Some(TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true, has_report: false })
+            card(Status::Active, true, true, true).state(true),
+            Some(TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true, has_report: true })
         );
         assert_eq!(
-            card(Status::Waiting, false, false).state(false),
+            card(Status::Waiting, false, false, false).state(false),
             Some(TaskState { waiting: true, ..TaskState::default() })
         );
-        assert_eq!(card(Status::Blocked, false, false).state(false), Some(TaskState::default()));
-        let more = cap(&[card(Status::Pending, false, false), card(Status::Pending, false, false)], 1).pop().unwrap();
+        assert_eq!(card(Status::Blocked, false, false, false).state(false), Some(TaskState::default()));
+        assert_eq!(
+            card(Status::Planned, true, false, true).state(false),
+            Some(TaskState { planned: true, has_report: true, ..TaskState::default() })
+        );
+        let more = cap(&[card(Status::Pending, false, false, false), card(Status::Pending, false, false, false)], 1).pop().unwrap();
         assert_eq!(more.status, Status::More);
         assert_eq!(more.state(true), None);
     }
