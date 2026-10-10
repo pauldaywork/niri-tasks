@@ -242,6 +242,24 @@ const drawDiagrams = async ($: EngineInterface, report: Report): Promise<(string
   return svgs
 }
 
+// The person's answer to "Write this to the task?", or the refusal to answer
+// the call with when they could not be asked. Unattended, there is no one to
+// ask and the command was the ask: WRITE, with nothing shown but the lines
+// already logged.
+const approval = async (
+  $: EngineInterface,
+  reports: string | undefined,
+  unattended: boolean,
+): Promise<string | { deny: string }> => {
+  if (unattended) return WRITE
+  const choices = reports === undefined ? [WRITE, CHANGE] : [WRITE, REPORT, CHANGE]
+  try {
+    return await $.ui.ask(QUESTION, { options: choices, header: HEADER })
+  } catch (error) {
+    return { deny: notAsked(error instanceof Error ? error.message : String(error)) }
+  }
+}
+
 export const register: Register = (on, options) => {
   // Where reports go, or undefined when this session offers none.
   const reports = reportsDir(options.reports)
@@ -251,6 +269,14 @@ export const register: Register = (on, options) => {
   // itself: the button press was the ask, so no question is put. One a
   // session, as a refine makes one per ask. Module state, like `askedFor`.
   const reportOnly = options.report === true
+  // Unattended: a `claude -p` run with no one at the keyboard
+  // (`niritasks task refine --unattended`, the task box's Add & all). The
+  // command was the ask, as the button press is in report mode: the write
+  // tool writes with no question, its lines still logged and the task still
+  // read again first, and the report tool opens nothing. $.ui.ask rejects in
+  // a -p run anyway; this is what makes the run do its job rather than fail
+  // at the question.
+  const unattended = options.unattended === true
   let linked: string | undefined
   // The plan the person was shown when they chose REPORT in answer to the
   // latest question, spent by the first well-formed report. Module state: a
@@ -298,13 +324,8 @@ export const register: Register = (on, options) => {
 
     // A new question supersedes any earlier REPORT choice.
     askedFor = undefined
-    const choices = reports === undefined ? [WRITE, CHANGE] : [WRITE, REPORT, CHANGE]
-    let answer: string
-    try {
-      answer = await $.ui.ask(QUESTION, { options: choices, header: HEADER })
-    } catch (error) {
-      return { deny: notAsked(error instanceof Error ? error.message : String(error)) }
-    }
+    const answer = await approval($, reports, unattended)
+    if (typeof answer !== 'string') return answer
     if (answer === REPORT && reports !== undefined) {
       askedFor = { description: input.description, notes: input.notes }
       return { deny: REPORT_FIRST }
@@ -353,7 +374,10 @@ export const register: Register = (on, options) => {
       const path = reportPath(reports, uuid, await $.clock.now())
       await $.fs.write(path, reportPage(report, shown, await readFonts($, fonts), await drawDiagrams($, report)))
       $.ui.log(`Report: ${path}`)
-      await $.process.run(openArgv(path))
+      // Unattended, nothing opens: no one is at the screen, and the task's
+      // Report: note is how the report is found later.
+      if (!unattended) await $.process.run(openArgv(path))
+      const opened = unattended ? '' : ' and opened it'
 
       // The session's one write to the task, and the mod's, not the model's:
       // the note's path is the one just written.
@@ -363,15 +387,16 @@ export const register: Register = (on, options) => {
       if (imported.exitCode !== 0) {
         return {
           deny:
-            `Wrote the report to ${path} and opened it, but task import failed (${imported.exitCode}): ` +
+            `Wrote the report to ${path}${opened}, but task import failed (${imported.exitCode}): ` +
             `${imported.stderr.trim()} The task does not link it.`,
         }
       }
       linked = path
       return {
-        result:
-          `Wrote the report to ${path}, opened it in the browser, and linked it from the task ` +
-          `as the note "Report: ${path}".`,
+        result: unattended
+          ? `Wrote the report to ${path} and linked it from the task as the note "Report: ${path}".`
+          : `Wrote the report to ${path}, opened it in the browser, and linked it from the task ` +
+            `as the note "Report: ${path}".`,
       }
     }
     if (askedFor === undefined) return { deny: NOT_ASKED_FOR }

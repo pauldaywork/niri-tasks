@@ -1,7 +1,7 @@
 {
   "name": "niri-tasks-refine",
   "version": "0.1.0",
-  "description": "Gives a refine session two tools: write_task_plan, which rewrites one Taskwarrior task's description and notes, and show_task_report, which writes and opens an HTML report of the plan when the person asks for one. With `report` set, a Report session gets show_task_report alone, on the task's own plan, and the mod links the report from the task.",
+  "description": "Gives a refine session two tools: write_task_plan, which rewrites one Taskwarrior task's description and notes, and show_task_report, which writes and opens an HTML report of the plan when the person asks for one. With `report` set, a Report session gets show_task_report alone, on the task's own plan, and the mod links the report from the task. With `unattended` set, for a `claude -p` run with no one at the keyboard, write_task_plan writes without asking and show_task_report does not open the browser.",
   "author": {
     "name": "Paul Day"
   },
@@ -24,6 +24,13 @@
       "type": "boolean",
       "title": "Report only",
       "description": "The session is a Report on a planned task, not a refine: only show_task_report is offered, armed from the start on the task's own description and notes, and the mod adds a Report: <path> note to the task when the report is written. Unset, the session is a refine.",
+      "required": false,
+      "default": false
+    },
+    "unattended": {
+      "type": "boolean",
+      "title": "Unattended",
+      "description": "The session is a `claude -p` run with no one at the keyboard (`niritasks task refine --unattended`): write_task_plan writes without asking, its plan lines still logged and its stale-read check still made, and show_task_report does not open the browser. Unset, the session asks and opens as usual.",
       "required": false,
       "default": false
     }

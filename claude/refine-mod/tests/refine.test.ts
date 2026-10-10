@@ -667,3 +667,92 @@ test('refine mode is unchanged by the option being false', { options: { ...REPOR
   await $.tool.call(CALL)
   expect(seen.at(-1)).toBe(`ask: Write this to the task? [${WRITE} | ${REPORT} | Change something] (Task plan)`)
 })
+
+// An unattended run: `niritasks task refine --unattended`'s `claude -p`,
+// where no one is at the keyboard. The write tool writes without asking and
+// the report tool opens nothing.
+const UNATTENDED = { uuid: UUID, reports: '/r', unattended: true }
+const UNATTENDED_REPORT = { uuid: UUID, reports: '/r', report: true, unattended: true }
+
+test('unattended: shows the plan and writes it, asking nothing', { options: UNATTENDED }, async ($, on) => {
+  const { registered, runs, seen } = world(on, SANDBOX, { deny: 'nobody should be asked' })
+  await $.session.start(START)
+  expect(registered).toEqual([TOOL, REPORT_TOOL])
+
+  const answer = await $.tool.call(CALL)
+
+  expect(answer.deny).toBeUndefined()
+  expect(answer.result).toBe(`Wrote the plan to task ${UUID}: 2 note(s), tagged planned.`)
+  expect(seen).toEqual(['log: Description: feat: New words', 'log: Note 1: step one', 'log: Note 2: step two'])
+  expect(verbs(runs)).toEqual(['export', 'export', 'import'])
+  expect(JSON.parse(runs[2]?.init?.stdin ?? 'null')[0].tags).toEqual(['planned', 'zeta'])
+})
+
+test('unattended: the task changing under the write still refuses it', { options: UNATTENDED }, async ($, on) => {
+  const edited = { ...TASK, annotations: [...TASK.annotations, { entry: '20260101T000002Z', description: 'added' }] }
+  const { runs } = world(on, SANDBOX, { deny: 'nobody should be asked' }, [TASK, edited])
+  await $.session.start(START)
+  const answer = await $.tool.call(CALL)
+  expect(answer.deny).toContain('Nothing written: the task changed since it was read')
+  expect(verbs(runs)).toEqual(['export', 'export'])
+})
+
+test('unattended: a line too long is still refused before anything', { options: UNATTENDED }, async ($, on) => {
+  const { runs, seen } = world(on, SANDBOX, { deny: 'nobody should be asked' })
+  await $.session.start(START)
+  const answer = await $.tool.call({ ...CALL, notes: ['x'.repeat(2000)] })
+  expect(answer.deny).toStartWith('Nothing written: note 1 would show as a line of 2008 characters')
+  expect(seen).toEqual([])
+  expect(verbs(runs)).toEqual(['export'])
+})
+
+test('unattended: a report no one asked for is refused, as nobody can ask', { options: UNATTENDED }, async ($, on) => {
+  const { writes } = world(on, SANDBOX, { deny: 'nobody should be asked' })
+  await $.session.start(START)
+  const answer = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(answer.deny).toStartWith('show_task_report: the person has not asked for a report.')
+  expect(writes).toEqual([])
+})
+
+test('unattended report mode: writes the page and links it, opening nothing', { options: UNATTENDED_REPORT }, async ($, on) => {
+  const { runs, seen, writes } = world(on, SANDBOX, { deny: 'nobody should be asked' }, [PLANNED])
+  await $.session.start(START)
+
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+
+  expect(shown.deny).toBeUndefined()
+  expect(shown.result).toBe(
+    `Wrote the report to ${REPORT_PATH} and linked it from the task as the note "Report: ${REPORT_PATH}".`,
+  )
+  expect(writes.map(w => w.path)).toEqual([REPORT_PATH])
+  expect(seen).toEqual([`log: Report: ${REPORT_PATH}`])
+  expect(runs.map(run => run.argv)).toEqual([
+    ['task', 'rc.hooks=off', 'rc.json.array=on', UUID, 'export'],
+    ['task', 'rc.hooks=off', 'rc.verbose=nothing', 'import'],
+  ])
+  const [imported] = JSON.parse(runs[1]?.init?.stdin ?? 'null')
+  expect(imported.annotations.at(-1).description).toBe(`Report: ${REPORT_PATH}`)
+})
+
+test('unattended report mode: a failed import says nothing was opened', { options: UNATTENDED_REPORT }, async ($, on) => {
+  engine(on, SANDBOX)
+  on('process.run', ($, e) =>
+    e.argv.includes('export')
+      ? ran(JSON.stringify([PLANNED]))
+      : { value: { ...ran('', 2).value, stderr: 'Not a valid JSON value.' } },
+  )
+  await $.session.start(START)
+  const answer = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(answer.deny).toBe(
+    `Wrote the report to ${REPORT_PATH}, but task import failed (2): Not a valid JSON value. The task does not link it.`,
+  )
+})
+
+test('attended sessions are unchanged by the option being false', { options: { ...REPORTS, unattended: false } }, async ($, on) => {
+  const { runs, seen } = world(on, SANDBOX, [REPORT, WRITE], [TASK])
+  await $.session.start(START)
+  expect((await $.tool.call(CALL)).deny).toContain(`the person chose "${REPORT}"`)
+  expect(seen.at(-1)).toBe(`ask: Write this to the task? [${WRITE} | ${REPORT} | Change something] (Task plan)`)
+  await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(runs.at(-1)?.argv[0]).toBe('sh')
+})
