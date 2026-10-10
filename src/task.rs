@@ -24,6 +24,11 @@ pub const PLANNED_TAG: &str = "planned";
 /// `task next`, which sorts by urgency, lifts it with no code here.
 pub const UP_NEXT_TAG: &str = "next";
 
+/// What a note linking the task's refine report starts with, as the refine
+/// mod writes it: `Report: <path>`. `Report (earlier draft): <path>` marks a
+/// report of a plan since changed, and is not the task's report.
+pub const REPORT_NOTE: &str = "Report: ";
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Task {
     /// Taskwarrior's working-set number, what `task 48 …` takes: 0 once gc
@@ -99,6 +104,20 @@ impl Task {
     /// Marked as the one to do next, with Up next.
     pub fn is_up_next(&self) -> bool {
         self.tags.iter().any(|t| t == UP_NEXT_TAG)
+    }
+
+    /// The refine report linked from the task's notes: the path of the newest
+    /// `Report: <path>` note, the last one, the mod appending them in the
+    /// order the reports were made. None on a task with no such note; a
+    /// `Report (earlier draft):` note is a report of a plan since changed,
+    /// and never counts.
+    pub fn report_path(&self) -> Option<&str> {
+        self.annotations
+            .iter()
+            .rev()
+            .find_map(|a| a.description.strip_prefix(REPORT_NOTE))
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
     }
 
     /// The priority as a number to sort by, highest first: H over M over L
@@ -1021,6 +1040,60 @@ mod tests {
         let t: Task =
             serde_json::from_str(r#"{"uuid":"u","description":"d","tags":["PLANNED","planned_x"]}"#).unwrap();
         assert!(!t.is_planned());
+    }
+
+    /// The report the mod linked from the task: the last `Report: <path>`
+    /// note, which is the newest, the mod appending them in the order the
+    /// reports were made.
+    #[test]
+    fn the_newest_report_note_is_the_tasks_report() {
+        let t: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[
+                {"entry":"20261006T010000Z","description":"Goal: x"},
+                {"entry":"20261006T020000Z","description":"Report: /r/first.html"},
+                {"entry":"20261006T030000Z","description":"Report: /r/second.html"}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(t.report_path(), Some("/r/second.html"));
+    }
+
+    /// A task with no report note, or no notes at all, has no report.
+    #[test]
+    fn a_task_without_a_report_note_has_no_report() {
+        let noted: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[{"entry":"20261006T010000Z","description":"Goal: x"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(noted.report_path(), None);
+        let bare: Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
+        assert_eq!(bare.report_path(), None);
+    }
+
+    /// A report of an earlier draft of the plan is not the plan's report,
+    /// and a note that merely mentions a report is not a link to one.
+    #[test]
+    fn an_earlier_drafts_report_and_a_mention_are_not_the_report() {
+        let t: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[
+                {"entry":"20261006T010000Z","description":"Report (earlier draft): /r/old.html"},
+                {"entry":"20261006T020000Z","description":"See the Report: /r/not-this.html"},
+                {"entry":"20261006T030000Z","description":"Report:/r/no-space.html"}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(t.report_path(), None);
+    }
+
+    /// The path is the rest of the line, trimmed, so a note written with a
+    /// trailing space still opens.
+    #[test]
+    fn the_report_path_is_trimmed() {
+        let t: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[{"entry":"20261006T010000Z","description":"Report: /r/a b.html "}]}"#,
+        )
+        .unwrap();
+        assert_eq!(t.report_path(), Some("/r/a b.html"));
     }
 
     /// `entry` and `priority` are what the panel sorts by; a task with no
