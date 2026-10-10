@@ -8,6 +8,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use std::path::Path;
 use niri_tasks::{
     actions::{Action, TaskState}, dirs, github, ipc, link, niri, notify, programs, project, refine, speak, task,
     text, work, workspace::Workspace,
@@ -169,17 +170,23 @@ enum TaskCommand {
         #[arg(long)]
         grill: bool,
     },
-    /// Report on a planned task's plan with Claude, in a new tab of the workspace's herdr session
+    /// Open the report of a planned task's plan, or have Claude build it in a new tab of the workspace's herdr session
     ///
-    /// Claude builds the HTML report of the plan the task already holds, as a
-    /// refine's "Show me a report first" does, opens it in the browser and
-    /// links it from the task's notes as `Report: <path>`, without refining
-    /// again. Refused for a task that is not pending or not tagged planned:
-    /// refine it first. The workspace is this herdr session's in a herdr
-    /// pane, else the focused one.
+    /// On a task whose notes link a report as `Report: <path>`, opens that
+    /// file in the browser, whatever the task's status. Otherwise, or with
+    /// --fresh, Claude builds the HTML report of the plan the task already
+    /// holds, as a refine's "Show me a report first" does, opens it in the
+    /// browser and links it from the task's notes, without refining again;
+    /// that is refused for a task that is not pending or not tagged planned:
+    /// refine it first. A linked file that is gone is built afresh, and the
+    /// notification says so. The workspace is this herdr session's in a
+    /// herdr pane, else the focused one.
     Report {
         /// The task's uuid, or its first 8 characters
         uuid: String,
+        /// Build a new report even when the task's notes link one
+        #[arg(long)]
+        fresh: bool,
     },
     /// Start working on a task in its own git worktree, with Claude planning it
     ///
@@ -379,13 +386,30 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             refine::launch(&workspace, &t, mode)?;
         }
 
-        TaskCommand::Report { uuid } => {
-            let workspace = Workspace::of_caller()?;
+        TaskCommand::Report { uuid, fresh } => {
             let t = task::get(&uuid)?.context("task not found")?;
+            // Opening what is already written needs no session and no
+            // pending or planned check: the report is a file, and reading it
+            // is harmless on any task. Building one needs both.
+            let mut gone = None;
+            if !fresh {
+                if let Some(path) = t.report_path() {
+                    if Path::new(path).is_file() {
+                        refine::open_report(path)?;
+                        notify::tasks(&format!("Opened the report: {}", t.description));
+                        return Ok(());
+                    }
+                    gone = Some(path.to_string());
+                }
+            }
+            let workspace = Workspace::of_caller()?;
             anyhow::ensure!(t.status == "pending", "Only a pending task can be reported on.");
             // An unplanned task has no plan to report on: the card offers
             // Refine or Grill me instead, and a script gets the same refusal.
             anyhow::ensure!(t.is_planned(), "Only a planned task has a plan to report on. Refine it first.");
+            if gone.is_some() {
+                notify::tasks(&format!("Report file gone, building a fresh one: {}", t.description));
+            }
             refine::launch(&workspace, &t, refine::Mode::Report)?;
         }
 
@@ -534,6 +558,14 @@ mod tests {
     #[test]
     fn going_to_a_tasks_session_is_a_command() {
         assert!(Cli::try_parse_from(["niritasks", "task", "session", "c53b6e3d"]).is_ok());
+    }
+
+    /// A card's Report runs `task report <uuid>`; `--fresh` is how a script,
+    /// or a person, gets a second report on a task that already has one.
+    #[test]
+    fn a_fresh_report_is_a_flag_on_task_report() {
+        assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d"]).is_ok());
+        assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d", "--fresh"]).is_ok());
     }
 
     /// A card's Speak runs this.

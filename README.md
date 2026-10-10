@@ -270,8 +270,10 @@ niritasks task up-next <uuid>      # mark it up next: its card turns yellow and 
                                    #   run again to clear it
 niritasks task refine <uuid>       # work it up into a plan with Claude, in the workspace's herdr session
 niritasks task refine <uuid> --grill  #   the same, interviewing you first
-niritasks task report <uuid>       # a report of its plan, built by Claude in the workspace's herdr session,
-                                   #   opened in the browser and linked from the task's notes (a planned task only)
+niritasks task report <uuid>       # open the report of its plan linked from its notes; without one, a report
+                                   #   built by Claude in the workspace's herdr session, opened in the browser
+                                   #   and linked from the task's notes (a planned task only)
+niritasks task report <uuid> --fresh  #   build a new report even when its notes link one
 niritasks task start <uuid>        # its own worktree (task/<slug>-<uuid8>), opened in the herdr session,
                                    #   with Claude planning it; picked again, back to both
 niritasks task start <uuid> --here --workspace <name>

@@ -373,6 +373,28 @@ pub fn spawn_quick(uuid: &str) {
     }
 }
 
+/// The command that opens a report already written, `path`, in the browser:
+/// what the mod runs when it opens one it has just written (`openArgv` in
+/// `hooks/report.ts`). `xdg-open` detached under a shell, so the browser
+/// is not waited on, with the path as the shell's `$1`, never quoted into
+/// the script.
+pub fn open_report_command(path: &str) -> Vec<String> {
+    vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        "xdg-open \"$1\" >/dev/null 2>&1 </dev/null &".to_string(),
+        "sh".to_string(),
+        path.to_string(),
+    ]
+}
+
+/// Open the report at `path` in the browser, through niri, so the browser
+/// is niri's child and outlives the `niritasks` process a button press
+/// spawned. The caller has checked the file is there.
+pub fn open_report(path: &str) -> Result<()> {
+    niri::spawn(open_report_command(path)).with_context(|| format!("could not open the report {path}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,6 +409,21 @@ mod tests {
             quick_command("/usr/bin/niritasks", u),
             ["/usr/bin/niritasks", "task", "refine", u]
         );
+    }
+
+    /// Open report runs what the mod runs when it opens a report it just
+    /// wrote (`openArgv` in `hooks/report.ts`): `xdg-open` detached under a
+    /// shell, the path passed as an argument and never quoted into the
+    /// script, so a path with a space or a quote opens the same file.
+    #[test]
+    fn open_report_runs_xdg_open_on_the_path_as_an_argument() {
+        let command = open_report_command("/home/x/.local/share/niri-tasks/reviews/a report's.html");
+        assert_eq!(command[0], "sh");
+        assert_eq!(command[1], "-c");
+        assert_eq!(command[2], "xdg-open \"$1\" >/dev/null 2>&1 </dev/null &");
+        assert_eq!(command[3], "sh");
+        assert_eq!(command[4], "/home/x/.local/share/niri-tasks/reviews/a report's.html");
+        assert_eq!(command.len(), 5);
     }
 
     /// The fence the refine session runs in: every command sandboxed with no
