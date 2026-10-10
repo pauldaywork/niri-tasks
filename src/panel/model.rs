@@ -91,12 +91,12 @@ impl Card {
     }
 
     /// Whether the card is drawn yellow, as up next. Not an active card,
-    /// which stays green, nor a waiting or finished one, which keep their
-    /// dimmed look: starting or parking a task keeps its `+next`, and the
-    /// card shows the stronger fact. Every other card is yellow, the lock
+    /// which stays green, nor a waiting, finished or processing one, which
+    /// keep their dimmed look: starting, parking or planning a task keeps its
+    /// `+next`, and the card shows the stronger fact. Every other card is yellow, the lock
     /// and the dot too.
     pub fn shows_up_next(&self) -> bool {
-        self.up_next && !matches!(self.status, Status::Active | Status::Waiting | Status::Finished)
+        self.up_next && !matches!(self.status, Status::Active | Status::Waiting | Status::Finished | Status::Processing)
     }
 
     /// The first line of the pressed card's notes: `#48 · <uuid>`, or the
@@ -898,10 +898,12 @@ mod tests {
     fn an_up_next_card_shows_yellow_unless_active_or_waiting() {
         let mut planned_next = up_next("planned", 1, false);
         planned_next.tags.push(crate::task::PLANNED_TAG.into());
+        let mut busy_next = up_next("busy", 1, false);
+        busy_next.tags.push(crate::task::PROCESSING_TAG.into());
         let mut waiting_next = up_next("parked", 1, false);
         waiting_next.wait = Some("99991229T130000Z".into());
         let listing = Listing {
-            pending: vec![up_next("plain", 1, false), up_next("blocked", 1, false), planned_next, up_next("started", 1, true)],
+            pending: vec![up_next("plain", 1, false), up_next("blocked", 1, false), planned_next, up_next("started", 1, true), busy_next],
             waiting: vec![waiting_next],
             completed: Vec::new(),
         };
@@ -912,6 +914,7 @@ mod tests {
         assert!(shows("planned"), "the dot is yellow too");
         assert!(!shows("started"), "an active card stays green");
         assert!(!shows("parked"), "a waiting card keeps its look");
+        assert!(!shows("busy"), "a processing card is dimmed, not yellow");
         assert!(!cards(&todo(vec![task("other", 1, false)]), &[])[0].shows_up_next());
     }
 
