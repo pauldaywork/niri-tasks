@@ -903,7 +903,7 @@ impl PanelState {
             let uuid = uuid.clone();
             return self.on_press(&uuid, Slot::Button(action));
         }
-        vec![Effect::Notify(format!("{}: {}", action.label(false), card.card.text)), Effect::Spawn(action.args(uuid))]
+        vec![Effect::Notify(format!("{}: {}", action.label(card.state.unwrap_or_default()), card.card.text)), Effect::Spawn(action.args(uuid))]
     }
 
     /// Put Clear all back and the focus where it was before it armed, or on
@@ -2090,7 +2090,7 @@ mod tests {
     fn the_move_list_names_its_task_and_its_keys() {
         let state = moving_a();
         let list = state.projects().unwrap();
-        assert_eq!(list.title(), format!("{}: a", Action::Move.label(false)));
+        assert_eq!(list.title(), format!("{}: a", Action::Move.label(TaskState::default())));
         assert_eq!(list.keys(), crate::panel::projects::MOVE_KEYS);
         assert_eq!(list.moving(), Some("a"));
     }

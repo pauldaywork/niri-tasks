@@ -26,8 +26,9 @@ pub enum Action {
     Refine,
     /// Refine, interviewing first rather than drafting straight away.
     Grill,
-    /// The refine report of a planned task's plan, built by Claude in the
-    /// workspace's herdr session, opened in the browser and linked from the
+    /// The refine report of a planned task's plan. On a task whose notes
+    /// link one, opens that file in the browser; otherwise Claude builds it
+    /// in the workspace's herdr session, opens it and links it from the
     /// task's notes, without refining again.
     Report,
     /// The task box on the description and every note. The box, not a
@@ -70,6 +71,9 @@ pub struct TaskState {
     pub up_next: bool,
     /// A Claude is working on it in the workspace's herdr session.
     pub has_session: bool,
+    /// Its notes link a refine report, `Report: <path>`: Report opens that
+    /// rather than building another.
+    pub has_report: bool,
 }
 
 impl TaskState {
@@ -93,6 +97,7 @@ impl TaskState {
             planned: task.is_planned(),
             up_next: task.is_up_next(),
             has_session,
+            has_report: task.report_path().is_some(),
         }
     }
 }
@@ -232,20 +237,23 @@ impl Action {
         }
     }
 
-    /// The action's words, on its button's tooltip and in the card's hint. Up
-    /// next reads as the step it takes, Not up next on a task already up
-    /// next, so `up_next` is whether the task is.
-    pub fn label(self, up_next: bool) -> &'static str {
+    /// The action's words, on its button's tooltip and in the card's hint.
+    /// Two read as the step they take on this task: Up next reads Not up
+    /// next on a task already up next, and Report reads Open report on a
+    /// task whose notes link a report, which a press opens instead of
+    /// building another.
+    pub fn label(self, state: TaskState) -> &'static str {
         match self {
             Session => "Go to session",
             Back => "Back to list",
             Start => "Start working",
             Refine => "Refine",
             Grill => "Grill me",
+            Report if state.has_report => "Open report",
             Report => "Report",
             Edit => "Edit",
             Speak => "Speak",
-            UpNext if up_next => "Not up next",
+            UpNext if state.up_next => "Not up next",
             UpNext => "Up next",
             Complete => "Complete",
             Move => "Move to workspace",
@@ -312,6 +320,9 @@ mod tests {
         assert!(Report.applies(TaskState { planned: true, active: true, ..TaskState::default() }));
         assert!(!Report.applies(TaskState { planned: true, waiting: true, ..TaskState::default() }));
         assert!(!Report.applies(TaskState { planned: true, finished: true, ..TaskState::default() }));
+        // A linked report changes the words, never who gets the button.
+        assert!(!Report.applies(TaskState { has_report: true, ..TaskState::default() }));
+        assert!(!Report.applies(TaskState { planned: true, has_report: true, waiting: true, ..TaskState::default() }));
     }
 
     /// An active task can be stopped, and started again, which goes back to
@@ -346,7 +357,7 @@ mod tests {
 
     #[test]
     fn labels_read_as_the_tooltips_do() {
-        let labels: Vec<&str> = Action::ALL.iter().map(|a| a.label(false)).collect();
+        let labels: Vec<&str> = Action::ALL.iter().map(|a| a.label(TaskState::default())).collect();
         assert_eq!(
             labels,
             vec![
@@ -356,27 +367,59 @@ mod tests {
         );
     }
 
-    /// Each is its button's tooltip, so no two may share one, either way up next reads.
+    /// Each is its button's tooltip, so no two may share one, whichever way
+    /// Up next and Report read.
     #[test]
     fn no_two_actions_share_a_label() {
         for up_next in [false, true] {
-            let mut labels: Vec<&str> = Action::ALL.iter().map(|a| a.label(up_next)).collect();
-            labels.sort();
-            labels.dedup();
-            assert_eq!(labels.len(), Action::ALL.len(), "up_next={up_next}");
+            for has_report in [false, true] {
+                let state = TaskState { up_next, has_report, ..TaskState::default() };
+                let mut labels: Vec<&str> = Action::ALL.iter().map(|a| a.label(state)).collect();
+                labels.sort();
+                labels.dedup();
+                assert_eq!(labels.len(), Action::ALL.len(), "{state:?}");
+            }
         }
     }
 
     /// Up next reads as the step it takes: Not up next on a task already up
     /// next. That is also the word `task up-next` notifies with, for where
-    /// the task is once the step is taken. No other action changes its words.
+    /// the task is once the step is taken. Report reads as what a press does:
+    /// Open report on a task whose notes link one, which the press opens
+    /// instead of building another. No other action changes its words.
     #[test]
-    fn up_next_reads_as_the_step_it_takes() {
-        assert_eq!(UpNext.label(false), "Up next");
-        assert_eq!(UpNext.label(true), "Not up next");
-        for action in Action::ALL.into_iter().filter(|a| *a != UpNext) {
-            assert_eq!(action.label(true), action.label(false), "{action:?}");
+    fn up_next_and_report_read_as_the_step_they_take() {
+        let plain = TaskState::default();
+        let up_next = TaskState { up_next: true, ..plain };
+        let reported = TaskState { has_report: true, ..plain };
+        assert_eq!(UpNext.label(plain), "Up next");
+        assert_eq!(UpNext.label(up_next), "Not up next");
+        assert_eq!(UpNext.label(reported), "Up next");
+        assert_eq!(Report.label(plain), "Report");
+        assert_eq!(Report.label(reported), "Open report");
+        assert_eq!(Report.label(up_next), "Report");
+        let every_way = TaskState { active: true, planned: true, has_session: true, up_next: true, has_report: true, ..plain };
+        for action in Action::ALL.into_iter().filter(|a| !matches!(a, UpNext | Report)) {
+            assert_eq!(action.label(every_way), action.label(plain), "{action:?}");
         }
+    }
+
+    /// A task's state reads whether its notes link a report off the task
+    /// itself, as it reads planned and up next.
+    #[test]
+    fn of_reads_has_report_from_the_tasks_notes() {
+        let with: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","status":"pending","tags":["planned"],
+                "annotations":[{"entry":"20261006T010000Z","description":"Report: /r/a.html"}]}"#,
+        )
+        .unwrap();
+        let without: Task =
+            serde_json::from_str(r#"{"uuid":"u","description":"d","status":"pending","tags":["planned"]}"#).unwrap();
+        assert_eq!(
+            TaskState::of(&with, false, false),
+            TaskState { planned: true, has_report: true, ..TaskState::default() }
+        );
+        assert_eq!(TaskState::of(&without, false, false), TaskState { planned: true, ..TaskState::default() });
     }
 
     /// Icons alone tell the row's buttons apart, so no two may share one.
@@ -425,7 +468,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             TaskState::of(&task, false, true),
-            TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true }
+            TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true, has_report: false }
         );
         let bare: Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
         assert_eq!(TaskState::of(&bare, true, false), TaskState { waiting: true, ..TaskState::default() });

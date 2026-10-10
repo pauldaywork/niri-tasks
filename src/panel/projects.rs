@@ -5,7 +5,7 @@
 //! ranks with fzf and a test with a substring match, and `surface.rs` only
 //! draws what this says.
 
-use crate::actions::Action;
+use crate::actions::{Action, TaskState};
 use crate::project::{self, Choice, Projects, Row};
 
 /// What the project list is for, and so what picking a row does.
@@ -221,7 +221,7 @@ impl ProjectList {
     /// being opened.
     pub fn title(&self) -> String {
         match &self.purpose {
-            Purpose::Move { text, .. } => format!("{}: {text}", Action::Move.label(false)),
+            Purpose::Move { text, .. } => format!("{}: {text}", Action::Move.label(TaskState::default())),
             Purpose::Open => OPEN_TITLE.to_string(),
         }
     }

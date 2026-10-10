@@ -112,6 +112,8 @@ impl Card {
             planned: self.planned,
             up_next: self.up_next,
             has_session,
+            // The card does not carry its notes' report yet.
+            has_report: false,
         })
     }
 }
@@ -834,7 +836,7 @@ mod tests {
         let card = |status, planned, up_next| Card { status, text: "t".into(), uuid: Some("u".into()), id: 0, planned, up_next, since: String::new(), notes: Vec::new() };
         assert_eq!(
             card(Status::Active, true, true).state(true),
-            Some(TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true })
+            Some(TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true, has_report: false })
         );
         assert_eq!(
             card(Status::Waiting, false, false).state(false),

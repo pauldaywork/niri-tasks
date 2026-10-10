@@ -1067,8 +1067,9 @@ impl Panel {
         for &action in actions {
             let button = gtk4::Button::with_label(action.icon());
             // The icon's name in words, under the pointer and for a screen
-            // reader. Up next reads Not up next on a task already up next.
-            button.set_tooltip_text(Some(action.label(state.up_next)));
+            // reader. Up next reads Not up next on a task already up next, and
+            // Report reads Open report on a task whose notes link one.
+            button.set_tooltip_text(Some(action.label(state)));
             button.add_css_class(action.class());
             let weak = Rc::downgrade(self);
             let uuid = uuid.to_string();

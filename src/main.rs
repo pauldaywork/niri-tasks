@@ -9,7 +9,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use niri_tasks::{
-    actions::Action, dirs, github, ipc, link, niri, notify, programs, project, refine, speak, task,
+    actions::{Action, TaskState}, dirs, github, ipc, link, niri, notify, programs, project, refine, speak, task,
     text, work, workspace::Workspace,
 };
 
@@ -350,7 +350,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             let t = task::get(&uuid)?.context("task not found")?;
             task::set_up_next(&t.uuid, !t.is_up_next())?;
             // The words that were picked, as Update status notifies its state.
-            notify::tasks(&format!("{}: {}", Action::UpNext.label(t.is_up_next()), t.description));
+            notify::tasks(&format!("{}: {}", Action::UpNext.label(TaskState::of(&t, false, false)), t.description));
         }
 
         TaskCommand::Start { uuid, here, workspace } => {
@@ -525,7 +525,7 @@ mod tests {
                 argv.push("alpha".to_string());
             }
             if let Err(e) = Cli::try_parse_from(&argv) {
-                panic!("{} runs {argv:?}, which the CLI rejects: {e}", action.label(false));
+                panic!("{} runs {argv:?}, which the CLI rejects: {e}", action.label(TaskState::default()));
             }
         }
     }

@@ -62,7 +62,7 @@ impl Action {
         let mut parts = Vec::new();
         match focused {
             Some(action) => {
-                let name = action.label(state.up_next);
+                let name = action.label(state);
                 parts.push(match action.facts().key {
                     Some(key) => format!("{key}: {name}"),
                     None => name.to_string(),
@@ -73,7 +73,7 @@ impl Action {
             None => parts.push(format!("Space: {} notes", if notes { "hide" } else { "view" })),
         }
         if let Some(step) = Self::advance(state).filter(|a| row.contains(a)) {
-            parts.push(format!("Ctrl+Enter: {}", step.label(false)));
+            parts.push(format!("Ctrl+Enter: {}", step.label(state)));
         }
         parts.join(" · ")
     }
