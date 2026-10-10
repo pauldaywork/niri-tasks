@@ -57,7 +57,9 @@ HTML slides explaining a task's plan — what changes, what needs the reader's
 judgement, diagrams, the files and the checks — made by a refine session when
 the user chooses Show me a report first, or by a Report session from a planned
 task card's Report, on the plan the task already holds. It is saved under the
-reviews folder and linked from the task's notes as `Report: <path>`.
+reviews folder and linked from the task's notes as `Report: <path>`; once
+linked, the card's Report opens it, and `niritasks task report <uuid> --fresh`
+builds another.
 _Avoid_: plan report, explainer
 
 **Up next task**:
@@ -99,7 +101,10 @@ _Avoid_: row (the action row is part of a card), item, block
 One thing that can be done to a task — Go to session, Back to list, Start
 working, Refine, Grill me, Report, Edit, Speak, Up next, Complete, Move to
 workspace, Stop, Waiting or Remove — with its words, its icon and the
-`niritasks` command it runs. Which ones a task gets goes by its state: only a
+`niritasks` command it runs. Two read as the step they take: Up next reads
+Not up next on a task already up next, and Report reads Open report on a task
+whose notes link a refine report, which it opens instead of building another.
+Which ones a task gets goes by its state: only a
 planned task on the list gets Report, a waiting task gets only Back to list,
 Edit, Speak, Complete, Move to workspace and Remove, a finished one only Back
 to list, Edit, Speak and Remove, and Back to list reopens a finished one. The
