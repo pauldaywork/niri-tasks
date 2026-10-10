@@ -31,7 +31,7 @@ pub mod style;
 
 mod notes;
 
-pub use form::Submission;
+pub use form::{Submission, Then};
 pub use open::{open_in, Opened, Subject};
 
 use crate::task::{Annotation, Task};
@@ -81,6 +81,26 @@ fn hint(mode: Mode, refine: bool) -> &'static str {
         (Mode::Add, true) => "Enter: next note · Ctrl+Enter: add & refine · Esc: discard",
         (Mode::Edit | Mode::Note, _) => "Enter: next note · Ctrl+Enter: save · Esc: discard",
     }
+}
+
+/// Whether the box has Add & refine and Add & all beside Add: adding only.
+/// Refining from Edit or Note is the card's Refine's job, and a task that
+/// exists is not planned by saving it.
+fn has_add_buttons(mode: Mode) -> bool {
+    mode == Mode::Add
+}
+
+/// Which button Ctrl+Enter presses in this box: Add & refine in the box
+/// Mod+Alt+Shift+T opens, else Add or Save.
+fn default_then(cfg: &BoxConfig) -> Then {
+    if cfg.refine { Then::Refine } else { Then::Nothing }
+}
+
+/// Which button Ctrl+Shift+Enter presses: Add & refine where there is one,
+/// else the default, which saves, as it always did. Add & all has no key:
+/// a run that takes minutes and opens nothing is worth reaching for.
+fn shortcut_then(cfg: &BoxConfig) -> Then {
+    if has_add_buttons(cfg.mode) { Then::Refine } else { Then::Nothing }
 }
 
 /// Fixed, because a resizable window here would be a decision to make every
@@ -271,10 +291,13 @@ pub(super) fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn
     footer.append(&hint_label);
     footer.append(&cancel);
     footer.append(&submit);
-    // Add mode only: refining from Edit or Note is the card's Refine's job.
-    let refine = (cfg.mode == Mode::Add).then(|| gtk4::Button::with_label("Add & refine"));
-    if let Some(refine) = &refine {
+    // Add mode only (see `has_add_buttons`): Add & refine opens a tab; Add &
+    // all plans and reports in the background with no tab and no key.
+    let extra = has_add_buttons(cfg.mode)
+        .then(|| (gtk4::Button::with_label("Add & refine"), gtk4::Button::with_label("Add & all")));
+    if let Some((refine, all)) = &extra {
         footer.append(refine);
+        footer.append(all);
     }
     root.append(&footer);
 
@@ -290,7 +313,7 @@ pub(super) fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn
         let loaded_description = cfg.description.clone();
         let window = window.downgrade();
         let notes = notes.clone();
-        move |refine: bool| {
+        move |then: Then| {
             let submission = form::submission(
                 &loaded_description,
                 &buffer_text(&notes.description),
@@ -303,7 +326,7 @@ pub(super) fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn
                 focus_end(&notes.description);
                 return;
             };
-            submission.refine = refine;
+            submission.then = then;
             if let Some(window) = window.upgrade() {
                 window.close();
             }
@@ -313,11 +336,15 @@ pub(super) fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn
 
     {
         let do_submit = do_submit.clone();
-        submit.connect_clicked(move |_| do_submit(false));
+        submit.connect_clicked(move |_| do_submit(Then::Nothing));
     }
-    if let Some(refine) = &refine {
+    if let Some((refine, all)) = &extra {
+        {
+            let do_submit = do_submit.clone();
+            refine.connect_clicked(move |_| do_submit(Then::Refine));
+        }
         let do_submit = do_submit.clone();
-        refine.connect_clicked(move |_| do_submit(true));
+        all.connect_clicked(move |_| do_submit(Then::All));
     }
     {
         let window = window.downgrade();
@@ -342,11 +369,12 @@ pub(super) fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn
     {
         let window = window.downgrade();
         let notes = notes.clone();
-        // Which button each shortcut presses. Ctrl+Enter presses the default;
-        // Ctrl+Shift+Enter presses Add & refine where there is one, and saves
-        // where there is not, as it always did.
-        let default_refines = cfg.refine;
-        let can_refine = cfg.mode == Mode::Add;
+        // Which button each shortcut presses (`default_then`,
+        // `shortcut_then`): Ctrl+Enter the default, Ctrl+Shift+Enter Add &
+        // refine where there is one, and saves where there is not, as it
+        // always did. Nothing presses Add & all.
+        let default = default_then(cfg);
+        let shortcut = shortcut_then(cfg);
         keys.connect_key_pressed(move |_, key, _, state| {
             let Some(window) = window.upgrade() else {
                 return gtk4::glib::Propagation::Proceed;
@@ -357,8 +385,8 @@ pub(super) fn build_window(app: &Application, cfg: &BoxConfig, on_submit: Rc<dyn
             let place = GtkWindowExt::focus(&window).and_then(|w| notes.place_of(&w));
             match keys::key_action(key, ctrl, shift, place) {
                 KeyAction::Cancel => window.close(),
-                KeyAction::Save => do_submit(default_refines),
-                KeyAction::Refine => do_submit(can_refine),
+                KeyAction::Save => do_submit(default),
+                KeyAction::Refine => do_submit(shortcut),
                 KeyAction::ToFirstNote => focus_end(&notes.first_or_new()),
                 KeyAction::NewNoteBelow(i) => focus_end(&notes.insert(i + 1, None)),
                 KeyAction::DeleteNote(i) => notes.remove(i),
@@ -560,6 +588,32 @@ mod tests {
         for mode in [Mode::Edit, Mode::Note] {
             assert_eq!(hint(mode, false), "Enter: next note · Ctrl+Enter: save · Esc: discard");
         }
+    }
+
+    /// Ctrl+Enter presses the default button and Ctrl+Shift+Enter Add &
+    /// refine; Add & all is pressed by the pointer alone, so no key maps to
+    /// it, and an existing task's box, with only Save, maps both to nothing.
+    #[test]
+    fn the_keys_press_add_or_add_and_refine_never_add_and_all() {
+        assert_eq!(default_then(&BoxConfig::add("proj", false)), Then::Nothing);
+        assert_eq!(default_then(&BoxConfig::add("proj", true)), Then::Refine);
+        assert_eq!(shortcut_then(&BoxConfig::add("proj", false)), Then::Refine);
+        assert_eq!(shortcut_then(&BoxConfig::add("proj", true)), Then::Refine);
+        let t: crate::task::Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
+        let edit = BoxConfig::for_task(Mode::Edit, t);
+        assert_eq!(default_then(&edit), Then::Nothing);
+        assert_eq!(shortcut_then(&edit), Then::Nothing);
+    }
+
+    /// Only the add box has the two extra buttons; the hint names the one
+    /// with a key and is unchanged by the one without.
+    #[test]
+    fn only_the_add_box_has_add_and_refine_and_add_and_all() {
+        assert!(has_add_buttons(Mode::Add));
+        assert!(!has_add_buttons(Mode::Edit));
+        assert!(!has_add_buttons(Mode::Note));
+        assert!(!hint(Mode::Add, false).contains("all"));
+        assert!(!hint(Mode::Add, true).contains("all"));
     }
 
     /// A box remembers what it is open on: adding, in either add box, or one

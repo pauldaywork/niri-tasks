@@ -324,10 +324,15 @@ fn serve_request(app: &Application, req: crate::ipc::Request) {
                         Err(e) => notify::tasks(&e.to_string()),
                         Ok(uuid) => {
                             notify::tasks(&format!("Added to +{tag_for_submit}: {}", sub.description));
-                            // Spawned, not run: herdr must not hold up the
-                            // panels' main loop.
-                            if let (true, Some(uuid)) = (sub.refine, uuid) {
-                                crate::refine::spawn_quick(&uuid);
+                            // Spawned, not run: neither herdr nor a Claude
+                            // run that takes minutes may hold up the panels'
+                            // main loop.
+                            if let Some(uuid) = uuid {
+                                match sub.then {
+                                    taskbox::Then::Nothing => {}
+                                    taskbox::Then::Refine => crate::refine::spawn_quick(&uuid),
+                                    taskbox::Then::All => crate::refine::spawn_unattended(&uuid),
+                                }
                             }
                         }
                     }
