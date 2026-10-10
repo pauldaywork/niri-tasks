@@ -110,14 +110,17 @@ impl Task {
     /// `Report: <path>` note, the last one, the mod appending them in the
     /// order the reports were made. None on a task with no such note; a
     /// `Report (earlier draft):` note is a report of a plan since changed,
-    /// and never counts.
+    /// and never counts. A `Report:` note with nothing after it is skipped.
     pub fn report_path(&self) -> Option<&str> {
         self.annotations
             .iter()
             .rev()
-            .find_map(|a| a.description.strip_prefix(REPORT_NOTE))
-            .map(str::trim)
-            .filter(|p| !p.is_empty())
+            .find_map(|a| {
+                a.description
+                    .strip_prefix(REPORT_NOTE)
+                    .map(str::trim)
+                    .filter(|p| !p.is_empty())
+            })
     }
 
     /// The priority as a number to sort by, highest first: H over M over L
@@ -1094,6 +1097,25 @@ mod tests {
         )
         .unwrap();
         assert_eq!(t.report_path(), Some("/r/a b.html"));
+    }
+
+    /// A `Report:` note with nothing after it links nothing, and does not
+    /// hide the report an older note links.
+    #[test]
+    fn a_blank_report_note_is_skipped() {
+        let t: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[
+                {"entry":"20261006T010000Z","description":"Report: /r/a.html"},
+                {"entry":"20261006T020000Z","description":"Report:  "}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(t.report_path(), Some("/r/a.html"));
+        let only_blank: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[{"entry":"20261006T010000Z","description":"Report: "}]}"#,
+        )
+        .unwrap();
+        assert_eq!(only_blank.report_path(), None);
     }
 
     /// `entry` and `priority` are what the panel sorts by; a task with no
