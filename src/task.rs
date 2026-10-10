@@ -29,6 +29,18 @@ pub const UP_NEXT_TAG: &str = "next";
 /// report of a plan since changed, and is not the task's report.
 pub const REPORT_NOTE: &str = "Report: ";
 
+/// The tag `niritasks task refine --unattended` puts on a task while its
+/// two Claude runs last, and takes off when they end, however they end. A
+/// tag, not a file or a pid: the panel already redraws on a database change,
+/// and `task <uuid8> modify -processing` clears one a killed run left.
+pub const PROCESSING_TAG: &str = "processing";
+
+/// What `task refine`, `task report` and `task start` say about a task
+/// carrying [`PROCESSING_TAG`]: a Claude is writing it, and a second one, or
+/// a worktree, would race that write.
+pub const PROCESSING_REFUSAL: &str =
+    "This task is being planned in the background; wait for its notification, or clear +processing if the run died.";
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Task {
     /// Taskwarrior's working-set number, what `task 48 …` takes: 0 once gc
@@ -104,6 +116,11 @@ impl Task {
     /// Marked as the one to do next, with Up next.
     pub fn is_up_next(&self) -> bool {
         self.tags.iter().any(|t| t == UP_NEXT_TAG)
+    }
+
+    /// Being planned in the background by `task refine --unattended`.
+    pub fn is_processing(&self) -> bool {
+        self.tags.iter().any(|t| t == PROCESSING_TAG)
     }
 
     /// The refine report linked from the task's notes: the path of the newest
@@ -214,6 +231,30 @@ fn stamp_secs(stamp: &str) -> Option<i64> {
         return None;
     }
     Some(days_from_civil(y, mo, d) * DAY + h * HOUR + mi * MINUTE + s)
+}
+
+/// The date a day count from 1970-01-01 falls on, as (year, month, day):
+/// [`days_from_civil`] run backwards, from the same page of Hinnant's.
+fn civil_from_days(z: i64) -> (i64, i64, i64) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// `secs` since the epoch as a stamp of taskwarrior's shape,
+/// `20261006T010203Z`, UTC: the one shape this module reads
+/// ([`stamp_secs`]), so a file named by it sorts by time and reads back.
+pub fn stamp(secs: i64) -> String {
+    let (y, m, d) = civil_from_days(secs.div_euclid(DAY));
+    let rest = secs.rem_euclid(DAY);
+    format!("{y:04}{m:02}{d:02}T{:02}{:02}{:02}Z", rest / HOUR, (rest % HOUR) / MINUTE, rest % MINUTE)
 }
 
 /// Days from 1970-01-01 to a date in the proleptic Gregorian calendar.
@@ -780,21 +821,31 @@ pub fn set_active(uuid: &str) -> Result<()> {
     Ok(())
 }
 
-/// Put the up next tag on a task, or take it off. Only the tag changes:
-/// `+next` or `-next` goes as one argument of its own, so taskwarrior reads
-/// it as a tag and not as words for the description, and the task's status,
-/// start, wait, other tags and notes stay as they were. A started task stays
-/// started.
-pub fn set_up_next(uuid: &str, on: bool) -> Result<()> {
+/// Put `tag` on a task, or take it off. Only the tag changes: `+tag` or
+/// `-tag` goes as one argument of its own, so taskwarrior reads it as a tag
+/// and not as words for the description, and the task's status, start, wait,
+/// other tags and notes stay as they were. A started task stays started.
+fn set_tag(uuid: &str, tag: &str, on: bool) -> Result<()> {
     let sign = if on { '+' } else { '-' };
     let status = base()
         .arg(uuid)
         .arg("modify")
-        .arg(format!("{sign}{UP_NEXT_TAG}"))
+        .arg(format!("{sign}{tag}"))
         .status()
         .context("could not run `task modify`")?;
-    anyhow::ensure!(status.success(), "`task modify {sign}{UP_NEXT_TAG}` failed");
+    anyhow::ensure!(status.success(), "`task modify {sign}{tag}` failed");
     Ok(())
+}
+
+/// Mark a task up next, or clear the mark. See [`set_tag`].
+pub fn set_up_next(uuid: &str, on: bool) -> Result<()> {
+    set_tag(uuid, UP_NEXT_TAG, on)
+}
+
+/// Mark a task as being planned in the background, or clear the mark. See
+/// [`set_tag`].
+pub fn set_processing(uuid: &str, on: bool) -> Result<()> {
+    set_tag(uuid, PROCESSING_TAG, on)
 }
 
 /// Where a task can be moved to: `niritasks task status`'s argument, which a
@@ -1043,6 +1094,36 @@ mod tests {
         let t: Task =
             serde_json::from_str(r#"{"uuid":"u","description":"d","tags":["PLANNED","planned_x"]}"#).unwrap();
         assert!(!t.is_planned());
+    }
+
+    /// `task refine --unattended` tags the task while its two Claude runs
+    /// last; this is how the card and the CLI know to leave it alone.
+    #[test]
+    fn the_processing_tag_marks_a_task_being_planned() {
+        let t: Task =
+            serde_json::from_str(r#"{"uuid":"u","description":"d","tags":["proj","processing"]}"#).unwrap();
+        assert!(t.is_processing());
+        let bare: Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
+        assert!(!bare.is_processing());
+        let other: Task =
+            serde_json::from_str(r#"{"uuid":"u","description":"d","tags":["PROCESSING","processing_x"]}"#).unwrap();
+        assert!(!other.is_processing(), "tags are case-sensitive and matched whole");
+        assert_eq!(PROCESSING_TAG, "processing");
+        assert!(PROCESSING_REFUSAL.contains("background"));
+    }
+
+    /// A stamp for now, in taskwarrior's own shape, so [`stamp_secs`] reads
+    /// it back: what an unattended run's log is named by.
+    #[test]
+    fn stamp_writes_what_stamp_secs_reads() {
+        assert_eq!(stamp(0), "19700101T000000Z");
+        assert_eq!(stamp(1_791_248_523), "20261006T010203Z");
+        for secs in [0, 951_782_400, 1_709_164_800, 1_791_248_523, 4_102_444_799] {
+            assert_eq!(stamp_secs(&stamp(secs)), Some(secs), "{secs}");
+        }
+        // The last day of February in a leap year, and the first of March.
+        assert_eq!(stamp(1_709_164_800), "20240229T000000Z");
+        assert_eq!(stamp(1_709_251_200), "20240301T000000Z");
     }
 
     /// The report the mod linked from the task: the last `Report: <path>`

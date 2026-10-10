@@ -20,6 +20,10 @@ impl Action {
     /// them, so they sit centred in the cell like the text around them.
     pub const SPINNER: [&'static str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+    /// What the hint reads on a card being planned in the background, where
+    /// there are no buttons to name and nothing for Ctrl+Enter to do.
+    pub const PROCESSING_HINT: &'static str = "Planning in the background";
+
     /// The buttons a card in `state` gets, left to right: the row's actions
     /// that apply. An active task gets Stop in the place of Start working,
     /// which would only go back to its worktree; Go to session goes back to
@@ -35,9 +39,11 @@ impl Action {
     /// plan, then Start working; once it is being worked, Go to session while
     /// a Claude is on it, planned or not. Nothing on a planned task being
     /// worked with no Claude, nor on a waiting or finished task, which have
-    /// no step to take.
+    /// no step to take. Nothing on a processing task either, which has no
+    /// button to press.
     pub fn advance(state: TaskState) -> Option<Action> {
         match state {
+            TaskState { processing: true, .. } => None,
             TaskState { finished: true, .. } => None,
             TaskState { waiting: true, .. } => None,
             TaskState { active: true, has_session: true, .. } => Some(Session),
@@ -57,8 +63,12 @@ impl Action {
     /// Ctrl+Delete do the same on every card, so they are the footer's,
     /// [`CARD_KEYS`]. Pure, so every card's hint is tested without a window;
     /// `PanelState::card_hint` picks the card and `surface.rs` only sets the
-    /// label.
+    /// label. On a processing card, which has no buttons, it reads
+    /// [`Action::PROCESSING_HINT`] alone.
     pub fn hint(state: TaskState, row: &[Action], focused: Option<Action>, notes: bool) -> String {
+        if state.processing {
+            return Self::PROCESSING_HINT.to_string();
+        }
         let mut parts = Vec::new();
         match focused {
             Some(action) => {
@@ -143,6 +153,11 @@ mod tests {
         TaskState { has_report: true, ..state }
     }
 
+    /// A task being planned in the background, from any other state.
+    fn processing(state: TaskState) -> TaskState {
+        TaskState { processing: true, ..state }
+    }
+
     /// Every state a task card can be in, with a Claude on it and without,
     /// and with a report linked and without.
     fn every_state() -> Vec<TaskState> {
@@ -194,6 +209,23 @@ mod tests {
                 assert!(Action::row(state).contains(&action), "{state:?} picks {action:?}, which it has no button for");
             }
         }
+    }
+
+    /// A processing card gets no buttons, whatever else is true of its task,
+    /// so there is no button for Ctrl+Enter, a letter or Delete to press;
+    /// its hint says what is happening instead, on the body and whether or
+    /// not its notes show, and fits a card with no buttons.
+    #[test]
+    fn a_processing_card_gets_no_buttons_and_says_why() {
+        for state in every_state().into_iter().map(processing) {
+            assert_eq!(Action::row(state), Vec::<Action>::new(), "{state:?}");
+            assert_eq!(Action::advance(state), None, "{state:?}");
+            for notes in [false, true] {
+                assert_eq!(Action::hint(state, &[], None, notes), "Planning in the background", "{state:?}");
+            }
+        }
+        assert_eq!(Action::PROCESSING_HINT, "Planning in the background");
+        assert!(Action::PROCESSING_HINT.chars().count() <= hint_room(0));
     }
 
     #[test]
@@ -499,7 +531,7 @@ mod tests {
     /// card, less each button's one 8px glyph and 24px of padding, a 1px
     /// line between each two, and the hint's own 24px of padding.
     fn hint_room(buttons: usize) -> usize {
-        (760 - buttons * 32 - (buttons - 1) - 24) / 7
+        (760 - buttons * 32 - buttons.saturating_sub(1) - 24) / 7
     }
 
     /// The most buttons any card gets.

@@ -116,6 +116,7 @@ impl Card {
             up_next: self.up_next,
             has_session,
             has_report: self.has_report,
+            processing: false,
         })
     }
 }
@@ -873,7 +874,7 @@ mod tests {
         };
         assert_eq!(
             card(Status::Active, true, true, true).state(true),
-            Some(TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true, has_report: true })
+            Some(TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true, has_report: true, processing: false })
         );
         assert_eq!(
             card(Status::Waiting, false, false, false).state(false),

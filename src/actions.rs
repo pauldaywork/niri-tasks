@@ -61,6 +61,10 @@ use Action::*;
 pub struct TaskState {
     /// Started: being worked on.
     pub active: bool,
+    /// Being planned in the background by `niritasks task refine
+    /// --unattended`, which tags it `+processing` while it runs: nothing may
+    /// be done to it until the tag comes off.
+    pub processing: bool,
     /// Parked with Waiting, until a wait date still to come.
     pub waiting: bool,
     /// Completed: on the Finished tab, off the list as a waiting task is.
@@ -98,6 +102,7 @@ impl TaskState {
             up_next: task.is_up_next(),
             has_session,
             has_report: task.report_path().is_some(),
+            processing: task.is_processing(),
         }
     }
 }
@@ -222,8 +227,13 @@ impl Action {
     /// started. Start working stays on an active task, where it goes back to
     /// the worktree and the Claude; a view with no room for both it and Stop
     /// drops it there. Report is for a planned task on the list: an unplanned
-    /// one has no plan to report on.
+    /// one has no plan to report on. A processing task gets nothing at all:
+    /// a Claude is writing it, and anything done to it meanwhile would race
+    /// that write.
     pub fn applies(self, state: TaskState) -> bool {
+        if state.processing {
+            return false;
+        }
         match self {
             Session => state.has_session && !state.off_list(),
             Back => state.off_list(),
@@ -323,6 +333,33 @@ mod tests {
         // A linked report changes the words, never who gets the button.
         assert!(!Report.applies(TaskState { has_report: true, ..TaskState::default() }));
         assert!(!Report.applies(TaskState { planned: true, has_report: true, waiting: true, ..TaskState::default() }));
+    }
+
+    /// A task being planned in the background gets nothing at all, whatever
+    /// else is true of it: a Claude is writing it, and anything done to it
+    /// meanwhile, a second Claude, an edit, a status change, would race that
+    /// write. Off the list too: nothing brings it back until the run ends.
+    #[test]
+    fn a_processing_task_gets_nothing() {
+        let processing = TaskState { processing: true, ..TaskState::default() };
+        assert_eq!(offered(processing), Vec::<Action>::new());
+        let every_way = TaskState {
+            processing: true, active: true, planned: true, up_next: true, has_session: true, has_report: true,
+            ..TaskState::default()
+        };
+        assert_eq!(offered(every_way), Vec::<Action>::new());
+        assert_eq!(offered(TaskState { processing: true, waiting: true, ..TaskState::default() }), Vec::<Action>::new());
+        assert_eq!(offered(TaskState { processing: true, finished: true, ..TaskState::default() }), Vec::<Action>::new());
+    }
+
+    /// Read off the task's tags, as planned and up next are.
+    #[test]
+    fn of_reads_processing_from_the_tasks_tags() {
+        let t: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","status":"pending","tags":["processing"]}"#,
+        )
+        .unwrap();
+        assert_eq!(TaskState::of(&t, false, false), TaskState { processing: true, ..TaskState::default() });
     }
 
     /// An active task can be stopped, and started again, which goes back to
@@ -468,7 +505,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             TaskState::of(&task, false, true),
-            TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true, has_report: false }
+            TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true, has_report: false, processing: false }
         );
         let bare: Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
         assert_eq!(TaskState::of(&bare, true, false), TaskState { waiting: true, ..TaskState::default() });
