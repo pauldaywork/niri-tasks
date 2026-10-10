@@ -88,8 +88,8 @@ In an unattended run (`niritasks task refine <uuid> --unattended`'s second
 step, after `refine-task` in `auto` mode) the tool does not open the
 browser: nobody is at the screen, and the `Report: <path>` note is how the
 report is found later. Its answer then reads **Wrote the report to … and
-linked it from the task**, without *opened it*; everything else is the
-same, and you still end at step 5.
+linked it from the task** and does not mention opening the browser;
+everything else is the same, and you still end at step 5.
 
 Its answer says what happened:
 

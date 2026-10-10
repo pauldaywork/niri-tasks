@@ -45,8 +45,8 @@ command, given up front, as a Report session's is, and the skill's `auto`
 mode records every question it decided for them as a `Decided:` note. What
 bounds the run is unchanged: the sandbox, the hidden sockets and
 credentials, the removed tools and the standing instruction, none of which
-the mode touches. The task carries `+processing` while it runs, so nothing
-else writes it meanwhile. The decision is unchanged.
+the mode touches. The task carries `+processing` while it runs, so the card
+and the commands that start a Claude leave it alone meanwhile. The decision is unchanged.
 
 Refine starts Claude in a herdr tab fenced in from outside: `refine.rs` and
 `herdr.rs` hand it a Bash sandbox, hidden sockets and credentials, a list of

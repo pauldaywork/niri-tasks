@@ -131,7 +131,8 @@ Stop, Waiting and Remove, an active task getting Stop in place of Start
 working, only a planned task getting Report, only a task with a live Claude
 getting Go to session, a waiting task getting just Back to list, Edit, Speak,
 Complete, Move to workspace and Remove, and a finished one just Back to list,
-Edit, Speak and Remove — each running its task action's `niritasks` command.
+Edit, Speak and Remove, and a card being planned in the background (a
+processing one) getting no row at all — each running its task action's `niritasks` command.
 Enter or a click on the card's body shows or hides the task's id, uuid and
 notes instead (see Task card).
 After the buttons, dimmed, the hint names the keys that change from card to

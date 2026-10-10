@@ -178,7 +178,7 @@ and says so once.
 
 [herdr](https://herdr.dev) is optional. With it on `$PATH`, `niritasks project
 open` runs the workspace's herdr session in the project terminal; without it the
-terminal is a plain shell in the project folder. A card's **Refine**, **Grill me** and **Report** need both herdr and Claude Code, and the box's **Add & all** Claude Code alone, (`claude`, 2.1.287 or later for Refine's mod) on `$PATH` — they open
+terminal is a plain shell in the project folder. A card's **Refine**, **Grill me** and **Report** need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod), and the box's **Add & all** Claude Code alone, on `$PATH` — they open
 Claude inside that session — plus `bubblewrap` and `socat` for the Bash
 sandbox that keeps that Claude to reading the project and writing only the
 task (`sudo apt install bubblewrap socat`). Without them Claude refuses to
@@ -325,7 +325,9 @@ decided with its recommended answer and recorded as a `Decided:` note), then
 to build the report and link it from the task's notes as `Report: <path>`,
 without opening it. The card is dimmed with an hourglass meanwhile and offers
 nothing; a notification says `Planned and reported` when both are done, or
-which step failed and where its log is (`~/.local/share/niri-tasks/unattended/`).
+which step failed and where its log is
+(`$XDG_DATA_HOME/niri-tasks/unattended/`, by default
+`~/.local/share/niri-tasks/unattended/`).
 Add & all has no key and needs Claude Code but not herdr. If a refine fails,
 either way the task stays added and a notification says why.
 

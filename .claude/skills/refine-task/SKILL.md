@@ -176,7 +176,7 @@ The tool shows the user the description and notes it was given, asks
 "Write this to the task?", and writes only if they choose **Write it to the
 task**. It writes the description, replaces the notes (adding a note that
 links each report made this session) and adds `+planned` in one import, and
-touches nothing else. Its answer says what happened:
+touches nothing else.
 
 In `auto` mode the tool asks no one: it logs the plan, reads the task again,
 writes and answers **Wrote the plan …**. Call it once; if it names a defect in
@@ -184,6 +184,8 @@ the plan itself (a line too long, a hidden character, a note on two lines), fix
 that and call once more. That is the only retry: on any other **Nothing
 written** or failure, stop and say what it answered — there is no one to ask,
 and the run reports the task as unplanned.
+
+Its answer says what happened:
 
 - **Wrote the plan …** — go to step 6.
 - **Nothing written: the person chose "Change something"** — ask them what to
