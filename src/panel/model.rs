@@ -79,6 +79,9 @@ impl Card {
             Status::Blocked => "\u{f023}",
             // Font Awesome's hourglass, half run: being planned, wait.
             Status::Processing => "\u{f252}",
+            // Font Awesome's file-text, the Report button's own icon: a plan
+            // with a report to open, as a waiting card wears Waiting's pause.
+            Status::Planned if self.has_report => "\u{f15c}",
             // The pending circle filled in: still waiting, but worked up.
             Status::Planned => "●",
             // Font Awesome's pause, the Waiting button's own icon.
@@ -429,6 +432,16 @@ mod tests {
         t
     }
 
+    /// A planned task whose notes link a refine report.
+    fn reported(uuid: &str, active: bool) -> Task {
+        let mut t = planned(uuid, active);
+        t.annotations = vec![crate::task::Annotation {
+            entry: "20261006T020000Z".into(),
+            description: "Report: /r/a.html".into(),
+        }];
+        t
+    }
+
     fn with_priority(mut t: Task, p: &str) -> Task {
         t.priority = Some(p.into());
         t
@@ -564,6 +577,32 @@ mod tests {
         let got = cards(&todo(vec![planned("p", false)]), &[]);
         assert_eq!(got[0].status, Status::Planned);
         assert_eq!(got[0].icon(), "●");
+    }
+
+    /// A planned task whose notes link a report wears the Report button's
+    /// glyph instead of the filled dot, so the card says at a glance that a
+    /// report is there to open. Only the dot gives way: started, blocked and
+    /// processing outrank planned and keep their icons, and an earlier
+    /// draft's note is not the plan's report.
+    #[test]
+    fn a_planned_task_with_a_report_wears_the_report_glyph() {
+        let got = cards(&todo(vec![reported("p", false)]), &[]);
+        assert_eq!(got[0].status, Status::Planned);
+        assert_eq!(got[0].icon(), "\u{f15c}");
+        assert_eq!(cards(&todo(vec![planned("q", false)]), &[])[0].icon(), "●", "no report, the dot stays");
+
+        assert_eq!(cards(&todo(vec![reported("s", true)]), &[])[0].icon(), "▶");
+        assert_eq!(cards(&todo(vec![reported("b", false)]), &["b".into()])[0].icon(), "\u{f023}");
+        let mut busy = reported("h", false);
+        busy.tags.push(crate::task::PROCESSING_TAG.into());
+        assert_eq!(cards(&todo(vec![busy]), &[])[0].icon(), "\u{f252}");
+
+        let mut drafted = planned("d", false);
+        drafted.annotations = vec![crate::task::Annotation {
+            entry: "20261006T010000Z".into(),
+            description: "Report (earlier draft): /r/old.html".into(),
+        }];
+        assert_eq!(cards(&todo(vec![drafted]), &[])[0].icon(), "●", "an earlier draft's report is not the plan's");
     }
 
     #[test]
