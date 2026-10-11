@@ -104,8 +104,10 @@ git -C M rev-list --left-right --count main...origin/main   # "<ahead> <behind>"
 
 **7. Merge, then push.**
 ```bash
+OLD=$(git -C M rev-parse main)     # what main was: steps 8 and 10 use <old>..<new>
 wt merge --no-squash --no-remove   # fast-forwards main to the branch, every commit kept
 git -C M push origin main
+NEW=$(git -C M rev-parse main)
 ```
 - Never pass `--yes`, and never force-push.
 - If `wt merge` stops for a hook approval, stop and ask the user to run that
@@ -115,14 +117,36 @@ git -C M push origin main
   twice, then stop.
 - Release the lock once the push has succeeded.
 
-**8. Mark the task completed.** The work is on origin now, so it's done, even if
-cleanup fails.
+**8. Mark the task completed, and link its plan.** The work is on origin now, so
+it's done, even if cleanup fails.
 ```bash
 niritasks task status <uuid8> completed
 ```
 Confirm with `task rc.json.array=on <uuid8> export` that its status is now
 `completed`. Always go through `niritasks`, never `task done`: niritasks is the
 one path a task card's Complete also uses, and it sends the same notification.
+
+Then link the plan and spec documents the branch added, so they can be found
+from the task later. The Claude that planned the task was asked to add a
+`Plan: <path>` note when it saved the plan; this is the backstop from git for
+when it didn't.
+```bash
+NOTES=$(task rc.json.array=on <uuid8> export | jq -r '.[0].annotations[]?.description')
+git -C M diff --name-only --diff-filter=A "$OLD..$NEW" -- docs/superpowers/plans docs/superpowers/specs |
+while read -r p; do
+  case "$p" in docs/superpowers/specs/*) note="Spec: $p" ;; *) note="Plan: $p" ;; esac
+  if grep -qxF "$note" <<<"$NOTES"; then echo "already linked: $note"
+  else niritasks task note <uuid8> "$note" && echo "linked: $note"; fi
+done
+```
+- The path is repo-relative, exactly as `git diff` prints it: the worktree is
+  about to be removed, so a worktree path would go stale.
+- Only files the range *added* count. A plan the branch edited was linked when
+  it was written.
+- Never `task <uuid8> annotate`: a path can look like an attribute, and
+  `niritasks task note` passes `--` so it never does.
+- Nothing printed means the branch added no plan or spec, which is normal for a
+  branch that was not planned with writing-plans. Say so in the report.
 
 **9. Clean up.** This deletes the worktree the shell is standing in, so from
 here on run everything with `-C M`.
@@ -139,6 +163,8 @@ work has already landed.
 - the tests that ran and their result, and the suites skipped
 - each conflict resolved, and how
 - the task completed (or "no task: branch isn't `task/…`")
+- the `Plan:` and `Spec:` notes added, the ones already there, or "no plan or
+  spec doc added"
 - anything left behind
 
 Don't close the herdr workspace. This session runs in it, and closing it would
