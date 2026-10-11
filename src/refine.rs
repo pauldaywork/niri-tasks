@@ -132,8 +132,9 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// already can. Without it the tool asks outside the project, where the
 /// installed skills, the report catalogue, an unattended run's log and the
 /// reviews folder all live, and an unattended run has no one to answer.
-/// The [`CREDENTIALS`] deny rules win over it, so nothing opens that Bash
-/// could not read already. One rule for every project, not a list of
+/// Deny rules win over it: the [`CREDENTIALS`], and every path `hidden`
+/// hides from sandboxed Bash, so the tool opens nothing Bash could not read
+/// already. One rule for every project, not a list of
 /// folders.
 /// The write itself is the refine mod's tool, which `pluginConfigs` tells
 /// which task it may write: `uuid`, never anything the model says.
@@ -143,7 +144,8 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// unattended run, where the write tool writes with no question and the
 /// report tool opens nothing (see [`run_unattended`]).
 pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uuid: &str, reports: &Path, mode: Mode, unattended: bool) -> String {
-    let deny: Vec<String> = CREDENTIALS.iter().map(|c| format!("Read({c})")).collect();
+    let mut deny: Vec<String> = CREDENTIALS.iter().map(|c| format!("Read({c})")).collect();
+    deny.extend(hidden.iter().map(|p| format!("Read(//{}/**)", p.display().to_string().trim_start_matches('/'))));
     let allow = ["WebSearch", "WebFetch", "Bash(task *)", "Read(//**)"];
     serde_json::json!({
         "permissions": {
@@ -746,11 +748,13 @@ mod tests {
     /// no one to answer, while sandboxed Bash can read them anyway. `//` is
     /// Claude Code's absolute form; one `/` would be the project's.
     /// Credentials still cannot be read through it, the one reader the Bash
-    /// sandbox does not cover: a deny rule wins over an allow. No `python3`:
-    /// the write is the mod's tool now.
+    /// sandbox does not cover: a deny rule wins over an allow. The Read tool
+    /// is also denied every path the sandbox hides from Bash, so it reads no
+    /// further than Bash. No `python3`: the write is the mod's tool now.
     #[test]
     fn the_session_may_search_the_web_but_not_read_credentials() {
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), Mode::Quick, false);
+        let hidden = [PathBuf::from("/run"), PathBuf::from("/home/x/.config/herdr")];
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &hidden, "u", Path::new("/r"), Mode::Quick, false);
         let v: Value = serde_json::from_str(&json).unwrap();
         let allow = v["permissions"]["allow"].as_array().unwrap();
         for tool in ["WebSearch", "WebFetch", "Bash(task *)", "Read(//**)"] {
@@ -762,7 +766,9 @@ mod tests {
         let deny = v["permissions"]["deny"].as_array().unwrap();
         assert!(deny.iter().any(|d| d == "Read(~/.ssh/**)"));
         assert!(deny.iter().any(|d| d == "Read(~/.claude/.credentials.json)"));
-        assert_eq!(deny.len(), CREDENTIALS.len());
+        assert!(deny.iter().any(|d| d == "Read(//run/**)"));
+        assert!(deny.iter().any(|d| d == "Read(//home/x/.config/herdr/**)"));
+        assert_eq!(deny.len(), CREDENTIALS.len() + hidden.len());
     }
 
     /// The task the mod may write, and where it may write a report, come from
