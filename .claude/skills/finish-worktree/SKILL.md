@@ -104,10 +104,10 @@ git -C M rev-list --left-right --count main...origin/main   # "<ahead> <behind>"
 
 **7. Merge, then push.**
 ```bash
-OLD=$(git -C M rev-parse main)     # what main was: steps 8 and 10 use <old>..<new>
+git -C M rev-parse main               # note this as <old>: steps 8 and 10 use <old>..<new>
 wt merge --no-squash --no-remove   # fast-forwards main to the branch, every commit kept
 git -C M push origin main
-NEW=$(git -C M rev-parse main)
+git -C M rev-parse main               # and this as <new>
 ```
 - Never pass `--yes`, and never force-push.
 - If `wt merge` stops for a hook approval, stop and ask the user to run that
@@ -132,11 +132,11 @@ from the task later. The Claude that planned the task was asked to add a
 when it didn't.
 ```bash
 NOTES=$(task rc.json.array=on <uuid8> export | jq -r '.[0].annotations[]?.description')
-git -C M diff --name-only --diff-filter=A "$OLD..$NEW" -- docs/superpowers/plans docs/superpowers/specs |
+git -C M diff --name-only --diff-filter=A <old>..<new> -- docs/superpowers/plans docs/superpowers/specs |
 while read -r p; do
   case "$p" in docs/superpowers/specs/*) note="Spec: $p" ;; *) note="Plan: $p" ;; esac
   if grep -qxF "$note" <<<"$NOTES"; then echo "already linked: $note"
-  else niritasks task note <uuid8> "$note" && echo "linked: $note"; fi
+  else niritasks task note <uuid8> "$note" </dev/null && echo "linked: $note"; fi
 done
 ```
 - The path is repo-relative, exactly as `git diff` prints it: the worktree is
