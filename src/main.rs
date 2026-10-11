@@ -854,4 +854,18 @@ mod tests {
             "llms.txt has no H3s: the free section allows no headings, the H2s are link lists"
         );
     }
+
+    /// Every row of the panel's Go to list runs its own `niritasks` words,
+    /// so each has to be a command the real CLI accepts.
+    #[test]
+    fn every_go_to_row_is_a_command_the_cli_accepts() {
+        use niri_tasks::panel::goto::Item;
+        for item in Item::ALL {
+            let mut argv = vec!["niritasks".to_string()];
+            argv.extend(item.args("c53b6e3d"));
+            if let Err(e) = Cli::try_parse_from(&argv) {
+                panic!("{item:?} runs {argv:?}, which the CLI rejects: {e}");
+            }
+        }
+    }
 }

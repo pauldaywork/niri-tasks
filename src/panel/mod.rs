@@ -3,6 +3,7 @@
 
 pub mod actions;
 pub mod blur;
+pub mod goto;
 pub mod keys;
 pub mod layout;
 pub mod matching;
