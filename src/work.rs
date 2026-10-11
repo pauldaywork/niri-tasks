@@ -61,11 +61,20 @@ pub fn branch_name(description: &str, uuid: &str) -> String {
 
 /// What the working Claude is asked first: plan the task, reading the task
 /// itself for the spec — only the uuid crosses, as with Refine, so nothing
-/// needs quoting through herdr and it always sees the current version.
+/// needs quoting through herdr and it always sees the current version — and
+/// link the saved plan from the task as `Plan: <path>`, the way a refine
+/// report is linked by `Report: <path>`. The path is repo-relative, so it
+/// holds in the worktree and on `main` once the branch lands and the
+/// worktree is gone. `finish-worktree` adds the note if this is forgotten.
 pub fn plan_prompt(uuid: &str) -> String {
     format!(
         "/superpowers:writing-plans Plan Taskwarrior task {uuid}. Read it with \
-         `task rc.json.array=on {uuid} export`; its description and notes are the spec."
+         `task rc.json.array=on {uuid} export`; its description and notes are the spec. \
+         Once the plan is saved, link it from the task with \
+         `niritasks task note {uuid} \"Plan: <path relative to the repo root>\"`, \
+         and any spec you write with \
+         `niritasks task note {uuid} \"Spec: <path relative to the repo root>\"`; \
+         never raw `task annotate`."
     )
 }
 
@@ -354,7 +363,7 @@ mod tests {
         assert_eq!(branch_name("Fix the peek", u), "task/fix-the-peek-7cd9fd3a");
         assert_eq!(
             plan_prompt("u-1"),
-            "/superpowers:writing-plans Plan Taskwarrior task u-1. Read it with `task rc.json.array=on u-1 export`; its description and notes are the spec."
+            "/superpowers:writing-plans Plan Taskwarrior task u-1. Read it with `task rc.json.array=on u-1 export`; its description and notes are the spec. Once the plan is saved, link it from the task with `niritasks task note u-1 \"Plan: <path relative to the repo root>\"`, and any spec you write with `niritasks task note u-1 \"Spec: <path relative to the repo root>\"`; never raw `task annotate`."
         );
     }
 
