@@ -45,6 +45,15 @@ pub struct ReportNote {
     pub date: String,
 }
 
+/// What a note linking the task's design spec starts with: `Spec: <path>`,
+/// the path relative to the repository (`docs/superpowers/specs/<file>.md`),
+/// as the working Claude writes it. The card's Go to… opens it.
+pub const SPEC_NOTE: &str = "Spec: ";
+
+/// What a note linking the task's implementation plan starts with:
+/// `Plan: <path>`, relative to the repository as a spec's is.
+pub const PLAN_NOTE: &str = "Plan: ";
+
 /// The tag `niritasks task refine --unattended` puts on a task while its
 /// two Claude runs last, and takes off when they end, however they end. A
 /// tag, not a file or a pid: the panel already redraws on a database change,
@@ -145,15 +154,31 @@ impl Task {
     /// `Report (earlier draft):` note is a report of a plan since changed,
     /// and never counts. A `Report:` note with nothing after it is skipped.
     pub fn report_path(&self) -> Option<&str> {
-        self.annotations
-            .iter()
-            .rev()
-            .find_map(|a| {
-                a.description
-                    .strip_prefix(REPORT_NOTE)
-                    .map(str::trim)
-                    .filter(|p| !p.is_empty())
-            })
+        self.linked(REPORT_NOTE)
+    }
+
+    /// The design spec linked from the task's notes: the newest
+    /// `Spec: <path>` note's path, read as [`Task::report_path`] reads a
+    /// report's. None on a task with no such note.
+    pub fn spec_path(&self) -> Option<&str> {
+        self.linked(SPEC_NOTE)
+    }
+
+    /// The implementation plan linked from the task's notes: the newest
+    /// `Plan: <path>` note's path. None on a task with no such note.
+    pub fn plan_path(&self) -> Option<&str> {
+        self.linked(PLAN_NOTE)
+    }
+
+    /// The path the newest note starting with `prefix` links, trimmed. A
+    /// note with nothing after the prefix is skipped.
+    fn linked(&self, prefix: &str) -> Option<&str> {
+        self.annotations.iter().rev().find_map(|a| {
+            a.description
+                .strip_prefix(prefix)
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+        })
     }
 
     /// Every report the task's notes link, the newest first: `Report:` and
@@ -1295,6 +1320,43 @@ mod tests {
         )
         .unwrap();
         assert_eq!(only_blank.report_path(), None);
+    }
+
+    /// A task's design spec and plan are the newest `Spec:` and `Plan:`
+    /// notes, read as its report is: trimmed, repository-relative as the
+    /// working Claude writes them, and each apart from the others.
+    #[test]
+    fn the_newest_spec_and_plan_notes_are_the_tasks() {
+        let t: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[
+                {"entry":"20261006T010000Z","description":"Plan: docs/superpowers/plans/old.md"},
+                {"entry":"20261006T020000Z","description":"Spec: docs/superpowers/specs/a.md "},
+                {"entry":"20261006T030000Z","description":"Plan: docs/superpowers/plans/new.md"},
+                {"entry":"20261006T040000Z","description":"Report: /r/a.html"}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(t.spec_path(), Some("docs/superpowers/specs/a.md"));
+        assert_eq!(t.plan_path(), Some("docs/superpowers/plans/new.md"));
+        assert_eq!(t.report_path(), Some("/r/a.html"));
+    }
+
+    /// No note, a note that merely mentions a plan, or a blank one: no
+    /// spec and no plan.
+    #[test]
+    fn a_task_without_a_spec_or_plan_note_has_neither() {
+        let t: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[
+                {"entry":"20261006T010000Z","description":"Goal: x"},
+                {"entry":"20261006T020000Z","description":"Steps: Plan: not a link"},
+                {"entry":"20261006T030000Z","description":"Plan:  "}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(t.spec_path(), None);
+        assert_eq!(t.plan_path(), None);
+        let bare: Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
+        assert_eq!((bare.spec_path(), bare.plan_path()), (None, None));
     }
 
     /// `entry` and `priority` are what the panel sorts by; a task with no
