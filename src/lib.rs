@@ -14,6 +14,7 @@ pub mod link;
 pub mod names;
 pub mod niri;
 pub mod notify;
+pub mod open;
 pub mod paint;
 pub mod panel;
 pub mod programs;

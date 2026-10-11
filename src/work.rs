@@ -96,6 +96,37 @@ pub fn find_task_worktree(list: &Value, uuid: &str) -> Option<TaskWorktree> {
     })
 }
 
+/// The worktree checked out on the task's branch, `task/…-<uuid8>`, in a
+/// `git worktree list --porcelain`. Matched by uuid alone, as
+/// [`find_task_worktree`] matches worktrunk's list.
+pub fn worktree_in_porcelain(porcelain: &str, uuid: &str) -> Option<PathBuf> {
+    let suffix = format!("-{}", names::uuid8(uuid));
+    let mut path = None;
+    for line in porcelain.lines() {
+        if let Some(p) = line.strip_prefix("worktree ") {
+            path = Some(PathBuf::from(p));
+        } else if let Some(branch) = line.strip_prefix("branch refs/heads/") {
+            if branch.starts_with("task/") && branch.ends_with(&suffix) {
+                return path;
+            }
+        }
+    }
+    None
+}
+
+/// The task's worktree folder, if it has one. Best effort and quick, for
+/// the panel's Go to list and `task open`: git's own list, which reads no
+/// status, rather than worktrunk's. None when the workspace's folder is no
+/// git repository or git cannot list it.
+pub fn worktree_path(ws: &Workspace, uuid: &str) -> Option<PathBuf> {
+    let repo = ws.folder(&Dirs::from_env().ok()?);
+    let out = Command::new("git").arg("-C").arg(&repo).args(["worktree", "list", "--porcelain"]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    worktree_in_porcelain(&String::from_utf8_lossy(&out.stdout), uuid)
+}
+
 /// The branch and worktree a `wt switch --format=json` landed on.
 pub fn switch_result(result: &Value) -> Option<TaskWorktree> {
     Some(TaskWorktree {
@@ -337,6 +368,22 @@ fn create_worktree(repo: &Path, branch: &str) -> Result<TaskWorktree> {
 
 #[cfg(test)]
 mod tests {
+    /// git's own list, as `git worktree list --porcelain` prints it: the
+    /// task's worktree is the one on its `task/…-<uuid8>` branch, whatever
+    /// the slug says now.
+    #[test]
+    fn a_tasks_worktree_is_found_in_gits_list_by_uuid_alone() {
+        let porcelain = "worktree /p/repo\nHEAD abc\nbranch refs/heads/main\n\n\
+                         worktree /w/repo/task-old-name-7cd9fd3a\nHEAD def\nbranch refs/heads/task/old-name-7cd9fd3a\n\n\
+                         worktree /w/repo/elsewhere\nHEAD 123\ndetached\n\n";
+        assert_eq!(
+            worktree_in_porcelain(porcelain, "7CD9FD3A-d27b"),
+            Some(PathBuf::from("/w/repo/task-old-name-7cd9fd3a"))
+        );
+        assert_eq!(worktree_in_porcelain(porcelain, "11111111-x"), None);
+        assert_eq!(worktree_in_porcelain("", "7cd9fd3a"), None);
+    }
+
     use super::*;
 
     #[test]

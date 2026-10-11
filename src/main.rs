@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 use niri_tasks::{
-    actions::{Action, TaskState}, dirs, docs, github, ipc, link, niri, notify, programs, project, refine, speak, task,
+    actions::{Action, TaskState}, dirs, docs, github, ipc, link, niri, notify, open, programs, project, refine, speak, task,
     text, work, workspace::Workspace,
 };
 
@@ -253,6 +253,22 @@ enum TaskCommand {
         #[arg(long)]
         refine: bool,
     },
+    /// Open a task's design spec, implementation plan, worktree or project in VS Code
+    ///
+    /// spec and plan open the file a `Spec: <path>` or `Plan: <path>` note
+    /// links, with xdg-open; the path is the repository's
+    /// (`docs/superpowers/plans/<file>.md`), read in the task's worktree
+    /// while it has one, else in the workspace's ~/Projects folder. worktree
+    /// opens a terminal in the task's worktree; editor opens VS Code on it,
+    /// else on the project folder. Anything missing is an error. What the
+    /// task panel's Go to list runs. The workspace is this herdr session's
+    /// in a herdr pane, else the focused one.
+    Open {
+        /// The task's uuid, or its first 8 characters
+        uuid: String,
+        /// What to open: spec, plan, worktree or editor
+        what: open::Target,
+    },
 }
 
 #[derive(Subcommand)]
@@ -493,6 +509,12 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             };
             link::go_to(&workspace, &t.uuid, which)?;
         }
+
+        TaskCommand::Open { uuid, what } => {
+            let workspace = Workspace::of_caller()?;
+            let t = task::get(&uuid)?.context("task not found")?;
+            open::open(&workspace, &t, what)?;
+        }
     }
     Ok(())
 }
@@ -555,6 +577,18 @@ fn terminal() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    /// The Go to list's Planning doc, Design spec, Open worktree folder and
+    /// Open in VS Code run these; a script can too. Only these four, and
+    /// one is required.
+    #[test]
+    fn opening_a_tasks_documents_worktree_or_editor_is_a_command() {
+        for what in ["spec", "plan", "worktree", "editor"] {
+            assert!(Cli::try_parse_from(["niritasks", "task", "open", "c53b6e3d", what]).is_ok(), "{what}");
+        }
+        assert!(Cli::try_parse_from(["niritasks", "task", "open", "c53b6e3d", "report"]).is_err());
+        assert!(Cli::try_parse_from(["niritasks", "task", "open", "c53b6e3d"]).is_err());
+    }
+
     use super::*;
     use clap::CommandFactory;
 

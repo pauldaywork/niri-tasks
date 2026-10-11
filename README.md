@@ -335,6 +335,11 @@ niritasks task start <uuid> --here --workspace <name>
 niritasks task session <uuid>      # back to the Claude working on it (work-/task-<uuid8>) in the herdr session
 niritasks task session <uuid> --work    #   its working Claude alone (work-<uuid8>): the Go to list's Go to work session
 niritasks task session <uuid> --refine  #   its refine Claude alone (task-<uuid8>): Go to refine session
+niritasks task open <uuid> spec    # open the design spec its notes link (Spec: <path>) with xdg-open, read in its
+                                   #   worktree while it has one, else the project folder
+niritasks task open <uuid> plan    #   the same for its plan (Plan: <path>)
+niritasks task open <uuid> worktree  # a terminal in its worktree
+niritasks task open <uuid> editor  # VS Code on its worktree, else the project folder
 niritasks project open             # the panel's project list: pick a ~/Projects folder or GitHub repo
                                    #   onto its own named workspace, or type a new name (Mod+Alt+W)
 niritasks project open <name>      # open that one, cloning or making it first: what a pick runs
