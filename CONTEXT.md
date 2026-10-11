@@ -62,6 +62,17 @@ linked, the card's dot becomes the report icon, its Report opens it, and
 `niritasks task report <uuid> --fresh` builds another.
 _Avoid_: plan report, explainer
 
+**Plan note**:
+A `Plan: docs/superpowers/plans/<file>.md` note on a task worked through Start
+working, linking the implementation plan the `writing-plans` skill saved, the
+way a refine report is linked by `Report: <path>`; a spec, when one is written,
+is linked the same way as `Spec: docs/superpowers/specs/<file>.md`. The path is
+repo-relative, so it holds once the worktree is gone. The worktree's Claude
+adds it when it saves the plan, and `finish-worktree` adds any the branch added
+that the task doesn't yet carry. Added with `niritasks task note`, never raw
+`task annotate`.
+_Avoid_: plan link, plan annotation
+
 **Up next task**:
 A pending task marked as the one to do next, with Taskwarrior's own `+next`
 tag, from Up next on its action row. Its task card is

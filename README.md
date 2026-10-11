@@ -50,7 +50,7 @@ under it:
 | Button | Key | Does |
 |---|---|---|
 | **Go to session** (blue) | `g` | Back to the Claude working on the task — only while one is, checked as the panel slides out |
-| **Start working** (green) | `s` | The task's own worktree, herdr tab and Claude — not on an active task, which is already being worked |
+| **Start working** (green) | `s` | The task's own worktree, herdr tab and Claude, which plans the task first and links the plan it saves as a `Plan: docs/superpowers/plans/<file>.md` note — not on an active task, which is already being worked |
 | **Refine** (mauve) | `r` | Work it up into a plan with Claude |
 | **Grill me** (mauve) | `i` | Refine, with Claude interviewing you about it first |
 | **Report** (mauve) | `p` | Claude builds the HTML report of the task's plan — what changes, what needs your eye, diagrams, files and checks — opens it in the browser and adds a `Report: <path>` note to the task, without refining again — only on a planned task on the list. Once the task has that note the button reads **Open report** and opens the file instead; `niritasks task report <uuid> --fresh` builds a new one |
@@ -206,8 +206,10 @@ that task active (`niritasks task status <uuid> active`): its agent is named
 When the work is done, `/finish-worktree` in that worktree's Claude lands it:
 it syncs `main` with origin, rebases the branch and tests the result, then
 fast-forwards `main`, pushes, marks the task completed with `niritasks task status`,
-and removes the worktree. It stops to ask only for a conflict with no obvious
-resolution, red tests, or `main` holding commits origin doesn't have.
+links any plan or spec doc the branch added that the task doesn't yet carry as a
+`Plan:` or `Spec:` note, and removes the worktree. It stops to ask only for a
+conflict with no obvious resolution, red tests, or `main` holding commits origin
+doesn't have.
 
 To throw an attempt away instead, `/reject-worktree` in that worktree's Claude
 removes the worktree and its branch, locally and on origin, and puts the task
