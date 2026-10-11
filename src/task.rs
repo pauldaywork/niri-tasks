@@ -29,6 +29,22 @@ pub const UP_NEXT_TAG: &str = "next";
 /// report of a plan since changed, and is not the task's report.
 pub const REPORT_NOTE: &str = "Report: ";
 
+/// What a note linking a report of a plan since changed starts with, as the
+/// refine mod writes it. Never the task's report, but still one of its
+/// documents.
+pub const EARLIER_DRAFT_NOTE: &str = "Report (earlier draft): ";
+
+/// One report a task's notes link, as `task docs` lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReportNote {
+    /// The HTML report's path, trimmed.
+    pub path: String,
+    /// Linked as `Report (earlier draft):`.
+    pub draft: bool,
+    /// The note's date, as [`Annotation::date`] writes it.
+    pub date: String,
+}
+
 /// The tag `niritasks task refine --unattended` puts on a task while its
 /// two Claude runs last, and takes off when they end, however they end. A
 /// tag, not a file or a pid: the panel already redraws on a database change,
@@ -140,6 +156,24 @@ impl Task {
             })
     }
 
+    /// Every report the task's notes link, the newest first: `Report:` and
+    /// `Report (earlier draft):` notes alike, the second marked. A note with
+    /// nothing after its prefix is skipped, as [`Task::report_path`] skips it.
+    pub fn report_notes(&self) -> Vec<ReportNote> {
+        self.annotations
+            .iter()
+            .rev()
+            .filter_map(|a| {
+                let (rest, draft) = match a.description.strip_prefix(REPORT_NOTE) {
+                    Some(rest) => (rest, false),
+                    None => (a.description.strip_prefix(EARLIER_DRAFT_NOTE)?, true),
+                };
+                let path = rest.trim();
+                (!path.is_empty()).then(|| ReportNote { path: path.to_string(), draft, date: a.date() })
+            })
+            .collect()
+    }
+
     /// The priority as a number to sort by, highest first: H over M over L
     /// over none. Anything else counts as none, as taskwarrior allows no
     /// other value.
@@ -215,7 +249,7 @@ pub fn now_secs() -> i64 {
 
 /// A taskwarrior stamp, `20261006T120929Z`, as Unix seconds. Always UTC: the
 /// `Z` is part of the shape.
-fn stamp_secs(stamp: &str) -> Option<i64> {
+pub fn stamp_secs(stamp: &str) -> Option<i64> {
     let b = stamp.as_bytes();
     if b.len() != 16 || b[8] != b'T' || b[15] != b'Z' {
         return None;
@@ -1181,6 +1215,28 @@ mod tests {
         )
         .unwrap();
         assert_eq!(t.report_path(), Some("/r/a b.html"));
+    }
+
+    /// Every report the task links, newest first, earlier drafts marked, for
+    /// `task docs`. A mention, a missing space or a blank path is no report.
+    #[test]
+    fn report_notes_lists_every_report_newest_first() {
+        let t: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[
+                {"entry":"20261006T010000Z","description":"Report (earlier draft): /r/old.html"},
+                {"entry":"20261006T020000Z","description":"See the Report: /r/not-this.html"},
+                {"entry":"20261007T030000Z","description":"Report: /r/new.html "},
+                {"entry":"20261007T040000Z","description":"Report:  "}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            t.report_notes(),
+            vec![
+                ReportNote { path: "/r/new.html".into(), draft: false, date: "2026-10-07".into() },
+                ReportNote { path: "/r/old.html".into(), draft: true, date: "2026-10-06".into() },
+            ]
+        );
     }
 
     /// A `Report:` note with nothing after it links nothing, and does not

@@ -8,9 +8,9 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use niri_tasks::{
-    actions::{Action, TaskState}, dirs, github, ipc, link, niri, notify, programs, project, refine, speak, task,
+    actions::{Action, TaskState}, dirs, docs, github, ipc, link, niri, notify, programs, project, refine, speak, task,
     text, work, workspace::Workspace,
 };
 
@@ -197,6 +197,25 @@ enum TaskCommand {
         /// Build a new report even when the task's notes link one
         #[arg(long)]
         fresh: bool,
+    },
+    /// List a task's documents, one per line: a label, a tab, the path
+    ///
+    /// What herdr's task-docs plugin lists to open in plannotator-tui beside
+    /// the task's Claude. First the reports its notes link, newest first:
+    /// each one's Markdown twin, or its HTML when it was made before twins.
+    /// Then, with --notes-dir, its description and notes, written there as
+    /// task-<uuid8>.md. Then the Markdown plans in the project's
+    /// docs/superpowers/plans and in ~/.claude/plans changed since the task
+    /// was added, newest first.
+    Docs {
+        /// The task's uuid, or its first 8 characters
+        uuid: String,
+        /// The project folder whose docs/superpowers/plans to look in; this folder when left out
+        #[arg(long)]
+        project: Option<PathBuf>,
+        /// Write the task's description and notes into this folder as Markdown, and list that file
+        #[arg(long)]
+        notes_dir: Option<PathBuf>,
     },
     /// Start working on a task in its own git worktree, with Claude planning it
     ///
@@ -437,6 +456,19 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             refine::launch(&workspace, &t, refine::Mode::Report)?;
         }
 
+        TaskCommand::Docs { uuid, project, notes_dir } => {
+            let t = task::get(&uuid)?.with_context(|| format!("No task {uuid}."))?;
+            let dirs = dirs::Dirs::from_env()?;
+            let project = match project {
+                Some(p) => p,
+                None => std::env::current_dir().context("could not read this folder")?,
+            };
+            let notes = notes_dir.map(|d| docs::write_notes(&d, &t)).transpose()?;
+            for doc in docs::list(&t, &dirs, &project, notes.as_deref()) {
+                println!("{}", doc.line());
+            }
+        }
+
         TaskCommand::Session { uuid } => {
             let workspace = Workspace::of_caller()?;
             // The uuid as found, not as typed: the agent's name is made from
@@ -590,6 +622,16 @@ mod tests {
     fn a_fresh_report_is_a_flag_on_task_report() {
         assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d"]).is_ok());
         assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d", "--fresh"]).is_ok());
+    }
+
+    /// herdr's task-docs plugin runs this to list a task's documents.
+    #[test]
+    fn listing_a_tasks_documents_is_a_command() {
+        assert!(Cli::try_parse_from(["niritasks", "task", "docs", "c53b6e3d"]).is_ok());
+        assert!(Cli::try_parse_from([
+            "niritasks", "task", "docs", "c53b6e3d", "--project", "/p", "--notes-dir", "/s"
+        ])
+        .is_ok());
     }
 
     /// Add & all starts this in the background, so it has to be a command

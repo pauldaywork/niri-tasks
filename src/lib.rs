@@ -6,6 +6,7 @@
 pub mod actions;
 pub mod daemon;
 pub mod dirs;
+pub mod docs;
 pub mod github;
 pub mod ideas;
 pub mod ipc;

@@ -280,6 +280,10 @@ niritasks task report <uuid>       # open the report of its plan linked from its
                                    #   built by Claude in the workspace's herdr session, opened in the browser
                                    #   and linked from the task's notes (a planned task only)
 niritasks task report <uuid> --fresh  #   build a new report even when its notes link one
+niritasks task docs <uuid> --project <dir> --notes-dir <dir>
+                                   # list its documents, label<TAB>path: its reports (the Markdown twin, else
+                                   #   the HTML), its notes written to --notes-dir as Markdown, and the plans
+                                   #   in <dir>/docs/superpowers/plans and ~/.claude/plans since it was added
 niritasks task start <uuid>        # its own worktree (task/<slug>-<uuid8>), opened in the herdr session,
                                    #   with Claude planning it; picked again, back to both
 niritasks task start <uuid> --here --workspace <name>
