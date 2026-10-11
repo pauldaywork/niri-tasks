@@ -491,12 +491,18 @@ fn speaking(path: &Path) -> Option<Speech> {
 }
 
 /// The task whose speech is still being got ready — Kokoro starting, Claude
-/// rewriting, the first audio on its way — if there is one. The panel shows
-/// a spinner on that task's Speak button until this goes back to `None`.
+/// rewriting, the first audio on its way — if there is one.
 pub fn preparing() -> Option<String> {
     speaking(&pid_file(std::env::var_os("XDG_RUNTIME_DIR")))
         .filter(|s| !s.playing)
         .map(|s| s.uuid)
+}
+
+/// Whether a speech is playing or being got ready, any task's: the Go to
+/// list's Read aloud reads Stop reading aloud then, as running `task
+/// speak` again stops it.
+pub fn speaking_now() -> bool {
+    speaking(&pid_file(std::env::var_os("XDG_RUNTIME_DIR"))).is_some()
 }
 
 /// Removes the pid file when the background speech ends, however it ends —

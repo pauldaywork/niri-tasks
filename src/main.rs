@@ -648,6 +648,11 @@ mod tests {
     #[test]
     fn every_task_action_is_a_command_the_cli_accepts() {
         for action in Action::ALL {
+            // Go to… runs nothing itself; its list's rows are checked in
+            // every_go_to_row_is_a_command_the_cli_accepts.
+            if action == Action::GoTo {
+                continue;
+            }
             let mut argv = vec!["niritasks".to_string()];
             argv.extend(action.args("c53b6e3d"));
             // Move's words stop short of the folder the project list picks.
@@ -698,7 +703,7 @@ mod tests {
         assert!(Cli::try_parse_from(["niritasks", "task", "refine", "c53b6e3d", "--unattended", "--grill"]).is_err());
     }
 
-    /// A card's Speak runs this.
+    /// The Go to list's Read aloud runs this.
     #[test]
     fn speaking_a_task_is_a_command() {
         assert!(Cli::try_parse_from(["niritasks", "task", "speak", "c53b6e3d"]).is_ok());

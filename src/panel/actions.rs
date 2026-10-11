@@ -1,5 +1,5 @@
 //! The action row: which of the task actions a card shows and in what
-//! order, which one Ctrl+Enter presses (`advance`), the key hints beside
+//! order, what Ctrl+Enter does (`advance`), the key hints beside
 //! them, the footer's text for the keys every card shares (`CARD_KEYS`), and
 //! the Waiting tab's Clear all. The facts about each action it draws by
 //! (glyph, class, key, colour, what a press does to the panel) are
@@ -11,14 +11,37 @@
 use crate::actions::{Action, TaskState};
 use Action::*;
 
+/// What Ctrl+Enter does to a card: press one of its buttons, or go to the
+/// Claude on the task, which no button on the row stands for now that the
+/// Go to list holds the sessions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Press(Action),
+    /// `task session <uuid>`: the working Claude, else the refine.
+    Session,
+}
+
+impl Step {
+    /// The step's words in the hint.
+    pub fn label(self, state: TaskState) -> &'static str {
+        match self {
+            Step::Press(action) => action.label(state),
+            Step::Session => "Go to session",
+        }
+    }
+
+    /// The `niritasks` arguments the step runs.
+    pub fn args(self, uuid: &str) -> Vec<String> {
+        match self {
+            Step::Press(action) => action.args(uuid),
+            Step::Session => ["task", "session", uuid].iter().map(|w| w.to_string()).collect(),
+        }
+    }
+}
+
 impl Action {
     /// What Remove reads between its first press and its second.
     pub const CONFIRM_REMOVE: &'static str = "Confirm remove";
-
-    /// What Speak shows in place of its speaker while the speech is being got
-    /// ready, one frame after another: braille dots going round. Iosevka has
-    /// them, so they sit centred in the cell like the text around them.
-    pub const SPINNER: [&'static str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
     /// What the hint reads on a card being planned in the background, where
     /// there are no buttons to name and nothing for Ctrl+Enter to do.
@@ -26,7 +49,7 @@ impl Action {
 
     /// The buttons a card in `state` gets, left to right: the row's actions
     /// that apply. An active task gets Stop in the place of Start working,
-    /// which would only go back to its worktree; Go to session goes back to
+    /// which would only go back to its worktree; its Go to list goes back to
     /// its Claude.
     pub fn row(state: TaskState) -> Vec<Action> {
         Self::ALL
@@ -35,33 +58,31 @@ impl Action {
             .collect()
     }
 
-    /// The button Ctrl+Enter presses for a card: Refine until the task has a
-    /// plan, then Start working; once it is being worked, Go to session while
-    /// a Claude is on it, planned or not. Nothing on a planned task being
+    /// What Ctrl+Enter does to a card: Refine until the task has a plan,
+    /// then Start working; once it is being worked, its Claude's session
+    /// while one is on it, planned or not. Nothing on a planned task being
     /// worked with no Claude, nor on a waiting or finished task, which have
-    /// no step to take. Nothing on a processing task either, which has no
-    /// button to press.
-    pub fn advance(state: TaskState) -> Option<Action> {
+    /// no step to take. Nothing on a processing task either.
+    pub fn advance(state: TaskState) -> Option<Step> {
         match state {
             TaskState { processing: true, .. } => None,
             TaskState { finished: true, .. } => None,
             TaskState { waiting: true, .. } => None,
             TaskState { active: true, has_work: true, .. } | TaskState { active: true, has_refine: true, .. } => {
-                Some(Session)
+                Some(Step::Session)
             }
             TaskState { active: true, planned: true, .. } => None,
-            TaskState { planned: true, .. } => Some(Start),
-            _ => Some(Refine),
+            TaskState { planned: true, .. } => Some(Step::Press(Start)),
+            _ => Some(Step::Press(Refine)),
         }
     }
 
     /// What the focused card's hint reads beside its buttons: the keys that
     /// change from card to card and button to button. The focused button's
-    /// key and name ("g: Go to session", "Del: Remove", or just "Speak" for
-    /// a button only Enter presses), or, on the card's body, what Space does
+    /// key and name ("o: Go to…", "Del: Remove", or just "Up next" for a
+    /// button only Enter presses), or, on the card's body, what Space does
     /// to its notes; then what Ctrl+Enter does to this task, in the words of
-    /// the button it presses ("Ctrl+Enter: Refine"), when `row` has that
-    /// button. `notes` is whether the card's notes show. Enter and
+    /// its step ("Ctrl+Enter: Refine"), when `row` has that button. `notes` is whether the card's notes show. Enter and
     /// Ctrl+Delete do the same on every card, so they are the footer's,
     /// [`CARD_KEYS`]. Pure, so every card's hint is tested without a window;
     /// `PanelState::card_hint` picks the card and `surface.rs` only sets the
@@ -84,7 +105,13 @@ impl Action {
             // the body.
             None => parts.push(format!("Space: {} notes", if notes { "hide" } else { "view" })),
         }
-        if let Some(step) = Self::advance(state).filter(|a| row.contains(a)) {
+        // A button step only when the card has that button; the session is
+        // no button's.
+        let on_card = |step: &Step| match step {
+            Step::Press(action) => row.contains(action),
+            Step::Session => true,
+        };
+        if let Some(step) = Self::advance(state).filter(on_card) {
             parts.push(format!("Ctrl+Enter: {}", step.label(state)));
         }
         parts.join(" · ")
@@ -179,9 +206,9 @@ mod tests {
     /// planned task is being worked, nor on a waiting or finished task.
     #[test]
     fn ctrl_enter_refines_an_unplanned_task_and_starts_a_planned_one() {
-        assert_eq!(Action::advance(on_list(false)), Some(Refine));
-        assert_eq!(Action::advance(active(false)), Some(Refine));
-        assert_eq!(Action::advance(on_list(true)), Some(Start));
+        assert_eq!(Action::advance(on_list(false)), Some(Step::Press(Refine)));
+        assert_eq!(Action::advance(active(false)), Some(Step::Press(Refine)));
+        assert_eq!(Action::advance(on_list(true)), Some(Step::Press(Start)));
         assert_eq!(Action::advance(active(true)), None);
         assert_eq!(Action::advance(waiting(false)), None);
         assert_eq!(Action::advance(waiting(true)), None);
@@ -191,13 +218,13 @@ mod tests {
     /// with none is left as it was: Refine without a plan, nothing with one.
     #[test]
     fn ctrl_enter_goes_to_the_session_of_an_active_task_with_a_claude() {
-        assert_eq!(Action::advance(with_claude(active(false))), Some(Session));
-        assert_eq!(Action::advance(with_claude(active(true))), Some(Session));
-        assert_eq!(Action::advance(active(false)), Some(Refine));
+        assert_eq!(Action::advance(with_claude(active(false))), Some(Step::Session));
+        assert_eq!(Action::advance(with_claude(active(true))), Some(Step::Session));
+        assert_eq!(Action::advance(active(false)), Some(Step::Press(Refine)));
         assert_eq!(Action::advance(active(true)), None);
         // A refine open on a task not yet started is not a task being worked.
-        assert_eq!(Action::advance(with_claude(on_list(false))), Some(Refine));
-        assert_eq!(Action::advance(with_claude(on_list(true))), Some(Start));
+        assert_eq!(Action::advance(with_claude(on_list(false))), Some(Step::Press(Refine)));
+        assert_eq!(Action::advance(with_claude(on_list(true))), Some(Step::Press(Start)));
         assert_eq!(Action::advance(with_claude(waiting(true))), None);
         assert_eq!(Action::advance(with_claude(finished(true))), None);
     }
@@ -206,9 +233,7 @@ mod tests {
     /// the working one is.
     #[test]
     fn a_refine_alone_is_still_a_session_to_go_to() {
-        let refining = TaskState { has_refine: true, ..active(false) };
-        assert_eq!(Action::advance(refining), Some(Session));
-        assert_eq!(Action::row(refining)[0], Session);
+        assert_eq!(Action::advance(TaskState { has_refine: true, ..active(false) }), Some(Step::Session));
     }
 
     /// What Ctrl+Enter picks is always one of the card's own buttons, so the
@@ -216,7 +241,7 @@ mod tests {
     #[test]
     fn ctrl_enter_only_presses_a_button_the_card_has() {
         for state in every_state() {
-            if let Some(action) = Action::advance(state) {
+            if let Some(Step::Press(action)) = Action::advance(state) {
                 assert!(Action::row(state).contains(&action), "{state:?} picks {action:?}, which it has no button for");
             }
         }
@@ -242,36 +267,28 @@ mod tests {
     #[test]
     fn an_active_task_gets_stop_in_place_of_start() {
         let classes: Vec<&str> = Action::row(active(false)).iter().map(|a| a.class()).collect();
-        assert_eq!(classes, vec!["refine", "grill", "edit", "speak", "up-next", "complete", "move", "stop", "wait", "remove"]);
+        assert_eq!(classes, vec!["go-to", "refine", "edit", "up-next", "complete", "move", "stop", "wait", "remove"]);
     }
 
-    /// A task not yet started gets Start working and no Stop; a planned one
-    /// gets Report too, after Grill me.
+    /// A task not yet started gets Start working and no Stop; planned or not.
     #[test]
     fn a_task_not_yet_active_gets_start_and_no_stop() {
         assert_eq!(
             Action::row(on_list(false)),
-            vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
+            vec![GoTo, Start, Refine, Edit, UpNext, Complete, Move, Wait, Remove]
         );
         assert_eq!(
             Action::row(on_list(true)),
-            vec![Start, Refine, Grill, Report, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
+            vec![GoTo, Start, Refine, Edit, UpNext, Complete, Move, Wait, Remove]
         );
     }
 
-    /// Go to session leads the row only while a Claude is on the task — on an
-    /// active one, in the place Start working has on the others.
+    /// Go to… leads every card's row, whatever its task's state.
     #[test]
-    fn a_task_with_a_live_claude_gets_go_to_session_first() {
-        assert_eq!(
-            Action::row(with_claude(active(false))),
-            vec![Session, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Stop, Wait, Remove]
-        );
-        // A refine open on a task not yet started.
-        assert_eq!(
-            Action::row(with_claude(on_list(true))),
-            vec![Session, Start, Refine, Grill, Report, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
-        );
+    fn go_to_leads_every_row() {
+        for state in every_state() {
+            assert_eq!(Action::row(state).first(), Some(&GoTo), "{state:?}");
+        }
     }
 
     /// A waiting task gets the way back, and what still works on it, a
@@ -279,16 +296,16 @@ mod tests {
     #[test]
     fn a_waiting_task_gets_back_to_list_and_what_still_works_on_it() {
         for state in [waiting(false), with_claude(waiting(true))] {
-            assert_eq!(Action::row(state), vec![Back, Edit, Speak, Complete, Move, Remove], "{state:?}");
+            assert_eq!(Action::row(state), vec![GoTo, Back, Edit, Complete, Move, Remove], "{state:?}");
         }
     }
 
     /// A finished task gets the way back, and what still works on it, as a
     /// waiting one does, less Complete: it is done already.
     #[test]
-    fn a_finished_task_gets_back_to_list_edit_speak_and_remove() {
+    fn a_finished_task_gets_back_to_list_edit_and_remove() {
         for state in [finished(false), with_claude(finished(true))] {
-            assert_eq!(Action::row(state), vec![Back, Edit, Speak, Remove], "{state:?}");
+            assert_eq!(Action::row(state), vec![GoTo, Back, Edit, Remove], "{state:?}");
         }
     }
 
@@ -301,44 +318,12 @@ mod tests {
         assert_eq!(hint(finished(false), Some(Back)), "b: Back to list");
     }
 
-    /// Every card that stands for a task can be listened to, whatever its
-    /// state.
-    #[test]
-    fn every_task_card_gets_speak() {
-        for state in every_state() {
-            assert!(Action::row(state).contains(&Speak), "{state:?}");
-        }
-    }
-
     /// Every card on the list gets Up next, active ones too; a waiting or
     /// finished task is off the list.
     #[test]
     fn every_card_on_the_list_gets_up_next() {
         for state in every_state() {
             assert_eq!(Action::row(state).contains(&UpNext), !state.off_list(), "{state:?}");
-        }
-    }
-
-    /// Grill me goes where Refine goes: every card on the list, not a
-    /// waiting or finished one.
-    #[test]
-    fn every_card_on_the_list_gets_grill_me() {
-        for state in every_state() {
-            assert_eq!(Action::row(state).contains(&Grill), !state.off_list(), "{state:?}");
-        }
-    }
-
-    /// Report sits between Grill me and Edit on every planned card on the
-    /// list, active or not, and on no other card.
-    #[test]
-    fn every_planned_card_on_the_list_gets_report() {
-        for state in every_state() {
-            let row = Action::row(state);
-            assert_eq!(row.contains(&Report), state.planned && !state.off_list(), "{state:?}");
-            if row.contains(&Report) {
-                let at = row.iter().position(|a| *a == Report).unwrap();
-                assert_eq!((row[at - 1], row[at + 1]), (Grill, Edit), "{state:?}");
-            }
         }
     }
 
@@ -359,33 +344,23 @@ mod tests {
         assert!(!UpNext.leaves_the_list());
     }
 
-    /// g b s r i p e c m t press Go to session, Back to list, Start working,
-    /// Refine, Grill me, Report, Edit, Complete, Move to workspace and Stop,
-    /// and each letter finds its own button.
+    /// o b s r e c m t press Go to…, Back to list, Start working, Refine,
+    /// Edit, Complete, Move to workspace and Stop, and each letter finds its
+    /// own button. g, i and p press nothing now.
     #[test]
     fn letters_press_their_own_buttons() {
         let lettered: Vec<(char, Action)> =
             Action::ALL.into_iter().filter_map(|a| a.letter().map(|c| (c, a))).collect();
         assert_eq!(
             lettered,
-            vec![
-                ('g', Session), ('b', Back), ('s', Start), ('r', Refine), ('i', Grill), ('p', Report),
-                ('e', Edit), ('c', Complete), ('m', Move), ('t', Stop)
-            ]
+            vec![('o', GoTo), ('b', Back), ('s', Start), ('r', Refine), ('e', Edit), ('c', Complete), ('m', Move), ('t', Stop)]
         );
         for (c, action) in lettered {
             assert_eq!(Action::for_letter(c), Some(action));
         }
         assert_eq!(Action::for_letter('x'), None);
-    }
-
-    /// The spinner's frames turn in Speak's place, so none may look like an
-    /// action's icon, and each differs from the one before.
-    #[test]
-    fn the_spinner_turns_and_is_no_buttons_icon() {
-        for (i, frame) in Action::SPINNER.iter().enumerate() {
-            assert!(!Action::ALL.iter().any(|a| a.icon() == *frame), "{frame}");
-            assert_ne!(*frame, Action::SPINNER[(i + 1) % Action::SPINNER.len()]);
+        for gone in ['g', 'i', 'p'] {
+            assert_eq!(Action::for_letter(gone), None);
         }
     }
 
@@ -450,37 +425,21 @@ mod tests {
         for planned in [false, true] {
             let state = with_claude(active(planned));
             assert_eq!(hint(state, None), "Space: view notes · Ctrl+Enter: Go to session", "planned={planned}");
-            assert_eq!(hint(state, Some(Session)), "g: Go to session · Ctrl+Enter: Go to session", "planned={planned}");
+            assert_eq!(hint(state, Some(GoTo)), "o: Go to… · Ctrl+Enter: Go to session", "planned={planned}");
             assert_eq!(hint(state, Some(Stop)), "t: Stop · Ctrl+Enter: Go to session", "planned={planned}");
         }
     }
 
     #[test]
     fn a_lettered_button_hints_its_letter_and_name() {
-        assert_eq!(hint(with_claude(on_list(true)), Some(Session)), "g: Go to session · Ctrl+Enter: Start working");
+        assert_eq!(hint(with_claude(on_list(true)), Some(GoTo)), "o: Go to… · Ctrl+Enter: Start working");
         assert_eq!(hint(on_list(true), Some(Start)), "s: Start working · Ctrl+Enter: Start working");
         assert_eq!(hint(on_list(false), Some(Refine)), "r: Refine · Ctrl+Enter: Refine");
         assert_eq!(hint(active(false), Some(Edit)), "e: Edit · Ctrl+Enter: Refine");
-        assert_eq!(hint(on_list(false), Some(Grill)), "i: Grill me · Ctrl+Enter: Refine");
-        assert_eq!(hint(on_list(true), Some(Report)), "p: Report · Ctrl+Enter: Start working");
-        assert_eq!(hint(with_claude(active(true)), Some(Report)), "p: Report · Ctrl+Enter: Go to session");
         assert_eq!(hint(on_list(true), Some(Complete)), "c: Complete · Ctrl+Enter: Start working");
         assert_eq!(hint(on_list(true), Some(Move)), "m: Move to workspace · Ctrl+Enter: Start working");
         assert_eq!(hint(active(true), Some(Stop)), "t: Stop");
         assert_eq!(hint(waiting(false), Some(Back)), "b: Back to list");
-    }
-
-    /// On a task whose notes link a report, Report's hint reads Open report,
-    /// as its tooltip does: the press opens that file rather than building
-    /// another. Ctrl+Enter's words are untouched.
-    #[test]
-    fn report_hints_open_report_on_a_task_with_one() {
-        assert_eq!(hint(with_report(on_list(true)), Some(Report)), "p: Open report · Ctrl+Enter: Start working");
-        assert_eq!(hint(with_report(active(true)), Some(Report)), "p: Open report");
-        assert_eq!(hint(with_report(with_claude(active(true))), Some(Report)), "p: Open report · Ctrl+Enter: Go to session");
-        // A report changes Report's words alone.
-        assert_eq!(hint(with_report(on_list(true)), Some(Start)), "s: Start working · Ctrl+Enter: Start working");
-        assert_eq!(hint(with_report(on_list(true)), None), "Space: view notes · Ctrl+Enter: Start working");
     }
 
     /// Remove's key is Delete, not a letter.
@@ -490,12 +449,11 @@ mod tests {
         assert_eq!(hint(waiting(true), Some(Remove)), "Del: Remove");
     }
 
-    /// Only Enter presses Speak, Up next and Waiting, and Enter is the
+    /// Only Enter presses Up next and Waiting, and Enter is the
     /// footer's, so they hint their name alone. Up next reads as it does on
     /// its tooltip.
     #[test]
     fn a_button_with_no_key_hints_its_name_alone() {
-        assert_eq!(hint(on_list(false), Some(Speak)), "Speak · Ctrl+Enter: Refine");
         assert_eq!(hint(on_list(true), Some(Wait)), "Waiting · Ctrl+Enter: Start working");
         let up_next = TaskState { up_next: true, ..on_list(true) };
         assert_eq!(hint(up_next, Some(UpNext)), "Not up next · Ctrl+Enter: Start working");

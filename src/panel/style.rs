@@ -56,30 +56,28 @@ pub const ACTIVE: &str = "#8cd283";
 /// colour, and the Up next button's.
 pub const UP_NEXT: &str = "#f9e2af";
 /// The keyboard's action buttons, each its own colour from the same Catppuccin
-/// palette as [`ACTIVE`] (mocha's): Go to session blue, Back to list lavender, Refine mauve, Edit
-/// yellow, Complete green, Move sapphire, Speak pink, Stop peach, Waiting teal, Remove red. Start shares [`ACTIVE`]'s green, because
+/// palette as [`ACTIVE`] (mocha's): Go to… blue, Back to list lavender, Refine mauve, Edit
+/// yellow, Complete green, Move sapphire, Stop peach, Waiting teal, Remove red. Start shares [`ACTIVE`]'s green, because
 /// starting a task is what turns its card green, and Up next shares Edit's yellow, [`UP_NEXT`],
 /// because it is what turns its card yellow.
 pub const REFINE: &str = "#cba6f7";
 /// Edit yellow.
 pub const EDIT: &str = "#f9e2af";
-/// Speak pink: mocha's `pink`, which no other button wears.
-pub const SPEAK: &str = "#f5c2e7";
 /// Stop peach.
 pub const STOP: &str = "#fab387";
 /// Waiting teal.
 pub const WAIT: &str = "#94e2d5";
 /// Remove red.
 pub const REMOVE: &str = "#f38ba8";
-/// Back to list lavender: mocha's `lavender`, the colour nearest Go to
-/// session's blue, for the other button that takes you back to something.
+/// Back to list lavender: mocha's `lavender`, the colour nearest Go to…'s
+/// blue, for the other button that takes you back to something.
 pub const BACK: &str = "#b4befe";
-/// Go to session blue: mocha's `blue`, apart from every other button's colour.
-pub const SESSION: &str = "#89b4fa";
+/// Go to… blue: mocha's `blue`, apart from every other button's colour.
+pub const GO_TO: &str = "#89b4fa";
 /// Complete green: mocha's own `green`, paler than [`ACTIVE`]'s, for the step
 /// after the work rather than the work.
 pub const COMPLETE: &str = "#a6e3a1";
-/// Move to workspace sapphire: mocha's `sapphire`, between Go to session's
+/// Move to workspace sapphire: mocha's `sapphire`, between Go to…'s
 /// blue and Waiting's teal, apart from both.
 pub const MOVE: &str = "#74c7ec";
 /// Text on a solid colour fill, the armed Remove: mocha's `base`, so it reads

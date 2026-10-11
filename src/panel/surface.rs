@@ -38,9 +38,9 @@
 //! hidden as the focus moves rather than built again, since a render would
 //! lose the focused button. Up and Down move between cards, Down onto "+N
 //! more" showing the cards it stands for and landing on the first of them;
-//! Left, Right and Tab move along the focused one, and g, b, s, r, i, p, e,
-//! c, m, t and Delete press its Go to session, Back to list, Start, Refine,
-//! Grill me, Report, Edit, Complete, Move to workspace, Stop and Remove.
+//! Left, Right and Tab move along the focused one, and o, b, s, r, e, c, m,
+//! t and Delete press its Go to…, Back to list, Start, Refine, Edit,
+//! Complete, Move to workspace, Stop and Remove.
 //! Ctrl+Delete deletes the focused card's task at once and keeps the
 //! keyboard. After the buttons a dimmed hint names the keys that change per
 //! card, the focused button's and what Ctrl+Enter does to the task
@@ -62,6 +62,16 @@
 //! and Down move it, Enter or a click runs `task move` and goes back to the
 //! cards on the next one, and Escape clears the text, then goes back to the
 //! cards on the same one.
+//!
+//! Go to… (o), first on every row, swaps the cards for the task's Go to
+//! list (`goto.rs`): what can be done with it and where it can be gone to,
+//! each row only when it applies, drawn as cards under a line naming the
+//! task, with a footer of its own. Pressing it first looks at the machine
+//! (`Effect::ListGoTo`): the task's worktree, VS Code, a speech playing. No
+//! text field: the bar hides and no widget has the focus. Up and Down move
+//! the highlight, Enter or a click runs the row's command, giving the
+//! keyboard back unless it is Read aloud, and Escape goes back to the cards
+//! on the same button.
 //!
 //! Mod+Alt+W shows the same list for opening a project (`state::Purpose::Open`):
 //! every `~/Projects` folder, then the GitHub repos not cloned yet, under
@@ -150,11 +160,12 @@ use super::layout::{
     PROJECT_LIST_MAX_PX, SURFACE_WIDTH, TUCKED_X,
 };
 use super::notepad::Notepad;
+use super::goto::{Found, GoToList};
 use super::model::{Card, Filter, Status, Tab};
 use super::projects::ProjectList;
 use super::state::{Armed, Effect, Focus, Mode, PanelState, Shown, Slot};
 use super::style::{CARD_WIDTH_PX, GAP_PX, PADDING_PX, RING_PX};
-use crate::project::{Projects, Row};
+use crate::project::Projects;
 use gtk4::prelude::*;
 use gtk4::{cairo, gdk, glib, Application, ApplicationWindow};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
@@ -167,9 +178,6 @@ use std::time::Duration;
 const NAMESPACE: &str = "niri-tasks-panel";
 
 const SLIDE_MS: f64 = 180.0;
-/// How often Speak's spinner turns a frame while a speech is being got
-/// ready: the usual pace of a braille spinner in a terminal.
-const SPIN: Duration = Duration::from_millis(80);
 
 /// How long after the pointer leaves before the cards slide back. Long enough
 /// that overshooting the edge of a card does not make the panel flicker.
@@ -216,18 +224,13 @@ pub struct Panel {
     state: RefCell<PanelState>,
     /// The cards on screen, as the last render drew them.
     cards: RefCell<Vec<CardWidgets>>,
-    /// The project list's folder cards, top to bottom, while a task is
-    /// being moved: each card's box, to scroll to, and its body, to focus.
+    /// The rows of the project list or the Go to list, top to bottom, while
+    /// one shows: each row's box, to scroll to, and its body.
     folders: RefCell<Vec<(gtk4::Box, gtk4::Button)>>,
     /// The panel is drawing the state: tearing the column down, or hiding
     /// the rows the focus is leaving. GTK's focus moves meanwhile are its own
     /// doing, not the user's, and the state is not told of them.
     drawing: Cell<bool>,
-    /// Speak's spinner is turning: a timer runs while the panel has the
-    /// keyboard, the only time the buttons show.
-    spinning: Cell<bool>,
-    /// The spinner frame it is on.
-    frame: Cell<usize>,
     /// Where the cards are, from the last fit.
     layout: RefCell<Layout>,
     blur: RefCell<Option<Blur>>,
@@ -237,8 +240,8 @@ pub struct Panel {
     tag: RefCell<String>,
 }
 
-/// One card on screen: the widgets a focus, a spinner frame or an arming is
-/// drawn on, found by task rather than by widget name.
+/// One card on screen: the widgets a focus or an arming is drawn on, found
+/// by task rather than by widget name.
 struct CardWidgets {
     /// None on "+N more".
     uuid: Option<String>,
@@ -359,8 +362,6 @@ impl Panel {
             cards: RefCell::new(Vec::new()),
             folders: RefCell::new(Vec::new()),
             drawing: Cell::new(false),
-            spinning: Cell::new(false),
-            frame: Cell::new(0),
             layout: RefCell::new(Layout::default()),
             blur: RefCell::new(None),
             notepad: Notepad::new(),
@@ -584,8 +585,8 @@ impl Panel {
 
     /// Take the keyboard in the middle of the monitor, every card wrapped with
     /// its buttons, focusing the first. `agents` are the session's live agent
-    /// names, for which cards get Go to session. False when there are no cards
-    /// to take it for.
+    /// names, for the Go to list's sessions and Ctrl+Enter's. False when
+    /// there are no cards to take it for.
     pub fn take_keyboard(self: &Rc<Self>, agents: Vec<String>) -> bool {
         if !self.state.borrow_mut().take_keyboard(agents) {
             return false;
@@ -619,7 +620,6 @@ impl Panel {
         self.apply(effects);
         // After the render, which measures the cards the region needs.
         self.slide_to(CENTRED_X, centre_margin(self.monitor.geometry().width()));
-        self.start_spinner();
     }
 
     /// Run what the state asked for, in order, then draw what it says that a
@@ -653,6 +653,20 @@ impl Panel {
                     };
                     self.apply(effects);
                 }
+                Effect::ListGoTo(uuid) => {
+                    // Looked at on every press: a worktree made, VS Code
+                    // installed or a speech started since shows.
+                    let found = Found {
+                        worktree: crate::workspace::Workspace::focused()
+                            .ok()
+                            .and_then(|ws| crate::work::worktree_path(&ws, &uuid))
+                            .is_some(),
+                        editor: crate::programs::on_path(crate::programs::EDITOR),
+                        speaking: crate::speak::speaking_now(),
+                    };
+                    let effects = self.state.borrow_mut().show_goto(&uuid, found);
+                    self.apply(effects);
+                }
                 Effect::ShowFolder => self.follow_focus(),
                 // Its changed handler finds the state already cleared.
                 Effect::ClearQuery => self.query.set_text(""),
@@ -665,45 +679,6 @@ impl Panel {
             }
         }
         self.sync();
-    }
-
-    /// Turn the spinner on the Speak button of the task whose speech is being
-    /// got ready, for as long as the panel has the keyboard. The background
-    /// speech says in its pid file when its audio starts, and the speaker
-    /// comes back then. A timer rather than a watch on that file: it has to
-    /// tick for the animation anyway, and it stops with the keyboard.
-    fn start_spinner(self: &Rc<Self>) {
-        if self.spinning.replace(true) {
-            return;
-        }
-        let weak = Rc::downgrade(self);
-        glib::timeout_add_local(SPIN, move || {
-            let Some(p) = weak.upgrade() else { return glib::ControlFlow::Break };
-            if !p.state.borrow().keyboard() {
-                p.spinning.set(false);
-                return glib::ControlFlow::Break;
-            }
-            p.spin();
-            glib::ControlFlow::Continue
-        });
-    }
-
-    /// One turn: the next frame on the preparing task's Speak button, the
-    /// speaker on every other. A re-render's new buttons start on the speaker
-    /// and are caught up here.
-    fn spin(&self) {
-        let preparing = crate::speak::preparing();
-        let frame = self.frame.get().wrapping_add(1);
-        self.frame.set(frame);
-        for card in self.cards.borrow().iter() {
-            let Some(button) = card.button(Action::Speak) else { continue };
-            let label = if preparing.is_some() && preparing == card.uuid {
-                Action::SPINNER[frame % Action::SPINNER.len()]
-            } else {
-                Action::Speak.icon()
-            };
-            set_label(button, label);
-        }
     }
 
     /// Slide back, folding an expanded list up again.
@@ -880,6 +855,7 @@ impl Panel {
             )
         };
         let ideas = matches!(mode, Mode::Ideas);
+        let goto = matches!(mode, Mode::GoTo(_));
         let list = match &mode {
             Mode::Projects { list, .. } => Some(list),
             _ => None,
@@ -888,11 +864,13 @@ impl Panel {
         self.while_drawing(|| match &mode {
             Mode::Ideas => self.draw_ideas(),
             Mode::Projects { list, .. } => self.draw_projects(list, hint.as_deref()),
+            Mode::GoTo(list) => self.draw_goto(list),
             Mode::Tasks => self.draw_tasks(&shown, keyboard, empty),
         });
         // On the project list the bar holds its text field instead of the
-        // tabs, which filter task cards.
-        self.tabs.set_visible(keyboard);
+        // tabs, which filter task cards. The Go to list has neither, so the
+        // bar hides.
+        self.tabs.set_visible(keyboard && !goto);
         // The footer names the cards' keys, so not on Ideas, where the
         // text area takes Enter and Delete as typing; on the project list,
         // its own.
@@ -920,6 +898,9 @@ impl Panel {
             // Without selecting: a render mid-typing must not select what
             // was typed, for the next key to replace.
             self.query.grab_focus_without_selecting();
+        } else if goto {
+            // No widget takes the keys: the window's controller has them.
+            GtkWindowExt::set_focus(&self.window, None::<&gtk4::Widget>);
         } else if keyboard {
             self.focus_on(focus.as_ref());
         }
@@ -948,7 +929,7 @@ impl Panel {
         self.column.append(&empty_line(&list.title()));
         let mut folders = Vec::new();
         for (at, row) in list.shown().iter().enumerate() {
-            let card = self.folder_card(at, row);
+            let card = self.row_card(at, &ProjectList::label(row), PanelState::on_folder);
             self.column.append(&card.0);
             folders.push(card);
         }
@@ -956,6 +937,21 @@ impl Panel {
         if let Some(text) = hint {
             self.column.append(&empty_line(text));
         }
+    }
+
+    /// The Go to list in the column: the task it is for over its rows. No
+    /// text field and no tabs: the bar hides while it shows.
+    fn draw_goto(self: &Rc<Self>, list: &GoToList) {
+        self.clear_column();
+        self.cards.borrow_mut().clear();
+        self.column.append(&empty_line(&list.title()));
+        let mut rows = Vec::new();
+        for (at, item) in list.rows().iter().enumerate() {
+            let row = self.row_card(at, &list.row_label(*item), PanelState::on_goto_row);
+            self.column.append(&row.0);
+            rows.push(row);
+        }
+        *self.folders.borrow_mut() = rows;
     }
 
     /// The task cards in the column, or the line that says the tab has none.
@@ -1091,17 +1087,22 @@ impl Panel {
         ActionRow { separator, row, hint, buttons }
     }
 
-    /// One row on the project list, a folder or a repo, drawn as a task card
-    /// is: a box holding a body button with the row's icon and name. A click
-    /// on it picks it. Out of the focus chain: the text field keeps
-    /// the keyboard, and the highlight (`sync`) says which folder Enter
-    /// takes.
-    fn folder_card(self: &Rc<Self>, at: usize, row: &Row) -> (gtk4::Box, gtk4::Button) {
+    /// One row of either list, drawn as a task card is: a box holding a
+    /// body button with the row's words. A click on it runs `pick` on the
+    /// state with its index. Out of the focus chain: the project list's
+    /// text field keeps the keyboard, the Go to list leaves it on the
+    /// window, and the highlight (`sync`) says which row Enter takes.
+    fn row_card(
+        self: &Rc<Self>,
+        at: usize,
+        label: &str,
+        pick: fn(&mut PanelState, usize) -> Vec<Effect>,
+    ) -> (gtk4::Box, gtk4::Button) {
         let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         root.add_css_class("task-card");
         root.set_size_request(CARD_WIDTH_PX, -1);
         root.set_overflow(gtk4::Overflow::Hidden);
-        let label = gtk4::Label::new(Some(&ProjectList::label(row)));
+        let label = gtk4::Label::new(Some(label));
         label.set_xalign(0.0);
         let body = gtk4::Button::builder().child(&label).build();
         body.add_css_class("card-body");
@@ -1110,7 +1111,7 @@ impl Panel {
         let weak = Rc::downgrade(self);
         body.connect_clicked(move |_| {
             if let Some(p) = weak.upgrade() {
-                let effects = p.state.borrow_mut().on_folder(at);
+                let effects = pick(&mut p.state.borrow_mut(), at);
                 p.apply(effects);
             }
         });
@@ -1169,7 +1170,7 @@ impl Panel {
             let state = self.state.borrow();
             (state.focus().cloned(), state.armed().clone())
         };
-        let picked = self.state.borrow().projects().map(ProjectList::at);
+        let picked = self.state.borrow().row_at();
         for (at, (root, _)) in self.folders.borrow().iter().enumerate() {
             set_class(root, "picked", picked == Some(at));
         }
@@ -1205,7 +1206,7 @@ impl Panel {
         let weak = Rc::downgrade(self);
         crate::paint::after_next_paint(&self.window, move || {
             let Some(p) = weak.upgrade() else { return };
-            let folder = p.state.borrow().projects().map(ProjectList::at);
+            let folder = p.state.borrow().row_at();
             let root = match folder {
                 Some(at) => p.folders.borrow().get(at).map(|(root, _)| root.clone()),
                 None => {

@@ -14,8 +14,10 @@ use crate::task::Task;
 /// which is what its button runs, so a script can do anything a click can.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    /// Back to the Claude working on the task. Never starts one.
-    Session,
+    /// The task's Go to list in the panel: what can be done with it beyond
+    /// this row, and where it can be gone to (`panel::goto`). Runs no
+    /// command itself; each row of the list runs its own.
+    GoTo,
     /// Back on the list: `task status <uuid> stopped`, which clears a waiting
     /// task's wait date and reopens a finished one.
     Back,
@@ -25,19 +27,10 @@ pub enum Action {
     /// Work the task up into a plan with Claude, in the workspace's herdr
     /// session.
     Refine,
-    /// Refine, interviewing first rather than drafting straight away.
-    Grill,
-    /// The refine report of a planned task's plan. On a task whose notes
-    /// link one, opens that file in the browser; otherwise Claude builds it
-    /// in the workspace's herdr session, opens it and links it from the
-    /// task's notes, without refining again.
-    Report,
     /// The task box on the description and every note. The box, not a
     /// one-line prompt: the descriptions you reach for it to fix are the long
     /// ones.
     Edit,
-    /// Read the task aloud in the background; run again, on any task, stop.
-    Speak,
     /// Mark the task up next; on one already up next, clear it.
     UpNext,
     /// Mark it done: it leaves the list, as `task status <uuid> completed`.
@@ -80,8 +73,8 @@ pub struct TaskState {
     /// Its refine Claude, `task-<uuid8>`, the one Refine starts, is live
     /// there.
     pub has_refine: bool,
-    /// Its notes link a refine report, `Report: <path>`: Report opens that
-    /// rather than building another.
+    /// Its notes link a refine report, `Report: <path>`: the Go to list
+    /// offers Open report and Regenerate report.
     pub has_report: bool,
     /// Its notes link a design spec, `Spec: <path>`.
     pub has_spec: bool,
@@ -156,38 +149,27 @@ impl Action {
     /// The row of the table for this action.
     ///
     /// The glyphs keep the row narrow. Font Awesome's, from the same Nerd
-    /// Font as the cards' lock: terminal, undo arrow, play, magic wand,
-    /// comments, file-text, pencil, bookmark, check, open folder, stop, pause
-    /// and trash can. Speak's speaker is Material Design's, from the same font.
+    /// Font as the cards' lock: ellipsis, undo arrow, play, magic wand,
+    /// pencil, bookmark, check, open folder, stop, pause and trash can.
     ///
     /// The colours are Catppuccin mocha's, one per button (see
-    /// `panel::style`); Grill me and Report wear Refine's mauve, one being a
-    /// refine that interviews first and the other a report of what a refine
-    /// wrote, and Start shares the active task's green.
+    /// `panel::style`); Start shares the active task's green.
     ///
     /// Back to list, Up next, Complete, Waiting and Remove only change the
-    /// task, and Speak plays in the background, so none opens anything that
-    /// needs the keyboard and the list stays up. Move opens the project list
-    /// in the panel itself. The rest open a box, a terminal or a herdr tab,
-    /// which takes it. Speak's card stays where it is, and so does Up next's,
-    /// which only moves up or down the list; the focus stays on the button,
-    /// so a second press undoes it.
+    /// task, so none opens anything that needs the keyboard and the list
+    /// stays up. Go to… and Move open a list in the panel itself. The rest
+    /// open a box, a terminal or a herdr tab, which takes it. Up next's card
+    /// stays where it is, only moving up or down the list; the focus stays
+    /// on the button, so a second press undoes it.
     pub const fn facts(self) -> Facts {
         use crate::panel::style as c;
         match self {
-            Session => Facts { icon: "\u{f120}", class: "session", key: Some("g"), colour: c::SESSION, keeps_keyboard: false, leaves_the_list: false },
+            // Font Awesome's ellipsis: more, as the words' own "…".
+            GoTo => Facts { icon: "\u{f141}", class: "go-to", key: Some("o"), colour: c::GO_TO, keeps_keyboard: true, leaves_the_list: false },
             Back => Facts { icon: "\u{f0e2}", class: "back", key: Some("b"), colour: c::BACK, keeps_keyboard: true, leaves_the_list: true },
             Start => Facts { icon: "\u{f04b}", class: "start", key: Some("s"), colour: c::ACTIVE, keeps_keyboard: false, leaves_the_list: false },
             Refine => Facts { icon: "\u{f0d0}", class: "refine", key: Some("r"), colour: c::REFINE, keeps_keyboard: false, leaves_the_list: false },
-            Grill => Facts { icon: "\u{f086}", class: "grill", key: Some("i"), colour: c::REFINE, keeps_keyboard: false, leaves_the_list: false },
-            // Font Awesome's file-text: the report. Refine's mauve, being a
-            // view of what a refine wrote.
-            Report => Facts { icon: "\u{f15c}", class: "report", key: Some("p"), colour: c::REFINE, keeps_keyboard: false, leaves_the_list: false },
             Edit => Facts { icon: "\u{f040}", class: "edit", key: Some("e"), colour: c::EDIT, keeps_keyboard: false, leaves_the_list: false },
-            // Material Design's volume-medium, not Font Awesome's volume-up,
-            // which is drawn nearly twice as wide as its cell and sat off
-            // centre; this one fits its cell exactly.
-            Speak => Facts { icon: "\u{f0580}", class: "speak", key: None, colour: c::SPEAK, keeps_keyboard: true, leaves_the_list: false },
             // Font Awesome's bookmark: marked as the one to do next.
             UpNext => Facts { icon: "\u{f02e}", class: "up-next", key: None, colour: c::UP_NEXT, keeps_keyboard: true, leaves_the_list: false },
             // Font Awesome's check: done.
@@ -237,53 +219,43 @@ impl Action {
 
 impl Action {
     /// Every task action, in the order the action row puts the ones it has.
-    pub const ALL: [Action; 14] =
-        [Session, Back, Start, Refine, Grill, Report, Edit, Speak, UpNext, Complete, Move, Stop, Wait, Remove];
+    pub const ALL: [Action; 11] = [GoTo, Back, Start, Refine, Edit, UpNext, Complete, Move, Stop, Wait, Remove];
 
     /// Whether the action makes sense on a task in `state`. A waiting or
     /// finished task is off the list: it gets the way back to it, and what
-    /// works on a task whatever its place. Start working, Refine and Grill me
-    /// are for a task on the list, and Up next and Waiting only move one on
-    /// it. Go to session needs a Claude to go to, and Stop a task that was
-    /// started. Start working stays on an active task, where it goes back to
-    /// the worktree and the Claude; a view with no room for both it and Stop
-    /// drops it there. Report is for a planned task on the list: an unplanned
-    /// one has no plan to report on. A processing task gets nothing at all:
-    /// a Claude is writing it, and anything done to it meanwhile would race
-    /// that write.
+    /// works on a task whatever its place. Start working and Refine are for
+    /// a task on the list, and Up next and Waiting only move one on it. Stop
+    /// needs a task that was started. Start working stays on an active task,
+    /// where it goes back to the worktree and the Claude; a view with no room
+    /// for both it and Stop drops it there. Go to… is on every task: its
+    /// list has rows for any (`panel::goto::Item::applies`). A processing
+    /// task gets nothing at all: a Claude is writing it, and anything done
+    /// to it meanwhile would race that write.
     pub fn applies(self, state: TaskState) -> bool {
         if state.processing {
             return false;
         }
         match self {
-            Session => (state.has_work || state.has_refine) && !state.off_list(),
+            GoTo => true,
             Back => state.off_list(),
             Stop => state.active,
-            // A plan to report on, and a task still on the list.
-            Report => state.planned && !state.off_list(),
-            Start | Refine | Grill | UpNext | Wait => !state.off_list(),
+            Start | Refine | UpNext | Wait => !state.off_list(),
             // A finished task is done already, and stays where it was done.
             Complete | Move => !state.finished,
-            Edit | Speak | Remove => true,
+            Edit | Remove => true,
         }
     }
 
     /// The action's words, on its button's tooltip and in the card's hint.
-    /// Two read as the step they take on this task: Up next reads Not up
-    /// next on a task already up next, and Report reads Open report on a
-    /// task whose notes link a report, which a press opens instead of
-    /// building another.
+    /// Up next reads as the step it takes: Not up next on a task already up
+    /// next.
     pub fn label(self, state: TaskState) -> &'static str {
         match self {
-            Session => "Go to session",
+            GoTo => crate::panel::goto::LABEL,
             Back => "Back to list",
             Start => "Start working",
             Refine => "Refine",
-            Grill => "Grill me",
-            Report if state.has_report => "Open report",
-            Report => "Report",
             Edit => "Edit",
-            Speak => "Speak",
             UpNext if state.up_next => "Not up next",
             UpNext => "Up next",
             Complete => "Complete",
@@ -297,16 +269,15 @@ impl Action {
     /// The `niritasks` arguments the action runs, without the program: what
     /// its button spawns. Remove carries `--yes`, because its button asks
     /// first. Move's stop short of the folder, which the project list adds.
+    /// Go to…'s are none: its button opens the Go to list, whose rows run
+    /// their own (`panel::goto::Item::args`).
     pub fn args(self, uuid: &str) -> Vec<String> {
         let words: &[&str] = match self {
-            Session => &["task", "session", uuid],
+            GoTo => &[],
             Back => &["task", "status", uuid, "stopped"],
             Start => &["task", "start", uuid],
             Refine => &["task", "refine", uuid],
-            Grill => &["task", "refine", uuid, "--grill"],
-            Report => &["task", "report", uuid],
             Edit => &["task", "edit", uuid],
-            Speak => &["task", "speak", uuid],
             UpNext => &["task", "up-next", uuid],
             Complete => &["task", "status", uuid, "completed"],
             Move => &["task", "move", uuid],
@@ -327,33 +298,13 @@ mod tests {
         Action::ALL.into_iter().filter(|a| a.applies(state)).collect()
     }
 
-    /// A task on the list, not started: everything but the ways back from
-    /// somewhere it is not. Report only once it has a plan.
+    /// A task on the list, not started: everything but the way back from
+    /// somewhere it is not, and Stop.
     #[test]
-    fn a_task_on_the_list_gets_all_but_session_back_and_stop() {
-        assert_eq!(
-            offered(TaskState::default()),
-            vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
-        );
-        assert_eq!(
-            offered(TaskState { planned: true, ..TaskState::default() }),
-            vec![Start, Refine, Grill, Report, Edit, Speak, UpNext, Complete, Move, Wait, Remove]
-        );
-    }
-
-    /// Report needs a plan to report on, and a task on the list: never an
-    /// unplanned one, which gets Refine or Grill me first, nor a waiting or
-    /// finished one, planned or not.
-    #[test]
-    fn report_needs_a_plan_and_a_task_on_the_list() {
-        assert!(!Report.applies(TaskState::default()));
-        assert!(Report.applies(TaskState { planned: true, ..TaskState::default() }));
-        assert!(Report.applies(TaskState { planned: true, active: true, ..TaskState::default() }));
-        assert!(!Report.applies(TaskState { planned: true, waiting: true, ..TaskState::default() }));
-        assert!(!Report.applies(TaskState { planned: true, finished: true, ..TaskState::default() }));
-        // A linked report changes the words, never who gets the button.
-        assert!(!Report.applies(TaskState { has_report: true, ..TaskState::default() }));
-        assert!(!Report.applies(TaskState { planned: true, has_report: true, waiting: true, ..TaskState::default() }));
+    fn a_task_on_the_list_gets_all_but_back_and_stop() {
+        let row = vec![GoTo, Start, Refine, Edit, UpNext, Complete, Move, Wait, Remove];
+        assert_eq!(offered(TaskState::default()), row);
+        assert_eq!(offered(TaskState { planned: true, has_report: true, ..TaskState::default() }), row);
     }
 
     /// A task being planned in the background gets nothing at all, whatever
@@ -409,20 +360,26 @@ mod tests {
     #[test]
     fn an_active_task_can_be_stopped_and_started_again() {
         let state = TaskState { active: true, ..TaskState::default() };
-        assert_eq!(offered(state), vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Stop, Wait, Remove]);
+        assert_eq!(offered(state), vec![GoTo, Start, Refine, Edit, UpNext, Complete, Move, Stop, Wait, Remove]);
     }
 
-    /// Go to session never starts a Claude, so it needs one already there:
-    /// the working one or the refine.
+    /// Go to… is on every task, on the list or off it: its list always has
+    /// a row. Never on a processing one.
     #[test]
-    fn go_to_session_needs_a_live_claude() {
-        assert!(!Session.applies(TaskState::default()));
-        assert!(Session.applies(TaskState { has_work: true, ..TaskState::default() }));
-        assert!(Session.applies(TaskState { has_refine: true, ..TaskState::default() }));
+    fn go_to_is_on_every_task_but_a_processing_one() {
+        for state in [
+            TaskState::default(),
+            TaskState { active: true, ..TaskState::default() },
+            TaskState { waiting: true, ..TaskState::default() },
+            TaskState { finished: true, ..TaskState::default() },
+        ] {
+            assert!(GoTo.applies(state), "{state:?}");
+            assert!(!GoTo.applies(TaskState { processing: true, ..state }), "{state:?}");
+        }
     }
 
     /// A waiting task is parked: the way back, and what still works on a
-    /// task off the list. Not Start working, Refine or Grill me, nor Up next,
+    /// task off the list. Not Start working or Refine, nor Up next,
     /// whatever else is true of it.
     #[test]
     fn a_waiting_task_gets_back_to_list_and_what_still_works_on_it() {
@@ -430,7 +387,7 @@ mod tests {
             for up_next in [false, true] {
                 for planned in [false, true] {
                     let state = TaskState { waiting: true, has_work, up_next, planned, ..TaskState::default() };
-                    assert_eq!(offered(state), vec![Back, Edit, Speak, Complete, Move, Remove], "{state:?}");
+                    assert_eq!(offered(state), vec![GoTo, Back, Edit, Complete, Move, Remove], "{state:?}");
                 }
             }
         }
@@ -442,45 +399,35 @@ mod tests {
         assert_eq!(
             labels,
             vec![
-                "Go to session", "Back to list", "Start working", "Refine", "Grill me", "Report", "Edit",
-                "Speak", "Up next", "Complete", "Move to workspace", "Stop", "Waiting", "Remove",
+                "Go to…", "Back to list", "Start working", "Refine", "Edit", "Up next", "Complete",
+                "Move to workspace", "Stop", "Waiting", "Remove",
             ]
         );
     }
 
     /// Each is its button's tooltip, so no two may share one, whichever way
-    /// Up next and Report read.
+    /// Up next reads.
     #[test]
     fn no_two_actions_share_a_label() {
         for up_next in [false, true] {
-            for has_report in [false, true] {
-                let state = TaskState { up_next, has_report, ..TaskState::default() };
-                let mut labels: Vec<&str> = Action::ALL.iter().map(|a| a.label(state)).collect();
-                labels.sort();
-                labels.dedup();
-                assert_eq!(labels.len(), Action::ALL.len(), "{state:?}");
-            }
+            let state = TaskState { up_next, ..TaskState::default() };
+            let mut labels: Vec<&str> = Action::ALL.iter().map(|a| a.label(state)).collect();
+            labels.sort();
+            labels.dedup();
+            assert_eq!(labels.len(), Action::ALL.len(), "{state:?}");
         }
     }
 
     /// Up next reads as the step it takes: Not up next on a task already up
-    /// next. That is also the word `task up-next` notifies with, for where
-    /// the task is once the step is taken. Report reads as what a press does:
-    /// Open report on a task whose notes link one, which the press opens
-    /// instead of building another. No other action changes its words.
+    /// next, the word `task up-next` notifies with too. No other action
+    /// changes its words.
     #[test]
-    fn up_next_and_report_read_as_the_step_they_take() {
+    fn only_up_next_reads_as_the_step_it_takes() {
         let plain = TaskState::default();
-        let up_next = TaskState { up_next: true, ..plain };
-        let reported = TaskState { has_report: true, ..plain };
         assert_eq!(UpNext.label(plain), "Up next");
-        assert_eq!(UpNext.label(up_next), "Not up next");
-        assert_eq!(UpNext.label(reported), "Up next");
-        assert_eq!(Report.label(plain), "Report");
-        assert_eq!(Report.label(reported), "Open report");
-        assert_eq!(Report.label(up_next), "Report");
+        assert_eq!(UpNext.label(TaskState { up_next: true, ..plain }), "Not up next");
         let every_way = TaskState { active: true, planned: true, has_work: true, up_next: true, has_report: true, ..plain };
-        for action in Action::ALL.into_iter().filter(|a| !matches!(a, UpNext | Report)) {
+        for action in Action::ALL.into_iter().filter(|a| *a != UpNext) {
             assert_eq!(action.label(every_way), action.label(plain), "{action:?}");
         }
     }
@@ -516,15 +463,12 @@ mod tests {
     #[test]
     fn each_action_runs_its_command() {
         let u = "c53b6e3d-ca05-4aae-8588-4ee1abc25f5b";
-        assert_eq!(Session.args(u), vec!["task", "session", u]);
+        assert!(GoTo.args(u).is_empty(), "the list's rows run their own");
         // Stopped is the status that clears a wait date.
         assert_eq!(Back.args(u), vec!["task", "status", u, "stopped"]);
         assert_eq!(Start.args(u), vec!["task", "start", u]);
         assert_eq!(Refine.args(u), vec!["task", "refine", u]);
-        assert_eq!(Grill.args(u), vec!["task", "refine", u, "--grill"]);
-        assert_eq!(Report.args(u), vec!["task", "report", u]);
         assert_eq!(Edit.args(u), vec!["task", "edit", u]);
-        assert_eq!(Speak.args(u), vec!["task", "speak", u]);
         assert_eq!(UpNext.args(u), vec!["task", "up-next", u]);
         assert_eq!(Complete.args(u), vec!["task", "status", u, "completed"]);
         // The project list adds the folder.
@@ -566,7 +510,7 @@ mod tests {
             for up_next in [false, true] {
                 for planned in [false, true] {
                     let state = TaskState { finished: true, has_work, up_next, planned, ..TaskState::default() };
-                    assert_eq!(offered(state), vec![Back, Edit, Speak, Remove], "{state:?}");
+                    assert_eq!(offered(state), vec![GoTo, Back, Edit, Remove], "{state:?}");
                 }
             }
         }
@@ -588,16 +532,17 @@ mod tests {
             assert_eq!(list.len(), before);
         }
         assert_eq!(Action::Remove.facts().key, Some("Del"));
-        assert_eq!(Action::Speak.facts().key, None);
+        assert_eq!(Action::UpNext.facts().key, None);
+        assert_eq!(Action::GoTo.facts().key, Some("o"));
     }
 
     /// What a press does to the panel, read off the table.
     #[test]
     fn the_table_says_what_a_press_does_to_the_panel() {
         let keeps: Vec<Action> = Action::ALL.into_iter().filter(|a| a.keeps_keyboard()).collect();
-        assert_eq!(keeps, vec![Back, Speak, UpNext, Complete, Move, Wait, Remove]);
-        // Report opens a herdr tab, which takes the keyboard, and the card stays.
-        assert!(!Report.keeps_keyboard() && !Report.leaves_the_list());
+        assert_eq!(keeps, vec![GoTo, Back, UpNext, Complete, Move, Wait, Remove]);
+        // Go to… opens its list in the panel, and the card stays.
+        assert!(GoTo.keeps_keyboard() && !GoTo.leaves_the_list());
         let leaves: Vec<Action> = Action::ALL.into_iter().filter(|a| a.leaves_the_list()).collect();
         assert_eq!(leaves, vec![Back, Complete, Wait, Remove]);
     }

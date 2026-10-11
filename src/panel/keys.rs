@@ -2,9 +2,10 @@
 //!
 //! Pure, as the task box's keys are, so the mapping is testable without a
 //! window. Which of the three mappers runs is `state.rs`'s, by its mode: the
-//! cards' keys on Tasks, the notepad's on Ideas, the field's on the project
-//! list. What the key then does is `state.rs`'s; the controller's
-//! propagation phase that lets it see the arrows first is `surface.rs`'s.
+//! cards' keys on Tasks, the notepad's on Ideas, the lists' on the project
+//! list and the Go to list. What the key then does is `state.rs`'s; the
+//! controller's propagation phase that lets it see the arrows first is
+//! `surface.rs`'s.
 
 use crate::actions::Action;
 use super::model::{Filter, Tab};
@@ -126,10 +127,11 @@ pub fn ideas_key_action(key: gdk::Key, ctrl: bool) -> KeyAction {
     }
 }
 
-/// Map a keypress while the project list shows, its text field having the
-/// focus. Up and Down walk the folders, Enter moves the task and Escape
-/// clears the text or goes back; every other key is typing, so the field
-/// gets it, modifiers and all.
+/// Map a keypress while the project list or a card's Go to list shows. Up
+/// and Down walk the rows, Enter picks one and Escape clears the text or
+/// goes back; on the project list every other key is typing, so its field
+/// gets it, modifiers and all, and the Go to list, which has no field,
+/// swallows it.
 pub fn project_key_action(key: gdk::Key) -> KeyAction {
     match key {
         gdk::Key::Escape => KeyAction::Release,
@@ -176,12 +178,13 @@ mod tests {
 
     #[test]
     fn letters_and_delete_run_their_buttons() {
-        assert_eq!(key_action(gdk::Key::g, false, false), KeyAction::Run(Action::Session));
+        assert_eq!(key_action(gdk::Key::o, false, false), KeyAction::Run(Action::GoTo));
+        for gone in [gdk::Key::g, gdk::Key::i, gdk::Key::p] {
+            assert_eq!(key_action(gone, false, false), KeyAction::Ignore);
+        }
         assert_eq!(key_action(gdk::Key::b, false, false), KeyAction::Run(Action::Back));
         assert_eq!(key_action(gdk::Key::s, false, false), KeyAction::Run(Action::Start));
         assert_eq!(key_action(gdk::Key::r, false, false), KeyAction::Run(Action::Refine));
-        assert_eq!(key_action(gdk::Key::i, false, false), KeyAction::Run(Action::Grill));
-        assert_eq!(key_action(gdk::Key::p, false, false), KeyAction::Run(Action::Report));
         assert_eq!(key_action(gdk::Key::e, false, false), KeyAction::Run(Action::Edit));
         assert_eq!(key_action(gdk::Key::c, false, false), KeyAction::Run(Action::Complete));
         assert_eq!(key_action(gdk::Key::m, false, false), KeyAction::Run(Action::Move));
@@ -192,12 +195,10 @@ mod tests {
 
     #[test]
     fn capitals_run_their_buttons_too() {
-        assert_eq!(key_action(gdk::Key::G, false, false), KeyAction::Run(Action::Session));
+        assert_eq!(key_action(gdk::Key::O, false, false), KeyAction::Run(Action::GoTo));
         assert_eq!(key_action(gdk::Key::B, false, false), KeyAction::Run(Action::Back));
         assert_eq!(key_action(gdk::Key::S, false, false), KeyAction::Run(Action::Start));
         assert_eq!(key_action(gdk::Key::R, false, false), KeyAction::Run(Action::Refine));
-        assert_eq!(key_action(gdk::Key::I, false, false), KeyAction::Run(Action::Grill));
-        assert_eq!(key_action(gdk::Key::P, false, false), KeyAction::Run(Action::Report));
         assert_eq!(key_action(gdk::Key::E, false, false), KeyAction::Run(Action::Edit));
         assert_eq!(key_action(gdk::Key::C, false, false), KeyAction::Run(Action::Complete));
         assert_eq!(key_action(gdk::Key::M, false, false), KeyAction::Run(Action::Move));

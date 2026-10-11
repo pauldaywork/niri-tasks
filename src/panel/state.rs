@@ -3,9 +3,9 @@
 //!
 //! The cards, the filter tab, "+N more" opened or not, which card and button
 //! has the keyboard's focus, what a first press has armed, which cards show
-//! their notes, and the [`Mode`]: which of the task cards, the Ideas notepad
-//! or the project list Move to workspace and Mod+Alt+W swap in is up, all
-//! live here, keyed by task uuid and slot rather than by widget. The mode
+//! their notes, and the [`Mode`]: which of the task cards, the Ideas notepad,
+//! the project list Move to workspace and Mod+Alt+W swap in, or a card's Go
+//! to list is up, all live here, keyed by task uuid and slot rather than by widget. The mode
 //! picks which key map a raw key goes through. Every change comes back as a
 //! list of [`Effect`]s for `surface.rs` to run: draw again, move the focus,
 //! spawn a command. So the rules between them (one arming at a time, any
@@ -13,10 +13,11 @@
 //! and `surface.rs` only draws what this says and runs what it asks.
 
 use crate::actions::{Action, TaskState};
-use super::actions;
+use super::actions::{self, Step};
 use super::keys::{self, KeyAction};
 use super::model::{self, Card, Filter, Tab};
 use super::projects::{Escaped, Matcher, Picked, ProjectList, Purpose, NO_DESTINATIONS};
+use super::goto::{Found, GoToList};
 use crate::project::{Projects, Row};
 use gtk4::gdk;
 
@@ -97,7 +98,12 @@ pub enum Effect {
     /// [`PanelState::show_projects`]: Move to workspace's first step, which
     /// the state cannot take, having no disk to read.
     ListProjects(String),
-    /// Scroll the project list's highlighted folder into view.
+    /// Find what the Go to list's rows need from the machine (a worktree,
+    /// VS Code, a speech playing) for this task and hand it to
+    /// [`PanelState::show_goto`]: Go to…'s first step, which the state
+    /// cannot take, having no disk or processes to look at.
+    ListGoTo(String),
+    /// Scroll the highlighted row of the project list or the Go to list into view.
     ShowFolder,
     /// Empty the project list's text field: Escape with text typed.
     ClearQuery,
@@ -106,7 +112,7 @@ pub enum Effect {
     Notes,
 }
 
-/// Which of the three screens the panel shows while it has the keyboard.
+/// Which of the screens the panel shows while it has the keyboard.
 /// Without the keyboard it is always on Tasks: the hover and the peek are
 /// the task cards.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -120,6 +126,10 @@ pub enum Mode {
     /// folders and repos it was built from, so its hint and its pick mean
     /// what `project open` will.
     Projects { list: ProjectList, loaded: Projects },
+    /// A card's Go to list: what can be done with its task and where it can
+    /// be gone to, in place of the cards, with the project list's keys and
+    /// no text field.
+    GoTo(GoToList),
 }
 
 #[derive(Debug, Default)]
@@ -139,7 +149,8 @@ pub struct PanelState {
     /// panel tucks away or gives the keyboard back.
     expanded: bool,
     /// The live herdr agents in the workspace's session, asked once as the
-    /// panel takes the keyboard: which cards get Go to session.
+    /// panel takes the keyboard: which Go to lists get their sessions, and
+    /// which cards Ctrl+Enter takes to one.
     agents: Vec<String>,
     /// Where the keyboard's focus is. None without the keyboard, and while
     /// Clear all is armed.
@@ -225,6 +236,33 @@ impl PanelState {
         }
     }
 
+    /// The Go to list, while it is up.
+    pub fn goto(&self) -> Option<&GoToList> {
+        match &self.mode {
+            Mode::GoTo(list) => Some(list),
+            _ => None,
+        }
+    }
+
+    fn goto_mut(&mut self) -> Option<&mut GoToList> {
+        match &mut self.mode {
+            Mode::GoTo(list) => Some(list),
+            _ => None,
+        }
+    }
+
+    /// On the project list or the Go to list, which draw rows in place of
+    /// the cards and keep the task's focus for Escape to go back to.
+    fn on_a_list(&self) -> bool {
+        matches!(self.mode, Mode::Projects { .. } | Mode::GoTo(_))
+    }
+
+    /// The highlighted row of whichever list is up: what the surface
+    /// darkens and scrolls to.
+    pub fn row_at(&self) -> Option<usize> {
+        self.projects().map(ProjectList::at).or_else(|| self.goto().map(GoToList::at))
+    }
+
     /// Nothing to show, so the panel hides. The hover and the peek show no
     /// waiting or finished task, so they hide with nothing else; the
     /// keyboard's panel still has the Waiting and Finished tabs, and hides
@@ -241,9 +279,9 @@ impl PanelState {
 
     /// The filter tabs on show, in `Filter::TABS` order: All, and every
     /// other tab with a task under it. None without the keyboard. Ideas,
-    /// always shown, follows them. None on the project list either.
+    /// always shown, follows them. None on either list.
     pub fn tabs(&self) -> Vec<Filter> {
-        if self.keyboard && self.projects().is_none() {
+        if self.keyboard && !self.on_a_list() {
             Filter::shown(&self.all)
         } else {
             Vec::new()
@@ -285,6 +323,7 @@ impl PanelState {
         match &self.mode {
             Mode::Ideas => None,
             Mode::Projects { list, .. } => Some(list.keys()),
+            Mode::GoTo(_) => Some(super::goto::GOTO_KEYS),
             Mode::Tasks => Some(actions::CARD_KEYS),
         }
     }
@@ -340,12 +379,10 @@ impl PanelState {
         // toggle unable to reach it meanwhile.
         let all = &self.all;
         self.notes = self.notes.take().filter(|uuid| all.iter().any(|c| c.uuid.as_deref() == Some(uuid.as_str())));
-        // The task being moved has gone (done elsewhere, say): its project
-        // list goes with it.
-        let gone = self
-            .projects()
-            .and_then(ProjectList::moving)
-            .is_some_and(|uuid| !self.all.iter().any(|c| c.uuid.as_deref() == Some(uuid)));
+        // The task being moved, or whose Go to list is up, has gone (done
+        // elsewhere, say): its list goes with it.
+        let listed = self.projects().and_then(ProjectList::moving).or_else(|| self.goto().map(GoToList::uuid));
+        let gone = listed.is_some_and(|uuid| !self.all.iter().any(|c| c.uuid.as_deref() == Some(uuid)));
         if gone {
             self.mode = Mode::Tasks;
         }
@@ -357,7 +394,7 @@ impl PanelState {
 
     /// Take the keyboard, on All every time, also when taken again while it
     /// has it, with the focus on the first card. `agents` are the session's
-    /// live agent names, for Go to session. False with no cards to take it for.
+    /// live agent names, for the Go to list's sessions and Ctrl+Enter's. False with no cards to take it for.
     pub fn take_keyboard(&mut self, agents: Vec<String>) -> bool {
         if self.all.is_empty() {
             return false;
@@ -417,10 +454,10 @@ impl PanelState {
     /// [`Effect::Focus`] asked for, which is no change. Moving off an armed
     /// Remove disarms it, and moving at all disarms Clear all. Without the
     /// keyboard it is ignored: GTK moves focus in a window that is only being
-    /// shown, and the hover has none. On the project list too: a folder card
-    /// is no task's, and the task's focus is kept for Escape.
+    /// shown, and the hover has none. On either list too: a row is no
+    /// task's, and the task's focus is kept for Escape.
     pub fn on_focus(&mut self, focus: Option<Focus>) {
-        if !self.keyboard || self.projects().is_some() || self.focus == focus {
+        if !self.keyboard || self.on_a_list() || self.focus == focus {
             return;
         }
         self.focus = focus;
@@ -448,7 +485,7 @@ impl PanelState {
         }
         let action = match &self.mode {
             Mode::Ideas => keys::ideas_key_action(key, ctrl),
-            Mode::Projects { .. } => keys::project_key_action(key),
+            Mode::Projects { .. } | Mode::GoTo(_) => keys::project_key_action(key),
             Mode::Tasks => keys::key_action(key, ctrl, shift),
         };
         self.on_action(action)
@@ -490,6 +527,18 @@ impl PanelState {
                 }
                 _ => None,
             },
+            // The Go to list's: Up and Down walk it, Enter runs the row,
+            // Escape goes back to the card. No text field, so every other
+            // key does nothing rather than reach GTK.
+            Mode::GoTo(_) => Some(match action {
+                KeyAction::Release => self.close_goto(),
+                KeyAction::PrevCard | KeyAction::NextCard => self.move_goto_row(action == KeyAction::NextCard),
+                KeyAction::Enter => {
+                    let at = self.goto().map_or(0, GoToList::at);
+                    self.on_goto_row(at)
+                }
+                _ => Vec::new(),
+            }),
             Mode::Tasks if matches!(self.armed, Armed::ClearAll { .. }) => Some(match action {
                 KeyAction::Enter | KeyAction::ClearAll => self.on_clear_all(),
                 KeyAction::Release
@@ -526,16 +575,23 @@ impl PanelState {
     /// box or terminal it opens can take it. Back, Waiting and Remove take
     /// the card off the list, so the focus moves to the next card (the one
     /// above, from the last) to still be there when the next tick drops this
-    /// one. Speak and Up next keep the card and the focus, so a second press
-    /// undoes them. Move to workspace disarms and asks for the project list.
+    /// one. Up next keeps the card and the focus, so a second press undoes
+    /// it. Move to workspace disarms and asks for the project list. Go to…
+    /// disarms and asks for its list.
     pub fn on_press(&mut self, uuid: &str, slot: Slot) -> Vec<Effect> {
-        if self.projects().is_some() {
+        if self.on_a_list() {
             return Vec::new();
         }
         let action = match slot {
             Slot::Body => return self.toggle_notes(uuid),
             Slot::Button(action) => action,
         };
+        // The rows need a look at the machine, which the surface takes: it
+        // answers with show_goto. The keyboard and the focus stay put.
+        if action == Action::GoTo {
+            self.armed = Armed::None;
+            return vec![Effect::ListGoTo(uuid.into())];
+        }
         // The folders are on disk, which the surface reads: it answers
         // with show_projects. The keyboard and the focus stay put.
         if action == Action::Move {
@@ -675,6 +731,54 @@ impl PanelState {
         }
     }
 
+    /// What the surface found for Go to… on this task's card: its Go to
+    /// list in place of the cards, the first row highlighted. Nothing
+    /// without the keyboard, with a list already up, or for a card no longer
+    /// there.
+    pub fn show_goto(&mut self, uuid: &str, found: Found) -> Vec<Effect> {
+        if !self.keyboard || self.on_a_list() {
+            return Vec::new();
+        }
+        let Some(card) = self.all.iter().find(|c| c.uuid.as_deref() == Some(uuid)) else { return Vec::new() };
+        let Some(list) = card.state(&self.agents).and_then(|state| GoToList::new(uuid, &card.text, state, found)) else {
+            return Vec::new();
+        };
+        self.mode = Mode::GoTo(list);
+        vec![Effect::Render]
+    }
+
+    /// A row on the Go to list, by Enter or a click: its command, after the
+    /// keyboard is given back, since the row opens something elsewhere, a
+    /// herdr tab, a browser, a terminal or an editor; or, for Read aloud,
+    /// which plays in the background, after going back to the cards with the
+    /// keyboard kept. Nothing once the list has gone.
+    pub fn on_goto_row(&mut self, at: usize) -> Vec<Effect> {
+        let Some(list) = self.goto() else { return Vec::new() };
+        let Some(item) = list.item(at) else { return Vec::new() };
+        let args = item.args(list.uuid());
+        let mut effects = if item.keeps_keyboard() { self.close_goto() } else { self.release() };
+        effects.push(Effect::Spawn(args));
+        effects
+    }
+
+    /// Escape on the Go to list: back to the cards, on the card and slot
+    /// the focus was on, keeping the keyboard.
+    fn close_goto(&mut self) -> Vec<Effect> {
+        self.mode = Mode::Tasks;
+        self.rerender()
+    }
+
+    /// Up and Down on the Go to list, stopping at the ends.
+    fn move_goto_row(&mut self, forward: bool) -> Vec<Effect> {
+        match self.goto_mut() {
+            Some(list) => {
+                list.step(forward);
+                vec![Effect::ShowFolder]
+            }
+            None => Vec::new(),
+        }
+    }
+
     /// Give the keyboard back: every card to one line again, its notes
     /// hidden, All for the next time, and nothing expanded, armed or
     /// focused.
@@ -709,7 +813,7 @@ impl PanelState {
     /// with no cards the panel hides, and must not hide holding the keyboard.
     /// Leaving Ideas saves what was typed there at once.
     fn pick(&mut self, tab: Tab) -> Vec<Effect> {
-        if !self.keyboard || self.projects().is_some() || self.tab() == tab {
+        if !self.keyboard || self.on_a_list() || self.tab() == tab {
             return Vec::new();
         }
         if matches!(tab, Tab::Filter(_)) && self.all.is_empty() {
@@ -795,8 +899,8 @@ impl PanelState {
             self.filter = Filter::All;
         }
         self.armed = Armed::None;
-        // The project list keeps the task's focus for Escape to go back to.
-        if self.projects().is_some() {
+        // Either list keeps the task's focus for Escape to go back to.
+        if self.on_a_list() {
             return vec![Effect::Render];
         }
         self.focus = if self.keyboard && !self.on_ideas() {
@@ -885,22 +989,26 @@ impl PanelState {
     /// Ctrl+Enter: the focused card's Refine, or its Start once it is
     /// planned, keeping the keyboard and the focus so the user can go on down
     /// the list — not through `on_press`, which would give the keyboard
-    /// back. Go to session, on a worked task with a Claude, leaves the list
-    /// for the session, so it goes through `on_press` and gives the keyboard
-    /// back, as g does. Like the letters, only a button the card has.
+    /// back. On a worked task with a Claude it goes to the session, giving
+    /// the keyboard back first, as the Go to list's session rows do. A
+    /// button step only when the card has that button.
     fn advance(&mut self) -> Vec<Effect> {
         let shown = self.visible();
         let Some(card) = self.current(&shown).map(|at| &shown[at]) else { return Vec::new() };
-        let Some(uuid) = &card.card.uuid else { return Vec::new() };
-        let Some(action) = card.state.and_then(Action::advance) else { return Vec::new() };
-        if !card.actions.contains(&action) {
-            return Vec::new();
+        let Some(uuid) = card.card.uuid.clone() else { return Vec::new() };
+        let Some(state) = card.state else { return Vec::new() };
+        match Action::advance(state) {
+            Some(Step::Session) => {
+                let mut effects = self.release();
+                effects.push(Effect::Spawn(Step::Session.args(&uuid)));
+                effects
+            }
+            Some(Step::Press(action)) if card.actions.contains(&action) => vec![
+                Effect::Notify(format!("{}: {}", action.label(state), card.card.text)),
+                Effect::Spawn(action.args(&uuid)),
+            ],
+            _ => Vec::new(),
         }
-        if action == Action::Session {
-            let uuid = uuid.clone();
-            return self.on_press(&uuid, Slot::Button(action));
-        }
-        vec![Effect::Notify(format!("{}: {}", action.label(card.state.unwrap_or_default()), card.card.text)), Effect::Spawn(action.args(uuid))]
     }
 
     /// Put Clear all back and the focus where it was before it armed, or on
@@ -932,6 +1040,7 @@ fn first_task(shown: &[Shown]) -> Option<Focus> {
 mod tests {
     use super::*;
     use crate::panel::model::Status;
+    use crate::panel::goto::{Found, Item};
 
     fn card(uuid: &str, status: Status) -> Card {
         Card { status, text: uuid.into(), uuid: Some(uuid.into()), id: 0, planned: status == Status::Planned, up_next: false, since: String::new(), notes: Vec::new(), has_report: false, has_spec: false, has_plan: false, processing: false }
@@ -991,7 +1100,7 @@ mod tests {
         assert!(!state.card_hint("a").is_empty());
         assert_eq!(state.card_hint("b"), "");
         key(&mut state, KeyAction::NextSlot);
-        assert!(state.card_hint("a").starts_with("s: Start working"), "{}", state.card_hint("a"));
+        assert!(state.card_hint("a").starts_with("o: Go to…"), "{}", state.card_hint("a"));
         state.on_press("a", Slot::Button(Action::Remove));
         assert_eq!(state.card_hint("a"), "", "Confirm remove says what Enter does");
     }
@@ -1135,18 +1244,8 @@ mod tests {
         let state = keyboard(pending(&names.iter().map(String::as_str).collect::<Vec<_>>()));
         let shown = state.visible();
         assert!(shown[0].actions.contains(&Action::Start));
-        assert!(!shown[0].actions.contains(&Action::Session), "no agent, no Go to session");
+        assert_eq!(shown[0].actions.first(), Some(&Action::GoTo), "Go to… leads the row");
         assert!(shown.last().unwrap().actions.is_empty(), "\"+N more\" has none");
-    }
-
-    #[test]
-    fn go_to_session_only_on_a_card_with_a_live_agent() {
-        let mut state = PanelState::default();
-        state.set_cards(&pending(&["a", "b"]));
-        state.take_keyboard(vec![crate::names::work_agent("b")]);
-        let shown = state.visible();
-        assert!(!shown[0].actions.contains(&Action::Session));
-        assert_eq!(shown[1].actions[0], Action::Session);
     }
 
     #[test]
@@ -1212,7 +1311,7 @@ mod tests {
         assert!(!keyboard(pending(&["p"])).tabs().contains(&Filter::Finished));
     }
 
-    /// Its cards alone, each with Back to list, Edit, Speak and Remove, and
+    /// Its cards alone, each with Go to…, Back to list, Edit and Remove, and
     /// no Clear all.
     #[test]
     fn the_finished_tab_lists_its_cards_with_their_buttons_and_no_clear_all() {
@@ -1220,7 +1319,7 @@ mod tests {
         assert_eq!(uuids(&state), vec!["p"], "All leaves them out");
         assert_eq!(key(&mut state, KeyAction::Filter(Filter::Finished)), vec![Effect::Render]);
         assert_eq!(uuids(&state), vec!["f1", "f2"]);
-        assert_eq!(state.visible()[0].actions, vec![Action::Back, Action::Edit, Action::Speak, Action::Remove]);
+        assert_eq!(state.visible()[0].actions, vec![Action::GoTo, Action::Back, Action::Edit, Action::Remove]);
         assert_eq!(state.focus(), focused("f1", Slot::Body).as_ref());
         assert!(!state.shows_clear_all());
         assert_eq!(key(&mut state, KeyAction::ClearAll), Vec::new());
@@ -1543,14 +1642,12 @@ mod tests {
     }
 
     #[test]
-    fn speak_and_up_next_keep_the_keyboard_and_the_focus() {
+    fn up_next_keeps_the_keyboard_and_the_focus() {
         let mut state = keyboard(pending(&["a"]));
-        state.on_focus(focused("a", Slot::Button(Action::Speak)));
-        for action in [Action::Speak, Action::UpNext] {
-            assert_eq!(state.on_press("a", Slot::Button(action)), vec![Effect::Spawn(action.args("a"))]);
-        }
+        state.on_focus(focused("a", Slot::Button(Action::UpNext)));
+        assert_eq!(state.on_press("a", Slot::Button(Action::UpNext)), vec![Effect::Spawn(Action::UpNext.args("a"))]);
         assert!(state.keyboard());
-        assert_eq!(state.focus(), focused("a", Slot::Button(Action::Speak)).as_ref());
+        assert_eq!(state.focus(), focused("a", Slot::Button(Action::UpNext)).as_ref());
     }
 
     #[test]
@@ -1588,7 +1685,7 @@ mod tests {
         state
     }
 
-    /// Ctrl+Enter on a worked task with a Claude does what g does: the
+    /// Ctrl+Enter on a worked task with a Claude goes to its session: the
     /// keyboard back, then `task session <uuid>`.
     #[test]
     fn ctrl_enter_goes_to_the_session_giving_the_keyboard_back() {
@@ -1602,8 +1699,6 @@ mod tests {
                 "planned={planned}"
             );
             assert!(!state.keyboard(), "planned={planned}");
-            let mut by_letter = worked_with_claude(planned);
-            assert_eq!(key(&mut by_letter, KeyAction::Run(Action::Session)), effects, "the same as g");
         }
     }
 
@@ -1619,6 +1714,179 @@ mod tests {
         );
         assert!(state.keyboard());
         assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+    }
+
+    // ─── the Go to list ──────────────────────────────────────────────────
+
+    /// The panel with the keyboard on card `a`, active and planned, with a
+    /// live refine Claude; and card `b`.
+    fn going_from_a() -> PanelState {
+        let mut a = card("a", Status::Active);
+        a.planned = true;
+        let mut state = PanelState::default();
+        state.set_cards(&[a, card("b", Status::Pending)]);
+        assert!(state.take_keyboard(vec![crate::names::refine_agent("a")]));
+        state
+    }
+
+    /// `going_from_a` with `a`'s Go to list up, nothing found on the machine.
+    fn listing_a() -> PanelState {
+        let mut state = going_from_a();
+        assert_eq!(key(&mut state, KeyAction::Run(Action::GoTo)), vec![Effect::ListGoTo("a".into())]);
+        assert_eq!(state.show_goto("a", Found::default()), vec![Effect::Render]);
+        state
+    }
+
+    /// o asks the surface what is on the machine, keeping the keyboard and
+    /// the focus; the answer shows the task's Go to list in place of the
+    /// cards: its rows under a line naming it, the first highlighted, no
+    /// tabs, its own footer, and the card's focus kept for Escape.
+    #[test]
+    fn o_shows_the_go_to_list_in_place_of_the_cards() {
+        let state = listing_a();
+        let list = state.goto().unwrap();
+        assert_eq!(list.rows(), [Item::Refine, Item::Grill, Item::Start, Item::Report, Item::RefineSession, Item::ReadAloud]);
+        assert_eq!(list.title(), "Go to…: a");
+        assert_eq!(list.row_label(Item::Start), format!("{}  Back to worktree", Item::Start.icon()));
+        assert_eq!(state.row_at(), Some(0));
+        assert!(state.keyboard());
+        assert!(state.visible().is_empty(), "no task cards");
+        assert!(state.tabs().is_empty(), "no tabs");
+        assert_eq!(state.footer(), Some(crate::panel::goto::GOTO_KEYS));
+        assert_eq!(state.card_hint("a"), "");
+        assert!(!state.hidden());
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref(), "kept for Escape");
+    }
+
+    /// What the surface found shows as rows.
+    #[test]
+    fn what_was_found_adds_its_rows() {
+        let mut state = going_from_a();
+        key(&mut state, KeyAction::Run(Action::GoTo));
+        state.show_goto("a", Found { worktree: true, editor: true, speaking: true });
+        let list = state.goto().unwrap();
+        assert!(list.rows().contains(&Item::Worktree) && list.rows().contains(&Item::Editor));
+        assert_eq!(list.row_label(Item::ReadAloud), format!("{}  Stop reading aloud", Item::ReadAloud.icon()));
+    }
+
+    /// Up and Down walk the rows and stop at the ends; Enter gives the
+    /// keyboard back and runs the highlighted row's command.
+    #[test]
+    fn up_down_and_enter_run_the_picked_row_giving_the_keyboard_back() {
+        let mut state = listing_a();
+        assert_eq!(key(&mut state, KeyAction::NextCard), vec![Effect::ShowFolder]);
+        assert_eq!(state.row_at(), Some(1));
+        key(&mut state, KeyAction::PrevCard);
+        key(&mut state, KeyAction::PrevCard);
+        assert_eq!(state.row_at(), Some(0), "stops at the first");
+        assert_eq!(
+            key(&mut state, KeyAction::Enter),
+            vec![Effect::Render, Effect::Release, Effect::Spawn(Item::Refine.args("a"))],
+        );
+        assert!(!state.keyboard());
+        assert_eq!(state.goto(), None);
+    }
+
+    #[test]
+    fn a_click_on_a_row_runs_it() {
+        let mut state = listing_a();
+        assert_eq!(
+            state.on_goto_row(4),
+            vec![Effect::Render, Effect::Release, Effect::Spawn(vec!["task".into(), "session".into(), "a".into(), "--refine".into()])],
+        );
+        assert_eq!(state.on_goto_row(0), Vec::new(), "once the list has gone");
+    }
+
+    /// Read aloud plays in the background, as Speak's button did: back to
+    /// the cards with the keyboard and the focus kept.
+    #[test]
+    fn read_aloud_goes_back_to_the_cards_keeping_the_keyboard() {
+        let mut state = listing_a();
+        assert_eq!(state.on_goto_row(5), vec![Effect::Render, Effect::Spawn(Item::ReadAloud.args("a"))]);
+        assert_eq!(state.goto(), None);
+        assert!(state.keyboard());
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+    }
+
+    /// Escape goes back to the cards on the same card and slot, keeping
+    /// the keyboard; a second gives it back.
+    #[test]
+    fn escape_on_the_go_to_list_goes_back_to_the_same_button() {
+        let mut state = going_from_a();
+        key(&mut state, KeyAction::NextSlot);
+        assert_eq!(state.focus(), focused("a", Slot::Button(Action::GoTo)).as_ref());
+        assert_eq!(state.on_press("a", Slot::Button(Action::GoTo)), vec![Effect::ListGoTo("a".into())]);
+        state.show_goto("a", Found::default());
+        assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render]);
+        assert_eq!(state.goto(), None);
+        assert!(state.keyboard());
+        assert_eq!(state.focus(), focused("a", Slot::Button(Action::GoTo)).as_ref());
+        assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render, Effect::Release]);
+    }
+
+    /// No text field, so every other key does nothing: no letter presses a
+    /// card's button, no tab key leaves, and a click or a GTK focus move
+    /// elsewhere is ignored.
+    #[test]
+    fn the_go_to_list_leaves_every_other_key_alone() {
+        let mut state = listing_a();
+        for other in [
+            KeyAction::Run(Action::Start),
+            KeyAction::Filter(Filter::Active),
+            KeyAction::Ideas,
+            KeyAction::NextFilter,
+            KeyAction::NextSlot,
+            KeyAction::Advance,
+            KeyAction::Delete,
+            KeyAction::ClearAll,
+            KeyAction::Ignore,
+        ] {
+            assert_eq!(key(&mut state, other), Vec::new(), "{other:?}");
+            assert!(state.goto().is_some(), "{other:?}");
+        }
+        assert_eq!(state.on_tab(Tab::Filter(Filter::Active)), Vec::new());
+        assert_eq!(state.on_press("b", Slot::Body), Vec::new());
+        state.on_focus(None);
+        assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+        assert_eq!(state.show_goto("b", Found::default()), Vec::new(), "one list at a time");
+    }
+
+    /// The raw keys map as on the project list: the arrows, Enter and
+    /// Escape are the list's, and a letter is nothing.
+    #[test]
+    fn a_raw_key_on_the_go_to_list_maps_as_on_the_project_list() {
+        use gtk4::gdk::Key;
+        let mut state = listing_a();
+        assert_eq!(state.on_key(Key::Down, false, false), Some(vec![Effect::ShowFolder]));
+        assert_eq!(state.on_key(Key::s, false, false), Some(Vec::new()));
+        assert_eq!(state.on_key(Key::Escape, false, false), Some(vec![Effect::Render]));
+    }
+
+    /// A refresh keeps the list and its highlight while its task is there,
+    /// and closes it, keeping the keyboard, once the task has gone.
+    #[test]
+    fn a_refresh_keeps_the_go_to_list_until_its_task_goes() {
+        let mut state = listing_a();
+        key(&mut state, KeyAction::NextCard);
+        let mut a = card("a", Status::Active);
+        a.planned = true;
+        assert_eq!(state.set_cards(&[a, card("b", Status::Pending), card("c", Status::Pending)]), vec![Effect::Render]);
+        assert_eq!(state.row_at(), Some(1));
+        state.set_cards(&[card("b", Status::Pending)]);
+        assert_eq!(state.goto(), None);
+        assert!(state.keyboard());
+        assert_eq!(state.focus(), focused("b", Slot::Body).as_ref());
+    }
+
+    /// The surface's answer for a task that has left the cards, or with the
+    /// keyboard gone, shows nothing.
+    #[test]
+    fn a_late_answer_shows_nothing() {
+        let mut state = going_from_a();
+        assert_eq!(state.show_goto("gone", Found::default()), Vec::new());
+        let mut released = going_from_a();
+        key(&mut released, KeyAction::Release);
+        assert_eq!(released.show_goto("a", Found::default()), Vec::new());
     }
 
     // ─── Ctrl+Delete ─────────────────────────────────────────────────────
