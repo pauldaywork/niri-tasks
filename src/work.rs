@@ -66,6 +66,7 @@ pub fn branch_name(description: &str, uuid: &str) -> String {
 /// report is linked by `Report: <path>`. The path is repo-relative, so it
 /// holds in the worktree and on `main` once the branch lands and the
 /// worktree is gone. `finish-worktree` adds the note if this is forgotten.
+/// The card's Go to… lists and opens both.
 pub fn plan_prompt(uuid: &str) -> String {
     format!(
         "/superpowers:writing-plans Plan Taskwarrior task {uuid}. Read it with \
