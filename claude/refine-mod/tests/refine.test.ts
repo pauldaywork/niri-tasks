@@ -10,6 +10,8 @@ const REPORT = 'Show me a report first'
 const REPORT_TOOL = 'mcp__niri-tasks-refine__show_task_report'
 const REPORTS = { uuid: UUID, reports: '/r' }
 const REPORT_PATH = '/r/refine-0b8f6a52-20261006-010203.html'
+// The report's Markdown twin, written beside it.
+const REPORT_MD = '/r/refine-0b8f6a52-20261006-010203.md'
 // A Report session: the card's Report button, not a refine.
 const REPORT_MODE = { uuid: UUID, reports: '/r', report: true }
 // The smallest report show_task_report takes.
@@ -344,7 +346,8 @@ test('report, then approve: writes the page, opens it, then writes the task', { 
       'Now call write_task_plan again with the same plan; the person approves or changes it there, ' +
       'and the task will link the report in its notes.',
   )
-  expect(writes.map(w => w.path)).toEqual([REPORT_PATH])
+  expect(writes.map(w => w.path)).toEqual([REPORT_PATH, REPORT_MD])
+  expect(writes[1]?.text).toStartWith('# feat: New words\n\nThe task gets new words.\n')
   expect(writes[0]?.text).toContain('<p class="lede">The task gets new words.</p>')
   expect(writes[0]?.text).toContain('Content-Security-Policy')
   // The plan the person was shown, from the tool's own arguments.
@@ -444,8 +447,8 @@ test('a report embeds the fonts the mod ships, read once a session', { options: 
   await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
   await $.tool.call(CALL)
   await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
-  expect(writes).toHaveLength(2)
-  for (const page of writes.map(w => w.text)) {
+  expect(writes.map(w => w.path)).toEqual([REPORT_PATH, REPORT_MD, REPORT_PATH, REPORT_MD])
+  for (const page of writes.filter(w => w.path.endsWith('.html')).map(w => w.text)) {
     expect(page).toContain('src: url(data:font/woff2;base64,RElTUA==) format("woff2")')
     expect(page).toContain('src: url(data:font/woff2;base64,Qk9EWQ==) format("woff2")')
   }
@@ -565,7 +568,7 @@ test('report mode: writes the page, opens it, and links it from the task, asking
     `Wrote the report to ${REPORT_PATH}, opened it in the browser, and linked it from the task ` +
       `as the note "Report: ${REPORT_PATH}".`,
   )
-  expect(writes.map(w => w.path)).toEqual([REPORT_PATH])
+  expect(writes.map(w => w.path)).toEqual([REPORT_PATH, REPORT_MD])
   // The plan the page shows is the task's own description and notes.
   const page = writes[0]?.text ?? ''
   const block = page.slice(page.indexOf('id="decision"'))
@@ -598,7 +601,7 @@ test('report mode: one report a session; the second names the first', { options:
     `show_task_report: this session's report is made and linked from the task: ${REPORT_PATH}. ` +
       'Close this tab and press Report on the card again for another.',
   )
-  expect(writes).toHaveLength(1)
+  expect(writes.map(w => w.path)).toEqual([REPORT_PATH, REPORT_MD])
   expect(verbs(runs).filter(v => v === 'import')).toHaveLength(1)
 })
 
@@ -724,7 +727,8 @@ test('unattended report mode: writes the page and links it, opening nothing', { 
   expect(shown.result).toBe(
     `Wrote the report to ${REPORT_PATH} and linked it from the task as the note "Report: ${REPORT_PATH}".`,
   )
-  expect(writes.map(w => w.path)).toEqual([REPORT_PATH])
+  expect(writes.map(w => w.path)).toEqual([REPORT_PATH, REPORT_MD])
+  expect(writes[1]?.text).toContain(`**Description:** ${PLANNED.description}`)
   expect(seen).toEqual([`log: Report: ${REPORT_PATH}`])
   expect(runs.map(run => run.argv)).toEqual([
     ['task', 'rc.hooks=off', 'rc.json.array=on', UUID, 'export'],

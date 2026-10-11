@@ -1,7 +1,7 @@
 {
   "name": "niri-tasks-refine",
   "version": "0.1.0",
-  "description": "Gives a refine session two tools: write_task_plan, which rewrites one Taskwarrior task's description and notes, and show_task_report, which writes and opens an HTML report of the plan when the person asks for one. With `report` set, a Report session gets show_task_report alone, on the task's own plan, and the mod links the report from the task. With `unattended` set, for a `claude -p` run with no one at the keyboard, write_task_plan writes without asking and show_task_report does not open the browser.",
+  "description": "Gives a refine session two tools: write_task_plan, which rewrites one Taskwarrior task's description and notes, and show_task_report, which writes and opens an HTML report of the plan, with a Markdown twin beside it, when the person asks for one. With `report` set, a Report session gets show_task_report alone, on the task's own plan, and the mod links the report from the task. With `unattended` set, for a `claude -p` run with no one at the keyboard, write_task_plan writes without asking and show_task_report does not open the browser.",
   "author": {
     "name": "Paul Day"
   },
