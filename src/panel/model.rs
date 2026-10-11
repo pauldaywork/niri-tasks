@@ -62,6 +62,12 @@ pub struct Card {
     /// The task's notes link a refine report, `Report: <path>`: its Report
     /// button reads Open report and opens that. False on "+N more".
     pub has_report: bool,
+    /// The task's notes link a design spec, `Spec: <path>`, for its Go to
+    /// list. False on "+N more".
+    pub has_spec: bool,
+    /// The task's notes link an implementation plan, `Plan: <path>`, for
+    /// its Go to list. False on "+N more".
+    pub has_plan: bool,
     /// The task carries `+processing`, whatever its status: an active task
     /// being planned shows Active, and still offers nothing. False on
     /// "+N more".
@@ -117,19 +123,24 @@ impl Card {
         crate::task::age(&self.since, now)
     }
 
-    /// The task's state, as the task actions read it, with whether a Claude
-    /// is on it. None on "+N more", which stands for no one task.
-    pub fn state(&self, has_session: bool) -> Option<TaskState> {
-        (self.status != Status::More).then(|| TaskState {
+    /// The task's state, as the task actions read it, with which of its
+    /// Claudes are live among `agents`, the herdr session's agent names.
+    /// None on "+N more", which stands for no one task.
+    pub fn state(&self, agents: &[String]) -> Option<TaskState> {
+        let uuid = self.uuid.as_deref().filter(|_| self.status != Status::More)?;
+        let state = TaskState {
             active: self.status == Status::Active,
             waiting: self.status == Status::Waiting,
             finished: self.status == Status::Finished,
             planned: self.planned,
             up_next: self.up_next,
-            has_session,
             has_report: self.has_report,
+            has_spec: self.has_spec,
+            has_plan: self.has_plan,
             processing: self.processing,
-        })
+            ..TaskState::default()
+        };
+        Some(state.with_agents(agents, uuid))
     }
 }
 
@@ -336,6 +347,8 @@ pub fn cards(listing: &Listing, blocked: &[String]) -> Vec<Card> {
             since: if finished(part) { t.end.clone() } else { t.entry.clone() },
             notes: t.annotations.iter().map(|a| a.description.clone()).collect(),
             has_report: t.report_path().is_some(),
+            has_spec: t.spec_path().is_some(),
+            has_plan: t.plan_path().is_some(),
             processing: t.is_processing(),
         })
         .collect()
@@ -366,6 +379,8 @@ pub fn cap(cards: &[Card], n: usize) -> Vec<Card> {
             since: String::new(),
             notes: Vec::new(),
             has_report: false,
+            has_spec: false,
+            has_plan: false,
             processing: false,
         });
     }
@@ -544,6 +559,30 @@ mod tests {
         assert!(!cap(&cards(&todo(many), &[]), CAP).last().unwrap().has_report);
     }
 
+    /// A card knows whether its task's notes link a spec and a plan, and
+    /// its state which of its Claudes are live; "+N more" has neither.
+    #[test]
+    fn a_card_knows_its_tasks_spec_plan_and_claudes() {
+        let mut linked = task("linked", 1, false);
+        linked.annotations = vec![
+            crate::task::Annotation { entry: "20261006T010000Z".into(), description: "Spec: docs/superpowers/specs/a.md".into() },
+            crate::task::Annotation { entry: "20261006T020000Z".into(), description: "Plan: docs/superpowers/plans/a.md".into() },
+        ];
+        let got = cards(&todo(vec![linked, task("plain", 1, false)]), &[]);
+        let by = |text: &str| got.iter().find(|c| c.text == text).unwrap();
+        assert!(by("linked").has_spec && by("linked").has_plan);
+        assert!(!by("plain").has_spec && !by("plain").has_plan);
+        let agents = vec![crate::names::refine_agent("linked"), crate::names::work_agent("plain")];
+        let linked = by("linked").state(&agents).unwrap();
+        assert!(linked.has_refine && !linked.has_work && linked.has_spec && linked.has_plan);
+        let plain = by("plain").state(&agents).unwrap();
+        assert!(plain.has_work && !plain.has_refine);
+        let many: Vec<Task> = (0..CAP + 1).map(|i| task(&format!("t{i}"), 1, false)).collect();
+        let more = cap(&cards(&todo(many), &[]), CAP).pop().unwrap();
+        assert!(!more.has_spec && !more.has_plan);
+        assert_eq!(more.state(&agents), None);
+    }
+
     /// A card carries its task's id from the export; "+N more" has none.
     #[test]
     fn a_card_carries_its_tasks_id() {
@@ -629,7 +668,7 @@ mod tests {
         assert_eq!(got[0].status, Status::Processing);
         assert_eq!(got[0].icon(), "\u{f252}");
         assert!(got[0].processing);
-        assert_eq!(got[0].state(false), Some(TaskState { processing: true, ..TaskState::default() }));
+        assert_eq!(got[0].state(&[]), Some(TaskState { processing: true, ..TaskState::default() }));
 
         let mut planned_too = processing("q");
         planned_too.tags.push(crate::task::PLANNED_TAG.into());
@@ -649,7 +688,7 @@ mod tests {
         let got = cards(&todo(vec![started]), &[]);
         assert_eq!(got[0].status, Status::Active);
         assert!(got[0].processing);
-        assert_eq!(got[0].state(false).map(crate::actions::Action::row), Some(Vec::new()));
+        assert_eq!(got[0].state(&[]).map(crate::actions::Action::row), Some(Vec::new()));
     }
 
     /// "+N more" is being planned by no one.
@@ -774,7 +813,7 @@ mod tests {
         let mut next_done = finished("done", 2);
         next_done.tags = vec![crate::task::UP_NEXT_TAG.into()];
         let got = cards(&done(vec![next_done]), &[]);
-        assert_eq!(got[0].state(false), Some(TaskState { finished: true, up_next: true, ..TaskState::default() }));
+        assert_eq!(got[0].state(&[]), Some(TaskState { finished: true, up_next: true, ..TaskState::default() }));
         assert!(!got[0].shows_up_next());
     }
 
@@ -979,24 +1018,27 @@ mod tests {
             since: String::new(),
             notes: Vec::new(),
             has_report,
+            has_spec: false,
+            has_plan: false,
             processing: false,
         };
+        let work = vec![crate::names::work_agent("u")];
         assert_eq!(
-            card(Status::Active, true, true, true).state(true),
-            Some(TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true, has_report: true, processing: false })
+            card(Status::Active, true, true, true).state(&work),
+            Some(TaskState { active: true, planned: true, up_next: true, has_work: true, has_report: true, ..TaskState::default() })
         );
         assert_eq!(
-            card(Status::Waiting, false, false, false).state(false),
+            card(Status::Waiting, false, false, false).state(&[]),
             Some(TaskState { waiting: true, ..TaskState::default() })
         );
-        assert_eq!(card(Status::Blocked, false, false, false).state(false), Some(TaskState::default()));
+        assert_eq!(card(Status::Blocked, false, false, false).state(&[]), Some(TaskState::default()));
         assert_eq!(
-            card(Status::Planned, true, false, true).state(false),
+            card(Status::Planned, true, false, true).state(&[]),
             Some(TaskState { planned: true, has_report: true, ..TaskState::default() })
         );
         let more = cap(&[card(Status::Pending, false, false, false), card(Status::Pending, false, false, false)], 1).pop().unwrap();
         assert_eq!(more.status, Status::More);
-        assert_eq!(more.state(true), None);
+        assert_eq!(more.state(&work), None);
     }
 
     /// Ideas is a tab, not a filter: always on show, after the filter tabs.

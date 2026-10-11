@@ -388,7 +388,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             let t = task::get(&uuid)?.context("task not found")?;
             task::set_up_next(&t.uuid, !t.is_up_next())?;
             // The words that were picked, as Update status notifies its state.
-            notify::tasks(&format!("{}: {}", Action::UpNext.label(TaskState::of(&t, false, false)), t.description));
+            notify::tasks(&format!("{}: {}", Action::UpNext.label(TaskState::of(&t, false, &[])), t.description));
         }
 
         TaskCommand::Start { uuid, here, workspace } => {

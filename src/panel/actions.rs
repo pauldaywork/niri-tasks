@@ -46,7 +46,9 @@ impl Action {
             TaskState { processing: true, .. } => None,
             TaskState { finished: true, .. } => None,
             TaskState { waiting: true, .. } => None,
-            TaskState { active: true, has_session: true, .. } => Some(Session),
+            TaskState { active: true, has_work: true, .. } | TaskState { active: true, has_refine: true, .. } => {
+                Some(Session)
+            }
             TaskState { active: true, planned: true, .. } => None,
             TaskState { planned: true, .. } => Some(Start),
             _ => Some(Refine),
@@ -146,7 +148,7 @@ mod tests {
     }
 
     fn with_claude(state: TaskState) -> TaskState {
-        TaskState { has_session: true, ..state }
+        TaskState { has_work: true, ..state }
     }
 
     fn with_report(state: TaskState) -> TaskState {
@@ -198,6 +200,15 @@ mod tests {
         assert_eq!(Action::advance(with_claude(on_list(true))), Some(Start));
         assert_eq!(Action::advance(with_claude(waiting(true))), None);
         assert_eq!(Action::advance(with_claude(finished(true))), None);
+    }
+
+    /// A refine still open on a worked task is a Claude to go back to, as
+    /// the working one is.
+    #[test]
+    fn a_refine_alone_is_still_a_session_to_go_to() {
+        let refining = TaskState { has_refine: true, ..active(false) };
+        assert_eq!(Action::advance(refining), Some(Session));
+        assert_eq!(Action::row(refining)[0], Session);
     }
 
     /// What Ctrl+Enter picks is always one of the card's own buttons, so the

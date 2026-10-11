@@ -268,10 +268,7 @@ impl PanelState {
         cards
             .into_iter()
             .map(|card| {
-                let state = card.uuid.as_deref().filter(|_| self.keyboard).and_then(|uuid| {
-                    let has_session = crate::link::session_agent(&self.agents, uuid).is_some();
-                    card.state(has_session)
-                });
+                let state = if self.keyboard { card.state(&self.agents) } else { None };
                 let actions = state.map(Action::row).unwrap_or_default();
                 Shown { card, actions, state }
             })
@@ -937,7 +934,7 @@ mod tests {
     use crate::panel::model::Status;
 
     fn card(uuid: &str, status: Status) -> Card {
-        Card { status, text: uuid.into(), uuid: Some(uuid.into()), id: 0, planned: status == Status::Planned, up_next: false, since: String::new(), notes: Vec::new(), has_report: false, processing: false }
+        Card { status, text: uuid.into(), uuid: Some(uuid.into()), id: 0, planned: status == Status::Planned, up_next: false, since: String::new(), notes: Vec::new(), has_report: false, has_spec: false, has_plan: false, processing: false }
     }
 
     /// A pending card whose task has one note.

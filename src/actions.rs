@@ -7,6 +7,7 @@
 //! which it shows and the hints beside them. A new action is a variant here,
 //! a row of `Action::facts` and a CLI subcommand.
 
+use crate::names;
 use crate::task::Task;
 
 /// One thing that can be done to a task. Each is one `niritasks` command,
@@ -73,11 +74,19 @@ pub struct TaskState {
     pub planned: bool,
     /// Carries `+next`.
     pub up_next: bool,
-    /// A Claude is working on it in the workspace's herdr session.
-    pub has_session: bool,
+    /// Its working Claude, `work-<uuid8>`, the one Start working starts, is
+    /// live in the workspace's herdr session.
+    pub has_work: bool,
+    /// Its refine Claude, `task-<uuid8>`, the one Refine starts, is live
+    /// there.
+    pub has_refine: bool,
     /// Its notes link a refine report, `Report: <path>`: Report opens that
     /// rather than building another.
     pub has_report: bool,
+    /// Its notes link a design spec, `Spec: <path>`.
+    pub has_spec: bool,
+    /// Its notes link an implementation plan, `Plan: <path>`.
+    pub has_plan: bool,
 }
 
 impl TaskState {
@@ -88,11 +97,12 @@ impl TaskState {
         self.waiting || self.finished
     }
 
-    /// `task`'s state, finished included, read from its status. Whether it is
-    /// waiting is passed in, because its export cannot say (see
-    /// `task::is_waiting`), and so is whether a Claude is on it, which herdr
-    /// knows and the task does not.
-    pub fn of(task: &Task, waiting: bool, has_session: bool) -> TaskState {
+    /// `task`'s state, finished included, read from its status and notes.
+    /// Whether it is waiting is passed in, because its export cannot say (see
+    /// `task::is_waiting`), and so are the herdr session's live agent names,
+    /// which say which of its Claudes are on it: herdr knows, the task does
+    /// not.
+    pub fn of(task: &Task, waiting: bool, agents: &[String]) -> TaskState {
         TaskState {
             active: task.is_active(),
             waiting,
@@ -100,10 +110,21 @@ impl TaskState {
             finished: task.status == "completed",
             planned: task.is_planned(),
             up_next: task.is_up_next(),
-            has_session,
             has_report: task.report_path().is_some(),
+            has_spec: task.spec_path().is_some(),
+            has_plan: task.plan_path().is_some(),
             processing: task.is_processing(),
+            ..TaskState::default()
         }
+        .with_agents(agents, &task.uuid)
+    }
+
+    /// This state with which of `uuid`'s Claudes are live among `agents`,
+    /// the herdr session's agent names: its working Claude and its refine,
+    /// told apart by name (see `names`).
+    pub fn with_agents(self, agents: &[String], uuid: &str) -> TaskState {
+        let live = |name: String| agents.contains(&name);
+        TaskState { has_work: live(names::work_agent(uuid)), has_refine: live(names::refine_agent(uuid)), ..self }
     }
 }
 
@@ -235,7 +256,7 @@ impl Action {
             return false;
         }
         match self {
-            Session => state.has_session && !state.off_list(),
+            Session => (state.has_work || state.has_refine) && !state.off_list(),
             Back => state.off_list(),
             Stop => state.active,
             // A plan to report on, and a task still on the list.
@@ -344,7 +365,7 @@ mod tests {
         let processing = TaskState { processing: true, ..TaskState::default() };
         assert_eq!(offered(processing), Vec::<Action>::new());
         let every_way = TaskState {
-            processing: true, active: true, planned: true, up_next: true, has_session: true, has_report: true,
+            processing: true, active: true, planned: true, up_next: true, has_work: true, has_refine: true, has_report: true, has_spec: true, has_plan: true,
             ..TaskState::default()
         };
         assert_eq!(offered(every_way), Vec::<Action>::new());
@@ -359,7 +380,28 @@ mod tests {
             r#"{"uuid":"u","description":"d","status":"pending","tags":["processing"]}"#,
         )
         .unwrap();
-        assert_eq!(TaskState::of(&t, false, false), TaskState { processing: true, ..TaskState::default() });
+        assert_eq!(TaskState::of(&t, false, &[]), TaskState { processing: true, ..TaskState::default() });
+    }
+
+    /// The state knows which of the task's Claudes are live, by herdr name,
+    /// and which documents its notes link: another task's agents are not
+    /// this one's.
+    #[test]
+    fn of_reads_the_live_claudes_and_the_linked_documents() {
+        let t: Task = serde_json::from_str(
+            r#"{"uuid":"7cd9fd3a-d27b","description":"d","status":"pending",
+                "annotations":[{"entry":"20261006T010000Z","description":"Spec: docs/s.md"},
+                               {"entry":"20261006T020000Z","description":"Plan: docs/p.md"}]}"#,
+        )
+        .unwrap();
+        let refine_only = vec!["task-7cd9fd3a".to_string(), "work-11111111".to_string()];
+        assert_eq!(
+            TaskState::of(&t, false, &refine_only),
+            TaskState { has_refine: true, has_spec: true, has_plan: true, ..TaskState::default() }
+        );
+        let both = vec!["work-7cd9fd3a".to_string(), "task-7cd9fd3a".to_string()];
+        let state = TaskState::of(&t, false, &both);
+        assert!(state.has_work && state.has_refine);
     }
 
     /// An active task can be stopped, and started again, which goes back to
@@ -370,11 +412,13 @@ mod tests {
         assert_eq!(offered(state), vec![Start, Refine, Grill, Edit, Speak, UpNext, Complete, Move, Stop, Wait, Remove]);
     }
 
-    /// Go to session never starts a Claude, so it needs one already there.
+    /// Go to session never starts a Claude, so it needs one already there:
+    /// the working one or the refine.
     #[test]
     fn go_to_session_needs_a_live_claude() {
         assert!(!Session.applies(TaskState::default()));
-        assert!(Session.applies(TaskState { has_session: true, ..TaskState::default() }));
+        assert!(Session.applies(TaskState { has_work: true, ..TaskState::default() }));
+        assert!(Session.applies(TaskState { has_refine: true, ..TaskState::default() }));
     }
 
     /// A waiting task is parked: the way back, and what still works on a
@@ -382,10 +426,10 @@ mod tests {
     /// whatever else is true of it.
     #[test]
     fn a_waiting_task_gets_back_to_list_and_what_still_works_on_it() {
-        for has_session in [false, true] {
+        for has_work in [false, true] {
             for up_next in [false, true] {
                 for planned in [false, true] {
-                    let state = TaskState { waiting: true, has_session, up_next, planned, ..TaskState::default() };
+                    let state = TaskState { waiting: true, has_work, up_next, planned, ..TaskState::default() };
                     assert_eq!(offered(state), vec![Back, Edit, Speak, Complete, Move, Remove], "{state:?}");
                 }
             }
@@ -435,7 +479,7 @@ mod tests {
         assert_eq!(Report.label(plain), "Report");
         assert_eq!(Report.label(reported), "Open report");
         assert_eq!(Report.label(up_next), "Report");
-        let every_way = TaskState { active: true, planned: true, has_session: true, up_next: true, has_report: true, ..plain };
+        let every_way = TaskState { active: true, planned: true, has_work: true, up_next: true, has_report: true, ..plain };
         for action in Action::ALL.into_iter().filter(|a| !matches!(a, UpNext | Report)) {
             assert_eq!(action.label(every_way), action.label(plain), "{action:?}");
         }
@@ -453,10 +497,10 @@ mod tests {
         let without: Task =
             serde_json::from_str(r#"{"uuid":"u","description":"d","status":"pending","tags":["planned"]}"#).unwrap();
         assert_eq!(
-            TaskState::of(&with, false, false),
+            TaskState::of(&with, false, &[]),
             TaskState { planned: true, has_report: true, ..TaskState::default() }
         );
-        assert_eq!(TaskState::of(&without, false, false), TaskState { planned: true, ..TaskState::default() });
+        assert_eq!(TaskState::of(&without, false, &[]), TaskState { planned: true, ..TaskState::default() });
     }
 
     /// Icons alone tell the row's buttons apart, so no two may share one.
@@ -504,13 +548,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            TaskState::of(&task, false, true),
-            TaskState { active: true, waiting: false, finished: false, planned: true, up_next: true, has_session: true, has_report: false, processing: false }
+            TaskState::of(&task, false, &[names::work_agent("u")]),
+            TaskState { active: true, planned: true, up_next: true, has_work: true, ..TaskState::default() }
         );
         let bare: Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
-        assert_eq!(TaskState::of(&bare, true, false), TaskState { waiting: true, ..TaskState::default() });
+        assert_eq!(TaskState::of(&bare, true, &[]), TaskState { waiting: true, ..TaskState::default() });
         let done: Task = serde_json::from_str(r#"{"uuid":"u","description":"d","status":"completed"}"#).unwrap();
-        assert_eq!(TaskState::of(&done, false, false), TaskState { finished: true, ..TaskState::default() });
+        assert_eq!(TaskState::of(&done, false, &[]), TaskState { finished: true, ..TaskState::default() });
     }
 
     /// A finished task is off the list, as a waiting one is: the way back,
@@ -518,10 +562,10 @@ mod tests {
     /// not Complete, being done already.
     #[test]
     fn a_finished_task_gets_back_to_list_and_what_still_works_on_it() {
-        for has_session in [false, true] {
+        for has_work in [false, true] {
             for up_next in [false, true] {
                 for planned in [false, true] {
-                    let state = TaskState { finished: true, has_session, up_next, planned, ..TaskState::default() };
+                    let state = TaskState { finished: true, has_work, up_next, planned, ..TaskState::default() };
                     assert_eq!(offered(state), vec![Back, Edit, Speak, Remove], "{state:?}");
                 }
             }
