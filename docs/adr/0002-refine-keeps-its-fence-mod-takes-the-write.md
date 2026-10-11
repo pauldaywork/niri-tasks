@@ -46,7 +46,13 @@ mode records every question it decided for them as a `Decided:` note. What
 bounds the run is unchanged: the sandbox, the hidden sockets and
 credentials, the removed tools and the standing instruction, none of which
 the mode touches. The task carries `+processing` while it runs, so the card
-and the commands that start a Claude leave it alone meanwhile. The decision is unchanged.
+and the commands that start a Claude leave it alone meanwhile. *2026-10-11:*
+`session_settings` allows `Read(//**)`, attended and unattended, in place
+of its skill-folder allows, so the Read tool reads wherever sandboxed Bash
+already can (the run log, the reviews folder, the installed skills) under
+the same credential deny rules, and the two skills tell an unattended run
+to keep shell commands to plain read-only pipelines, since anything that
+would prompt is denied. The decision is unchanged.
 
 Refine starts Claude in a herdr tab fenced in from outside: `refine.rs` and
 `herdr.rs` hand it a Bash sandbox, hidden sockets and credentials, a list of
