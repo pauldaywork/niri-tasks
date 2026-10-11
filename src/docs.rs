@@ -6,7 +6,9 @@
 
 use crate::{dirs::Dirs, names, task, task::Task, text};
 use anyhow::{Context, Result};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::UNIX_EPOCH;
 
 /// One document: what the list shows, and the file.
@@ -77,7 +79,9 @@ pub fn write_notes(dir: &Path, t: &Task) -> Result<PathBuf> {
 
 /// The Markdown files directly in `folder` last changed at or after `since`
 /// (Unix seconds), each with that time. A folder that is not there has none.
-fn plans_in(folder: &Path, kind: &str, since: i64) -> Vec<(i64, Doc)> {
+/// A file in `times` counts from that time, any other from when it was last
+/// changed on disk.
+fn plans_in(folder: &Path, kind: &str, since: i64, times: &HashMap<PathBuf, i64>) -> Vec<(i64, Doc)> {
     let Ok(entries) = std::fs::read_dir(folder) else {
         return Vec::new();
     };
@@ -87,13 +91,13 @@ fn plans_in(folder: &Path, kind: &str, since: i64) -> Vec<(i64, Doc)> {
         if !path.is_file() || path.extension().and_then(|x| x.to_str()) != Some("md") {
             continue;
         }
-        let Some(changed) = path
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
-        else {
+        let Some(changed) = times.get(&path).copied().or_else(|| {
+            path.metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+        }) else {
             continue;
         };
         if changed < since {
@@ -105,12 +109,60 @@ fn plans_in(folder: &Path, kind: &str, since: i64) -> Vec<(i64, Doc)> {
     found
 }
 
+/// Each path's last commit time from `git log --format=%ct --name-only`,
+/// which lists the newest commit first: a path's first appearance is its
+/// last commit.
+pub fn parse_commit_times(log: &str) -> HashMap<String, i64> {
+    let mut times = HashMap::new();
+    let mut now = None;
+    for line in log.lines().map(str::trim_end).filter(|l| !l.is_empty()) {
+        match line.parse::<i64>() {
+            Ok(secs) if !line.contains('/') => now = Some(secs),
+            _ => {
+                if let Some(secs) = now {
+                    times.entry(line.to_string()).or_insert(secs);
+                }
+            }
+        }
+    }
+    times
+}
+
+/// `git` run in `project`; None when git is missing or fails.
+fn git(project: &Path, args: &[&str]) -> Option<String> {
+    let out = Command::new("git").arg("-C").arg(project).args(["-c", "core.quotepath=off"]).args(args).output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// The last commit time of each plan git tracks in the project's plans
+/// folder, bar those changed or untracked since, which keep their file times.
+/// A checkout stamps every file with when it was made, so a fresh worktree
+/// would otherwise show every plan as new. No git, no repo or a failure is
+/// an empty map: every plan keeps its file time.
+fn commit_times(project: &Path) -> HashMap<PathBuf, i64> {
+    const PLANS: &str = "docs/superpowers/plans";
+    let Some(log) = git(project, &["log", "--format=%ct", "--name-only", "--relative", "--", PLANS]) else {
+        return HashMap::new();
+    };
+    let Some(local) = git(project, &["ls-files", "-m", "-o", "--exclude-standard", "--", PLANS]) else {
+        return HashMap::new();
+    };
+    let local: HashSet<&str> = local.lines().collect();
+    parse_commit_times(&log)
+        .into_iter()
+        .filter(|(path, _)| !local.contains(path.as_str()))
+        .map(|(path, secs)| (project.join(path), secs))
+        .collect()
+}
+
 /// The plans written since `since`: the project's `docs/superpowers/plans`
 /// and `~/.claude/plans`, newest first. A plan for a task cannot predate it,
-/// and both folders hold plans for much else.
+/// and both folders hold plans for much else. A project plan counts from its
+/// last commit when git tracks it unchanged, else from its file time; Claude's
+/// from their file time.
 pub fn plans(dirs: &Dirs, project: &Path, since: i64) -> Vec<Doc> {
-    let mut found = plans_in(&project.join("docs/superpowers/plans"), "Plan", since);
-    found.extend(plans_in(&dirs.home().join(".claude/plans"), "Claude plan", since));
+    let mut found = plans_in(&project.join("docs/superpowers/plans"), "Plan", since, &commit_times(project));
+    found.extend(plans_in(&dirs.home().join(".claude/plans"), "Claude plan", since, &HashMap::new()));
     found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.path.cmp(&b.1.path)));
     found.into_iter().map(|(_, doc)| doc).collect()
 }
@@ -262,6 +314,59 @@ mod tests {
                 format!("Plan · plan.md\t{}/docs/superpowers/plans/plan.md", project.display()),
             ]
         );
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn commit_times_come_from_the_first_log_mention() {
+        let log = "1800\n\ndocs/superpowers/plans/b.md\n\n1700\n\ndocs/superpowers/plans/a.md\ndocs/superpowers/plans/b.md\n";
+        let times = parse_commit_times(log);
+        assert_eq!(times["docs/superpowers/plans/b.md"], 1800);
+        assert_eq!(times["docs/superpowers/plans/a.md"], 1700);
+        assert_eq!(times.len(), 2);
+        assert!(parse_commit_times("").is_empty());
+    }
+
+    fn git_in(dir: &Path, date: &str, args: &[&str]) {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .env("GIT_COMMITTER_DATE", date)
+            .env("GIT_AUTHOR_DATE", date)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    }
+
+    /// A checkout gives every file a fresh time; the plans count from their
+    /// commits, bar an untracked one, which keeps its file time. From a
+    /// subfolder of the repo too.
+    #[test]
+    fn plans_count_from_their_commit_not_the_checkout() {
+        let home = scratch("gitplans");
+        let repo = home.join("repo");
+        let project = repo.join("sub");
+        let plans = project.join("docs/superpowers/plans");
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        std::fs::create_dir_all(&plans).unwrap();
+        git_in(&repo, "1600000000 +0000", &["init", "-q"]);
+        file_at(&plans.join("early.md"), "x", now);
+        git_in(&repo, "1600000000 +0000", &["add", "."]);
+        git_in(&repo, "1600000000 +0000", &["commit", "-q", "-m", "early"]);
+        file_at(&plans.join("late.md"), "x", now);
+        git_in(&repo, "1800000000 +0000", &["add", "."]);
+        git_in(&repo, "1800000000 +0000", &["commit", "-q", "-m", "late"]);
+        file_at(&plans.join("new.md"), "x", now);
+        let t = task(&format!(
+            r#"{{"uuid":"u","description":"d","entry":"{}"}}"#,
+            crate::task::stamp(1_700_000_000)
+        ));
+        let names: Vec<String> = list(&t, &Dirs::at(&home), &project, None).into_iter().map(|d| d.label).collect();
+        assert_eq!(names.len(), 2, "{names:?}");
+        assert!(names.contains(&"Plan · late.md".to_string()) && names.contains(&"Plan · new.md".to_string()));
         std::fs::remove_dir_all(&home).ok();
     }
 }
