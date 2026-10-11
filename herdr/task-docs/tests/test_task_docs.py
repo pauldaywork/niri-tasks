@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -50,6 +51,7 @@ def fake(folder, name, body):
 class PluginTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
         self.bin = self.tmp / "bin"
         self.bin.mkdir()
         self.herdr_log = self.tmp / "herdr.log"
@@ -164,6 +166,28 @@ class TheAction(PluginTest):
             "--env", "TASK_DOCS_TASK=1234abcd", "--env", "TASK_DOCS_CLAUDE=w1:p1",
         ]])
 
+    def test_a_pane_in_a_subfolder_opens_the_list_at_the_repo_root(self):
+        self.with_reviewer()
+        self.on_branch("task/fix-1234abcd")
+        sub = self.folder / "src" / "deep"
+        sub.mkdir(parents=True)
+        self.with_agents({"w1:p1": {"name": "work-1234abcd", "pane_id": "w1:p1"}})
+        with mock.patch.dict(os.environ, {"HERDR_PLUGIN_CONTEXT_JSON": json.dumps(
+                {"focused_pane_id": "w1:p1", "focused_pane_cwd": str(sub)})}):
+            task_docs.open_action()
+        argv = self.pane_opens()[0]
+        self.assertEqual(argv[argv.index("--cwd") + 1], str(self.folder.resolve()))
+
+    def test_without_a_pane_folder_the_plugins_own_folder_is_not_guessed(self):
+        self.with_reviewer()
+        with mock.patch.dict(os.environ, {"HERDR_PLUGIN_CONTEXT_JSON": json.dumps({"focused_pane_id": "w1:p1"})}):
+            old = os.getcwd()
+            os.chdir(ROOT)  # the plugin's folder is inside a task branch checkout
+            self.addCleanup(os.chdir, old)
+            task_docs.open_action()
+        self.assertIn("Task docs: no task here", self.notified())
+        self.assertEqual(self.pane_opens(), [])
+
     def test_from_a_shell_on_the_tasks_branch_the_comments_go_to_its_working_claude(self):
         self.with_reviewer()
         self.on_branch("task/fix-1234abcd")
@@ -176,6 +200,18 @@ class TheAction(PluginTest):
         staged.parent.mkdir(parents=True)
         fake(staged.parent, staged.name, "#!/bin/sh\n")
         self.assertEqual(task_docs.reviewer(), str(staged))
+
+
+class Notifying(PluginTest):
+    def test_a_notify_send_that_fails_falls_back_to_herdr(self):
+        fake(self.bin, "notify-send", "#!/bin/sh\nexit 1\n")
+        task_docs.notify("hello")
+        self.assertIn(["notification", "show", "Tasks", "--body", "hello", "--sound", "none"], self.calls())
+
+    def test_a_notify_send_that_works_is_enough(self):
+        task_docs.notify("hello")
+        self.assertEqual(self.notified(), "Tasks\nhello\n")
+        self.assertEqual(self.calls(), [])
 
 
 class ThePicker(PluginTest):

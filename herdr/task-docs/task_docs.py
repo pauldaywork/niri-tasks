@@ -43,11 +43,14 @@ def herdr(*args):
 
 def notify(body):
     """A desktop notification, as niritasks sends: herdr shows none for the tab in
-    front, which is where this key is pressed. herdr's own without notify-send."""
+    front, which is where this key is pressed. herdr's own when notify-send is
+    missing or fails, so the message is not lost."""
     try:
-        subprocess.run(["notify-send", "Tasks", body], stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, check=False)
+        sent = subprocess.run(["notify-send", "Tasks", body], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, check=False).returncode == 0
     except OSError:
+        sent = False
+    if not sent:
         herdr("notification", "show", "Tasks", "--body", body, "--sound", "none")
 
 
@@ -117,11 +120,21 @@ def reviewer():
     return None
 
 
+def toplevel(cwd):
+    """The git repository root of cwd, or cwd itself when it is in none."""
+    try:
+        out = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, check=False)
+    except OSError:
+        return cwd
+    return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else cwd
+
+
 def open_action():
     """The task-docs.open action: open the task's documents over its pane, or say why not."""
     ctx = context()
     pane = os.environ.get("HERDR_PANE_ID") or ctx.get("focused_pane_id")
-    cwd = ctx.get("focused_pane_cwd") or os.getcwd()
+    cwd = ctx.get("focused_pane_cwd")
     uuid8 = find_task(pane, cwd)
     if not uuid8:
         notify("Task docs: no task here. This pane runs no task's Claude (work-/task-<uuid8>) "
@@ -136,7 +149,7 @@ def open_action():
                "so there is no one to send comments to.")
         return
     result = herdr("plugin", "pane", "open", "--plugin", PLUGIN, "--entrypoint", "pick",
-                   "--placement", "overlay", "--cwd", str(cwd), "--focus",
+                   "--placement", "overlay", *(["--cwd", str(toplevel(cwd))] if cwd else []), "--focus",
                    "--env", f"TASK_DOCS_TASK={uuid8}", "--env", f"TASK_DOCS_CLAUDE={claude}")
     if result.returncode != 0:
         notify(f"Task docs: could not open the list. {result.stderr.strip()[-300:]}")
@@ -177,8 +190,9 @@ def open_doc(path, claude):
     """Markdown in plannotator-tui, right of the task's Claude and delivering to it;
     anything else, a report with no twin, in the browser."""
     if not path.endswith(".md"):
-        # Backgrounded by sh, so this does not wait for the browser and holds no child.
-        subprocess.run(["sh", "-c", 'xdg-open "$1" &', "sh", path], stdin=subprocess.DEVNULL,
+        # setsid -f detaches it into its own session: the overlay closes when pick()
+        # returns, and a hangup then must not reach the browser.
+        subprocess.run(["setsid", "-f", "xdg-open", path], stdin=subprocess.DEVNULL,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         return
     result = herdr("plugin", "pane", "open", "--plugin", PLUGIN, "--entrypoint", "review",
