@@ -105,7 +105,12 @@ here changes a file.
   past that, the task is too open for an unattended plan: write the plan with
   what you have and say so in a `Decided:` note. Never offer or build a
   report: the run builds one itself afterwards, with `report-task`. Grilling
-  is never unattended.
+  is never unattended. Nobody can answer a permission prompt either, so
+  anything that would ask is denied: keep every shell command to one plain
+  read-only pipeline of `ls`, `cat`, `grep`, `head`, `tail`, `find`, `wc`
+  or `task` — no `$( )`, loops, variables (bare or quoted), `;` chains or
+  glob paths — and open a file, in or out of the project, with the Read
+  tool, which may read anywhere.
 
 ## 4. Propose
 

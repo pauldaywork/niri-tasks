@@ -89,7 +89,14 @@ step, after `refine-task` in `auto` mode) the tool does not open the
 browser: nobody is at the screen, and the `Report: <path>` note is how the
 report is found later. Its answer then reads **Wrote the report to … and
 linked it from the task** and does not mention opening the browser;
-everything else is the same, and you still end at step 5.
+everything else is the same, and you still end at step 5. Nobody can answer
+a permission prompt either, so anything that would ask is denied: keep
+every shell command to one plain read-only pipeline of `ls`, `cat`, `grep`,
+`head`, `tail`, `find`, `wc` or `task` — no `$( )`, loops, variables (bare
+or quoted), `;` chains or glob paths — and open a file, in or out of the
+project (the run's own log under `~/.local/share/niri-tasks/unattended/`,
+a report under the reviews folder), with the Read tool, which may read
+anywhere.
 
 Its answer says what happened:
 
