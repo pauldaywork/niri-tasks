@@ -174,6 +174,26 @@ impl Task {
             .collect()
     }
 
+    /// Every Markdown file a note names by absolute path (or `~/`), newest
+    /// note first and in the order the note names them: a handoff, say. The
+    /// `Report:` and `Report (earlier draft):` notes are left to
+    /// [`Task::report_notes`]. Words are split on whitespace and trimmed of
+    /// quotes, backticks, brackets and trailing sentence punctuation. A `~/`
+    /// is kept as written; the caller knows the home folder.
+    pub fn linked_markdown(&self) -> Vec<String> {
+        const OPEN: &[char] = &['`', '\'', '"', '(', '[', '<'];
+        const CLOSE: &[char] = &['`', '\'', '"', ')', ']', '>', '.', ',', ';', ':'];
+        self.annotations
+            .iter()
+            .rev()
+            .filter(|a| !a.description.starts_with(REPORT_NOTE) && !a.description.starts_with(EARLIER_DRAFT_NOTE))
+            .flat_map(|a| a.description.split_whitespace())
+            .map(|word| word.trim_start_matches(OPEN).trim_end_matches(CLOSE))
+            .filter(|w| (w.starts_with('/') || w.starts_with("~/")) && w.ends_with(".md") && w.len() > 4)
+            .map(String::from)
+            .collect()
+    }
+
     /// The priority as a number to sort by, highest first: H over M over L
     /// over none. Anything else counts as none, as taskwarrior allows no
     /// other value.
@@ -1236,6 +1256,25 @@ mod tests {
                 ReportNote { path: "/r/new.html".into(), draft: false, date: "2026-10-07".into() },
                 ReportNote { path: "/r/old.html".into(), draft: true, date: "2026-10-06".into() },
             ]
+        );
+    }
+
+    /// Markdown a note names by path, newest note first, bar the report
+    /// notes; quotes, backticks, brackets and sentence punctuation around a
+    /// path are not part of it, and a `~/` path is passed as written.
+    #[test]
+    fn linked_markdown_lists_paths_notes_name() {
+        let t: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[
+                {"entry":"20261006T010000Z","description":"Handoff: /h/old.md, then `~/notes/x.md`."},
+                {"entry":"20261006T020000Z","description":"Report: /r/a.md"},
+                {"entry":"20261007T030000Z","description":"see (\"/h/new.md\"); also [/h/other.md]: and /h/page.html, ./rel.md, /h/dir/ and docs.md"}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            t.linked_markdown(),
+            vec!["/h/new.md", "/h/other.md", "/h/old.md", "~/notes/x.md"]
         );
     }
 

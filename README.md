@@ -263,6 +263,8 @@ Press it in the pane of a task's Claude, or any pane whose folder is on the
 task's `task/<slug>-<uuid8>` branch. A list opens over the pane:
 
 - the task's refine reports, newest first, earlier drafts marked;
+- Markdown files the task's notes name by absolute path, such as a
+  handoff, newest note first;
 - the task's description and notes, as Markdown;
 - the plans in the project's `docs/superpowers/plans` and in
   `~/.claude/plans` changed since the task was added, newest first. A
@@ -323,7 +325,8 @@ niritasks task report <uuid>       # open the report of its plan linked from its
 niritasks task report <uuid> --fresh  #   build a new report even when its notes link one
 niritasks task docs <uuid> --project <dir> --notes-dir <dir>
                                    # list its documents, label<TAB>path: its reports (the Markdown twin, else
-                                   #   the HTML), its notes written to --notes-dir as Markdown, and the plans
+                                   #   the HTML), Markdown its notes name by path, its notes written to
+                                   #   --notes-dir as Markdown, and the plans
                                    #   in <dir>/docs/superpowers/plans and ~/.claude/plans since it was added
 niritasks task start <uuid>        # its own worktree (task/<slug>-<uuid8>), opened in the herdr session,
                                    #   with Claude planning it; picked again, back to both

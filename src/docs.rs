@@ -167,11 +167,31 @@ pub fn plans(dirs: &Dirs, project: &Path, since: i64) -> Vec<Doc> {
     found.into_iter().map(|(_, doc)| doc).collect()
 }
 
-/// Everything `task docs` lists, in order: the reports, then the notes file
-/// when there is one, then the plans since the task was added. A task whose
+/// The Markdown files the task's other notes name by path (a handoff, say),
+/// newest note first, each once and only when it is a file. A `~/` path is
+/// under the home folder. A report already listed is not listed again.
+pub fn linked(t: &Task, dirs: &Dirs, listed: &[Doc]) -> Vec<Doc> {
+    let mut seen: HashSet<PathBuf> = listed.iter().map(|d| d.path.clone()).collect();
+    t.linked_markdown()
+        .into_iter()
+        .map(|p| match p.strip_prefix("~/") {
+            Some(rest) => dirs.home().join(rest),
+            None => PathBuf::from(p),
+        })
+        .filter(|p| p.is_file() && seen.insert(p.clone()))
+        .map(|path| {
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            Doc { label: format!("Linked · {name}"), path }
+        })
+        .collect()
+}
+
+/// Everything `task docs` lists, in order: the reports, then the Markdown
+/// the notes name, then the notes file when there is one, then the plans since the task was added. A task whose
 /// `entry` does not parse counts every plan.
 pub fn list(t: &Task, dirs: &Dirs, project: &Path, notes: Option<&Path>) -> Vec<Doc> {
     let mut docs = reports(t);
+    docs.extend(linked(t, dirs, &docs));
     if let Some(path) = notes {
         docs.push(Doc { label: "Task · description and notes".into(), path: path.to_path_buf() });
     }
@@ -312,6 +332,33 @@ mod tests {
                 format!("Report · 2026-10-07\t{}/r.md", home.display()),
                 format!("Task · description and notes\t{}", notes.display()),
                 format!("Plan · plan.md\t{}/docs/superpowers/plans/plan.md", project.display()),
+            ]
+        );
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A handoff a note names: listed when it is a file, once, after the
+    /// reports and before the notes; `~/` is the home folder.
+    #[test]
+    fn linked_markdown_is_listed_once_when_it_exists() {
+        let home = scratch("linked");
+        file_at(&home.join("reviews/handoff.md"), "# h", 1);
+        file_at(&home.join("reviews/page.html"), "<html>", 1);
+        let t = task(&format!(
+            r#"{{"uuid":"u","description":"d","annotations":[
+                {{"entry":"20261006T010000Z","description":"Handoff: ~/reviews/handoff.md"}},
+                {{"entry":"20261007T010000Z","description":"Again `{h}/reviews/handoff.md`, not {h}/reviews/gone.md or {h}/reviews/page.html"}}
+            ]}}"#,
+            h = home.display()
+        ));
+        let notes = home.join("task-u.md");
+        let lines: Vec<String> =
+            list(&t, &Dirs::at(&home), &home.join("none"), Some(&notes)).iter().map(Doc::line).collect();
+        assert_eq!(
+            lines,
+            vec![
+                format!("Linked · handoff.md\t{}/reviews/handoff.md", home.display()),
+                format!("Task · description and notes\t{}", notes.display()),
             ]
         );
         std::fs::remove_dir_all(&home).ok();

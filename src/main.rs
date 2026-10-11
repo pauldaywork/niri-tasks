@@ -203,8 +203,9 @@ enum TaskCommand {
     /// What herdr's task-docs plugin lists to open in plannotator-tui beside
     /// the task's Claude. First the reports its notes link, newest first:
     /// each one's Markdown twin, or its HTML when it was made before twins.
-    /// Then, with --notes-dir, its description and notes, written there as
-    /// task-<uuid8>.md. Then the Markdown plans in the project's
+    /// Then any Markdown file a note names by absolute path (or ~/), a
+    /// handoff for one, newest note first. Then, with --notes-dir, its
+    /// description and notes, written there as task-<uuid8>.md. Then the Markdown plans in the project's
     /// docs/superpowers/plans and in ~/.claude/plans changed since the task
     /// was added, newest first.
     Docs {
