@@ -56,7 +56,7 @@ pub fn agent_get(session: &str, name: &str) -> Vec<String> {
 }
 
 /// Every live agent in the session — one call that answers whether a task
-/// has a Claude on it, for the panel's Go to session.
+/// has a Claude on it, for the panel's Go to list and Ctrl+Enter.
 pub fn agent_list(session: &str) -> Vec<String> {
     cmd(session, &["agent", "list"])
 }

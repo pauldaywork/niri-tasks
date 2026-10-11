@@ -31,8 +31,8 @@ _Avoid_: visible workspace, current workspace
 **Session**:
 The herdr session a workspace's project terminal attaches to: one per
 workspace, where that workspace's agents and terminals run. Refine, Start
-working and Go to session each open a task's tab or agent in it, and a pane
-inside one knows which session it is in without asking what is focused.
+working and the Go to list's sessions each open a task's tab or agent in it,
+and a pane inside one knows which session it is in without asking what is focused.
 In the code, `session::Session` opens a workspace's session and finds or
 starts the Claude in it, and `Session::named` knows a session by name alone,
 for the pane link and the panel's agent list. Nothing outside the `session`
@@ -56,11 +56,12 @@ _Avoid_: ready (Taskwarrior's `+READY` means something else), refined, groomed
 HTML slides explaining a task's plan — what changes, what needs the reader's
 judgement, diagrams, the files and the checks — made by a refine session when
 the user chooses Show me a report first, or by a Report session from a planned
-task card's Report, on the plan the task already holds. It is saved under the
-reviews folder, with a Markdown twin, `<report>.md`, beside it for herdr's
-task-docs plugin to open in plannotator-tui, and linked from the task's notes as `Report: <path>`; once
-linked, the card's dot becomes the report icon, its Report opens it, and
-`niritasks task report <uuid> --fresh` builds another.
+task card's Generate report, in its Go to list, on the plan the task already
+holds. It is saved under the reviews folder, with a Markdown twin,
+`<report>.md`, beside it for herdr's task-docs plugin to open in
+plannotator-tui, and linked from the task's notes as `Report: <path>`; once
+linked, the card's dot becomes the report icon, its Go to list's Open report
+opens it, and `niritasks task report <uuid> --fresh` builds another.
 _Avoid_: plan report, explainer
 
 **Plan note**:
@@ -122,37 +123,34 @@ inside that height by wheel, touchpad or scrollbar.
 _Avoid_: row (the action row is part of a card), item, block
 
 **Task action**:
-One thing that can be done to a task — Go to session, Back to list, Start
-working, Refine, Grill me, Report, Edit, Speak, Up next, Complete, Move to
-workspace, Stop, Waiting or Remove — with its words, its icon and the
-`niritasks` command it runs. Two read as the step they take: Up next reads Not
-up next on a task already up next, and Report reads Open report on a task
-whose notes link a refine report, which it opens instead of building another.
-Which ones a task gets goes by its state: a processing task gets none, only
-a planned task on the list gets Report, a waiting task gets only Back to
-list, Edit, Speak, Complete, Move to workspace and Remove, a finished one
-only Back to list, Edit, Speak and Remove, and Back to list reopens a
-finished one. The action row shows them.
+One thing that can be done to a task — Go to…, Back to list, Start working,
+Refine, Edit, Up next, Complete, Move to workspace, Stop, Waiting or Remove —
+with its words, its icon and the `niritasks` command it runs; Go to… runs
+none, opening the task's Go to list. Up next reads as the step it takes: Not
+up next on a task already up next. Which ones a task gets goes by its state:
+a processing task gets none, a waiting task gets only Go to…, Back to list,
+Edit, Complete, Move to workspace and Remove, a finished one only Go to…,
+Back to list, Edit and Remove, and Back to list reopens a finished one. The
+action row shows them.
 _Avoid_: command (the CLI's word), button, verb
 
 **Action row**:
 The buttons along the focused task card's bottom edge while the task panel has
-the keyboard; the other cards hide theirs — Go to session, Start working,
-Refine, Grill me, Report, Edit, Speak, Up next, Complete, Move to workspace,
-Stop, Waiting and Remove, an active task getting Stop in place of Start
-working, only a planned task getting Report, only a task with a live Claude
-getting Go to session, a waiting task getting just Back to list, Edit, Speak,
-Complete, Move to workspace and Remove, and a finished one just Back to list,
-Edit, Speak and Remove, and a card being planned in the background (a
-processing one) getting no row at all — each running its task action's `niritasks` command.
+the keyboard; the other cards hide theirs — Go to… first, then Start working,
+Refine, Edit, Up next, Complete, Move to workspace, Stop, Waiting and Remove,
+an active task getting Stop in place of Start working, a waiting task getting
+just Go to…, Back to list, Edit, Complete, Move to workspace and Remove, and a
+finished one just Go to…, Back to list, Edit and Remove, and a card being
+planned in the background (a processing one) getting no row at all — each
+running its task action's `niritasks` command, Go to… opening the Go to list.
 Enter or a click on the card's body shows or hides the task's id, uuid and
 notes instead (see Task card).
 After the buttons, dimmed, the hint names the keys that change from card to
 card: the focused button's, or on the card's body, `Space: view
 notes` or `Space: hide notes`; and what Ctrl+Enter does to the task: Refine
-until it has a plan, then Start working, and Go to session once it is being
-worked with a live Claude. The keys every card shares, Enter or Space and
-Ctrl+Delete, are on a line under the list instead.
+until it has a plan, then Start working, and Go to session (its Claude) once
+it is being worked with a live Claude. The keys every card shares, Enter or
+Space and Ctrl+Delete, are on a line under the list instead.
 _Avoid_: toolbar, button bar, quick actions
 
 **Filter tab**:
@@ -200,10 +198,29 @@ It shows with no task and on an unnamed workspace, and Escape clears the
 text, then closes the panel.
 _Avoid_: picker, menu, folder list
 
+**Go to list**:
+What the task panel shows in place of the task cards when a card's Go to…
+is pressed: what else can be done with that task and where it can be gone
+to, drawn like task cards under a line naming it — Refine or Redo refine,
+Grill me, Get started or Back to worktree, Generate or Regenerate report,
+Open report, Planning doc, Design spec, Go to refine session, Go to work
+session, Open worktree folder, Open in VS Code, and Read aloud or Stop
+reading aloud — each row only when it applies: refining, starting, reports
+built and sessions on a task on the list, the documents when its notes link
+them (`Report:`, `Plan:`, `Spec:`), the worktree when it has one, VS Code
+when installed, reading aloud always. No text field: Up and Down move the
+highlight, Enter or a click runs the row's `niritasks` command and gives the
+keyboard back (Read aloud keeps it), and Escape goes back to the card. A
+`Spec:` or `Plan:` path is the repository's, read in the task's worktree
+while it has one, else the workspace's `~/Projects` folder. In the code,
+`panel::goto`.
+_Avoid_: menu, popup, jump list
+
 **Mode**:
-Which of three screens the task panel is showing while it has the keyboard:
-Tasks (the task cards under their filter tabs), Ideas (the notepad) or
-Projects (the project list). Without the keyboard it is always on Tasks. In
+Which of four screens the task panel is showing while it has the keyboard:
+Tasks (the task cards under their filter tabs), Ideas (the notepad),
+Projects (the project list) or GoTo (a card's Go to list). Without the
+keyboard it is always on Tasks. In
 the code, `PanelState::mode`.
 _Avoid_: view, screen (in code), state
 

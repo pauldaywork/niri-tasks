@@ -18,7 +18,7 @@ the only way a workspace gets a name, bar workspace 1, which starts as `general`
 |---|---|
 | `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
 | `Mod+Alt+Shift+T` | The same, with Add & refine as the default: once added, the task opens in a "Refine: …" tab of the workspace's herdr session, where Claude works it up into a plan |
-| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to start working on it in its own worktree, refine it into a plan with Claude (or be grilled about it first), see a report of that plan once it has one (or open the report it already has), edit it, read it aloud, complete it, move it to another project's workspace, stop it, park it as waiting, or remove it. Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up; on a task already being worked with a Claude on it, it goes to that session. Tabs above the cards, each labelled with the key that picks it, as To refine (4), and picked with 1–6 or [ and ], narrow them to All, Active, Planned, To refine, Waiting or Finished, and the Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task. Finished lists the last 12 finished tasks, and Back to list (`b`) reopens one. Ctrl+Delete deletes the focused task at once. A hint beside the focused card's buttons, and a line under the list, name the keys. The last tab, Ideas (7), is a notepad for the workspace's ideas that are not tasks yet. With no tasks at all, finished ones included, or no name, a notification says so instead |
+| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to open its Go to… list (grill me, its report, plan and spec, its Claude sessions, its worktree, VS Code, read it aloud), start working on it in its own worktree, refine it into a plan with Claude, edit it, complete it, move it to another project's workspace, stop it, park it as waiting, or remove it. Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up; on a task already being worked with a Claude on it, it goes to that session. Tabs above the cards, each labelled with the key that picks it, as To refine (4), and picked with 1–6 or [ and ], narrow them to All, Active, Planned, To refine, Waiting or Finished, and the Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task. Finished lists the last 12 finished tasks, and Back to list (`b`) reopens one. Ctrl+Delete deletes the focused task at once. A hint beside the focused card's buttons, and a line under the list, name the keys. The last tab, Ideas (7), is a notepad for the workspace's ideas that are not tasks yet. With no tasks at all, finished ones included, or no name, a notification says so instead |
 | `Mod+Alt+W` | The task panel's project list, in the middle of the screen: the `~/Projects` folders, then your GitHub repos not cloned yet. Type to narrow it; Enter or a click puts the project on its own named workspace (cloning a repo first) and opens a terminal and an editor in it. When nothing matches, the line under the title says what Enter will do with the name: open a folder of that name, make one, or clone your GitHub repo of that name. Escape clears what you typed, then closes it |
 
 ## Task panel
@@ -29,8 +29,8 @@ several, one per worktree being worked), each ▶ and text in green, then any
 up next, then the rest by priority (H, M, L, none) and newest first, the
 blocked ones last: ○, a dimmed lock for one blocked on
 another task, ● for one already worked up into a plan with
-Claude from a card's **Refine** or **Grill me**, or a report icon for a
-planned one whose notes link a refine report, which its **Open report**
+Claude from a card's **Refine** or its Go to list's **Grill me**, or a report icon for a
+planned one whose notes link a refine report, which its Go to list's **Open report**
 opens. Up to eight, then a "+N more" card. Each card ends in how long ago
 its task was added: 5m, 3h, 2d, 4w.
 
@@ -49,19 +49,16 @@ under it:
 
 | Button | Key | Does |
 |---|---|---|
-| **Go to session** (blue) | `g` | Back to the Claude working on the task — only while one is, checked as the panel slides out |
+| **Go to…** (blue) | `o` | A list in the panel of what else can be done with the task and where it can be gone to — Refine (Redo refine), Grill me, Get started (Back to worktree), Generate report (Regenerate report), Open report, Planning doc, Design spec, Go to refine session, Go to work session, Open worktree folder, Open in VS Code and Read aloud (Stop reading aloud), each only when it applies (see below) — first on every card |
 | **Start working** (green) | `s` | The task's own worktree, herdr tab and Claude, which plans the task first and links the plan it saves as a `Plan: docs/superpowers/plans/<file>.md` note — not on an active task, which is already being worked |
 | **Refine** (mauve) | `r` | Work it up into a plan with Claude |
-| **Grill me** (mauve) | `i` | Refine, with Claude interviewing you about it first |
-| **Report** (mauve) | `p` | Claude builds the HTML report of the task's plan — what changes, what needs your eye, diagrams, files and checks — opens it in the browser and adds a `Report: <path>` note to the task, without refining again — only on a planned task on the list. Once the task has that note the button reads **Open report** and opens the file instead; `niritasks task report <uuid> --fresh` builds a new one |
 | **Edit** (yellow) | `e` | Open it in the task box |
-| **Speak** (pink) | | Read its description and notes aloud, rewritten by Claude for listening; its speaker turns into a spinner until the audio starts, and a second press stops it — on every task, waiting and finished ones too |
 | **Up next** (yellow) | | Mark it as the one to do next: its card turns yellow and moves up under the active tasks. On a task already up next it reads **Not up next**, and clears it — not on a waiting or finished task |
 | **Complete** (green) | `c` | Mark it done: it leaves the panel, which keeps the keyboard — not on a finished task |
 | **Move to workspace** (sapphire) | `m` | Pick another `~/Projects` folder from a list in the panel, and move the task to that folder's workspace — not on a finished task |
 | **Stop** (peach) | `t` | Stop it — only on an active task |
 | **Waiting** (teal) | | Park it as waiting: off the panel, and on the Waiting tab instead |
-| **Back to list** (lavender) | `b` | Off waiting, or reopened from finished, and back on the list — only on a waiting or finished task. A waiting task gets just this, Edit, Speak, Complete, Move to workspace and Remove; a finished one just this, Edit, Speak and Remove |
+| **Back to list** (lavender) | `b` | Off waiting, or reopened from finished, and back on the list — only on a waiting or finished task. A waiting task gets just this, Go to…, Edit, Complete, Move to workspace and Remove; a finished one just this, Go to…, Edit and Remove |
 | **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back. `Ctrl+Delete` deletes the focused task at once, whichever of its buttons is focused, and moves on to the next card |
 | **Clear all** (red) | `Ctrl+Shift+Delete` | On the Waiting tab, on a strip under the tabs, not a card: turns into **Confirm clear all** and takes the focus off the cards; a second press, or `Enter`, deletes every waiting task on the workspace and goes back to All, while `Escape` or moving away puts it back |
 
@@ -69,11 +66,11 @@ Up and Down move a darker fill and the buttons between cards, and Down onto
 "+N more" shows the rest in its place, carrying on to the first of them; Left,
 Right and Tab move along the focused card's buttons, and Enter presses the
 focused one. Beside the buttons, in smaller dimmed text, the focused card names
-its own keys: the focused button's letter and name (`g: Go to session`,
+its own keys: the focused button's letter and name (`o: Go to…`,
 `Del: Remove`), or on a card's description `Space: view notes`
 or `Space: hide notes`, and what Ctrl+Enter would do to this task. A line under the list
 names the keys that act the same on every card: Enter or Space, and Ctrl+Delete (not on
-Ideas, where the notepad takes those keys as typing). Enter or a click on the card's description shows, dimmed under it, the task's id and uuid (`#48 · <uuid>`, the uuid alone on a finished task) and then its notes, one per note, scrolling once they pass about twelve lines, and a second press hides them; opening another card's notes hides the first's, and giving the keyboard back hides them all. Every button that opens something gives the keyboard back as it runs; Speak, Up next, Complete, Move to workspace, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
+Ideas, where the notepad takes those keys as typing). Enter or a click on the card's description shows, dimmed under it, the task's id and uuid (`#48 · <uuid>`, the uuid alone on a finished task) and then its notes, one per note, scrolling once they pass about twelve lines, and a second press hides them; opening another card's notes hides the first's, and giving the keyboard back hides them all. Every button that opens something gives the keyboard back as it runs; Go to…, Up next, Complete, Move to workspace, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
 right edge, tucked away with the cards folded back to one line. A list taller
 than the screen scrolls, keeping the focused card in view. Hovering never shows
 the buttons — only the keyboard does.
@@ -88,11 +85,34 @@ retagging it to that folder's workspace, and goes back to the cards with
 the next one focused. Escape clears what you typed, and on an empty field
 goes back to the cards on the same one without moving it.
 
+**Go to…** swaps the cards for a list under a line naming the task, of what
+else can be done with it and where it can be gone to, each row only when it
+applies:
+
+| Row | Shows when |
+|---|---|
+| **Refine**, **Redo refine** once planned, and **Grill me** | on a task on the list |
+| **Get started**, **Back to worktree** once started | on a task on the list |
+| **Generate report**, **Regenerate report** once one exists | on a planned task on the list |
+| **Open report** | its notes link a report (`Report: <path>`) |
+| **Planning doc**, **Design spec** | its notes link a plan (`Plan: <path>`) or a spec (`Spec: <path>`) |
+| **Go to refine session**, **Go to work session** | that Claude (`task-<uuid8>`, `work-<uuid8>`) is running, checked as the panel slides out |
+| **Open worktree folder** | the task has a worktree: a terminal in it |
+| **Open in VS Code** | `code` is installed: on the worktree, else the project folder |
+| **Read aloud**, **Stop reading aloud** while a speech plays | always: its description and notes, rewritten by Claude for listening |
+
+There is no field to type in: Up and Down move the highlight, Enter or a
+click runs the row and gives the keyboard back (Read aloud keeps it, back
+on the cards), and Escape goes back to the cards on the same one. The plan
+and the spec are linked by the Claude Start working starts, once it has
+saved its plan; their paths are the repository's, read in the task's
+worktree while it has one.
+
 Ctrl+Enter and Ctrl+Delete act on the focused card, whichever of its buttons is
 focused. Ctrl+Enter refines the task, or starts working on it once it is
 planned, and the panel keeps the keyboard with the same card focused, so you can
 carry on down the list. On a task already being worked with a live Claude,
-planned or not, it goes to that session, as `g` does, and gives the keyboard
+planned or not, it goes to that session, as the Go to list's session rows do, and gives the keyboard
 back. On a worked task with no Claude it refines the task if it has no plan and
 does nothing if it has one; it does nothing on a waiting or finished task.
 Ctrl+Delete deletes the task at once, with no Confirm remove, and moves the
@@ -180,7 +200,7 @@ and says so once.
 
 [herdr](https://herdr.dev) is optional. With it on `$PATH`, `niritasks project
 open` runs the workspace's herdr session in the project terminal; without it the
-terminal is a plain shell in the project folder. A card's **Refine**, **Grill me** and **Report** need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod), and the box's **Add & all** Claude Code alone, on `$PATH` — they open
+terminal is a plain shell in the project folder. A card's **Refine**, and its Go to list's **Grill me** and **Generate report**, need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod), and the box's **Add & all** Claude Code alone, on `$PATH` — they open
 Claude inside that session — plus `bubblewrap` and `socat` for the Bash
 sandbox that keeps that Claude to reading the project and writing only the
 task (`sudo apt install bubblewrap socat`). Without them Claude refuses to
@@ -195,9 +215,9 @@ later, `python3`, `fzf`, and plannotator-tui from herdr-annotate Full
 (`herdr plugin install plannotator/herdr-annotate`; Lite has no
 plannotator-tui). Without it the key says so.
 
-**Speak** needs Claude Code (`claude`), `curl`, `ffplay` (from ffmpeg) and a
+**Read aloud** (in a card's Go to list) needs Claude Code (`claude`), `curl`, `ffplay` (from ffmpeg) and a
 [Kokoro](https://github.com/remsky/Kokoro-FastAPI) server on
-`127.0.0.1:8880`. If Kokoro is not answering, Speak starts it: the
+`127.0.0.1:8880`. If Kokoro is not answering, Read aloud starts it: the
 `kokoro-tts` container if there is one, otherwise a new one from
 `ghcr.io/remsky/kokoro-fastapi-gpu`. That needs `docker`, an NVIDIA GPU and
 the NVIDIA Container Toolkit, and the first start downloads the image. The
@@ -206,7 +226,7 @@ uses, so the two share one server.
 
 A Claude you start by hand in a herdr pane is linked to a task when it marks
 that task active (`niritasks task status <uuid> active`): its agent is named
-`work-<uuid8>`, the name Start working gives its own, so the task's card can offer Go to session. An agent already named by Refine or Start working keeps its name.
+`work-<uuid8>`, the name Start working gives its own, so the task's Go to list can offer Go to work session. An agent already named by Refine or Start working keeps its name.
 
 When the work is done, `/finish-worktree` in that worktree's Claude lands it:
 it syncs `main` with origin, rebases the branch and tests the result, then
@@ -239,7 +259,7 @@ Tested against niri 26.04 and Taskwarrior 3.5.0. It still runs on Taskwarrior
 
 ### Privacy
 
-Speak sends the task's description and notes to Anthropic: `claude -p`
+Read aloud sends the task's description and notes to Anthropic: `claude -p`
 rewrites them for listening, on Claude Haiku, with no tools and no saved
 session. The speech is made locally by Kokoro, and nothing is saved, neither
 the rewrite nor the audio. Refine and Start working send the task to Claude
@@ -540,7 +560,7 @@ reach the nested niri. `reload` rebuilds and restarts the nested daemon,
 keeping the window and the copy; `exit` closes everything. The installed
 binary, the `niri-tasks` service and `install.sh`'s links are never touched,
 so tries in several worktrees run beside each other and beside `tests/all.sh`.
-herdr is kept out, so Start working and Go to session fail there, with the
+herdr is kept out, so Start working and the Go to list's sessions fail there, with the
 reason printed in the try shell. Terminals, editors and clones are not opened
 either: `ghostty`, `code` and `gh` are stubs that print what would have run
 (`[notify] would run: …`), because ghostty and VS Code would otherwise hand

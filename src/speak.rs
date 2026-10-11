@@ -593,8 +593,9 @@ pub fn run(uuid: &str) -> Result<()> {
     let notes: Vec<&str> = t.annotations.iter().map(|a| a.description.as_str()).collect();
     let script = rewrite(&rewrite_input(&t.description, &notes))?;
     play(&script, || {
-        // Best effort: a failed write only leaves the spinner turning while
-        // the speech plays.
+        // Best effort: a failed write only leaves the pid file without
+        // `playing`, so [`preparing`] goes on naming the task while the
+        // speech plays; stopping it still works.
         let _ = std::fs::write(&path, pid_line(std::process::id(), uuid, true));
     })
 }

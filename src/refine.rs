@@ -16,12 +16,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Which of a card's buttons, Refine, Grill me or Report, opened Claude. They
-/// differ in the prompt [`prompt`] sends, and so in the skill on the other
-/// end: the two refines share `refine-task`, which reads the mode to decide
-/// whether to interview before drafting, while a report runs `report-task`
-/// on the plan the task already holds. A report session also tells the mod
-/// so, through [`session_settings`].
+/// Which of a card's Refine button or its Go to list's Grill me or Generate
+/// report opened Claude. They differ in the prompt [`prompt`] sends, and so
+/// in the skill on the other end: the two refines share `refine-task`, which
+/// reads the mode to decide whether to interview before drafting, while a
+/// report runs `report-task` on the plan the task already holds. A report
+/// session also tells the mod so, through [`session_settings`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     /// Draft straight away; ask only what the code cannot answer.

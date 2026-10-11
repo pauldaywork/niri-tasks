@@ -5,12 +5,13 @@
 //! has the keyboard's focus, what a first press has armed, which cards show
 //! their notes, and the [`Mode`]: which of the task cards, the Ideas notepad,
 //! the project list Move to workspace and Mod+Alt+W swap in, or a card's Go
-//! to list is up, all live here, keyed by task uuid and slot rather than by widget. The mode
-//! picks which key map a raw key goes through. Every change comes back as a
-//! list of [`Effect`]s for `surface.rs` to run: draw again, move the focus,
-//! spawn a command. So the rules between them (one arming at a time, any
-//! re-render disarming, where the focus lands) are tested without a window,
-//! and `surface.rs` only draws what this says and runs what it asks.
+//! to list is up, all live here, keyed by task uuid and slot rather than by
+//! widget. The mode picks which key map a raw key goes through. Every change
+//! comes back as a list of [`Effect`]s for `surface.rs` to run: draw again,
+//! move the focus, spawn a command. So the rules between them (one arming at
+//! a time, any re-render disarming, where the focus lands) are tested without
+//! a window, and `surface.rs` only draws what this says and runs what it
+//! asks.
 
 use crate::actions::{Action, TaskState};
 use super::actions::{self, Step};
@@ -394,7 +395,8 @@ impl PanelState {
 
     /// Take the keyboard, on All every time, also when taken again while it
     /// has it, with the focus on the first card. `agents` are the session's
-    /// live agent names, for the Go to list's sessions and Ctrl+Enter's. False with no cards to take it for.
+    /// live agent names, for the Go to list's sessions and Ctrl+Enter's.
+    /// False with no cards to take it for.
     pub fn take_keyboard(&mut self, agents: Vec<String>) -> bool {
         if self.all.is_empty() {
             return false;
