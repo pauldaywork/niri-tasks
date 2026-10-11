@@ -369,6 +369,8 @@ fn create_worktree(repo: &Path, branch: &str) -> Result<TaskWorktree> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     /// git's own list, as `git worktree list --porcelain` prints it: the
     /// task's worktree is the one on its `task/…-<uuid8>` branch, whatever
     /// the slug says now.
@@ -384,8 +386,6 @@ mod tests {
         assert_eq!(worktree_in_porcelain(porcelain, "11111111-x"), None);
         assert_eq!(worktree_in_porcelain("", "7cd9fd3a"), None);
     }
-
-    use super::*;
 
     #[test]
     fn the_slug_is_the_description_in_lowercase_ascii_runs() {

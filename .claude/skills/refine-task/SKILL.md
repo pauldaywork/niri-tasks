@@ -3,7 +3,7 @@ name: refine-task
 description: >
   Work one Taskwarrior task up into a plan — a sharper one-line description and a
   consolidated set of notes — then write it back and tag it +planned. Invoked by
-  niri-tasks' task card's Refine and Grill me buttons as `/refine-task <uuid> [grill]`,
+  niri-tasks' task card's Refine button and its Go to list's Grill me as `/refine-task <uuid> [grill]`,
   and by `niritasks task refine <uuid> --unattended` as `/refine-task <uuid> auto`.
 disable-model-invocation: true
 argument-hint: <uuid> [grill|auto]

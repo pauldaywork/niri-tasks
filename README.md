@@ -96,7 +96,7 @@ applies:
 | **Generate report**, **Regenerate report** once one exists | on a planned task on the list |
 | **Open report** | its notes link a report (`Report: <path>`) |
 | **Planning doc**, **Design spec** | its notes link a plan (`Plan: <path>`) or a spec (`Spec: <path>`) |
-| **Go to refine session**, **Go to work session** | that Claude (`task-<uuid8>`, `work-<uuid8>`) is running, checked as the panel slides out |
+| **Go to refine session**, **Go to work session** | on a task on the list, that Claude (`task-<uuid8>`, `work-<uuid8>`) is running, checked as the panel slides out |
 | **Open worktree folder** | the task has a worktree: a terminal in it |
 | **Open in VS Code** | `code` is installed: on the worktree, else the project folder |
 | **Read aloud**, **Stop reading aloud** while a speech plays | always: its description and notes, rewritten by Claude for listening |

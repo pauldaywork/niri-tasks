@@ -473,7 +473,8 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             let workspace = Workspace::of_caller()?;
             anyhow::ensure!(t.status == "pending", "Only a pending task can be reported on.");
             // An unplanned task has no plan to report on: the card offers
-            // Refine or Grill me instead, and a script gets the same refusal.
+            // Refine, or Grill me in its Go to list, and a script gets the
+            // same refusal.
             anyhow::ensure!(t.is_planned(), "Only a planned task has a plan to report on. Refine it first.");
             if gone.is_some() {
                 notify::tasks(&format!("Report file gone, building a fresh one: {}", t.description));
@@ -577,6 +578,9 @@ fn terminal() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
     /// The Go to list's Planning doc, Design spec, Open worktree folder and
     /// Open in VS Code run these; a script can too. Only these four, and
     /// one is required.
@@ -588,9 +592,6 @@ mod tests {
         assert!(Cli::try_parse_from(["niritasks", "task", "open", "c53b6e3d", "report"]).is_err());
         assert!(Cli::try_parse_from(["niritasks", "task", "open", "c53b6e3d"]).is_err());
     }
-
-    use super::*;
-    use clap::CommandFactory;
 
     /// A workspace gets its name by opening a project on it, so there is no
     /// naming one freely; workspace 1's startup name is the daemon's job.

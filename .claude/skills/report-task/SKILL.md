@@ -3,8 +3,8 @@ name: report-task
 description: >
   Build the HTML report of a planned Taskwarrior task's plan — the description
   and notes a refine wrote — open it in the browser and link it from the task,
-  without refining again. Invoked by niri-tasks' task card's Report button as
-  `/report-task <uuid>`.
+  without refining again. Invoked by the Generate report row of niri-tasks' task card's Go to
+  list as `/report-task <uuid>`.
 disable-model-invocation: true
 argument-hint: <uuid>
 ---
@@ -82,7 +82,7 @@ fields from the task's plan and the code you read in step 2:
 Call `mcp__niri-tasks-refine__show_task_report` with the fields. The tool
 builds the page in its fixed layout, saves it under the reviews folder,
 opens it in the browser, and adds a `Report: <path>` note to the task. It
-asks the user nothing: pressing Report was the ask.
+asks the user nothing: choosing Generate report was the ask.
 
 In an unattended run (`niritasks task refine <uuid> --unattended`'s second
 step, after `refine-task` in `auto` mode) the tool does not open the
@@ -120,7 +120,7 @@ Export the task once more and check: the description and the earlier notes
 are as you read them in step 1, the last note is `Report: <path>` with the
 path the tool answered, and the tags are unchanged, `planned` still among
 them. Tell the user the path in one line, and stop. Leave the session open.
-A second Report press switches back to this tab; to make another report they close this tab first.
+Choosing Open report in the Go to list switches back to this tab; to make another report they close this tab first.
 
 Always address the task by uuid, never its numeric id: ids are renumbered as
 tasks complete.

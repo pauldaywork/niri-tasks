@@ -59,8 +59,8 @@ pub struct Card {
     /// shows under the description once the card's body is pressed. Empty on
     /// "+N more" and on a task with none.
     pub notes: Vec<String>,
-    /// The task's notes link a refine report, `Report: <path>`: its Report
-    /// button reads Open report and opens that. False on "+N more".
+    /// The task's notes link a refine report, `Report: <path>`: its Go to
+    /// list offers Open report and Regenerate report. False on "+N more".
     pub has_report: bool,
     /// The task's notes link a design spec, `Spec: <path>`, for its Go to
     /// list. False on "+N more".
@@ -85,8 +85,9 @@ impl Card {
             Status::Blocked => "\u{f023}",
             // Font Awesome's hourglass, half run: being planned, wait.
             Status::Processing => "\u{f252}",
-            // Font Awesome's file-text, the Report button's own icon: a plan
-            // with a report to open, as a waiting card wears Waiting's pause.
+            // Font Awesome's file-text, the Go to list's Open report row's
+            // icon: a plan with a report to open, as a waiting card wears
+            // Waiting's pause.
             Status::Planned if self.has_report => "\u{f15c}",
             // The pending circle filled in: still waiting, but worked up.
             Status::Planned => "●",
@@ -618,9 +619,9 @@ mod tests {
         assert_eq!(got[0].icon(), "●");
     }
 
-    /// A planned task whose notes link a report wears the Report button's
-    /// glyph instead of the filled dot, so the card says at a glance that a
-    /// report is there to open. Only the dot gives way: started, blocked and
+    /// A planned task whose notes link a report wears the Go to list's Open
+    /// report glyph instead of the filled dot, so the card says at a glance
+    /// that a report is there to open. Only the dot gives way: started, blocked and
     /// processing outrank planned and keep their icons, and an earlier
     /// draft's note is not the plan's report.
     #[test]
