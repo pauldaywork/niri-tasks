@@ -28,9 +28,11 @@ stack of cards on the right edge — the active tasks first (there can be
 several, one per worktree being worked), each ▶ and text in green, then any
 up next, then the rest by priority (H, M, L, none) and newest first, the
 blocked ones last: ○, a dimmed lock for one blocked on
-another task, or ● for one already worked up into a plan with
-Claude from a card's **Refine** or **Grill me**. Up to eight, then a "+N
-more" card. Each card ends in how long ago its task was added: 5m, 3h, 2d, 4w.
+another task, ● for one already worked up into a plan with
+Claude from a card's **Refine** or **Grill me**, or a report icon for a
+planned one whose notes link a refine report, which its **Open report**
+opens. Up to eight, then a "+N more" card. Each card ends in how long ago
+its task was added: 5m, 3h, 2d, 4w.
 
 The panel sits tucked away with only a 30px peek of each card showing. Move the
 pointer onto it and the cards slide out to full width; move away and they slide

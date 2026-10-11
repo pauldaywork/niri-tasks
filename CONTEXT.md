@@ -49,7 +49,7 @@ _Avoid_: current task, in-progress task
 **Planned task**:
 A pending task the `refine-task` skill has worked up into a plan — a sharper
 description and a consolidated set of notes — marked with the `+planned` tag
-and a clipboard-check icon on its task card.
+and a filled dot on its task card.
 _Avoid_: ready (Taskwarrior's `+READY` means something else), refined, groomed
 
 **Refine report**:
@@ -58,8 +58,8 @@ judgement, diagrams, the files and the checks — made by a refine session when
 the user chooses Show me a report first, or by a Report session from a planned
 task card's Report, on the plan the task already holds. It is saved under the
 reviews folder and linked from the task's notes as `Report: <path>`; once
-linked, the card's Report opens it, and `niritasks task report <uuid> --fresh`
-builds another.
+linked, the card's dot becomes the report icon, its Report opens it, and
+`niritasks task report <uuid> --fresh` builds another.
 _Avoid_: plan report, explainer
 
 **Up next task**:
