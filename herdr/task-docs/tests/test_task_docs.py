@@ -1,0 +1,239 @@
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+import task_docs  # noqa: E402
+
+# herdr: logs each call as a JSON list, and answers `agent get <target>` from
+# the FAKE_AGENTS map, exiting 1 for a target it does not hold, as herdr does.
+FAKE_HERDR = """#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ["FAKE_HERDR_LOG"], "a") as log:
+    log.write(json.dumps(sys.argv[1:]) + "\\n")
+if sys.argv[1:3] == ["agent", "get"]:
+    agent = json.load(open(os.environ["FAKE_AGENTS"])).get(sys.argv[3])
+    if agent is None:
+        print('{"error":{"code":"agent_not_found"}}', file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps({"result": {"agent": agent}}))
+"""
+
+# A command that writes its arguments, one per line, to the file named by $LOG_VAR.
+FAKE_LOGGER = """#!/bin/sh
+printf '%s\\n' "$@" >> "$LOG_VAR"
+"""
+
+# niritasks: logs its arguments, prints two documents.
+FAKE_NIRITASKS = """#!/bin/sh
+printf '%s\\n' "$@" > "$FAKE_NIRITASKS_LOG"
+printf 'Report · 2026-10-11\\t/r/a.md\\n'
+printf 'Plan · b.md\\t/p/b.md\\n'
+"""
+
+
+def fake(folder, name, body):
+    path = Path(folder) / name
+    path.write_text(body)
+    path.chmod(0o755)
+    return path
+
+
+class PluginTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        self.herdr_log = self.tmp / "herdr.log"
+        self.notify_log = self.tmp / "notify.log"
+        self.open_log = self.tmp / "xdg-open.log"
+        self.agents = self.tmp / "agents.json"
+        self.with_agents({})
+        fake(self.bin, "herdr", FAKE_HERDR)
+        fake(self.bin, "notify-send", FAKE_LOGGER.replace("LOG_VAR", "FAKE_NOTIFY_LOG"))
+        fake(self.bin, "xdg-open", FAKE_LOGGER.replace("LOG_VAR", "FAKE_OPEN_LOG"))
+        self.folder = self.tmp / "work"
+        self.folder.mkdir()
+        env = {
+            "PATH": f"{self.bin}:/usr/bin:/bin",
+            "HERDR_BIN_PATH": str(self.bin / "herdr"),
+            "FAKE_HERDR_LOG": str(self.herdr_log),
+            "FAKE_AGENTS": str(self.agents),
+            "FAKE_NOTIFY_LOG": str(self.notify_log),
+            "FAKE_OPEN_LOG": str(self.open_log),
+            "XDG_CONFIG_HOME": str(self.tmp / "config"),
+            "HERDR_PLUGIN_ID": "task-docs",
+            "HERDR_PLUGIN_STATE_DIR": str(self.tmp / "state"),
+            "HERDR_PANE_ID": "w1:p1",
+            "HERDR_PLUGIN_CONTEXT_JSON": json.dumps(
+                {"focused_pane_id": "w1:p1", "focused_pane_cwd": str(self.folder), "focused_pane_agent": "claude"}
+            ),
+        }
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def with_agents(self, agents):
+        self.agents.write_text(json.dumps(agents))
+
+    def with_reviewer(self):
+        fake(self.bin, "plannotator-tui", "#!/bin/sh\n")
+
+    def on_branch(self, branch):
+        subprocess.run(["git", "init", "-q", "-b", branch, str(self.folder)], check=True)
+
+    def calls(self):
+        if not self.herdr_log.exists():
+            return []
+        return [json.loads(line) for line in self.herdr_log.read_text().splitlines()]
+
+    def pane_opens(self):
+        return [c for c in self.calls() if c[:3] == ["plugin", "pane", "open"]]
+
+    def notified(self):
+        return self.notify_log.read_text() if self.notify_log.exists() else ""
+
+
+class FindingTheTask(PluginTest):
+    def test_an_agent_named_for_a_task_gives_its_uuid8(self):
+        self.assertEqual(task_docs.uuid8_of_agent("work-1234abcd"), "1234abcd")
+        self.assertEqual(task_docs.uuid8_of_agent("task-1234abcd"), "1234abcd")
+        self.assertIsNone(task_docs.uuid8_of_agent("reviewer"))
+        self.assertIsNone(task_docs.uuid8_of_agent(None))
+
+    def test_a_task_branch_gives_its_uuid8(self):
+        self.on_branch("task/fix-the-peek-1234abcd")
+        self.assertEqual(task_docs.uuid8_of_branch(self.folder), "1234abcd")
+
+    def test_another_branch_or_no_repo_gives_none(self):
+        self.assertIsNone(task_docs.uuid8_of_branch(self.folder))
+        self.on_branch("main")
+        self.assertIsNone(task_docs.uuid8_of_branch(self.folder))
+
+    def test_the_panes_agent_name_comes_before_its_branch(self):
+        self.on_branch("task/other-99999999")
+        self.with_agents({"w1:p1": {"name": "work-1234abcd", "pane_id": "w1:p1"}})
+        self.assertEqual(task_docs.find_task("w1:p1", self.folder), "1234abcd")
+
+    def test_the_tasks_claude_is_this_pane_then_work_then_task(self):
+        self.with_agents({"w1:p1": {"name": "task-1234abcd", "pane_id": "w1:p1"},
+                          "work-1234abcd": {"name": "work-1234abcd", "pane_id": "w2:p1"}})
+        self.assertEqual(task_docs.task_claude("w1:p1", "1234abcd"), "w1:p1")
+        self.assertEqual(task_docs.task_claude("w1:p9", "1234abcd"), "w2:p1")
+        self.with_agents({"task-1234abcd": {"name": "task-1234abcd", "pane_id": "w3:p1"}})
+        self.assertEqual(task_docs.task_claude(None, "1234abcd"), "w3:p1")
+        self.with_agents({})
+        self.assertIsNone(task_docs.task_claude("w1:p1", "1234abcd"))
+
+
+class TheAction(PluginTest):
+    def test_a_pane_with_no_task_says_so_and_opens_nothing(self):
+        self.with_reviewer()
+        task_docs.open_action()
+        self.assertIn("Task docs: no task here", self.notified())
+        self.assertEqual(self.pane_opens(), [])
+
+    def test_without_plannotator_tui_it_says_herdr_annotate_full_is_needed(self):
+        self.with_agents({"w1:p1": {"name": "work-1234abcd", "pane_id": "w1:p1"}})
+        task_docs.open_action()
+        self.assertIn("plannotator/herdr-annotate", self.notified())
+        self.assertEqual(self.pane_opens(), [])
+
+    def test_a_task_with_no_claude_says_so(self):
+        self.with_reviewer()
+        self.on_branch("task/fix-1234abcd")
+        task_docs.open_action()
+        self.assertIn("no Claude on this task", self.notified())
+        self.assertEqual(self.pane_opens(), [])
+
+    def test_a_tasks_pane_opens_the_list_over_it(self):
+        self.with_reviewer()
+        self.with_agents({"w1:p1": {"name": "work-1234abcd", "pane_id": "w1:p1"}})
+        task_docs.open_action()
+        self.assertEqual(self.pane_opens(), [[
+            "plugin", "pane", "open", "--plugin", "task-docs", "--entrypoint", "pick",
+            "--placement", "overlay", "--cwd", str(self.folder), "--focus",
+            "--env", "TASK_DOCS_TASK=1234abcd", "--env", "TASK_DOCS_CLAUDE=w1:p1",
+        ]])
+
+    def test_from_a_shell_on_the_tasks_branch_the_comments_go_to_its_working_claude(self):
+        self.with_reviewer()
+        self.on_branch("task/fix-1234abcd")
+        self.with_agents({"work-1234abcd": {"name": "work-1234abcd", "pane_id": "w5:p2"}})
+        task_docs.open_action()
+        self.assertIn("TASK_DOCS_CLAUDE=w5:p2", self.pane_opens()[0])
+
+    def test_plannotator_tui_from_herdr_annotate_full_counts(self):
+        staged = self.tmp / "config/herdr/plugins/github/annotate-abc123/bin/plannotator-tui.exe"
+        staged.parent.mkdir(parents=True)
+        fake(staged.parent, staged.name, "#!/bin/sh\n")
+        self.assertEqual(task_docs.reviewer(), str(staged))
+
+
+class ThePicker(PluginTest):
+    def test_lines_split_at_the_first_tab_and_others_are_skipped(self):
+        self.assertEqual(
+            task_docs.parse_docs("Report · 2026-10-11\t/r/a\tb.md\nno tab here\n"),
+            [("Report · 2026-10-11", "/r/a\tb.md")],
+        )
+
+    def test_it_asks_niritasks_for_the_tasks_documents(self):
+        fake(self.bin, "niritasks", FAKE_NIRITASKS)
+        log = self.tmp / "niritasks.log"
+        with mock.patch.dict(os.environ, {"FAKE_NIRITASKS_LOG": str(log)}):
+            items = task_docs.docs("1234abcd", self.folder)
+        self.assertEqual(items, [("Report · 2026-10-11", "/r/a.md"), ("Plan · b.md", "/p/b.md")])
+        self.assertEqual(log.read_text().split("\n")[:-1], [
+            "task", "docs", "1234abcd", "--project", str(self.folder), "--notes-dir", str(self.tmp / "state"),
+        ])
+
+    def test_the_pick_opens_beside_the_claude_named_by_the_action(self):
+        fake(self.bin, "niritasks", FAKE_NIRITASKS)
+        env = {"TASK_DOCS_TASK": "1234abcd", "TASK_DOCS_CLAUDE": "w1:p1", "FAKE_NIRITASKS_LOG": str(self.tmp / "n.log")}
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(task_docs, "choose", return_value="/r/a.md") as choose, \
+                mock.patch.object(task_docs, "open_doc") as open_doc:
+            task_docs.pick()
+        choose.assert_called_once_with([("Report · 2026-10-11", "/r/a.md"), ("Plan · b.md", "/p/b.md")])
+        open_doc.assert_called_once_with("/r/a.md", "w1:p1")
+
+    def test_esc_opens_nothing(self):
+        fake(self.bin, "niritasks", FAKE_NIRITASKS)
+        env = {"TASK_DOCS_TASK": "1234abcd", "TASK_DOCS_CLAUDE": "w1:p1", "FAKE_NIRITASKS_LOG": str(self.tmp / "n.log")}
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(task_docs, "choose", return_value=None), \
+                mock.patch.object(task_docs, "open_doc") as open_doc:
+            task_docs.pick()
+        open_doc.assert_not_called()
+
+
+class OpeningADocument(PluginTest):
+    def test_markdown_opens_in_plannotator_tui_right_of_the_claude_and_delivers_to_it(self):
+        task_docs.open_doc("/r/refine-a.md", "w1:p1")
+        self.assertEqual(self.pane_opens(), [[
+            "plugin", "pane", "open", "--plugin", "task-docs", "--entrypoint", "review",
+            "--placement", "split", "--direction", "right", "--target-pane", "w1:p1", "--focus",
+            "--cwd", "/r", "--env", "PLANNOTATOR_TUI_FILE=/r/refine-a.md",
+            "--env", "PLANNOTATOR_TUI_DELIVER_TO=w1:p1",
+        ]])
+
+    def test_a_report_with_no_twin_opens_in_the_browser(self):
+        task_docs.open_doc("/r/refine-a.html", "w1:p1")
+        for _ in range(50):
+            if self.open_log.exists():
+                break
+            time.sleep(0.05)
+        self.assertEqual(self.open_log.read_text(), "/r/refine-a.html\n")
+        self.assertEqual(self.pane_opens(), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

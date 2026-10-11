@@ -3,8 +3,9 @@
 #
 #   bash tests/all.sh
 #
-# There are four suites and they do not have the same prerequisites: one needs
-# only cargo and taskwarrior, one needs niri, one needs Pillow and niri to nest
+# There are five suites and they do not have the same prerequisites: one needs
+# only cargo and taskwarrior, one needs python3 and git, for the herdr plugin's
+# tests, which fake herdr and touch nothing, one needs niri, one needs Pillow and niri to nest
 # a niri in, one needs wtype and python3 and niri to nest a niri in. A machine missing any of
 # them is the normal case — an SSH session has no Wayland display, a fresh
 # checkout has no wtype — and that is the whole reason this file exists.
@@ -79,6 +80,11 @@ why_box() {
     [ -n "${WAYLAND_DISPLAY:-}" ] || { echo "no Wayland display"; return; }
 }
 
+why_plugin() {
+    command -v python3 >/dev/null || { echo "no python3"; return; }
+    command -v git >/dev/null || { echo "no git"; return; }
+}
+
 suite() {  # name, reason it cannot run (empty if it can), command...
     local name="$1" why="$2"; shift 2
     if [ -n "$why" ]; then
@@ -100,6 +106,8 @@ echo "niritasks $(command -v "$NIRITASKS" 2>/dev/null || echo "not found ($NIRIT
 
 suite "cargo test"           "$(why_cargo)"   cargo test
 suite "tests/e2e-tag.sh"     "$(why_tag)"     bash tests/e2e-tag.sh
+suite "herdr/task-docs tests" "$(why_plugin)" \
+    python3 -m unittest discover -s herdr/task-docs/tests -t herdr/task-docs
 
 if [ -z "$(why_panel)" ] || [ -z "$(why_box)" ]; then
     echo

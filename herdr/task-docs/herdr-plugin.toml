@@ -1,0 +1,37 @@
+# Annotate one of a task's documents from the herdr pane where its Claude
+# runs: its refine reports, its own description and notes, and the plans
+# written since it was added. The pick opens in plannotator-tui (from
+# herdr-annotate Full) beside that Claude, and Send makes the comments its
+# next message. Linked by niri-tasks' install.sh; the key is the README's.
+id = "task-docs"
+name = "Task docs"
+version = "0.1.0"
+min_herdr_version = "0.9.1"
+description = "Annotate a niri-tasks task's reports, notes and plans in plannotator-tui, beside the task's Claude"
+platforms = ["linux"]
+
+# Press in a task's pane: finds the task from the pane's agent name
+# (work-/task-<uuid8>) or its branch (task/<slug>-<uuid8>), and opens the list.
+[[actions]]
+id = "open"
+title = "Task docs: annotate one of this task's documents"
+contexts = ["pane"]
+command = ["python3", "task_docs.py", "open"]
+
+# Opened by the action over the pane, in the pane's folder: fzf over
+# `niritasks task docs`. Enter opens the pick beside the task's Claude; Esc
+# closes it. Reached through HERDR_PLUGIN_ROOT, since its cwd is the pane's.
+[[panes]]
+id = "pick"
+title = "Task docs · enter annotate · esc cancel"
+placement = "overlay"
+command = ["sh", "-c", "exec python3 \"$HERDR_PLUGIN_ROOT/task_docs.py\" pick"]
+
+# Opened by the picker to the right of the task's Claude, focused:
+# plannotator-tui on PLANNOTATOR_TUI_FILE, delivering to
+# PLANNOTATOR_TUI_DELIVER_TO, the Claude's pane. q closes it.
+[[panes]]
+id = "review"
+title = "Task docs: annotate · Send goes to the task's Claude"
+placement = "split"
+command = ["sh", "-c", "exec python3 \"$HERDR_PLUGIN_ROOT/task_docs.py\" review"]
