@@ -190,6 +190,11 @@ folder to be a git repository: worktrunk makes the task's worktree and runs the
 repo's `.config/wt.toml` hooks, asking in a herdr tab the first time a repo's
 hooks need approving.
 
+**Task docs**, the herdr plugin `install.sh` links, needs herdr 0.9.1 or
+later, `python3`, `fzf`, and plannotator-tui from herdr-annotate Full
+(`herdr plugin install plannotator/herdr-annotate`; Lite has no
+plannotator-tui). Without it the key says so.
+
 **Speak** needs Claude Code (`claude`), `curl`, `ffplay` (from ffmpeg) and a
 [Kokoro](https://github.com/remsky/Kokoro-FastAPI) server on
 `127.0.0.1:8880`. If Kokoro is not answering, Speak starts it: the
@@ -239,6 +244,42 @@ rewrites them for listening, on Claude Haiku, with no tools and no saved
 session. The speech is made locally by Kokoro, and nothing is saved, neither
 the rewrite nor the audio. Refine and Start working send the task to Claude
 too, since a Claude session works on it.
+
+### Annotating a task's documents in herdr
+
+`install.sh` links a herdr plugin, `herdr/task-docs`. Bind its action to a
+key in `~/.config/herdr/config.toml`, then run `herdr config check` and
+`herdr server reload-config`:
+
+```toml
+[[keys.command]]
+key = "prefix+shift+t"
+type = "plugin_action"
+command = "task-docs.open"
+description = "task docs: annotate one of this task's documents"
+```
+
+Press it in the pane of a task's Claude, or any pane whose folder is on the
+task's `task/<slug>-<uuid8>` branch. A list opens over the pane:
+
+- the task's refine reports, newest first, earlier drafts marked;
+- the task's description and notes, as Markdown;
+- the plans in the project's `docs/superpowers/plans` and in
+  `~/.claude/plans` changed since the task was added, newest first. A
+  project plan counts from its last commit, so a fresh worktree does not
+  list every old plan; one that is untracked or edited locally counts from
+  its file time.
+
+Enter opens the pick in plannotator-tui, to the right of the task's Claude.
+Comment on it there; **Send** makes the comments that Claude's next message.
+A report made before reports had a Markdown twin opens in the browser
+instead, as a card's Open report does. A pane with no task, or a task with
+no Claude running, gets a notification saying so and nothing opens. The list
+is `niritasks task docs <uuid>`, so a script can read it too.
+
+Each refine report is written twice, as its HTML slides and as `<report>.md`
+beside them, from the same fields; the Markdown is what plannotator-tui
+opens.
 
 ## Commands
 
@@ -378,6 +419,7 @@ the cards alone instead, and niri takes noise and saturation from the rule.
 bash tests/all.sh           # everything this machine can run       ~100s
 
 cargo test                  # unit and write-path                   ~2s
+python3 -m unittest discover -s herdr/task-docs/tests -t herdr/task-docs  # the herdr plugin  ~1s
 bash tests/e2e-tag.sh       # the session's tag, against real niri    ~1s
 bash tests/e2e-panel.sh     # the task panel, in a nested niri       ~30s
 bash tests/e2e-box.sh       # the task box, in a nested niri         ~35s
@@ -385,7 +427,7 @@ bash tests/e2e-box.sh       # the task box, in a nested niri         ~35s
 
 Each exits non-zero on failure, so any of them can go in a loop or a hook.
 
-`tests/all.sh` is the four in one command, run cheapest-and-quietest first. It
+`tests/all.sh` is the five in one command, run cheapest-and-quietest first. It
 checks each suite's prerequisites itself and reports one it cannot run as a
 **skip, with the reason** — no niri, no Pillow, no Wayland display — rather than
 letting it fail. A skip is not a failure: it exits non-zero only when a suite
@@ -397,6 +439,7 @@ nested niri parked on a spare workspace, and it tells you which one to keep off.
 |---|---|---|
 | `tests/all.sh` | Nothing of its own — whatever is missing is skipped and named | Whatever the suites it ends up running touch |
 | `cargo test` | `taskwarrior` on `$PATH` | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
+| `herdr/task-docs` tests | `python3`, `git` | Nothing. A fake `herdr`, `notify-send` and `xdg-open` stand in, in a scratch folder |
 | `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the name of that spare workspace, taken off again. No herdr session (a fake `herdr` stands in), and only a scratch task database of its own |
 | `tests/e2e-panel.sh` | niri, a Wayland session, `python3-pil`, taskwarrior; `wtype` for its keyboard checks, which are skipped without it | A nested niri window for the run, parked on the spare workspace at the end of your monitor; keep off that workspace until it finishes. Not your clipboard, your screenshots or the `niri-tasks` daemon |
 | `tests/e2e-box.sh` | `wtype`, niri, a Wayland session, taskwarrior | A nested niri window for the run, parked like the panel test's; keep off that workspace until it finishes. Its keys go only to that nested niri. Not your keyboard or the `niri-tasks` daemon |

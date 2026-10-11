@@ -119,6 +119,22 @@ link "$REPO/claude/refine-mod" "$DATA/niri-tasks/refine-mod"
 # repo's own .claude/ so a session in niri-tasks does not load it twice.
 link "$REPO/claude/rules/niri-tasks.md" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/rules/niri-tasks.md"
 
+# The herdr plugin: task-docs, a key in a task's herdr tab that lists the
+# task's reports, notes and plans and opens the pick in plannotator-tui
+# beside its Claude. `herdr plugin link` points herdr at this folder, so an
+# edit here is live, as the links above are; linking from another checkout (a
+# worktree) replaces the link, as `link` does. Left alone when it already
+# points here, so re-runs are quiet. The key is the README's to bind.
+if command -v herdr >/dev/null; then
+    if herdr plugin list 2>/dev/null | grep -qF "[local:$REPO/herdr/task-docs]"; then
+        :
+    elif herdr plugin link "$REPO/herdr/task-docs" >/dev/null 2>&1; then
+        info "Linked the herdr plugin task-docs"
+    else
+        warn "Could not link the herdr plugin task-docs — run: herdr plugin link $REPO/herdr/task-docs"
+    fi
+fi
+
 # ─── 4. the daemon ───────────────────────────────────────────────────────────
 # A copy rather than a symlink: systemd reads unit files as root-ish early in
 # session startup and does not follow links out of its search path reliably.

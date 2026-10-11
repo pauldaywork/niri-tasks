@@ -57,7 +57,8 @@ HTML slides explaining a task's plan — what changes, what needs the reader's
 judgement, diagrams, the files and the checks — made by a refine session when
 the user chooses Show me a report first, or by a Report session from a planned
 task card's Report, on the plan the task already holds. It is saved under the
-reviews folder and linked from the task's notes as `Report: <path>`; once
+reviews folder, with a Markdown twin, `<report>.md`, beside it for herdr's
+task-docs plugin to open in plannotator-tui, and linked from the task's notes as `Report: <path>`; once
 linked, the card's dot becomes the report icon, its Report opens it, and
 `niritasks task report <uuid> --fresh` builds another.
 _Avoid_: plan report, explainer

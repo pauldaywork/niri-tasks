@@ -3,13 +3,15 @@
 #
 #   bash tests/all.sh
 #
-# There are five suites and they do not have the same prerequisites: one needs
-# only cargo and taskwarrior, one needs python3 and git, for the herdr plugin's
-# tests, which fake herdr and touch nothing, one needs niri, one needs Pillow and niri to nest
-# a niri in, one needs wtype and python3 and niri to nest a niri in. A machine missing any of
-# them is the normal case — an SSH session has no Wayland display, a fresh
+# There are five suites and they do not have the same prerequisites:
+#   - cargo test needs only cargo and taskwarrior;
+#   - the herdr plugin's tests need python3 and git, and fake herdr;
+#   - e2e-tag.sh needs niri;
+#   - e2e-panel.sh needs Pillow, and niri to nest a niri in;
+#   - e2e-box.sh needs wtype and python3, and niri to nest a niri in.
+# A machine missing any of them is the normal case — an SSH session has no Wayland display, a fresh
 # checkout has no wtype — and that is the whole reason this file exists.
-# Running the four by hand means reading four error messages and deciding, each
+# Running the five by hand means reading five error messages and deciding, each
 # time, whether "wtype is required" meant the code is broken or the machine is.
 #
 # So each suite's prerequisites are checked here first, and one that cannot run
