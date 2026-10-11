@@ -50,12 +50,43 @@ pub fn link_current_pane(uuid: &str) -> Result<()> {
     Ok(())
 }
 
-/// Which of `names` is `uuid`'s agent: its working Claude (`work-`) if it
-/// has one, else its refine (`task-`).
-pub fn session_agent(names: &[String], uuid: &str) -> Option<String> {
-    crate::names::both_agents(uuid)
-        .into_iter()
-        .find(|want| names.iter().any(|n| n == want))
+/// Which of a task's Claudes `task session` goes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Which {
+    /// Its working Claude if it has one, else its refine: bare `task
+    /// session`.
+    Either,
+    /// Its working Claude, `work-<uuid8>`, alone: `--work`.
+    Work,
+    /// Its refine Claude, `task-<uuid8>`, alone: `--refine`.
+    Refine,
+}
+
+impl Which {
+    /// The agent names it goes to, the one it prefers first.
+    fn names(self, uuid: &str) -> Vec<String> {
+        match self {
+            Which::Either => names::both_agents(uuid).to_vec(),
+            Which::Work => vec![names::work_agent(uuid)],
+            Which::Refine => vec![names::refine_agent(uuid)],
+        }
+    }
+
+    /// What `task session` says with none of them live.
+    fn none_live(self) -> &'static str {
+        match self {
+            Which::Either => "No Claude is working on this task in this workspace's herdr session.",
+            Which::Work => "No working Claude is on this task in this workspace's herdr session.",
+            Which::Refine => "No refine Claude is on this task in this workspace's herdr session.",
+        }
+    }
+}
+
+/// Which of `names` is `uuid`'s agent, as `which` picks: with
+/// [`Which::Either`] its working Claude (`work-`) if it has one, else its
+/// refine (`task-`).
+pub fn session_agent(names: &[String], uuid: &str, which: Which) -> Option<String> {
+    which.names(uuid).into_iter().find(|want| names.iter().any(|n| n == want))
 }
 
 /// Every named live agent in `ws`'s herdr session, from one `agent list` —
@@ -67,18 +98,18 @@ pub fn live_agent_names(ws: &Workspace) -> Vec<String> {
     Session::named(&ws.session_name()).agent_names()
 }
 
-/// The live agent working on `uuid` in `ws`'s herdr session, if there is one.
-pub fn live_agent(ws: &Workspace, uuid: &str) -> Option<String> {
-    session_agent(&live_agent_names(ws), uuid)
+/// The live agent `which` picks for `uuid` in `ws`'s herdr session, if
+/// there is one.
+pub fn live_agent(ws: &Workspace, uuid: &str, which: Which) -> Option<String> {
+    session_agent(&live_agent_names(ws), uuid, which)
 }
 
 /// Bring the terminal showing `ws`'s herdr session forward and focus the
-/// agent working on `uuid` in it. Never starts anything: with no live agent —
-/// it exited since the panel slid out, say — this is an error, not a new
-/// session.
-pub fn go_to(ws: &Workspace, uuid: &str) -> Result<()> {
-    let name = live_agent(ws, uuid)
-        .context("No Claude is working on this task in this workspace's herdr session.")?;
+/// agent `which` picks for `uuid` in it. Never starts anything: with no
+/// live agent — it exited since the panel slid out, say — this is an error,
+/// not a new session.
+pub fn go_to(ws: &Workspace, uuid: &str, which: Which) -> Result<()> {
+    let name = live_agent(ws, uuid, which).context(which.none_live())?;
     let session = ws.session()?;
     session.open()?;
     // It can still exit between the panel's list and this focus.
@@ -112,19 +143,30 @@ mod tests {
     #[test]
     fn the_working_claude_is_preferred_over_a_refine() {
         let live = names(&["task-7cd9fd3a", "work-7cd9fd3a"]);
-        assert_eq!(session_agent(&live, "7CD9FD3A-d27b").as_deref(), Some("work-7cd9fd3a"));
+        assert_eq!(session_agent(&live, "7CD9FD3A-d27b", Which::Either).as_deref(), Some("work-7cd9fd3a"));
     }
 
     #[test]
     fn a_refine_alone_is_still_a_session_to_go_to() {
         let live = names(&["reviewer", "task-7cd9fd3a"]);
-        assert_eq!(session_agent(&live, "7cd9fd3a-d27b").as_deref(), Some("task-7cd9fd3a"));
+        assert_eq!(session_agent(&live, "7cd9fd3a-d27b", Which::Either).as_deref(), Some("task-7cd9fd3a"));
     }
 
     #[test]
     fn another_tasks_agents_are_not_this_ones() {
         let live = names(&["work-11111111", "task-22222222", "reviewer"]);
-        assert_eq!(session_agent(&live, "7cd9fd3a-d27b"), None);
-        assert_eq!(session_agent(&[], "7cd9fd3a-d27b"), None);
+        assert_eq!(session_agent(&live, "7cd9fd3a-d27b", Which::Either), None);
+        assert_eq!(session_agent(&[], "7cd9fd3a-d27b", Which::Either), None);
+    }
+
+    /// --work and --refine go to that Claude alone, never the other one in
+    /// its place.
+    #[test]
+    fn work_and_refine_pick_their_own_claude_and_no_other() {
+        let both = names(&["task-7cd9fd3a", "work-7cd9fd3a"]);
+        assert_eq!(session_agent(&both, "7cd9fd3a-d27b", Which::Work).as_deref(), Some("work-7cd9fd3a"));
+        assert_eq!(session_agent(&both, "7cd9fd3a-d27b", Which::Refine).as_deref(), Some("task-7cd9fd3a"));
+        assert_eq!(session_agent(&names(&["task-7cd9fd3a"]), "7cd9fd3a-d27b", Which::Work), None);
+        assert_eq!(session_agent(&names(&["work-7cd9fd3a"]), "7cd9fd3a-d27b", Which::Refine), None);
     }
 }

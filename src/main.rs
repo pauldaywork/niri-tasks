@@ -239,11 +239,19 @@ enum TaskCommand {
     },
     /// Go to the Claude working on a task, in the workspace's herdr session
     ///
-    /// The workspace is this herdr session's in a herdr pane, else the
-    /// focused one.
+    /// Bare, its working Claude (`work-<uuid8>`), else its refine
+    /// (`task-<uuid8>`); --work or --refine goes to that one alone, and fails
+    /// when it is not running. The workspace is this herdr session's in a
+    /// herdr pane, else the focused one.
     Session {
         /// The task's uuid, or its first 8 characters
         uuid: String,
+        /// Its working Claude alone, the one Start working started: the Go to list's Go to work session
+        #[arg(long, conflicts_with = "refine")]
+        work: bool,
+        /// Its refine Claude alone, the one Refine started: the Go to list's Go to refine session
+        #[arg(long)]
+        refine: bool,
     },
 }
 
@@ -470,13 +478,20 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             }
         }
 
-        TaskCommand::Session { uuid } => {
+        // `refine_only`, because `refine` is the module, imported at the top
+        // of this file.
+        TaskCommand::Session { uuid, work, refine: refine_only } => {
             let workspace = Workspace::of_caller()?;
             // The uuid as found, not as typed: the agent's name is made from
             // its first eight characters, and a typed task number has none of
             // them.
             let t = task::get(&uuid)?.context("task not found")?;
-            link::go_to(&workspace, &t.uuid)?;
+            let which = match (work, refine_only) {
+                (true, _) => link::Which::Work,
+                (_, true) => link::Which::Refine,
+                _ => link::Which::Either,
+            };
+            link::go_to(&workspace, &t.uuid, which)?;
         }
     }
     Ok(())
@@ -611,10 +626,14 @@ mod tests {
         }
     }
 
-    /// A card's Go to session runs this; a script can too.
+    /// Go to… and its list's sessions run these; a script can too. One
+    /// Claude or the other, never both flags.
     #[test]
     fn going_to_a_tasks_session_is_a_command() {
         assert!(Cli::try_parse_from(["niritasks", "task", "session", "c53b6e3d"]).is_ok());
+        assert!(Cli::try_parse_from(["niritasks", "task", "session", "c53b6e3d", "--work"]).is_ok());
+        assert!(Cli::try_parse_from(["niritasks", "task", "session", "c53b6e3d", "--refine"]).is_ok());
+        assert!(Cli::try_parse_from(["niritasks", "task", "session", "c53b6e3d", "--work", "--refine"]).is_err());
     }
 
     /// A card's Report runs `task report <uuid>`; `--fresh` is how a script,
