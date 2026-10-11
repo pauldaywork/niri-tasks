@@ -111,7 +111,8 @@ git -C M rev-parse main               # and this as <new>
 ```
 - Never pass `--yes`, and never force-push.
 - If `wt merge` stops for a hook approval, stop and ask the user to run that
-  command themselves, with `!` in front.
+  command themselves, with `!` in front. Once they have, resume at the push and
+  the second `rev-parse`.
 - If `main` or origin moved in the meantime (the merge refuses a
   non-fast-forward, or the push is rejected), go back to step 4. Do this at most
   twice, then stop.
@@ -132,7 +133,7 @@ from the task later. The Claude that planned the task was asked to add a
 when it didn't.
 ```bash
 NOTES=$(task rc.json.array=on <uuid8> export | jq -r '.[0].annotations[]?.description')
-git -C M diff --name-only --diff-filter=A <old>..<new> -- docs/superpowers/plans docs/superpowers/specs |
+git -C M -c core.quotePath=false diff --name-only --diff-filter=A <old>..<new> -- docs/superpowers/plans docs/superpowers/specs |
 while read -r p; do
   case "$p" in docs/superpowers/specs/*) note="Spec: $p" ;; *) note="Plan: $p" ;; esac
   if grep -qxF "$note" <<<"$NOTES"; then echo "already linked: $note"
@@ -141,10 +142,12 @@ done
 ```
 - The path is repo-relative, exactly as `git diff` prints it: the worktree is
   about to be removed, so a worktree path would go stale.
-- Only files the range *added* count. A plan the branch edited was linked when
-  it was written.
+- Only files the range *added* count. A plan the branch edited belongs to an
+  earlier task.
 - Never `task <uuid8> annotate`: a path can look like an attribute, and
   `niritasks task note` passes `--` so it never does.
+- A note that fails shows as an error with no `linked:` line. Report it, and
+  don't retry: the task is already completed and pushed.
 - Nothing printed means the branch added no plan or spec, which is normal for a
   branch that was not planned with writing-plans. Say so in the report.
 
