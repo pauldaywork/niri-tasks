@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 use niri_tasks::{
-    actions::{Action, TaskState}, dirs, docs, github, ipc, link, niri, notify, open, programs, project, refine, speak, task,
+    actions::{Action, TaskState}, dirs, docs, github, ipc, link, niri, notify, open, programs, project, refine, speak, status_line, task,
     text, work, workspace::Workspace,
 };
 
@@ -147,6 +147,17 @@ enum TaskCommand {
         /// speak` starts
         #[arg(long)]
         here: bool,
+    },
+    /// Internal: print a task's status line, `#id · description · state ·
+    /// branch`, for the Claude Code sessions Refine and Start working start
+    ///
+    /// Claude Code runs it on each refresh, through the launch settings
+    /// those sessions get. It reads Claude Code's JSON on stdin for the
+    /// folder whose branch it shows, and it never fails: a task it cannot
+    /// read prints a line saying so.
+    StatusLine {
+        /// The task's uuid
+        uuid: String,
     },
 
     /// Mark a task up next, or clear the mark from one already up next
@@ -417,6 +428,10 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             let t = task::get(&uuid)?.with_context(|| format!("No task {uuid}."))?;
             speak::toggle(&t.uuid, &t.description)?;
         }
+
+        // Claude Code runs this on every refresh: never an error, so never
+        // main's desktop notification.
+        TaskCommand::StatusLine { uuid } => status_line::run(&uuid),
 
         TaskCommand::UpNext { uuid } => {
             // The uuid as found, not as typed, and its tags, which say which
@@ -725,6 +740,12 @@ mod tests {
     #[test]
     fn speaking_a_task_is_a_command() {
         assert!(Cli::try_parse_from(["niritasks", "task", "speak", "c53b6e3d"]).is_ok());
+    }
+
+    #[test]
+    fn status_line_takes_a_uuid() {
+        assert!(Cli::try_parse_from(["niritasks", "task", "status-line", "7b4f4c5c"]).is_ok());
+        assert!(Cli::try_parse_from(["niritasks", "task", "status-line"]).is_err());
     }
 
     /// `task speak` starts the speech in the background with these

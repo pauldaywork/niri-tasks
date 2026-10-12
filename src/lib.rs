@@ -22,6 +22,7 @@ pub mod project;
 pub mod refine;
 pub mod session;
 pub mod speak;
+pub mod status_line;
 pub mod tag;
 pub mod taskbox;
 pub mod task;
