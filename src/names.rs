@@ -1,10 +1,10 @@
 //! The names a task carries into herdr: its agents' names, the label its tabs
 //! show, and what its Claude's pane is called.
-//! Refine names its agent `task-<uuid8>` and Start working names
-//! its `work-<uuid8>`, so nothing is stored on the task — the panel finds a
-//! task's agent by asking herdr for those names. They are spelled here once,
-//! so the pane link, Refine, Start working and the panel's lookup cannot
-//! drift apart.
+//! Refine names its agent `task-<uuid8>`, Generate report its `report-<uuid8>`
+//! and Start working its `work-<uuid8>`, so nothing is stored on the task — the
+//! panel finds a task's agent by asking herdr for those names. They are spelled
+//! here once, so the pane link, Refine, Report, Start working and the panel's
+//! lookup cannot drift apart.
 
 use crate::text;
 
@@ -14,8 +14,9 @@ pub fn uuid8(uuid: &str) -> String {
     uuid.chars().take(8).collect::<String>().to_ascii_lowercase()
 }
 
-/// The herdr agent name for a task's refine session. One name per task is
-/// what lets a second Refine find the first instead of opening another.
+/// The herdr agent name for a task's refine session, Refine's and Grill me's.
+/// One name per task is what lets a second Refine find the first instead of
+/// opening another.
 pub fn refine_agent(uuid: &str) -> String {
     format!("task-{}", uuid8(uuid))
 }
@@ -26,6 +27,14 @@ pub fn work_agent(uuid: &str) -> String {
     format!("work-{}", uuid8(uuid))
 }
 
+/// The herdr agent name for a task's report session. Its own `report-`, not
+/// Refine's `task-`, so Generate report never lands in a refine tab still
+/// open on the task — that tab was started without the report option, and
+/// may be mid-interview — while a second press finds the first report.
+pub fn report_agent(uuid: &str) -> String {
+    format!("report-{}", uuid8(uuid))
+}
+
 /// Both of `uuid`'s agent names, its working Claude (`work-`) first and its
 /// refine (`task-`) second: the working Claude is the one you most likely
 /// want back, and a refine still open beside it is second.
@@ -33,10 +42,11 @@ pub fn both_agents(uuid: &str) -> [String; 2] {
     [work_agent(uuid), refine_agent(uuid)]
 }
 
-/// Whether `name` is a `task-` or `work-` agent: one named by Refine or Start
-/// working, or linked already, and so named for a task.
+/// Whether `name` is a `task-`, `work-` or `report-` agent: one named by
+/// Refine, Start working or Generate report, or linked already, and so named
+/// for a task.
 pub fn is_task_agent(name: &str) -> bool {
-    name.starts_with("task-") || name.starts_with("work-")
+    ["task-", "work-", "report-"].iter().any(|p| name.starts_with(p))
 }
 
 /// Longest description, in characters, a tab label carries before eliding.
@@ -119,6 +129,7 @@ mod tests {
     fn the_agents_are_named_after_their_task() {
         assert_eq!(refine_agent("00DEEEE1-3cbd-465d-8c85-c4c4d643b1d0"), "task-00deeee1");
         assert_eq!(work_agent("7CD9FD3A-d27b-4387-8249-aaf0d6785f90"), "work-7cd9fd3a");
+        assert_eq!(report_agent("7CD9FD3A-d27b-4387-8249-aaf0d6785f90"), "report-7cd9fd3a");
     }
 
     #[test]
@@ -127,9 +138,10 @@ mod tests {
     }
 
     #[test]
-    fn is_task_agent_knows_both_prefixes() {
+    fn is_task_agent_knows_every_prefix() {
         assert!(is_task_agent("task-x"));
         assert!(is_task_agent("work-x"));
+        assert!(is_task_agent("report-x"));
         assert!(!is_task_agent("reviewer"));
         assert!(!is_task_agent(""));
     }

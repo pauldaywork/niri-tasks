@@ -1,9 +1,9 @@
 //! The link between a task and the herdr agent working on it: the agent's
-//! name. Refine names its agent `task-<uuid8>` and Start working names its
-//! `work-<uuid8>`, so nothing is stored on the task — the panel finds a task's
-//! agent by asking herdr for those names. A Claude started by hand gets the
-//! same `work-` name, and its pane the task's label, when it marks the task
-//! active. The names are spelled in
+//! name. Refine names its agent `task-<uuid8>`, Generate report its
+//! `report-<uuid8>` and Start working its `work-<uuid8>`, so nothing is stored
+//! on the task — the panel finds a task's agent by asking herdr for those
+//! names. A Claude started by hand gets the same `work-` name, and its pane the
+//! task's label, when it marks the task active. The names are spelled in
 //! [`names`].
 
 use crate::session::{current_pane, CurrentPane, Session};
@@ -14,10 +14,11 @@ use anyhow::{Context, Result};
 /// What to rename the agent in this pane to when it marks `uuid` active, or
 /// `None` to leave it as it is.
 ///
-/// A `task-` or `work-` agent is left alone: it was named by Refine or Start
-/// working, or linked already, and taking that name away would lose the task
-/// it was named for — a refine marking its task active is still that task's
-/// refine. Any other agent, named or not, takes the task's `work-` name.
+/// A `task-`, `work-` or `report-` agent is left alone: it was named by Refine,
+/// Generate report or Start working, or linked already, and taking that name
+/// away would lose the task it was named for — a refine marking its task
+/// active is still that task's refine, and a report still that task's report.
+/// Any other agent, named or not, takes the task's `work-` name.
 pub fn pane_link_name(current: Option<&str>, uuid: &str) -> Option<String> {
     if current.is_some_and(names::is_task_agent) {
         return None;
@@ -164,8 +165,9 @@ mod tests {
     }
 
     #[test]
-    fn a_pane_named_by_refine_or_start_working_is_left_alone() {
+    fn a_pane_named_by_refine_report_or_start_working_is_left_alone() {
         assert_eq!(pane_link_name(Some("task-11111111"), "7cd9fd3a-d27b"), None);
+        assert_eq!(pane_link_name(Some("report-11111111"), "7cd9fd3a-d27b"), None);
         assert_eq!(pane_link_name(Some("work-11111111"), "7cd9fd3a-d27b"), None);
         assert_eq!(pane_link_name(Some("work-7cd9fd3a"), "7cd9fd3a-d27b"), None, "already linked");
     }
