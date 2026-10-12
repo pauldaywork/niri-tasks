@@ -28,10 +28,14 @@ started without file-editing tools and without plan mode for exactly this
 reason: approving a plan in plan mode means "implement it", which is not what
 the user is approving here.
 
-Your Bash commands run in a sandbox that can read anything but write only to
-the task database. A command that fails with `Read-only file system` or
-`Operation not permitted` hit that fence on purpose: do not look for a way
-around it, and do not ask the user to lift it.
+Your Bash commands run in a sandbox that can read anything but secrets and
+write only to the task database and `$TMPDIR`, which is yours for scratch
+files such as a shallow `git clone` of an upstream repository. They can
+reach a fixed list of source and docs hosts (GitHub, GitLab, crates.io,
+docs.rs, PyPI, npm, herdr.dev) and no others; use WebFetch for any other
+page. A command that fails with `Read-only file system`, `Operation not
+permitted`, or a refused connection hit that fence on purpose: do not look
+for a way around it, and do not ask the user to lift it.
 
 ## 1. Read the task
 
@@ -105,12 +109,7 @@ here changes a file.
   past that, the task is too open for an unattended plan: write the plan with
   what you have and say so in a `Decided:` note. Never offer or build a
   report: the run builds one itself afterwards, with `report-task`. Grilling
-  is never unattended. Nobody can answer a permission prompt either, so
-  anything that would ask is denied: keep every shell command to one plain
-  read-only pipeline of `ls`, `cat`, `grep`, `head`, `tail`, `find`, `wc`
-  or `task` — no `$( )`, loops, variables (bare or quoted), `;` chains or
-  glob paths — and open a file, in or out of the project, with the Read
-  tool, which may read anywhere.
+  is never unattended.
 
 ## 4. Propose
 

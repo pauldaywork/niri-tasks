@@ -26,10 +26,14 @@ writes the report. There is no `write_task_plan` in this session, and you
 must not change the task any other way: no `task modify`, no `task
 annotate`, no `task import`.
 
-Your Bash commands run in a sandbox that can read anything but write only to
-the task database. A command that fails with `Read-only file system` or
-`Operation not permitted` hit that fence on purpose: do not look for a way
-around it, and do not ask the user to lift it.
+Your Bash commands run in a sandbox that can read anything but secrets and
+write only to the task database and `$TMPDIR`, which is yours for scratch
+files such as a shallow `git clone` of an upstream repository. They can
+reach a fixed list of source and docs hosts (GitHub, GitLab, crates.io,
+docs.rs, PyPI, npm, herdr.dev) and no others; use WebFetch for any other
+page. A command that fails with `Read-only file system`, `Operation not
+permitted`, or a refused connection hit that fence on purpose: do not look
+for a way around it, and do not ask the user to lift it.
 
 ## 1. Read the task
 
@@ -89,14 +93,9 @@ step, after `refine-task` in `auto` mode) the tool does not open the
 browser: nobody is at the screen, and the `Report: <path>` note is how the
 report is found later. Its answer then reads **Wrote the report to … and
 linked it from the task** and does not mention opening the browser;
-everything else is the same, and you still end at step 5. Nobody can answer
-a permission prompt either, so anything that would ask is denied: keep
-every shell command to one plain read-only pipeline of `ls`, `cat`, `grep`,
-`head`, `tail`, `find`, `wc` or `task` — no `$( )`, loops, variables (bare
-or quoted), `;` chains or glob paths — and open a file, in or out of the
-project (the run's own log under `~/.local/share/niri-tasks/unattended/`,
-a report under the reviews folder), with the Read tool, which may read
-anywhere.
+everything else is the same, and you still end at step 5. The run's own log
+is under `~/.local/share/niri-tasks/unattended/`, named by the task's first
+eight characters.
 
 Its answer says what happened:
 

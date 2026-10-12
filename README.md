@@ -206,8 +206,9 @@ and says so once.
 open` runs the workspace's herdr session in the project terminal; without it the
 terminal is a plain shell in the project folder. A card's Go to list's **Refine**, **Grill me** and **Generate report** need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod), and the box's **Add & all** Claude Code alone, on `$PATH` — they open
 Claude inside that session — plus `bubblewrap` and `socat` for the Bash
-sandbox that keeps that Claude to reading the project and writing only the
-task (`sudo apt install bubblewrap socat`). Without them Claude refuses to
+sandbox that keeps that Claude to reading the project, its own temp folder
+and a fixed list of source and docs hosts, and writing only the task
+(`sudo apt install bubblewrap socat`). Without them Claude refuses to
 start rather than run unfenced. **Start working** needs herdr, Claude Code and
 [worktrunk](https://worktrunk.dev) (`wt`), and the workspace's `~/Projects`
 folder to be a git repository: worktrunk makes the task's worktree and runs the
@@ -432,6 +433,8 @@ nothing; a notification says `Planned and reported` when both are done, or
 which step failed and where its log is
 (`$XDG_DATA_HOME/niri-tasks/unattended/`, by default
 `~/.local/share/niri-tasks/unattended/`).
+The log holds each run's final answer and every action Claude was refused,
+if any, and the notification counts the refusals and gives the log's path.
 Add & all has no key and needs Claude Code but not herdr. If a refine fails,
 either way the task stays added and a notification says why.
 
