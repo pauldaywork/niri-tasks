@@ -185,8 +185,13 @@ pub enum Claude {
         /// The folder of the refine mod Claude loads.
         mod_dir: PathBuf,
     },
-    /// Start working's: the user's own defaults, since it is meant to do the work.
-    Worker,
+    /// Start working's: the user's own defaults, since it is meant to do the
+    /// work, with only its status line added.
+    Worker {
+        /// The settings JSON passed to `claude --settings`: the task's
+        /// status line (`status_line::worker_settings`).
+        settings: String,
+    },
 }
 
 /// A hold on a session's launches, taken by [`Session::claim`], or on a
@@ -977,13 +982,13 @@ mod tests {
     #[test]
     fn a_blocked_start_is_waited_out_and_a_failed_one_is_an_error() {
         let (s, f) = session(Fake::running(&[("w1", "alpha")]).with_start(StartOutcome::FailsBlockedThenIdle));
-        s.start_claude(s.claim().unwrap(), "work-abc", "p1", &Claude::Worker).unwrap();
+        s.start_claude(s.claim().unwrap(), "work-abc", "p1", &Claude::Worker { settings: "{}".into() }).unwrap();
         let log = f.log();
         assert!(log.iter().any(|l| l.starts_with("notify ")), "{log:?}");
         assert!(log.contains(&"agent_wait_ready alpha work-abc".to_string()), "{log:?}");
         let (s, f) = session(Fake::running(&[("w1", "alpha")]).with_start(StartOutcome::Fails));
         assert_eq!(
-            s.start_claude(s.claim().unwrap(), "work-abc", "p1", &Claude::Worker).unwrap_err().to_string(),
+            s.start_claude(s.claim().unwrap(), "work-abc", "p1", &Claude::Worker { settings: "{}".into() }).unwrap_err().to_string(),
             "claude exited"
         );
         assert!(!logged_start(&f, "agent_wait_ready"));
@@ -1061,7 +1066,7 @@ mod tests {
     fn a_start_lets_the_claim_go_before_waiting_on_a_question() {
         for outcome in [StartOutcome::Ok, StartOutcome::Fails, StartOutcome::FailsBlockedThenIdle] {
             let (s, f) = session(Fake::running(&[("w1", "alpha")]).with_start(outcome));
-            let _ = s.start_claude(s.claim().unwrap(), "work-abc", "p1", &Claude::Worker);
+            let _ = s.start_claude(s.claim().unwrap(), "work-abc", "p1", &Claude::Worker { settings: "{}".into() });
             let log = f.log();
             let start = log.iter().position(|l| l.starts_with("agent_start ")).unwrap();
             assert_eq!(log[start + 1], "release alpha", "{outcome:?}: {log:?}");

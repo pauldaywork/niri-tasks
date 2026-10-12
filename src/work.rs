@@ -256,13 +256,18 @@ fn open_setup_tab(
     Ok(())
 }
 
-/// Start the working Claude in `pane`, label the pane with the task, hand
+/// Start the working Claude in `pane` with the task in its status line, label
+/// the pane with the task, hand
 /// it the task to plan, and mark the task active, as Update status → Active
 /// would. Other active tasks on the workspace stay active: they are other
 /// worktrees' agents at work.
 fn start_working(session: &Session, claim: Claim, name: &str, pane: &str, t: &task::Task) -> Result<()> {
+    let exe = std::env::current_exe().context("could not find the niritasks binary")?;
+    let claude = Claude::Worker {
+        settings: crate::status_line::worker_settings(&crate::status_line::command(&exe, &t.uuid)),
+    };
     let pane_name = names::PaneName::for_task(names::Role::Work, t.id, &t.uuid, &t.description);
-    start_and_prompt(session, claim, name, pane, &pane_name, &plan_prompt(&t.uuid))?;
+    start_and_prompt(session, claim, name, pane, &claude, &pane_name, &plan_prompt(&t.uuid))?;
     task::set_active(&t.uuid)
 }
 
@@ -270,8 +275,8 @@ fn start_working(session: &Session, claim: Claim, name: &str, pane: &str, t: &ta
 /// `pane_name`, then send `text`. The start lets the claim go once herdr has
 /// the agent, before a blocked start's question or the prompt's retries: a
 /// second launch waiting on it then finds the agent and focuses it.
-fn start_and_prompt(session: &Session, claim: Claim, name: &str, pane: &str, pane_name: &names::PaneName, text: &str) -> Result<()> {
-    session.start_claude(claim, name, pane, &Claude::Worker)?;
+fn start_and_prompt(session: &Session, claim: Claim, name: &str, pane: &str, claude: &Claude, pane_name: &names::PaneName, text: &str) -> Result<()> {
+    session.start_claude(claim, name, pane, claude)?;
     session.label_pane(pane, pane_name);
     session.prompt(name, text)
 }
@@ -474,7 +479,7 @@ mod tests {
     fn the_claim_goes_after_the_start_and_before_the_prompt() {
         let fake = Fake::running(&[("w1", "alpha")]);
         let s = session(&fake);
-        start_and_prompt(&s, s.claim().unwrap(), "work-abc", "p1", &pane(), "/plan").unwrap();
+        start_and_prompt(&s, s.claim().unwrap(), "work-abc", "p1", &Claude::Worker { settings: "{}".into() }, &pane(), "/plan").unwrap();
         let log = fake.log();
         assert_eq!(log[0], "claim alpha", "{log:?}");
         assert!(at(&log, "agent_start alpha work-abc") < at(&log, "release alpha"), "{log:?}");
@@ -487,7 +492,7 @@ mod tests {
     fn a_blocked_start_lets_the_claim_go_before_the_wait() {
         let fake = Fake::running(&[("w1", "alpha")]).with_start(StartOutcome::FailsBlockedThenIdle);
         let s = session(&fake);
-        start_and_prompt(&s, s.claim().unwrap(), "work-abc", "p1", &pane(), "/plan").unwrap();
+        start_and_prompt(&s, s.claim().unwrap(), "work-abc", "p1", &Claude::Worker { settings: "{}".into() }, &pane(), "/plan").unwrap();
         let log = fake.log();
         assert!(at(&log, "agent_start alpha work-abc") < at(&log, "release alpha"), "{log:?}");
         assert!(at(&log, "release alpha") < at(&log, "agent_wait_ready alpha work-abc"), "{log:?}");
@@ -499,7 +504,7 @@ mod tests {
     fn a_failed_start_lets_the_claim_go() {
         let fake = Fake::running(&[("w1", "alpha")]).with_start(StartOutcome::Fails);
         let s = session(&fake);
-        assert!(start_and_prompt(&s, s.claim().unwrap(), "work-abc", "p1", &pane(), "/plan").is_err());
+        assert!(start_and_prompt(&s, s.claim().unwrap(), "work-abc", "p1", &Claude::Worker { settings: "{}".into() }, &pane(), "/plan").is_err());
         let log = fake.log();
         assert_eq!(log[at(&log, "agent_start alpha work-abc") + 1], "release alpha", "{log:?}");
         assert!(!log.iter().any(|l| l.starts_with("agent_prompt")), "{log:?}");
@@ -514,7 +519,7 @@ mod tests {
     fn the_working_claudes_pane_is_labelled_between_start_and_prompt() {
         let fake = Fake::running(&[("w1", "alpha")]);
         let s = session(&fake);
-        start_and_prompt(&s, s.claim().unwrap(), "work-abc", "p1", &pane(), "/plan").unwrap();
+        start_and_prompt(&s, s.claim().unwrap(), "work-abc", "p1", &Claude::Worker { settings: "{}".into() }, &pane(), "/plan").unwrap();
         let log = fake.log();
         assert!(at(&log, "agent_start alpha work-abc") < at(&log, "pane_rename alpha p1 Work #61 · x"), "{log:?}");
         assert!(at(&log, "pane_report_metadata alpha p1") < at(&log, "agent_prompt alpha work-abc"), "{log:?}");

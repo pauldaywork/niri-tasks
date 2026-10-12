@@ -143,11 +143,15 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// and links the report from the task itself, and `unattended`: true in an
 /// unattended run, where the write tool writes with no question and the
 /// report tool opens nothing (see [`run_unattended`]).
-pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uuid: &str, reports: &Path, mode: Mode, unattended: bool) -> String {
+/// `status_line`, when given, is the command for the task's status line
+/// (`status_line::command`); a tab's refine shows it, an unattended run has
+/// no screen to.
+#[allow(clippy::too_many_arguments)]
+pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uuid: &str, reports: &Path, mode: Mode, unattended: bool, status_line: Option<&str>) -> String {
     let mut deny: Vec<String> = CREDENTIALS.iter().map(|c| format!("Read({c})")).collect();
     deny.extend(hidden.iter().map(|p| format!("Read(//{}/**)", p.display().to_string().trim_start_matches('/'))));
     let allow = ["WebSearch", "WebFetch", "Bash(task *)", "Read(//**)"];
-    serde_json::json!({
+    let mut settings = serde_json::json!({
         "permissions": {
             "allow": allow,
             "deny": deny,
@@ -167,8 +171,11 @@ pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uu
         "pluginConfigs": {
             (REFINE_MOD): { "options": { "uuid": uuid, "reports": reports, "report": (mode == Mode::Report), "unattended": unattended } },
         },
-    })
-    .to_string()
+    });
+    if let Some(command) = status_line {
+        settings["statusLine"] = crate::status_line::setting(command);
+    }
+    settings.to_string()
 }
 
 /// [`CREDENTIALS`] as paths under `home`, of those that exist: the sandbox
@@ -293,6 +300,7 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
         mod_dir.display()
     );
     let session = ws.session()?;
+    let exe = std::env::current_exe().context("could not find the niritasks binary")?;
     let settings = session_settings(
         session.dir(),
         &task::data_location()?,
@@ -301,6 +309,7 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
         &reports_dir(&dirs),
         mode,
         false,
+        Some(&crate::status_line::command(&exe, &t.uuid)),
     );
 
     let claude = Claude::Refiner { settings, mod_dir };
@@ -552,12 +561,12 @@ fn unattended_steps(ws: &Workspace, t: &task::Task, dirs: &Dirs, log: &Path) -> 
     let notes_before = note_texts(&before);
     let report_before = before.report_path().map(String::from);
 
-    let settings = session_settings(project, &task_data, &hidden, &t.uuid, &reports, Mode::Quick, true);
+    let settings = session_settings(project, &task_data, &hidden, &t.uuid, &reports, Mode::Quick, true, None);
     run_claude(project, log, Step::Refine, &claude_unattended_argv(&refine_prompt, &settings, &mod_dir))?;
     let planned = task::get(&t.uuid)?.context("The task is gone after the refine step.")?;
     refine_wrote(was_planned, &notes_before, planned.is_planned(), &note_texts(&planned))?;
 
-    let settings = session_settings(project, &task_data, &hidden, &t.uuid, &reports, Mode::Report, true);
+    let settings = session_settings(project, &task_data, &hidden, &t.uuid, &reports, Mode::Report, true, None);
     run_claude(project, log, Step::Report, &claude_unattended_argv(&report_prompt, &settings, &mod_dir))?;
     let reported = task::get(&t.uuid)?.context("The task is gone after the report step.")?;
     let path = report_wrote(report_before.as_deref(), reported.report_path())?;
@@ -723,10 +732,23 @@ mod tests {
     /// The fence the refine session runs in: every command sandboxed with no
     /// way out, the project read-only, the task database writable, and the
     /// sockets that could start a process outside the sandbox hidden.
+    /// A tab's refine shows the task in its status line; an unattended run
+    /// has no screen to show it on.
+    #[test]
+    fn the_status_line_rides_in_the_settings_only_when_given() {
+        let with = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), Mode::Quick, false, Some("niritasks task status-line u"));
+        let v: Value = serde_json::from_str(&with).unwrap();
+        assert_eq!(v["statusLine"]["command"], "niritasks task status-line u");
+        assert_eq!(v["sandbox"]["enabled"], true, "the fence is still there");
+        let without = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), Mode::Quick, true, None);
+        let v: Value = serde_json::from_str(&without).unwrap();
+        assert!(v.get("statusLine").is_none(), "{v}");
+    }
+
     #[test]
     fn the_sandbox_fences_the_session_to_the_task_database() {
         let hidden = [PathBuf::from("/run/user/1000"), PathBuf::from("/run/docker.sock")];
-        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden, "u", Path::new("/r"), Mode::Quick, false);
+        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden, "u", Path::new("/r"), Mode::Quick, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let sb = &v["sandbox"];
         assert_eq!(sb["enabled"], true);
@@ -752,7 +774,7 @@ mod tests {
     #[test]
     fn the_session_may_search_the_web_but_not_read_credentials() {
         let hidden = [PathBuf::from("/run"), PathBuf::from("/home/x/.config/herdr")];
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &hidden, "u", Path::new("/r"), Mode::Quick, false);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &hidden, "u", Path::new("/r"), Mode::Quick, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let allow = v["permissions"]["allow"].as_array().unwrap();
         for tool in ["WebSearch", "WebFetch", "Bash(task *)", "Read(//**)"] {
@@ -774,7 +796,7 @@ mod tests {
     #[test]
     fn the_mod_is_told_which_task_it_may_write_and_where_reports_go() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/home/x/.local/share/niri-tasks/reviews"), Mode::Quick, false);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/home/x/.local/share/niri-tasks/reviews"), Mode::Quick, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let options = &v["pluginConfigs"][REFINE_MOD]["options"];
         assert_eq!(options["uuid"], u);
@@ -788,14 +810,14 @@ mod tests {
     #[test]
     fn a_report_session_tells_the_mod_so() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), Mode::Report, false);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), Mode::Report, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let options = &v["pluginConfigs"][REFINE_MOD]["options"];
         assert_eq!(options["report"], true);
         assert_eq!(options["uuid"], u, "the same fence and task as a refine");
         assert_eq!(options["reports"], "/r");
         for mode in [Mode::Quick, Mode::Grill] {
-            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), mode, false);
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), mode, false, None);
             let v: Value = serde_json::from_str(&json).unwrap();
             assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["report"], false, "{mode:?}");
         }
@@ -808,7 +830,7 @@ mod tests {
     fn an_unattended_run_tells_the_mod_so() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
         for mode in [Mode::Quick, Mode::Report] {
-            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), mode, true);
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), mode, true, None);
             let v: Value = serde_json::from_str(&json).unwrap();
             let options = &v["pluginConfigs"][REFINE_MOD]["options"];
             assert_eq!(options["unattended"], true, "{mode:?}");
@@ -816,7 +838,7 @@ mod tests {
             assert_eq!(options["uuid"], u, "the same fence and task");
         }
         for mode in [Mode::Quick, Mode::Grill, Mode::Report] {
-            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), mode, false);
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), mode, false, None);
             let v: Value = serde_json::from_str(&json).unwrap();
             assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["unattended"], false, "{mode:?}");
         }

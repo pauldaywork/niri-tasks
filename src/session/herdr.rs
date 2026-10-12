@@ -132,12 +132,13 @@ pub fn agent_start_claude_refiner(session: &str, name: &str, pane: &str, setting
     argv
 }
 
-/// Claude as a named agent in `pane`, with no flags of ours: this session is
-/// meant to do the work, so it runs in whatever mode the user runs Claude in.
-pub fn agent_start_claude(session: &str, name: &str, pane: &str) -> Vec<String> {
+/// Claude as a named agent in `pane`, with no flags of ours but `settings`,
+/// which hold only the task's status line: this session is meant to do the
+/// work, so it runs in whatever mode the user runs Claude in.
+pub fn agent_start_claude(session: &str, name: &str, pane: &str, settings: &str) -> Vec<String> {
     cmd(
         session,
-        &["agent", "start", name, "--kind", "claude", "--pane", pane, "--timeout", "60000"],
+        &["agent", "start", name, "--kind", "claude", "--pane", pane, "--timeout", "60000", "--", "--settings", settings],
     )
 }
 
@@ -358,7 +359,7 @@ impl Port for Process {
     fn agent_start(&self, s: &str, name: &str, pane: &str, claude: &Claude) -> HerdrResult<()> {
         let argv = match claude {
             Claude::Refiner { settings, mod_dir } => agent_start_claude_refiner(s, name, pane, settings, mod_dir),
-            Claude::Worker => agent_start_claude(s, name, pane),
+            Claude::Worker { settings } => agent_start_claude(s, name, pane, settings),
         };
         self.call(&argv, |_| Ok(()))
     }
@@ -721,13 +722,16 @@ mod tests {
         );
     }
 
+    /// The working Claude runs as the user runs Claude: the only flag of
+    /// ours is its status line, in settings of its own.
     #[test]
-    fn a_working_claude_starts_with_no_extra_flags() {
+    fn a_working_claude_starts_with_only_its_status_line() {
         assert_eq!(
-            agent_start_claude("alpha", "work-1234abcd", "w2:p1"),
+            agent_start_claude("alpha", "work-1234abcd", "w2:p1", r#"{"statusLine":{}}"#),
             vec![
                 "herdr", "--session", "alpha", "agent", "start", "work-1234abcd",
-                "--kind", "claude", "--pane", "w2:p1", "--timeout", "60000",
+                "--kind", "claude", "--pane", "w2:p1", "--timeout", "60000", "--",
+                "--settings", r#"{"statusLine":{}}"#,
             ]
         );
     }

@@ -324,7 +324,7 @@ impl Port for Fake {
     fn agent_start(&self, session: &str, name: &str, pane: &str, claude: &Claude) -> HerdrResult<()> {
         let kind = match claude {
             Claude::Refiner { .. } => "refiner",
-            Claude::Worker => "worker",
+            Claude::Worker { .. } => "worker",
         };
         self.note(format!("agent_start {session} {name} {pane} {kind}"));
         if let Err(e) = self.check()? {
