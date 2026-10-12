@@ -426,7 +426,7 @@ Add a paragraph to the doc comment after the one about `task_data`:
 Task 1 measured that the settings `env` key does not move Claude Code's temp folder. Ruling (ledger): set it in the environment Claude starts in, on both paths. Do **not** add `env` to `session_settings`. Drop the `env` assertion from the Step 1 test, and the `env` line from Step 5.
 
 - **Unattended run:** `run_claude` gains a `tmp: &Path` parameter (after `argv`) and adds `.env("CLAUDE_CODE_TMPDIR", tmp)` to its `Command`. `unattended_steps` passes `&fence.tmp`. Update the `run_claude` test to pass a temp path, and assert it reaches the child: run `sh -c 'echo "$CLAUDE_CODE_TMPDIR"'` and check the log.
-- **Tab:** `Claude::Refiner` in `src/session.rs` gains `tmp: PathBuf`, documented as "the session's own temp folder, exported as `CLAUDE_CODE_TMPDIR` in the pane's shell before Claude starts". In `src/session/herdr.rs`, `agent_start` for `Claude::Refiner` first calls `self.pane_run(s, pane, &export_tmpdir(tmp))?` and then starts the agent. herdr starts Claude in that same interactive shell, so Claude inherits the variable. Add:
+- **Tab:** `Claude::Refiner` in `src/session.rs` gains `tmp: PathBuf`, documented as "the session's own temp folder, exported as `CLAUDE_CODE_TMPDIR` in the pane's shell before Claude starts". In `Session::start_claude` (`src/session.rs`), just before `self.port.agent_start(…)`, a `Claude::Refiner` first gets `self.port.pane_run(&self.name, pane, &herdr::export_tmpdir(tmp))`, with its errors handled the way that function already handles `agent_start`'s. It goes at the session layer, not in the herdr port, so the fake port logs it too. Put `export_tmpdir` in `src/session/herdr.rs`, beside `refiner_flags`. herdr starts Claude in that same interactive shell, so Claude inherits the variable. Add:
 
 ```rust
 /// The shell line that sets a refine's temp folder in its pane before
@@ -439,7 +439,7 @@ pub fn export_tmpdir(tmp: &Path) -> String {
 ```
 
   Test it: `/home/x/.cache/niri-tasks/refine-tmp/d9f76b94` gives `export CLAUDE_CODE_TMPDIR='/home/x/.cache/niri-tasks/refine-tmp/d9f76b94'`, and a path containing `a'b` gives `'…a'\''b…'`.
-- **The fake port** (`src/session/fake.rs`) logs the `pane_run` the refiner start makes. Update the session tests that assert the exact refiner start log (`agent_start alpha task-abc p1 refiner`) so they also expect a `pane_run alpha p1 export CLAUDE_CODE_TMPDIR=…` line just before it. Every `Claude::Refiner { … }` literal in tests gains `tmp: PathBuf::from("/c/tmp")`. `launch` builds it with `tmp: fence.tmp.clone()`.
+- **The fake port** (`src/session/fake.rs`) already logs every `pane_run`. Update the session tests that assert the exact refiner start log (`agent_start alpha task-abc p1 refiner`) so they also expect a `pane_run alpha p1 export CLAUDE_CODE_TMPDIR=…` line just before it. Every `Claude::Refiner { … }` literal in tests gains `tmp: PathBuf::from("/c/tmp")`. `launch` builds it with `tmp: fence.tmp.clone()`.
 - **Doc:** in `session_settings`'s new doc paragraph, say `$TMPDIR` comes from `CLAUDE_CODE_TMPDIR`, which the tab's shell exports and the unattended run sets on the process, because the settings `env` key does not reach Claude Code's temp folder (measured 2026-10-12).
 
 - [ ] **Step 7: Use `prepare_fence` in `launch` and `unattended_steps`**
