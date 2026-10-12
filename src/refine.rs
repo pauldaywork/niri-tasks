@@ -573,13 +573,14 @@ pub fn unattended_prompts(uuid: &str) -> [String; 2] {
 /// flags ([`crate::session::refiner_flags`]: default permission mode, the
 /// editing tools removed, the standing instruction, the settings fence and
 /// the mod) and `--permission-prompts none`, so anything that would ask — a
-/// permission, AskUserQuestion — is refused rather than waited on. Not plan
+/// permission, AskUserQuestion — is refused rather than waited on. `--output-format json` makes the run
+/// print its result as JSON, refusals included, for [`run_claude`] to log. Not plan
 /// mode and not auto mode, for the reasons `agent_start_claude_refiner`
 /// gives; the settings already allow every sandboxed command and read.
 pub fn claude_unattended_argv(prompt: &str, settings: &str, mod_dir: &Path) -> Vec<String> {
     let mut argv = vec![CLAUDE.to_string(), "-p".to_string(), prompt.to_string()];
     argv.extend(crate::session::refiner_flags(settings, mod_dir));
-    argv.extend(["--permission-prompts", "none"].map(String::from));
+    argv.extend(["--permission-prompts", "none", "--output-format", "json"].map(String::from));
     argv
 }
 
@@ -603,8 +604,10 @@ pub const PLANNED_AND_REPORTED: &str = "Planned and reported";
 /// planned and offers nothing meanwhile, and nothing else writes it. A run
 /// this process does not control, killed with it, leaves the tag; that is
 /// `task <uuid8> modify -processing`. Both runs' output goes to one log
-/// ([`log_path`]), which a failure's error names; the error is `main`'s to
-/// notify, so a failure is said once.
+/// ([`log_path`]), which a failure's error names; any action Claude was
+/// refused is listed there too and counted in the notification or the
+/// error, with the log's path. The error is `main`'s to notify, so a
+/// failure is said once.
 pub fn run_unattended(ws: &Workspace, t: &task::Task) -> Result<()> {
     let dirs = Dirs::from_env()?;
     let log = log_path(&dirs, &t.uuid, task::now_secs());
@@ -612,7 +615,8 @@ pub fn run_unattended(ws: &Workspace, t: &task::Task) -> Result<()> {
         std::fs::create_dir_all(dir).with_context(|| format!("could not make {}", dir.display()))?;
     }
     task::set_processing(&t.uuid, true)?;
-    let outcome = unattended_steps(ws, t, &dirs, &log);
+    let mut denials = Vec::new();
+    let outcome = unattended_steps(ws, t, &dirs, &log, &mut denials);
     // Cleared whatever happened above; a tag left behind would lock the
     // card for good. Retried once, and a failure that stays is the run's
     // to report, not a line on stderr nobody reads.
@@ -621,13 +625,17 @@ pub fn run_unattended(ws: &Workspace, t: &task::Task) -> Result<()> {
         append_line(&log, &format!("== could not clear +{}: {e:#}", task::PROCESSING_TAG));
     }
     match settle(outcome, cleared, t) {
-        Ok(message) => {
+        Ok(message) if denials.is_empty() => {
             notify::tasks(&message);
+            Ok(())
+        }
+        Ok(message) => {
+            notify::tasks(&with_log(&with_denials(&message, &denials), &log));
             Ok(())
         }
         Err(e) => {
             append_line(&log, &format!("== failed: {e:#}"));
-            bail!("{}", with_log(&format!("{e:#}"), &log))
+            bail!("{}", with_log(&with_denials(&format!("{e:#}"), &denials), &log))
         }
     }
 }
@@ -679,7 +687,7 @@ impl Step {
 /// Everything [`run_unattended`] does between tagging the task and
 /// untagging it: the fence checks a tab makes, then the two runs, each
 /// followed by reading the task back to see it did its job.
-fn unattended_steps(ws: &Workspace, t: &task::Task, dirs: &Dirs, log: &Path) -> Result<()> {
+fn unattended_steps(ws: &Workspace, t: &task::Task, dirs: &Dirs, log: &Path, denials: &mut Vec<Denial>) -> Result<()> {
     let task_data = task::data_location()?;
     let fence = prepare_fence(dirs, &task_data, &t.uuid)?;
     let mod_dir = refine_mod_dir(dirs);
@@ -702,12 +710,12 @@ fn unattended_steps(ws: &Workspace, t: &task::Task, dirs: &Dirs, log: &Path) -> 
     let report_before = before.report_path().map(String::from);
 
     let settings = session_settings(project, &task_data, &fence, &t.uuid, &reports, Mode::Quick, true, None);
-    run_claude(project, log, Step::Refine, &claude_unattended_argv(&refine_prompt, &settings, &mod_dir), &fence.tmp)?;
+    run_claude(project, log, Step::Refine, &claude_unattended_argv(&refine_prompt, &settings, &mod_dir), &fence.tmp, denials)?;
     let planned = task::get(&t.uuid)?.context("The task is gone after the refine step.")?;
     refine_wrote(was_planned, &notes_before, planned.is_planned(), &note_texts(&planned))?;
 
     let settings = session_settings(project, &task_data, &fence, &t.uuid, &reports, Mode::Report, true, None);
-    run_claude(project, log, Step::Report, &claude_unattended_argv(&report_prompt, &settings, &mod_dir), &fence.tmp)?;
+    run_claude(project, log, Step::Report, &claude_unattended_argv(&report_prompt, &settings, &mod_dir), &fence.tmp, denials)?;
     let reported = task::get(&t.uuid)?.context("The task is gone after the report step.")?;
     let path = report_wrote(report_before.as_deref(), reported.report_path())?;
     anyhow::ensure!(Path::new(path).is_file(), "The report step linked {path}, which is not there.");
@@ -742,26 +750,101 @@ fn report_wrote<'a>(before: Option<&str>, after: Option<&'a str>) -> Result<&'a 
     Ok(path)
 }
 
-/// One `claude -p` run in `project`, both its streams appended to `log`
-/// under a line naming the step and the prompt (not the settings, which are
-/// long and the same for both). Stdin is closed: there is no one typing.
+/// One `claude -p --output-format json` run in `project`, logged to `log`
+/// under a line naming the step and the prompt (not the settings, which
+/// are long and the same for both). Its stderr goes to the log as it
+/// comes. Its stdout is the JSON result: the log gets the result's text,
+/// then a `== denied:` line per refused action or `== denied: none`, and
+/// the refusals are added to `denials`. Stdout that is not that JSON is
+/// logged as it came. Stdin is closed: there is no one typing.
 /// `tmp` is the session's own temp folder ([`session_tmp`]), set as
 /// `CLAUDE_CODE_TMPDIR`, which is the only way it reaches Claude Code.
-fn run_claude(project: &Path, log: &Path, step: Step, argv: &[String], tmp: &Path) -> Result<()> {
+fn run_claude(project: &Path, log: &Path, step: Step, argv: &[String], tmp: &Path, denials: &mut Vec<Denial>) -> Result<()> {
     append_line(log, &format!("== {}: {}", step.name(), argv[..3].join(" ")));
-    let out = File::options().append(true).create(true).open(log).with_context(|| format!("could not open {}", log.display()))?;
-    let err = out.try_clone().context("could not share the log between stdout and stderr")?;
-    let status = Command::new(&argv[0])
+    let err = File::options().append(true).create(true).open(log).with_context(|| format!("could not open {}", log.display()))?;
+    let out = Command::new(&argv[0])
         .args(&argv[1..])
         .current_dir(project)
         .env("CLAUDE_CODE_TMPDIR", tmp)
         .stdin(Stdio::null())
-        .stdout(Stdio::from(out))
         .stderr(Stdio::from(err))
-        .status()
+        .output()
         .with_context(|| format!("could not run {} for the {} step", argv[0], step.name()))?;
-    anyhow::ensure!(status.success(), "The {} step failed: claude exited with {status}.", step.name());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    match parse_run(&stdout) {
+        Some(run) => {
+            append_line(log, &run.text);
+            if run.denials.is_empty() {
+                append_line(log, "== denied: none");
+            }
+            for d in &run.denials {
+                append_line(log, &format!("== denied: {} {}", d.tool, d.input));
+            }
+            denials.extend(run.denials);
+        }
+        None => append_raw(log, &stdout),
+    }
+    anyhow::ensure!(out.status.success(), "The {} step failed: claude exited with {}.", step.name(), out.status);
     Ok(())
+}
+
+/// One action Claude was refused in an unattended run: the tool, and what
+/// it was asked to do as compact JSON, as `claude -p --output-format json`
+/// lists it under `permission_denials`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Denial {
+    tool: String,
+    input: String,
+}
+
+/// What a `claude -p --output-format json` run printed: Claude's final
+/// text and the actions it was refused.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct RunResult {
+    text: String,
+    denials: Vec<Denial>,
+}
+
+/// The run's JSON result, or `None` when `stdout` is not one: a crash, or
+/// a run that never got as far as a result.
+fn parse_run(stdout: &str) -> Option<RunResult> {
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).ok()?;
+    let text = v["result"].as_str().unwrap_or_default().to_string();
+    let denials = v["permission_denials"]
+        .as_array()
+        .map(|all| {
+            all.iter()
+                .map(|d| Denial { tool: d["tool_name"].as_str().unwrap_or("?").to_string(), input: d["tool_input"].to_string() })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(RunResult { text, denials })
+}
+
+/// A sentence counting the actions Claude was refused and naming their
+/// tools, each once, or `None` when there were none.
+fn denied_sentence(denials: &[Denial]) -> Option<String> {
+    if denials.is_empty() {
+        return None;
+    }
+    let mut tools: Vec<&str> = denials.iter().map(|d| d.tool.as_str()).collect();
+    tools.sort_unstable();
+    tools.dedup();
+    let n = denials.len();
+    let s = if n == 1 { "" } else { "s" };
+    Some(format!("Claude was refused {n} action{s} ({}).", tools.join(", ")))
+}
+
+/// `message` followed by [`denied_sentence`] as a sentence of its own, or
+/// `message` alone when nothing was refused.
+fn with_denials(message: &str, denials: &[Denial]) -> String {
+    match denied_sentence(denials) {
+        None => message.to_string(),
+        Some(sentence) => {
+            let stop = if message.ends_with('.') { "" } else { "." };
+            format!("{message}{stop} {sentence}")
+        }
+    }
 }
 
 /// Add `line` to the log. Best effort: the log is for reading a failure
@@ -769,6 +852,14 @@ fn run_claude(project: &Path, log: &Path, step: Step, argv: &[String], tmp: &Pat
 fn append_line(log: &Path, line: &str) {
     if let Ok(mut file) = File::options().append(true).create(true).open(log) {
         let _ = writeln!(file, "{line}");
+    }
+}
+
+/// Add `text` to the log as it is, with no line added. Best effort, as
+/// [`append_line`].
+fn append_raw(log: &Path, text: &str) {
+    if let Ok(mut file) = File::options().append(true).create(true).open(log) {
+        let _ = file.write_all(text.as_bytes());
     }
 }
 
@@ -1101,15 +1192,16 @@ mod tests {
 
     /// `claude -p` with the tab's own flags between the prompt and
     /// `--permission-prompts none`, which makes anything that would ask
-    /// refuse instead. Default permission mode, as the tab: not plan mode,
-    /// whose approval means implement, and not auto mode.
+    /// refuse instead, then `--output-format json`, so the run's refusals
+    /// can be read back. Default permission mode, as the tab: not plan
+    /// mode, whose approval means implement, and not auto mode.
     #[test]
     fn an_unattended_run_is_the_tabs_claude_with_no_one_to_ask() {
         let argv = claude_unattended_argv("/refine-task u-1 auto", "{\"sandbox\":{}}", Path::new("/m/refine-mod"));
         assert_eq!(argv[..3], ["claude", "-p", "/refine-task u-1 auto"]);
         let flags = crate::session::refiner_flags("{\"sandbox\":{}}", Path::new("/m/refine-mod"));
         assert_eq!(argv[3..3 + flags.len()], flags[..]);
-        assert_eq!(argv[3 + flags.len()..], ["--permission-prompts", "none"]);
+        assert_eq!(argv[3 + flags.len()..], ["--permission-prompts", "none", "--output-format", "json"]);
         assert_eq!(argv.iter().filter(|a| *a == "--permission-mode").count(), 1);
         assert_eq!(CLAUDE, "claude");
     }
@@ -1130,22 +1222,79 @@ mod tests {
         );
     }
 
-    /// A run's output lands in the log under its step's heading, and a
-    /// non-zero exit is the step's failure, named. `sh` stands in for
-    /// claude: `argv[..3]` is what the heading shows.
+    /// The result of `claude -p --output-format json`: the final text, and
+    /// each refused action as its tool and its input, compact. Anything
+    /// that is not that JSON is `None`, so the caller can log it raw.
     #[test]
-    fn a_run_logs_its_output_under_its_step_and_fails_on_a_bad_exit() {
+    fn a_json_result_gives_its_text_and_its_denials() {
+        let out = r#"{"type":"result","subtype":"success","is_error":false,"result":"Planned it.","permission_denials":[{"tool_name":"Bash","tool_use_id":"t1","tool_input":{"command":"ls ~/.task"}},{"tool_name":"Read","tool_use_id":"t2","tool_input":{"file_path":"/x"}}]}"#;
+        assert_eq!(
+            parse_run(&format!("{out}\n")).unwrap(),
+            RunResult {
+                text: "Planned it.".into(),
+                denials: vec![
+                    Denial { tool: "Bash".into(), input: r#"{"command":"ls ~/.task"}"#.into() },
+                    Denial { tool: "Read".into(), input: r#"{"file_path":"/x"}"#.into() },
+                ],
+            }
+        );
+        assert_eq!(parse_run(r#"{"result":"ok","permission_denials":[]}"#).unwrap(), RunResult { text: "ok".into(), denials: vec![] });
+        assert_eq!(parse_run(r#"{"result":"ok"}"#).unwrap().denials, vec![], "no field, no denials");
+        assert_eq!(parse_run("Error: something broke\n"), None);
+        assert_eq!(parse_run(""), None);
+    }
+
+    /// Denials are counted and named by tool, each tool once; none at all
+    /// says nothing.
+    #[test]
+    fn denials_are_counted_and_named_by_tool() {
+        let d = |tool: &str| Denial { tool: tool.into(), input: "{}".into() };
+        assert_eq!(denied_sentence(&[]), None);
+        assert_eq!(denied_sentence(&[d("Bash")]).unwrap(), "Claude was refused 1 action (Bash).");
+        assert_eq!(denied_sentence(&[d("Read"), d("Bash"), d("Bash")]).unwrap(), "Claude was refused 3 actions (Bash, Read).");
+        assert_eq!(with_denials("Planned and reported: fix: a thing", &[]), "Planned and reported: fix: a thing");
+        assert_eq!(
+            with_denials("Planned and reported: fix: a thing", &[d("Bash")]),
+            "Planned and reported: fix: a thing. Claude was refused 1 action (Bash)."
+        );
+        assert_eq!(with_denials("It failed.", &[d("Read")]), "It failed. Claude was refused 1 action (Read).");
+    }
+
+    /// A run's stderr lands in the log under its step's heading, then the
+    /// result's text and one line per refused action, or a line saying
+    /// there were none, so a log always answers the question. The
+    /// denials also go to the caller. Output that is not the JSON result
+    /// is logged as it came. A non-zero exit is the step's failure, named.
+    /// `sh` stands in for claude: `argv[..3]` is what the heading shows.
+    #[test]
+    fn a_run_logs_its_result_and_denials_under_its_step_and_fails_on_a_bad_exit() {
         let dir = std::env::temp_dir().join(format!("niritasks-unattended-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("x.log");
         let tmp = Path::new("/home/x/.cache/niri-tasks/refine-tmp/d9f76b94");
-        let ok = ["sh", "-c", "echo out; echo err >&2"].map(String::from);
-        run_claude(&dir, &log, Step::Refine, &ok, tmp).unwrap();
+        let mut denials = Vec::new();
+
+        let json = r#"{"result":"Planned it.","permission_denials":[{"tool_name":"Bash","tool_use_id":"t1","tool_input":{"command":"ls ~/.task"}}]}"#;
+        let ok = ["sh".to_string(), "-c".to_string(), format!("echo warn >&2; echo '{json}'")];
+        run_claude(&dir, &log, Step::Refine, &ok, tmp, &mut denials).unwrap();
         let text = std::fs::read_to_string(&log).unwrap();
-        assert_eq!(text, "== refine: sh -c echo out; echo err >&2\nout\nerr\n");
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines[0].starts_with("== refine: sh -c echo warn"), "{text}");
+        assert_eq!(lines[1..], ["warn", "Planned it.", r#"== denied: Bash {"command":"ls ~/.task"}"#], "{text}");
+        assert_eq!(denials, vec![Denial { tool: "Bash".into(), input: r#"{"command":"ls ~/.task"}"#.into() }]);
+
+        let clean = ["sh", "-c", r#"echo '{"result":"Reported.","permission_denials":[]}'"#].map(String::from);
+        run_claude(&dir, &log, Step::Report, &clean, tmp, &mut denials).unwrap();
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert!(text.ends_with("Reported.\n== denied: none\n"), "{text}");
+        assert_eq!(denials.len(), 1, "a clean run adds nothing");
+
+        let raw = ["sh", "-c", "echo not json"].map(String::from);
+        run_claude(&dir, &log, Step::Report, &raw, tmp, &mut denials).unwrap();
+        assert!(std::fs::read_to_string(&log).unwrap().ends_with("== report: sh -c echo not json\nnot json\n"));
 
         let bad = ["sh", "-c", "exit 3"].map(String::from);
-        let err = run_claude(&dir, &log, Step::Report, &bad, tmp).unwrap_err().to_string();
+        let err = run_claude(&dir, &log, Step::Report, &bad, tmp, &mut denials).unwrap_err().to_string();
         assert!(err.starts_with("The report step failed: claude exited with exit status: 3"), "{err}");
         let text = std::fs::read_to_string(&log).unwrap();
         assert!(text.ends_with("== report: sh -c exit 3\n"), "{text}");
@@ -1153,7 +1302,7 @@ mod tests {
         // The session's own temp folder reaches Claude through its
         // environment, since the settings' `env` does not move it.
         let echo = ["sh", "-c", "echo \"$CLAUDE_CODE_TMPDIR\""].map(String::from);
-        run_claude(&dir, &log, Step::Refine, &echo, tmp).unwrap();
+        run_claude(&dir, &log, Step::Refine, &echo, tmp, &mut denials).unwrap();
         let text = std::fs::read_to_string(&log).unwrap();
         assert!(text.ends_with("\n/home/x/.cache/niri-tasks/refine-tmp/d9f76b94\n"), "{text}");
 
