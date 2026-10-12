@@ -109,11 +109,12 @@ pub const CREDENTIALS: &[&str] = &[
 
 /// Secrets found by pattern, not by a fixed path: the `.env` files of
 /// every project under `~/Projects`, which hold API keys and database
-/// URLs. Hidden from the Read tool by a deny rule and from sandboxed
+/// URLs, and of every worktree under `~/.worktrees`, where the worktree
+/// setup copies them. Hidden from the Read tool by a deny rule and from sandboxed
 /// Bash by `denyRead`, which takes globs on Linux (it does not for
 /// writes). A refine loses nothing it needs: a project's `.env.example`
 /// goes too, and the code that reads the variables still shows their names.
-pub const SECRET_GLOBS: &[&str] = &["~/Projects/**/.env*"];
+pub const SECRET_GLOBS: &[&str] = &["~/Projects/**/.env*", "~/.worktrees/**/.env*"];
 
 /// The refine mod's plugin name, as `claude/refine-mod/.claude-plugin/plugin.json`
 /// declares it: the key its options travel under in `--settings`.
@@ -201,9 +202,12 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// `excludedCommands`. Also web search and fetch.
 /// The Read tool may read anywhere (`Read(//**)`: `//` is Claude Code's
 /// absolute form, one `/` would be the project's), as sandboxed Bash
-/// already can. Deny rules win over it: the [`CREDENTIALS`], the
-/// [`SECRET_GLOBS`], and every path `hidden` hides from sandboxed Bash,
-/// so the tool opens nothing Bash could not read already.
+/// already can: the installed skills, the report catalogue, an unattended
+/// run's log and the reviews folder lie outside the project, where the
+/// tool would otherwise ask, and an unattended run has no one to answer.
+/// Deny rules win over it: the [`CREDENTIALS`], the [`SECRET_GLOBS`], and
+/// every path `fence.hidden` hides from sandboxed Bash, so the tool opens
+/// nothing Bash could not read already.
 /// Bash's network is [`NETWORK_HOSTS`] on 443 and nothing else, refused
 /// rather than asked about (`strictAllowlist`, which Claude Code honours
 /// from `--settings`). That comes after the secrets are hidden and the
@@ -1121,8 +1125,9 @@ mod tests {
 
     /// Secret stores beyond the classic credentials are hidden too: the
     /// Codex and Vercel CLIs' tokens, t3's keys, the browsers' profiles
-    /// (saved logins and cookies), and project `.env` files. Reviews on
-    /// 2026-10-12 found each readable from a refine.
+    /// (saved logins and cookies), and the `.env` files of projects and of
+    /// their worktrees. Reviews on 2026-10-12 found each readable from a
+    /// refine.
     #[test]
     fn app_tokens_browser_profiles_and_env_files_are_secrets() {
         for c in [
@@ -1136,12 +1141,15 @@ mod tests {
         ] {
             assert!(CREDENTIALS.contains(&c), "{c}");
         }
-        assert_eq!(SECRET_GLOBS, ["~/Projects/**/.env*"]);
+        assert_eq!(SECRET_GLOBS, ["~/Projects/**/.env*", "~/.worktrees/**/.env*"]);
         let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
-        assert!(v["permissions"]["deny"].as_array().unwrap().iter().any(|d| d == "Read(~/Projects/**/.env*)"));
+        let deny = v["permissions"]["deny"].as_array().unwrap();
         let deny_read = v["sandbox"]["filesystem"]["denyRead"].as_array().unwrap();
-        assert!(deny_read.iter().any(|d| d.as_str().is_some_and(|s| s.ends_with("/Projects/**/.env*") && s.starts_with('/'))), "{deny_read:?}");
+        for g in ["Projects/**/.env*", ".worktrees/**/.env*"] {
+            assert!(deny.iter().any(|d| d.as_str() == Some(&format!("Read(~/{g})"))), "{g}");
+            assert!(deny_read.iter().any(|d| d.as_str().is_some_and(|s| s.ends_with(&format!("/{g}")) && s.starts_with('/'))), "{deny_read:?}");
+        }
     }
 
     /// The task the mod may write, and where it may write a report, come from
