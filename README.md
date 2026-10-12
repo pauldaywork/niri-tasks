@@ -214,6 +214,20 @@ folder to be a git repository: worktrunk makes the task's worktree and runs the
 repo's `.config/wt.toml` hooks, asking in a herdr tab the first time a repo's
 hooks need approving.
 
+A Refine or Start working Claude's pane says which task it is on: its border
+reads `Refine #61 · <description>` or `Work #61 · <description>`, and Claude's
+status line, under its prompt, `#61 · <description> · <state> · <branch>`,
+read afresh on each refresh. herdr draws a border, and the label in it, only
+around split panes unless you add this to `~/.config/herdr/config.toml` and
+run `herdr server reload-config` (niri-tasks never edits that file):
+
+    [ui]
+    pane_borders = "always"
+
+The pane also carries `task_id`, `task` and `task_uuid` tokens, which an Agent
+row in `[ui.sidebar.agents]` can show as `$task_id`, `$task` and `$task_uuid`;
+the default sidebar shows none of them.
+
 **Task docs**, the herdr plugin `install.sh` links, needs herdr 0.9.1 or
 later, `python3`, `fzf`, and plannotator-tui from herdr-annotate Full
 (`herdr plugin install plannotator/herdr-annotate`; Lite has no
@@ -230,7 +244,8 @@ uses, so the two share one server.
 
 A Claude you start by hand in a herdr pane is linked to a task when it marks
 that task active (`niritasks task status <uuid> active`): its agent is named
-`work-<uuid8>`, the name Start working gives its own, so the task's Go to list can offer Go to work session. An agent already named by Refine or Start working keeps its name.
+`work-<uuid8>`, the name Start working gives its own, and its pane is labelled
+`Work #<id> · <description>`, so the task's Go to list can offer Go to work session. An agent already named by Refine or Start working keeps its name.
 
 When the work is done, `/finish-worktree` in that worktree's Claude lands it:
 it syncs `main` with origin, rebases the branch and tests the result, then
@@ -338,7 +353,8 @@ niritasks task note <uuid>         #   with no text, the task box with the curso
 niritasks task speak <uuid>        # read its description and notes aloud, rewritten by Claude for listening;
                                    #   run again, or on any task while one is speaking, to stop
 niritasks task speak <uuid> --here # internal: the speaking itself, run in the background by `task speak`
-niritasks task status-line <uuid> # internal: the status line a task's Claude shows, run by Claude Code
+niritasks task status-line <uuid>  # internal: the status line Refine's and Start working's Claude show,
+                                   #   #id · description · state · branch, run by Claude Code on each refresh
 niritasks task up-next <uuid>      # mark it up next: its card turns yellow and sits under the active tasks;
                                    #   run again to clear it
 niritasks task refine <uuid>       # work it up into a plan with Claude, in the workspace's herdr session
