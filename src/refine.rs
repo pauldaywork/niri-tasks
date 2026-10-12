@@ -136,9 +136,18 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// they may write is `task_data`, for the skill's final import. No retrying a
 /// blocked command outside the sandbox, and no starting at all without one.
 ///
+/// Not the hooks under `task_data`, though: Taskwarrior runs them, hooks
+/// are on, and the daemon's own `task` calls are not sandboxed, so a hook
+/// written there would run as the user. And `$TMPDIR` is the fence's own
+/// folder ([`session_tmp`]), not the temp folder the user's unsandboxed
+/// Claude sessions share. It is not set here: the settings' `env` does not
+/// reach Claude Code's temp folder (measured 2026-10-12), so
+/// `CLAUDE_CODE_TMPDIR` is exported in the tab's shell before Claude starts
+/// ([`Claude::Refiner`]'s `tmp`) and set on an unattended run's process.
+///
 /// Unix sockets are allowed because the sandbox's socket filter cannot load
 /// under Ubuntu's bwrap AppArmor profile, which denies it the capability it
-/// needs. `hidden` makes up for it: the sockets that could run something
+/// needs. `fence.hidden` makes up for it: the sockets that could run something
 /// outside the sandbox — niri's spawn, the session bus, docker, herdr's panes —
 /// are hidden from it instead, along with the credentials.
 ///
@@ -150,7 +159,7 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// already can. Without it the tool asks outside the project, where the
 /// installed skills, the report catalogue, an unattended run's log and the
 /// reviews folder all live, and an unattended run has no one to answer.
-/// Deny rules win over it: the [`CREDENTIALS`], and every path `hidden`
+/// Deny rules win over it: the [`CREDENTIALS`], and every path `fence.hidden`
 /// hides from sandboxed Bash, so the tool opens nothing Bash could not read
 /// already. One rule for every project, not a list of
 /// folders.
@@ -165,9 +174,9 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// (`status_line::command`); a tab's refine shows it, an unattended run has
 /// no screen to.
 #[allow(clippy::too_many_arguments)]
-pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uuid: &str, reports: &Path, mode: Mode, unattended: bool, status_line: Option<&str>) -> String {
+pub fn session_settings(project: &Path, task_data: &Path, fence: &Fence, uuid: &str, reports: &Path, mode: Mode, unattended: bool, status_line: Option<&str>) -> String {
     let mut deny: Vec<String> = CREDENTIALS.iter().map(|c| format!("Read({c})")).collect();
-    deny.extend(hidden.iter().map(|p| format!("Read(//{}/**)", p.display().to_string().trim_start_matches('/'))));
+    deny.extend(fence.hidden.iter().map(|p| format!("Read(//{}/**)", p.display().to_string().trim_start_matches('/'))));
     let allow = ["WebSearch", "WebFetch", "Bash(task *)", "Read(//**)"];
     let mut settings = serde_json::json!({
         "permissions": {
@@ -181,9 +190,9 @@ pub fn session_settings(project: &Path, task_data: &Path, hidden: &[PathBuf], uu
             "failIfUnavailable": true,
             "network": { "allowAllUnixSockets": true },
             "filesystem": {
-                "denyWrite": [project],
+                "denyWrite": [project, task_data.join("hooks")],
                 "allowWrite": [task_data],
-                "denyRead": hidden,
+                "denyRead": &fence.hidden,
             },
         },
         "pluginConfigs": {
@@ -214,8 +223,9 @@ fn credential_paths(home: &Path) -> Vec<PathBuf> {
 /// root, VS Code runs commands, Xwayland takes keystrokes — and a hand-picked
 /// list misses whichever one nobody thought of. `/run` holds the system's and
 /// the session's (`/var/run` is the same folder), `/tmp` the X11 and app
-/// sockets — the sandbox keeps its own temp folder under it regardless —
-/// `/var/snap` the snaps', and herdr keeps its own under its config.
+/// sockets — the session's own temp folder is under the cache instead
+/// ([`session_tmp`]) — `/var/snap` the snaps', and herdr keeps its own
+/// under its config.
 /// [`exposed_sockets`] checks the result against the live socket table.
 fn hidden_paths(home: &Path) -> Vec<PathBuf> {
     [
@@ -228,6 +238,49 @@ fn hidden_paths(home: &Path) -> Vec<PathBuf> {
     .filter(|p| p.exists())
     .chain(credential_paths(home))
     .collect()
+}
+
+/// What a refine session is fenced in by beyond its project: the home
+/// its secrets are found under, the paths hidden from it ([`hidden_paths`])
+/// and its own temp folder ([`session_tmp`]), made ready by
+/// [`prepare_fence`] and written into the settings by [`session_settings`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fence {
+    pub home: PathBuf,
+    pub hidden: Vec<PathBuf>,
+    pub tmp: PathBuf,
+}
+
+/// The temp folder a refine of `uuid` gets as `$TMPDIR`, in place of the
+/// `/tmp/claude-<uid>` the user's own, unsandboxed Claude sessions share:
+/// a sandboxed command may write its temp folder, and one it shares is a
+/// place to leave a trap for a process that is not sandboxed. Under the
+/// cache, named by the task's first eight characters, kept short because
+/// Claude Code falls back to the shared folder for a long one.
+pub fn session_tmp(dirs: &Dirs, uuid: &str) -> PathBuf {
+    dirs.cache().join("niri-tasks/refine-tmp").join(names::uuid8(uuid))
+}
+
+/// The fence for a refine of `uuid`, ready to start a session behind:
+/// its folders made ([`make_fence_dirs`]), then refused if any socket is
+/// left in reach.
+fn prepare_fence(dirs: &Dirs, task_data: &Path, uuid: &str) -> Result<Fence> {
+    let tmp = session_tmp(dirs, uuid);
+    make_fence_dirs(task_data, &tmp)?;
+    let hidden = hidden_paths(dirs.home());
+    ensure_no_exposed_sockets(&hidden, &tmp)?;
+    Ok(Fence { home: dirs.home().to_path_buf(), hidden, tmp })
+}
+
+/// Make the hooks folder under `task_data` and the session's temp folder
+/// `tmp`, because the sandbox drops a path that does not exist: a dropped
+/// `denyWrite` on the hooks would let the session make the folder and
+/// write a hook into it.
+fn make_fence_dirs(task_data: &Path, tmp: &Path) -> Result<()> {
+    let hooks = task_data.join("hooks");
+    std::fs::create_dir_all(&hooks).with_context(|| format!("could not make {}", hooks.display()))?;
+    std::fs::create_dir_all(tmp).with_context(|| format!("could not make {}", tmp.display()))?;
+    Ok(())
 }
 
 /// The pathname sockets in a `/proc/net/unix` table. Abstract ones (`@…`)
@@ -254,31 +307,21 @@ fn exposed_sockets(sockets: &[PathBuf], hidden: &[PathBuf], visible: &[PathBuf])
         .collect()
 }
 
-/// The sandbox's own temp folder, which it keeps visible inside a hidden
-/// `/tmp`: `CLAUDE_CODE_TMPDIR` if set, else `/tmp/claude-<uid>`.
-fn sandbox_temp() -> Result<PathBuf> {
-    use std::os::unix::fs::MetadataExt;
-    if let Some(dir) = std::env::var_os("CLAUDE_CODE_TMPDIR") {
-        return Ok(PathBuf::from(dir));
-    }
-    let uid = std::fs::metadata("/proc/self").context("could not read /proc/self")?.uid();
-    Ok(PathBuf::from(format!("/tmp/claude-{uid}")))
-}
-
 /// Refuse to start a refine while any socket on the machine would be left in
 /// its sandbox's reach — so a new app's socket somewhere unexpected stops the
 /// feature loudly instead of quietly becoming a way out.
 ///
 /// Paths are resolved first, since a socket bound under `/var/run` is really
 /// under `/run`; one that no longer exists cannot be connected to and is
-/// skipped.
-fn ensure_no_exposed_sockets(hidden: &[PathBuf]) -> Result<()> {
+/// skipped. `tmp` is the session's own temp folder, which the sandbox
+/// keeps visible even under a hidden path.
+fn ensure_no_exposed_sockets(hidden: &[PathBuf], tmp: &Path) -> Result<()> {
     let table = std::fs::read_to_string("/proc/net/unix").context("could not read /proc/net/unix")?;
     let sockets: Vec<PathBuf> = socket_paths(&table)
         .iter()
         .filter_map(|p| std::fs::canonicalize(p).ok())
         .collect();
-    let exposed = exposed_sockets(&sockets, hidden, &[sandbox_temp()?]);
+    let exposed = exposed_sockets(&sockets, hidden, &[tmp.to_path_buf()]);
     if !exposed.is_empty() {
         let list: Vec<String> = exposed.iter().map(|p| p.display().to_string()).collect();
         bail!(
@@ -304,11 +347,10 @@ fn ensure_no_exposed_sockets(hidden: &[PathBuf]) -> Result<()> {
 /// uuid's first eight characters, and a typed task number has none of them.
 pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
     let dirs = Dirs::from_env()?;
-    let home = dirs.home();
 
     // Before anything opens: a refused refine should leave nothing behind.
-    let hidden = hidden_paths(home);
-    ensure_no_exposed_sockets(&hidden)?;
+    let task_data = task::data_location()?;
+    let fence = prepare_fence(&dirs, &task_data, &t.uuid)?;
     let mod_dir = refine_mod_dir(&dirs);
     // Without the mod the session would have no way to write its plan, and
     // the user would find that out only at the end of the interview.
@@ -321,8 +363,8 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
     let exe = std::env::current_exe().context("could not find the niritasks binary")?;
     let settings = session_settings(
         session.dir(),
-        &task::data_location()?,
-        &hidden,
+        &task_data,
+        &fence,
         &t.uuid,
         &reports_dir(&dirs),
         mode,
@@ -330,7 +372,7 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
         Some(&crate::status_line::command(&exe, &t.uuid)),
     );
 
-    let claude = Claude::Refiner { settings, mod_dir };
+    let claude = Claude::Refiner { settings, mod_dir, tmp: fence.tmp.clone() };
     open_in(&session, t, ws.name(), &claude, mode)
 }
 
@@ -586,9 +628,8 @@ impl Step {
 /// untagging it: the fence checks a tab makes, then the two runs, each
 /// followed by reading the task back to see it did its job.
 fn unattended_steps(ws: &Workspace, t: &task::Task, dirs: &Dirs, log: &Path) -> Result<()> {
-    let home = dirs.home();
-    let hidden = hidden_paths(home);
-    ensure_no_exposed_sockets(&hidden)?;
+    let task_data = task::data_location()?;
+    let fence = prepare_fence(dirs, &task_data, &t.uuid)?;
     let mod_dir = refine_mod_dir(dirs);
     anyhow::ensure!(
         mod_dir.join(".claude-plugin/plugin.json").is_file(),
@@ -598,7 +639,6 @@ fn unattended_steps(ws: &Workspace, t: &task::Task, dirs: &Dirs, log: &Path) -> 
     anyhow::ensure!(programs::on_path(CLAUDE), "Claude Code (`{CLAUDE}`) is not on PATH, so nothing can plan the task.");
     let session = ws.session()?;
     let project = session.dir();
-    let task_data = task::data_location()?;
     let reports = reports_dir(dirs);
     let [refine_prompt, report_prompt] = unattended_prompts(&t.uuid);
 
@@ -609,13 +649,13 @@ fn unattended_steps(ws: &Workspace, t: &task::Task, dirs: &Dirs, log: &Path) -> 
     let notes_before = note_texts(&before);
     let report_before = before.report_path().map(String::from);
 
-    let settings = session_settings(project, &task_data, &hidden, &t.uuid, &reports, Mode::Quick, true, None);
-    run_claude(project, log, Step::Refine, &claude_unattended_argv(&refine_prompt, &settings, &mod_dir))?;
+    let settings = session_settings(project, &task_data, &fence, &t.uuid, &reports, Mode::Quick, true, None);
+    run_claude(project, log, Step::Refine, &claude_unattended_argv(&refine_prompt, &settings, &mod_dir), &fence.tmp)?;
     let planned = task::get(&t.uuid)?.context("The task is gone after the refine step.")?;
     refine_wrote(was_planned, &notes_before, planned.is_planned(), &note_texts(&planned))?;
 
-    let settings = session_settings(project, &task_data, &hidden, &t.uuid, &reports, Mode::Report, true, None);
-    run_claude(project, log, Step::Report, &claude_unattended_argv(&report_prompt, &settings, &mod_dir))?;
+    let settings = session_settings(project, &task_data, &fence, &t.uuid, &reports, Mode::Report, true, None);
+    run_claude(project, log, Step::Report, &claude_unattended_argv(&report_prompt, &settings, &mod_dir), &fence.tmp)?;
     let reported = task::get(&t.uuid)?.context("The task is gone after the report step.")?;
     let path = report_wrote(report_before.as_deref(), reported.report_path())?;
     anyhow::ensure!(Path::new(path).is_file(), "The report step linked {path}, which is not there.");
@@ -653,13 +693,16 @@ fn report_wrote<'a>(before: Option<&str>, after: Option<&'a str>) -> Result<&'a 
 /// One `claude -p` run in `project`, both its streams appended to `log`
 /// under a line naming the step and the prompt (not the settings, which are
 /// long and the same for both). Stdin is closed: there is no one typing.
-fn run_claude(project: &Path, log: &Path, step: Step, argv: &[String]) -> Result<()> {
+/// `tmp` is the session's own temp folder ([`session_tmp`]), set as
+/// `CLAUDE_CODE_TMPDIR`, which is the only way it reaches Claude Code.
+fn run_claude(project: &Path, log: &Path, step: Step, argv: &[String], tmp: &Path) -> Result<()> {
     append_line(log, &format!("== {}: {}", step.name(), argv[..3].join(" ")));
     let out = File::options().append(true).create(true).open(log).with_context(|| format!("could not open {}", log.display()))?;
     let err = out.try_clone().context("could not share the log between stdout and stderr")?;
     let status = Command::new(&argv[0])
         .args(&argv[1..])
         .current_dir(project)
+        .env("CLAUDE_CODE_TMPDIR", tmp)
         .stdin(Stdio::null())
         .stdout(Stdio::from(out))
         .stderr(Stdio::from(err))
@@ -781,13 +824,51 @@ mod tests {
     /// has no screen to show it on.
     #[test]
     fn the_status_line_rides_in_the_settings_only_when_given() {
-        let with = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), Mode::Quick, false, Some("niritasks task status-line u"));
+        let with = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, false, Some("niritasks task status-line u"));
         let v: Value = serde_json::from_str(&with).unwrap();
         assert_eq!(v["statusLine"]["command"], "niritasks task status-line u");
         assert_eq!(v["sandbox"]["enabled"], true, "the fence is still there");
-        let without = session_settings(Path::new("/p"), Path::new("/t"), &[], "u", Path::new("/r"), Mode::Quick, true, None);
+        let without = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, true, None);
         let v: Value = serde_json::from_str(&without).unwrap();
         assert!(v.get("statusLine").is_none(), "{v}");
+    }
+
+    /// A fence for the settings tests: these hidden paths and a fixed
+    /// private temp folder.
+    fn fence(hidden: &[PathBuf]) -> Fence {
+        Fence { home: PathBuf::from("/home/x"), hidden: hidden.to_vec(), tmp: PathBuf::from("/home/x/.cache/niri-tasks/refine-tmp/d9f76b94") }
+    }
+
+    /// Each task's session gets its own temp folder under the cache, short
+    /// and named by the task, so nothing unsandboxed shares it.
+    #[test]
+    fn a_session_gets_a_temp_folder_of_its_own() {
+        let dirs = Dirs::at(Path::new("/home/x"));
+        let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
+        assert_eq!(session_tmp(&dirs, u), PathBuf::from("/home/x/.cache/niri-tasks/refine-tmp/d9f76b94"));
+        assert_eq!(
+            session_tmp(&dirs.with_cache(Path::new("/c")), u),
+            PathBuf::from("/c/niri-tasks/refine-tmp/d9f76b94")
+        );
+    }
+
+    /// The fence makes the folders it denies or hands out, since the
+    /// sandbox drops an entry whose path does not exist, and a `denyWrite`
+    /// that was dropped would let the session create the hooks folder and
+    /// write a hook into it. The socket check `prepare_fence` runs after
+    /// has tests of its own, and would read this machine's sockets here.
+    #[test]
+    fn preparing_the_fence_makes_the_hooks_and_temp_folders() {
+        let root = std::env::temp_dir().join(format!("niritasks-fence-{}", std::process::id()));
+        let task_data = root.join("task");
+        std::fs::create_dir_all(&task_data).unwrap();
+        let dirs = Dirs::at(&root.join("home"));
+        let tmp = session_tmp(&dirs, "d9f76b94-e0ff-44df-85b4-060be4219169");
+        make_fence_dirs(&task_data, &tmp).unwrap();
+        assert!(task_data.join("hooks").is_dir());
+        assert!(tmp.is_dir());
+        make_fence_dirs(&task_data, &tmp).expect("ready already is fine");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     /// The fence the refine session runs in: every command sandboxed with no
@@ -796,14 +877,18 @@ mod tests {
     #[test]
     fn the_sandbox_fences_the_session_to_the_task_database() {
         let hidden = [PathBuf::from("/run/user/1000"), PathBuf::from("/run/docker.sock")];
-        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &hidden, "u", Path::new("/r"), Mode::Quick, false, None);
+        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &fence(&hidden), "u", Path::new("/r"), Mode::Quick, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let sb = &v["sandbox"];
         assert_eq!(sb["enabled"], true);
         assert_eq!(sb["autoAllowBashIfSandboxed"], true);
         assert_eq!(sb["allowUnsandboxedCommands"], false, "no retrying outside the sandbox");
         assert_eq!(sb["failIfUnavailable"], true, "never run unfenced");
-        assert_eq!(sb["filesystem"]["denyWrite"], serde_json::json!(["/home/x/Projects/alpha"]));
+        assert_eq!(
+            sb["filesystem"]["denyWrite"],
+            serde_json::json!(["/home/x/Projects/alpha", "/home/x/.task/hooks"]),
+            "the project, and the hooks the user's own task commands would run"
+        );
         assert_eq!(sb["filesystem"]["allowWrite"], serde_json::json!(["/home/x/.task"]));
         assert_eq!(sb["filesystem"]["denyRead"], serde_json::json!(["/run/user/1000", "/run/docker.sock"]));
         assert_eq!(sb["network"]["allowAllUnixSockets"], true);
@@ -822,7 +907,7 @@ mod tests {
     #[test]
     fn the_session_may_search_the_web_but_not_read_credentials() {
         let hidden = [PathBuf::from("/run"), PathBuf::from("/home/x/.config/herdr")];
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &hidden, "u", Path::new("/r"), Mode::Quick, false, None);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&hidden), "u", Path::new("/r"), Mode::Quick, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let allow = v["permissions"]["allow"].as_array().unwrap();
         for tool in ["WebSearch", "WebFetch", "Bash(task *)", "Read(//**)"] {
@@ -844,7 +929,7 @@ mod tests {
     #[test]
     fn the_mod_is_told_which_task_it_may_write_and_where_reports_go() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/home/x/.local/share/niri-tasks/reviews"), Mode::Quick, false, None);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/home/x/.local/share/niri-tasks/reviews"), Mode::Quick, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let options = &v["pluginConfigs"][REFINE_MOD]["options"];
         assert_eq!(options["uuid"], u);
@@ -858,14 +943,14 @@ mod tests {
     #[test]
     fn a_report_session_tells_the_mod_so() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), Mode::Report, false, None);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/r"), Mode::Report, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let options = &v["pluginConfigs"][REFINE_MOD]["options"];
         assert_eq!(options["report"], true);
         assert_eq!(options["uuid"], u, "the same fence and task as a refine");
         assert_eq!(options["reports"], "/r");
         for mode in [Mode::Quick, Mode::Grill] {
-            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), mode, false, None);
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/r"), mode, false, None);
             let v: Value = serde_json::from_str(&json).unwrap();
             assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["report"], false, "{mode:?}");
         }
@@ -878,7 +963,7 @@ mod tests {
     fn an_unattended_run_tells_the_mod_so() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
         for mode in [Mode::Quick, Mode::Report] {
-            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), mode, true, None);
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/r"), mode, true, None);
             let v: Value = serde_json::from_str(&json).unwrap();
             let options = &v["pluginConfigs"][REFINE_MOD]["options"];
             assert_eq!(options["unattended"], true, "{mode:?}");
@@ -886,7 +971,7 @@ mod tests {
             assert_eq!(options["uuid"], u, "the same fence and task");
         }
         for mode in [Mode::Quick, Mode::Grill, Mode::Report] {
-            let json = session_settings(Path::new("/p"), Path::new("/t"), &[], u, Path::new("/r"), mode, false, None);
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/r"), mode, false, None);
             let v: Value = serde_json::from_str(&json).unwrap();
             assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["unattended"], false, "{mode:?}");
         }
@@ -950,16 +1035,24 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("niritasks-unattended-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("x.log");
+        let tmp = Path::new("/home/x/.cache/niri-tasks/refine-tmp/d9f76b94");
         let ok = ["sh", "-c", "echo out; echo err >&2"].map(String::from);
-        run_claude(&dir, &log, Step::Refine, &ok).unwrap();
+        run_claude(&dir, &log, Step::Refine, &ok, tmp).unwrap();
         let text = std::fs::read_to_string(&log).unwrap();
         assert_eq!(text, "== refine: sh -c echo out; echo err >&2\nout\nerr\n");
 
         let bad = ["sh", "-c", "exit 3"].map(String::from);
-        let err = run_claude(&dir, &log, Step::Report, &bad).unwrap_err().to_string();
+        let err = run_claude(&dir, &log, Step::Report, &bad, tmp).unwrap_err().to_string();
         assert!(err.starts_with("The report step failed: claude exited with exit status: 3"), "{err}");
         let text = std::fs::read_to_string(&log).unwrap();
         assert!(text.ends_with("== report: sh -c exit 3\n"), "{text}");
+
+        // The session's own temp folder reaches Claude through its
+        // environment, since the settings' `env` does not move it.
+        let echo = ["sh", "-c", "echo \"$CLAUDE_CODE_TMPDIR\""].map(String::from);
+        run_claude(&dir, &log, Step::Refine, &echo, tmp).unwrap();
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert!(text.ends_with("\n/home/x/.cache/niri-tasks/refine-tmp/d9f76b94\n"), "{text}");
 
         append_line(&log, "== failed: because");
         assert!(std::fs::read_to_string(&log).unwrap().ends_with("== failed: because\n"));
@@ -1098,7 +1191,7 @@ Num       RefCount Protocol Flags    Type St Inode Path
     use crate::session::fake::{Fake, StartOutcome};
 
     fn refiner() -> Claude {
-        Claude::Refiner { settings: "{}".into(), mod_dir: PathBuf::from("/m") }
+        Claude::Refiner { settings: "{}".into(), mod_dir: PathBuf::from("/m"), tmp: PathBuf::from("/c/tmp") }
     }
 
     /// Refine's session steps over `fake`, as `launch` runs them.
@@ -1141,6 +1234,11 @@ Num       RefCount Protocol Flags    Type St Inode Path
         assert_eq!(refine(&fake).unwrap(), Launched::Started);
         let log = fake.log();
         assert_eq!(log[0], "claim alpha", "{log:?}");
+        assert_eq!(
+            at(&log, "pane_run alpha p1 export CLAUDE_CODE_TMPDIR='/c/tmp'") + 1,
+            at(&log, "agent_start alpha task-abc"),
+            "the temp folder is set in the pane's shell just before Claude starts in it: {log:?}"
+        );
         assert!(at(&log, "release alpha") > at(&log, "agent_start alpha task-abc"), "{log:?}");
         assert!(at(&log, "release alpha") < at(&log, "agent_prompt alpha task-abc"), "{log:?}");
     }

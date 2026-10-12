@@ -184,6 +184,9 @@ pub enum Claude {
         settings: String,
         /// The folder of the refine mod Claude loads.
         mod_dir: PathBuf,
+        /// The session's own temp folder, exported as `CLAUDE_CODE_TMPDIR`
+        /// in the pane's shell before Claude starts.
+        tmp: PathBuf,
     },
     /// Start working's: the user's own defaults, since it is meant to do the
     /// work, with only its status line added.
@@ -541,7 +544,14 @@ impl Session {
     /// name by then, so a second press finds it and lands in the tab that
     /// wants the answer, and other tasks' launches here need not wait on a
     /// question the user has not answered yet.
+    ///
+    /// A refiner's temp folder is exported in the pane's shell first, here
+    /// rather than in the herdr port so the fake logs it too: herdr starts
+    /// Claude in that same shell, which passes the variable on.
     pub fn start_claude(&self, claim: Claim, name: &str, pane: &str, claude: &Claude) -> Result<()> {
+        if let Claude::Refiner { tmp, .. } = claude {
+            self.port.pane_run(&self.name, pane, &herdr::export_tmpdir(tmp))??;
+        }
         let started = self.port.agent_start(&self.name, name, pane, claude);
         drop(claim);
         if let Err(e) = started? {
@@ -973,9 +983,11 @@ mod tests {
     #[test]
     fn a_clean_start_starts_once_and_waits_for_nothing() {
         let (s, f) = session(Fake::running(&[("w1", "alpha")]));
-        s.start_claude(s.claim().unwrap(), "task-abc", "p1", &Claude::Refiner { settings: "{}".into(), mod_dir: PathBuf::from("/m") })
-            .unwrap();
-        assert!(logged(&f, "agent_start alpha task-abc p1 refiner"));
+        let refiner = Claude::Refiner { settings: "{}".into(), mod_dir: PathBuf::from("/m"), tmp: PathBuf::from("/c/tmp") };
+        s.start_claude(s.claim().unwrap(), "task-abc", "p1", &refiner).unwrap();
+        let log = f.log();
+        let start = log.iter().position(|l| l == "agent_start alpha task-abc p1 refiner").expect("started");
+        assert_eq!(log[start - 1], "pane_run alpha p1 export CLAUDE_CODE_TMPDIR='/c/tmp'", "{log:?}");
         assert!(!logged_start(&f, "agent_wait_ready"));
     }
 

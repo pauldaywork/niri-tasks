@@ -102,6 +102,14 @@ pub fn refiner_flags(settings: &str, mod_dir: &Path) -> Vec<String> {
     .collect()
 }
 
+/// The shell line that sets a refine's temp folder in its pane before
+/// Claude starts there: herdr's `agent start` launches Claude in the
+/// pane's own shell, which then passes the variable on. Single-quoted,
+/// with any `'` in the path closed, escaped and reopened.
+pub fn export_tmpdir(tmp: &Path) -> String {
+    format!("export CLAUDE_CODE_TMPDIR='{}'", tmp.display().to_string().replace('\'', "'\\''"))
+}
+
 /// Claude as a named agent in `pane`, fenced in to refining a task rather
 /// than doing it.
 ///
@@ -358,7 +366,7 @@ impl Port for Process {
     }
     fn agent_start(&self, s: &str, name: &str, pane: &str, claude: &Claude) -> HerdrResult<()> {
         let argv = match claude {
-            Claude::Refiner { settings, mod_dir } => agent_start_claude_refiner(s, name, pane, settings, mod_dir),
+            Claude::Refiner { settings, mod_dir, .. } => agent_start_claude_refiner(s, name, pane, settings, mod_dir),
             Claude::Worker { settings } => agent_start_claude(s, name, pane, settings),
         };
         self.call(&argv, |_| Ok(()))
@@ -709,6 +717,17 @@ mod tests {
         assert_eq!(argv[at + 1..], flags[..]);
         assert_eq!(flags[..2], ["--permission-mode", "default"]);
         assert!(!flags.contains(&"plan".to_string()) && !flags.contains(&"auto".to_string()));
+    }
+
+    /// A refine's temp folder is exported in its pane's shell, quoted so a
+    /// `'` in the path cannot end the string early.
+    #[test]
+    fn the_temp_folder_is_exported_quoted() {
+        assert_eq!(
+            export_tmpdir(Path::new("/home/x/.cache/niri-tasks/refine-tmp/d9f76b94")),
+            "export CLAUDE_CODE_TMPDIR='/home/x/.cache/niri-tasks/refine-tmp/d9f76b94'"
+        );
+        assert_eq!(export_tmpdir(Path::new("/c/a'b/t")), "export CLAUDE_CODE_TMPDIR='/c/a'\\''b/t'");
     }
 
     #[test]
