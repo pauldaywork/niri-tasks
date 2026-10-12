@@ -4,7 +4,7 @@
 //! plannotator-tui can open beside the task's Claude, bar a report made
 //! before reports had a Markdown twin, which opens in the browser.
 
-use crate::{dirs::Dirs, names, task, task::Task, text};
+use crate::{dirs::Dirs, names, refine, task, task::Task, text};
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -31,13 +31,15 @@ pub fn twin(report: &Path) -> PathBuf {
 }
 
 /// The task's reports, newest first: each one's Markdown twin, or its HTML
-/// when it has none. A report whose files are both gone is left out.
-pub fn reports(t: &Task) -> Vec<Doc> {
+/// when it has none. A note's path is found as [`refine::report_file`] finds
+/// it, so a `~` or relative one counts. A report whose files are both gone is
+/// left out.
+pub fn reports(t: &Task, dirs: &Dirs) -> Vec<Doc> {
     t.report_notes()
         .into_iter()
         .filter_map(|n| {
             let kind = if n.draft { "Report, earlier draft" } else { "Report" };
-            let html = PathBuf::from(&n.path);
+            let html = refine::report_file(&n.path, dirs);
             let md = twin(&html);
             if md.is_file() {
                 Some(Doc { label: format!("{kind} · {}", n.date), path: md })
@@ -183,7 +185,7 @@ pub fn linked(t: &Task, dirs: &Dirs, listed: &[Doc]) -> Vec<Doc> {
 /// the notes name, then the notes file when there is one, then the plans since the task was added. A task whose
 /// `entry` does not parse counts every plan.
 pub fn list(t: &Task, dirs: &Dirs, project: &Path, notes: Option<&Path>) -> Vec<Doc> {
-    let mut docs = reports(t);
+    let mut docs = reports(t, dirs);
     docs.extend(linked(t, dirs, &docs));
     if let Some(path) = notes {
         docs.push(Doc { label: "Task · description and notes".into(), path: path.to_path_buf() });
@@ -238,7 +240,7 @@ mod tests {
             d = dir.display()
         ));
         assert_eq!(
-            reports(&t),
+            reports(&t, &Dirs::at(&dir)),
             vec![
                 Doc { label: "Report · 2026-10-07".into(), path: dir.join("new.md") },
                 Doc {
@@ -248,6 +250,35 @@ mod tests {
             ]
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A note typed as `~/...` or as a bare name in the reviews folder is
+    /// found there, twin first, as an absolute one is.
+    #[test]
+    fn a_report_note_may_be_under_home_or_in_the_reviews_folder() {
+        let home = scratch("reports-relative");
+        let dirs = Dirs::at(&home);
+        let reviews = crate::refine::reports_dir(&dirs);
+        file_at(&reviews.join("x.html"), "<html>", 1);
+        file_at(&reviews.join("x.md"), "# x", 1);
+        file_at(&reviews.join("y.html"), "<html>", 1);
+        let t = task(
+            r#"{"uuid":"u","description":"d","annotations":[
+                {"entry":"20261006T010000Z","description":"Report (earlier draft): y.html"},
+                {"entry":"20261007T010000Z","description":"Report: ~/.local/share/niri-tasks/reviews/x.html"}
+            ]}"#,
+        );
+        assert_eq!(
+            reports(&t, &dirs),
+            vec![
+                Doc { label: "Report · 2026-10-07".into(), path: reviews.join("x.md") },
+                Doc {
+                    label: "Report, earlier draft · 2026-10-06 · opens in the browser".into(),
+                    path: reviews.join("y.html"),
+                },
+            ]
+        );
+        std::fs::remove_dir_all(&home).ok();
     }
 
     #[test]
