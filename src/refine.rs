@@ -96,6 +96,24 @@ pub fn reports_dir(dirs: &Dirs) -> PathBuf {
     dirs.data().join("niri-tasks/reviews")
 }
 
+/// The file a `Report: <path>` note names. The mod always writes an absolute
+/// path, which is used as written; a hand-written `~` or `~/...` is under the
+/// home folder, and a relative path is in [`reports_dir`].
+pub fn report_file(path: &str, dirs: &Dirs) -> PathBuf {
+    if path == "~" {
+        return dirs.home().to_path_buf();
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        return dirs.home().join(rest);
+    }
+    let p = Path::new(path);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        reports_dir(dirs).join(p)
+    }
+}
+
 /// Where an unattended run's log goes: `$XDG_DATA_HOME/niri-tasks/unattended`,
 /// beside the reviews, so a failed run can be read later.
 pub fn unattended_dir(dirs: &Dirs) -> PathBuf {
@@ -958,6 +976,25 @@ mod tests {
             reports_dir(&dirs.with_data(Path::new("/data"))),
             PathBuf::from("/data/niri-tasks/reviews")
         );
+    }
+
+    /// A report note's path as typed: `~` is the home folder, a relative
+    /// path is in the reviews folder, and an absolute one is as written.
+    #[test]
+    fn a_report_note_is_found_from_home_the_reviews_folder_or_as_written() {
+        let dirs = Dirs::at(Path::new("/home/x"));
+        assert_eq!(report_file("~", &dirs), PathBuf::from("/home/x"));
+        assert_eq!(
+            report_file("~/.local/share/niri-tasks/reviews/r.html", &dirs),
+            PathBuf::from("/home/x/.local/share/niri-tasks/reviews/r.html")
+        );
+        assert_eq!(report_file("r.html", &dirs), PathBuf::from("/home/x/.local/share/niri-tasks/reviews/r.html"));
+        assert_eq!(report_file("old/r.html", &dirs), PathBuf::from("/home/x/.local/share/niri-tasks/reviews/old/r.html"));
+        assert_eq!(
+            report_file("r.html", &dirs.clone().with_data(Path::new("/data"))),
+            PathBuf::from("/data/niri-tasks/reviews/r.html")
+        );
+        assert_eq!(report_file("/r/r.html", &dirs), PathBuf::from("/r/r.html"));
     }
 
     /// Where install.sh links the mod: under the XDG data folder, never under

@@ -8,7 +8,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use niri_tasks::{
     actions::{Action, TaskState}, dirs, docs, github, ipc, link, niri, notify, open, programs, project, refine, speak, status_line, task,
     text, work, workspace::Workspace,
@@ -489,8 +489,11 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             let mut gone = None;
             if !fresh {
                 if let Some(path) = t.report_path() {
-                    if Path::new(path).is_file() {
-                        open::open_document(Path::new(path), Workspace::of_caller()?.name())?;
+                    // A note typed by hand may say `~/...` or just the file's
+                    // name in the reviews folder.
+                    let file = refine::report_file(path, &dirs::Dirs::from_env()?);
+                    if file.is_file() {
+                        open::open_document(&file, Workspace::of_caller()?.name())?;
                         notify::tasks(&format!("Opened the report: {}", t.description));
                         return Ok(());
                     }
