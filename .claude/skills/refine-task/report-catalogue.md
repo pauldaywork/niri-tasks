@@ -56,7 +56,7 @@ listing every reason, so fix them all and call again.
 | `sections` | The parts: each looks at the plan through one lens. | 1–9 |
 | `sections[].kind` | The lens: `before-after`, `part`, `structure`, `data-flow`, `outside-tools`, `styling`, `code` or `newcomer`. Leave it out for a plain `part`. | |
 | `sections[].heading` | A statement of what the part shows: "Where the new pieces sit", not "Overview". | 10 words |
-| `sections[].diagram` | One diagram: `{ "mermaid": "…" }` or `{ "svg": "<svg …>…</svg>" }`. | Mermaid 40 lines; 50,000 characters |
+| `sections[].diagram` | One Mermaid diagram: `{ "mermaid": "…" }`. | 40 lines; 50,000 characters |
 | `sections[].before`, `.after` | Instead of `diagram`: the same view as it is and as it will be, drawn side by side. Give both. | as `diagram` |
 | `sections[].look_at` | With a diagram or a pair, and only then: what to look at in it. | 25 words |
 | `sections[].points` | What the part says, one idea per line. | 1–5 lines, 25 words each |
@@ -73,20 +73,18 @@ reader scan: `"Approval: the task is still written only when you choose."`
 Use `Label: ` only when you mean a label; reword any other `: ` in the
 first 40 characters.
 
-`detail`, an SVG and a Mermaid diagram may not contain `<script>`, `<meta>`,
+`detail` and a Mermaid diagram may not contain `<script>`, `<meta>`,
 `<link>`, `<base>`, `<iframe>`, `<frame>`, `<frameset>`, `<object>`,
 `<embed>`, `<form>` or `<portal>`: the page runs no script when every
 diagram is drawn, loads only pinned Mermaid for one that is not, and sends
 nothing.
 
-`detail` and an SVG are shown as given, so they may not break the page's one
-layout either: no HTML comment (`<!--`), and no closing tag of the page's own
+`detail` is shown as given, so it may not break the page's one layout
+either: no HTML comment (`<!--`), and no closing tag of the page's own
 `<details>`, `<section>`, `<main>`, `<footer>`, `<nav>`, `<figure>`,
-`<header>`, `<body>` or `<html>`. `detail` may not contain `<style>`,
+`<header>`, `<body>` or `<html>`. It may not contain `<style>`,
 `<plaintext>`, `<xmp>`, `<textarea>`, `<title>`, `<noscript>`, `<template>`,
-`<html>`, `<head>` or `<body>`, which swallow or restyle the page. An SVG may
-not contain `<style>`: use attributes and `currentColor`. An SVG `<title>` is
-fine.
+`<html>`, `<head>` or `<body>`, which swallow or restyle the page.
 
 ## The lenses
 
@@ -106,7 +104,7 @@ parts are numbered among themselves.
 | `structure` | Code, files or modules are added, moved or split. | How the code is broken up, where the new pieces sit, and whether the split stays logical. Say so plainly if it does not. | A component map (`flowchart TB`, a `subgraph` per folder or process), changed parts marked. |
 | `data-flow` | Data is read, changed, stored or sent in a new way. | Where the data comes from, how it moves, where it lands, and what never flows back. | `flowchart LR`, stores as `[( )]`, arrows labelled with what moves. |
 | `outside-tools` | The plan touches anything outside the app: niri, herdr, Claude Code, Taskwarrior, systemd, a browser, a command-line tool. | Each tool, how it connects (CLI, socket, file, config), and how hard it would be to swap for another. | A diagram of the app and its tools, arrows labelled with how they connect, plus `tools`. |
-| `styling` | Anything the user sees changes: a panel, a card, a dialog, a colour, a message. | What looks different. | A `before`/`after` pair of screen mock-ups (SVG) or of the layout. |
+| `styling` | Anything the user sees changes: a panel, a card, a dialog, a colour, a message. | What looks different. | A `before`/`after` pair of the layout, as a `flowchart` of the screen's regions. |
 | `code` | The plan changes code. | The key lines before and after, for the one to three files that matter most. A sketch is fine; say so. | `code` panes; no diagram needed. |
 | `newcomer` | Always, unless the plan is too small to need explaining. | Could someone new to the project follow this: where it lives, what they would read first, what is missing. | A map from the README or the entry point to the new parts. |
 
@@ -162,8 +160,6 @@ The files and the checks are always there: they are fields, not parts.
 - **Label the arrows** with what moves or happens.
 - **`look_at` points at the change:** "The new middle answer, and the loop
   back to the question", not "The flow".
-- Use SVG only for what Mermaid draws badly, such as a screen mock-up. Give
-  it a `viewBox`, and draw lines and text in `currentColor`.
 
 ## Writing the lines
 

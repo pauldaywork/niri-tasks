@@ -99,19 +99,16 @@ describe('parseReport', () => {
     )
   })
 
-  test('a diagram is Mermaid or SVG, not both, and not too long', () => {
-    expect(parseReport(drawn({ mermaid: 'a', svg: '<svg></svg>' }))).toBe(
-      'sections[0].diagram must have exactly one of mermaid or svg',
-    )
+  test('a diagram is Mermaid, and not too long', () => {
+    expect(parseReport(drawn({ svg: '<svg></svg>' }))).toBe('sections[0].diagram must be { "mermaid": "…" }')
+    expect(parseReport(drawn('flowchart LR'))).toBe('sections[0].diagram must be { "mermaid": "…" }')
     const long = Array.from({ length: LIMITS.mermaidLines + 1 }, () => 'a --> b').join('\n')
     expect(parseReport(drawn({ mermaid: long }))).toBe(
       `sections[0].diagram.mermaid has ${LIMITS.mermaidLines + 1} lines; at most ${LIMITS.mermaidLines}: split it into two diagrams`,
     )
-    expect(parseReport(drawn({ svg: '<p>no</p>' }))).toBe('sections[0].diagram.svg must be one <svg> element')
-    expect(typeof parseReport(drawn({ svg: '<svg viewBox="0 0 1 1"><rect/></svg>' }))).toBe('object')
   })
 
-  test('refuses every element the page must not hold, in detail, SVG and Mermaid', () => {
+  test('refuses every element the page must not hold, in detail and Mermaid', () => {
     const tags = ['script', 'meta', 'base', 'link', 'iframe', 'frame', 'frameset', 'object', 'embed', 'form', 'portal']
     for (const tag of tags) {
       expect(parseReport(detailed(`<p>x</p><${tag} a="b">`))).toBe(
@@ -121,9 +118,6 @@ describe('parseReport', () => {
     for (const detail of ['<script/src=x>', '<script\n>', '< SCRIPT>']) {
       expect(parseReport(detailed(detail))).toContain('must not contain <script>')
     }
-    expect(parseReport(drawn({ svg: '<svg><script>x</script></svg>' }))).toContain(
-      'sections[0].diagram.svg must not contain <script>',
-    )
     expect(parseReport(drawn({ mermaid: 'flowchart LR\n a["< META http-equiv=refresh>"]' }))).toContain(
       'sections[0].diagram.mermaid must not contain <meta>',
     )
@@ -139,12 +133,9 @@ describe('parseReport', () => {
 describe('parseReport keeps the page to one layout', () => {
   const LAYOUT = 'the page keeps one layout'
 
-  test('refuses an HTML comment in detail or SVG', () => {
+  test('refuses an HTML comment in detail', () => {
     expect(parseReport(detailed('<p>a</p><!-- b -->'))).toBe(
       `sections[0].detail must not contain an HTML comment: ${LAYOUT}`,
-    )
-    expect(parseReport(drawn({ svg: '<svg><!-- b --></svg>' }))).toBe(
-      `sections[0].diagram.svg must not contain an HTML comment: ${LAYOUT}`,
     )
   })
 
@@ -155,9 +146,6 @@ describe('parseReport keeps the page to one layout', () => {
       )
     }
     expect(parseReport(detailed('< / Section >'))).toBe(`sections[0].detail must not close the page's <section>: ${LAYOUT}`)
-    expect(parseReport(drawn({ svg: '<svg></figure></svg>' }))).toBe(
-      `sections[0].diagram.svg must not close the page's <figure>: ${LAYOUT}`,
-    )
   })
 
   test('refuses elements in detail that swallow or restyle the page', () => {
@@ -167,13 +155,6 @@ describe('parseReport keeps the page to one layout', () => {
         `sections[0].detail must not contain <${tag}>: ${LAYOUT}`,
       )
     }
-  })
-
-  test('refuses <style> in SVG, and keeps its <title>', () => {
-    expect(parseReport(drawn({ svg: '<svg><style>p{}</style></svg>' }))).toBe(
-      `sections[0].diagram.svg must not contain <style>: ${LAYOUT}`,
-    )
-    expect(typeof parseReport(drawn({ svg: '<svg viewBox="0 0 1 1"><title>A box</title><rect/></svg>' }))).toBe('object')
   })
 
   test('keeps names that only begin like a refused one, and escaped markup', () => {

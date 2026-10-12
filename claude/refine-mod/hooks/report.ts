@@ -6,7 +6,9 @@ import { HIDDEN, taskDate } from './plan'
 import type { Plan, Task } from './plan'
 
 export type Change = 'new' | 'change' | 'remove'
-export type Diagram = { mermaid: string } | { svg: string }
+// A diagram is Mermaid source: text the Markdown twin keeps as it is, and the
+// page draws before it opens.
+export type Diagram = { mermaid: string }
 // What a part looks at the change through. A report looks through every lens
 // that applies; each has its own slide name and place in the order.
 export const LENSES = [
@@ -81,7 +83,7 @@ export const LIMITS = {
   checks: { min: 1, max: 6, words: 20 },
 } as const
 
-const CHANGES: readonly string[] = ['new', 'change', 'remove']
+export const CHANGES: readonly string[] = ['new', 'change', 'remove']
 
 // Elements refused by name: a <meta> refresh navigates and a <meta> policy
 // could be added to, which the page's own policy does not stop; the rest would
@@ -89,21 +91,19 @@ const CHANGES: readonly string[] = ['new', 'change', 'remove']
 // hears why rather than finding a blank figure.
 const FORBIDDEN = /<\s*(script|meta|base|link|iframe|frameset|frame|object|embed|form|portal)(?![\w-])/i
 
-// What would break the page's one layout, refused in detail and SVG, which
-// the page shows as given (Mermaid source is escaped, so it cannot): a
-// comment left open hides the rest of the page, and closing one of the
-// page's own elements moves what follows out of its place. Drawn diagrams
-// are held to them too.
+// What would break the page's one layout, refused in detail, which the page
+// shows as given (Mermaid source is escaped, so it cannot): a comment left
+// open hides the rest of the page, and closing one of the page's own
+// elements moves what follows out of its place. Drawn diagrams are held to
+// them too.
 export const COMMENT = /<!--/
 export const CLOSES = /<\s*\/\s*(details|section|main|footer|nav|figure|header|body|html)(?![\w-])/i
 
-// An SVG shown as given is one whole <svg> element, nothing before or after.
+// A drawn diagram is one whole <svg> element, nothing before or after.
 export const WHOLE_SVG = /^\s*<svg[\s>][\s\S]*<\/svg>\s*$/i
 
-// Elements that swallow the rest of the page as text, or restyle it. An SVG
-// may keep its <title>, which names the drawing.
+// Elements that swallow the rest of the page as text, or restyle it.
 const SWALLOWS_DETAIL = /<\s*(style|plaintext|xmp|textarea|title|noscript|template|html|head|body)(?![\w-])/i
-const SWALLOWS_SVG = /<\s*(style)(?![\w-])/i
 
 // How many problems one refusal lists before it says how many more.
 const MAX_ERRORS = 20
@@ -186,24 +186,19 @@ const term = (errors: Errors, at: string, value: unknown): Term => {
 }
 
 const diagram = (errors: Errors, at: string, value: unknown): Diagram | undefined => {
-  if (!isObject(value) || ('mermaid' in value) === ('svg' in value)) {
-    errors.push(`${at} must have exactly one of mermaid or svg`)
+  if (!isObject(value) || !('mermaid' in value)) {
+    errors.push(`${at} must be { "mermaid": "…" }`)
     return undefined
   }
-  if ('mermaid' in value) {
-    const source = markup(errors, `${at}.mermaid`, value.mermaid, LIMITS.diagramChars)
-    const lines = source.split('\n').length
-    if (lines > LIMITS.mermaidLines) {
-      errors.push(`${at}.mermaid has ${lines} lines; at most ${LIMITS.mermaidLines}: split it into two diagrams`)
-    }
-    return { mermaid: source }
+  const source = markup(errors, `${at}.mermaid`, value.mermaid, LIMITS.diagramChars)
+  const lines = source.split('\n').length
+  if (lines > LIMITS.mermaidLines) {
+    errors.push(`${at}.mermaid has ${lines} lines; at most ${LIMITS.mermaidLines}: split it into two diagrams`)
   }
-  const svg = markup(errors, `${at}.svg`, value.svg, LIMITS.diagramChars, SWALLOWS_SVG)
-  if (svg !== '' && !WHOLE_SVG.test(svg)) errors.push(`${at}.svg must be one <svg> element`)
-  return { svg }
+  return { mermaid: source }
 }
 
-const SWAPS: readonly string[] = ['easy', 'medium', 'hard']
+export const SWAPS: readonly string[] = ['easy', 'medium', 'hard']
 
 // Code as the page shows it, in a pane: any lines, but no control characters
 // besides tabs and line breaks, and within its size.

@@ -59,7 +59,12 @@ const SPEC = {
 
 const TEXT = { type: 'string' }
 const TEXTS = { type: 'array', items: TEXT }
-const DIAGRAM = { type: 'object', properties: { mermaid: TEXT, svg: TEXT } }
+const DIAGRAM = {
+  type: 'object',
+  description: 'A Mermaid diagram: { "mermaid": "<source>" }.',
+  properties: { mermaid: TEXT },
+  required: ['mermaid'],
+}
 
 // The report tool's schema is one; what the model is told differs by mode:
 // in a refine the report follows the person's "Show me a report first", in a

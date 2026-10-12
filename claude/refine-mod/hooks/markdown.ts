@@ -28,8 +28,7 @@ const table = (head: readonly string[], rows: readonly (readonly string[])[]): s
 
 const bullets = (lines: readonly string[]): string => lines.map(line => `- ${line}`).join('\n')
 
-const drawing = (diagram: Diagram): string =>
-  'mermaid' in diagram ? fence(diagram.mermaid, 'mermaid') : '_A drawn diagram: see the HTML report._'
+const drawing = (diagram: Diagram): string => fence(diagram.mermaid, 'mermaid')
 
 const code = (pairs: readonly CodePair[]): string =>
   pairs

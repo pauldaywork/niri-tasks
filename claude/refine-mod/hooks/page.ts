@@ -116,7 +116,6 @@ const marksUsed = (source: string): Change[] =>
   )
 
 const legendFor = (diagram: Diagram): string => {
-  if (!('mermaid' in diagram)) return ''
   if (takesMarks(diagram.mermaid)) {
     const used = marksUsed(diagram.mermaid)
     return used.length === 0
@@ -142,13 +141,11 @@ const isWide = (svg?: string): boolean => {
 }
 
 // One diagram as the page shows it: drawn before the page opened, else
-// Mermaid in the browser, else the model's own SVG.
+// Mermaid in the browser.
 const drawing = (diagram: Diagram, svg?: string): string =>
   svg !== undefined
     ? `<div class="drawn"${drawnWidth(svg)}>${svg}</div>`
-    : 'mermaid' in diagram
-      ? `<pre class="mermaid">${escapeHtml(withMarks(diagram.mermaid))}</pre>`
-      : diagram.svg
+    : `<pre class="mermaid">${escapeHtml(withMarks(diagram.mermaid))}</pre>`
 
 const figure = (diagram: Diagram, lookAt: string, svg?: string): string =>
   [
@@ -405,7 +402,7 @@ export const reportPage = (
     (touched ? ` · ${count(report.files.length, 'file')}` : '')
   // Mermaid in the browser only for a diagram the renderer did not draw.
   const browser = parts.some((s, i) =>
-    [s.diagram, s.before, s.after].some((d, slot) => d !== undefined && 'mermaid' in d && drawn[i * SLOTS + slot] === undefined),
+    [s.diagram, s.before, s.after].some((d, slot) => d !== undefined && drawn[i * SLOTS + slot] === undefined),
   )
   const all: Slide[] = [{ id: 'cover', pill: 'Refine report', name: 'Start', ground: 'cream', body: cover(report, meta) }, ...rest]
   return [

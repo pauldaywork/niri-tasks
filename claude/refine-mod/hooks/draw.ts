@@ -49,7 +49,7 @@ const drawable = (source: string): boolean => !(diagramKind(source).startsWith('
 export const drawSources = (report: Report): (string | undefined)[] =>
   report.sections.flatMap(s =>
     [s.diagram, s.before, s.after].map(d =>
-      d !== undefined && 'mermaid' in d && drawable(d.mermaid) ? withMarks(d.mermaid) : undefined,
+      d !== undefined && drawable(d.mermaid) ? withMarks(d.mermaid) : undefined,
     ),
   )
 
@@ -70,8 +70,8 @@ const STYLE = /<\s*\/?\s*style(?![\w-])/i
 // An SVG from the renderer without its stylesheet.
 export const cleanSvg = (svg: string): string => svg.replace(RENDERER_STYLE, '')
 
-// An SVG from the renderer as the page will show it, held to what a model's
-// SVG is; undefined when it is not one the page will take.
+// An SVG from the renderer as the page will show it, held to what the page
+// shows as given; undefined when it is not one the page will take.
 const keptSvg = (svg: unknown): string | undefined => {
   if (typeof svg !== 'string') return undefined
   const clean = cleanSvg(svg)

@@ -176,7 +176,7 @@ describe('the decision slide', () => {
 })
 
 describe('diagrams', () => {
-  const part = (diagram: { mermaid: string } | { svg: string }) =>
+  const part = (diagram: { mermaid: string }) =>
     reportPage(report({ sections: [{ heading: 'h', points: ['p'], look_at: 'The new box.', diagram }] }), PLAN)
 
   test('say what to look at, just above the drawing', () => {
@@ -203,10 +203,6 @@ describe('diagrams', () => {
     expect(part({ mermaid: '%% flowchart\nsequenceDiagram\n A->>B: hi' })).not.toContain('classDef')
   })
 
-  test('pass SVG through as given', () => {
-    expect(part({ svg: '<svg viewBox="0 0 1 1"><rect/></svg>' })).toContain('<svg viewBox="0 0 1 1"><rect/></svg>')
-  })
-
   test('put detail in a collapsed block', () => {
     const page = reportPage(report({ sections: [{ heading: 'h', points: ['p'], detail: '<p>deep</p>' }] }), PLAN)
     expect(page).toContain('<details>\n<summary>More detail</summary>\n<p>deep</p>\n</details>')
@@ -224,7 +220,6 @@ describe('diagrams', () => {
     expect(flow.indexOf('<p class="legend">')).toBeGreaterThan(flow.indexOf('<pre class="mermaid">'))
     expect(part({ mermaid: 'flowchart LR\n a --> b' })).not.toContain('<p class="legend">')
     expect(part({ mermaid: 'sequenceDiagram\n A->>B: hi' })).not.toContain('<p class="legend">')
-    expect(part({ svg: '<svg viewBox="0 0 1 1"><rect/></svg>' })).not.toContain('<p class="legend">')
   })
 
   test('a drawn diagram replaces the Mermaid block, and a page with all drawn runs no script', () => {

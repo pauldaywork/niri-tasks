@@ -72,20 +72,19 @@ describe('reportMarkdown', () => {
     expect(reportMarkdown(MINIMAL, PLAN)).not.toContain('## What stays the same')
   })
 
-  test('a Mermaid diagram is a mermaid block; a drawn SVG points at the HTML', () => {
+  test('a diagram is a mermaid block, and a pair is two', () => {
     const md = reportMarkdown(
       {
         ...MINIMAL,
         sections: [
           { heading: 'Flow', points: ['p'], look_at: 'The arrow.', diagram: { mermaid: 'flowchart LR\n  a --> b' } },
-          { heading: 'Shape', points: ['p'], look_at: 'The box.', diagram: { svg: '<svg></svg>' } },
           { heading: 'Pair', points: ['p'], look_at: 'Both.', before: { mermaid: 'flowchart LR\n  a' }, after: { mermaid: 'flowchart LR\n  b' } },
         ],
       },
       PLAN,
     )
     expect(md).toContain('## Flow\n\n_The arrow._\n\n```mermaid\nflowchart LR\n  a --> b\n```\n\n- p')
-    expect(md).toContain('## Shape\n\n_The box._\n\n_A drawn diagram: see the HTML report._')
+    expect(md).not.toContain('see the HTML report')
     expect(md).toContain('Before:\n\n```mermaid\nflowchart LR\n  a\n```\n\nAfter:\n\n```mermaid\nflowchart LR\n  b\n```')
   })
 

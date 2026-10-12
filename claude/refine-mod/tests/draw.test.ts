@@ -41,7 +41,7 @@ describe('drawSources', () => {
       report([
         { heading: 'a', points: ['p'], look_at: 'x', diagram: { mermaid: 'flowchart LR\n a --> b' } },
         { heading: 'b', points: ['p'] },
-        { heading: 'c', points: ['p'], look_at: 'x', diagram: { svg: '<svg></svg>' } },
+        { heading: 'c', points: ['p'] },
         { heading: 'd', points: ['p'], look_at: 'x', diagram: { mermaid: 'sequenceDiagram\n A->>B: hi' } },
       ]),
     )
