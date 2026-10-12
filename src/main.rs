@@ -464,7 +464,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             if !fresh {
                 if let Some(path) = t.report_path() {
                     if Path::new(path).is_file() {
-                        refine::open_report(path)?;
+                        open::open_document(Path::new(path))?;
                         notify::tasks(&format!("Opened the report: {}", t.description));
                         return Ok(());
                     }

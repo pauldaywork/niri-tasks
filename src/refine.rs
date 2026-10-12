@@ -630,13 +630,6 @@ pub fn open_report_command(path: &str) -> Vec<String> {
     ]
 }
 
-/// Open the report at `path` in the browser, through niri, so the browser
-/// is niri's child and outlives the `niritasks` process a button press
-/// spawned. The caller has checked the file is there.
-pub fn open_report(path: &str) -> Result<()> {
-    niri::spawn(open_report_command(path)).with_context(|| format!("could not open the report {path}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

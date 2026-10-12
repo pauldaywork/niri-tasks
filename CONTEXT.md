@@ -213,9 +213,10 @@ when installed, reading aloud always. No text field: Up and Down move the
 highlight, Enter or a click runs the row's `niritasks` command and gives the
 keyboard back (Read aloud keeps it), and Escape goes back to the card. A
 `Spec:` or `Plan:` path is the repository's, read in the task's worktree
-while it has one, else the workspace's `~/Projects` folder, and opens in a
-VS Code instance of its own, never the user's VS Code or xdg-open. In the
-code, `panel::goto`.
+while it has one, else the workspace's `~/Projects` folder. Every Markdown
+document a task links opens in a VS Code instance of its own, never the
+user's VS Code or xdg-open; a refine report's HTML opens in the browser. In
+the code, `panel::goto`.
 _Avoid_: menu, popup, jump list
 
 **Mode**:

@@ -9,16 +9,16 @@
 use crate::dirs::Dirs;
 use crate::task::{self, Task};
 use crate::workspace::Workspace;
-use crate::{niri, notify, programs, work};
+use crate::{niri, notify, programs, refine, work};
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 /// What `task open` opens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Target {
-    /// The design spec a `Spec: <path>` note links, in VS Code.
+    /// The design spec a `Spec: <path>` note links, as [`opener`] opens it.
     Spec,
-    /// The implementation plan a `Plan: <path>` note links, in VS Code.
+    /// The implementation plan a `Plan: <path>` note links, likewise.
     Plan,
     /// A terminal in the task's worktree.
     Worktree,
@@ -72,11 +72,7 @@ pub fn command(
                 .with_context(|| format!("This task's notes link no {}: add a `{note}<path>` note.", target.name()))?;
             let path = resolve(linked, worktree, folder);
             anyhow::ensure!(is_file(&path), "The {} is not there: {}", target.name(), path.display());
-            // Never xdg-open: whatever the desktop opens Markdown with,
-            // the document opens in VS Code, apart from the user's own.
-            anyhow::ensure!(editor, "VS Code ({}) is not installed: the {} opens in it.", programs::EDITOR, target.name());
-            let argv = programs::document_command(&documents_data(dirs), &extensions(dirs), &path);
-            Ok((argv, format!("the {}", target.name())))
+            Ok((opener(&path, dirs, editor)?, format!("the {}", target.name())))
         }
         Target::Worktree => {
             let dir = worktree.context("This task has no worktree: Get started makes one.")?;
@@ -88,6 +84,38 @@ pub fn command(
             Ok((vec![programs::EDITOR.to_string(), dir.display().to_string()], "VS Code".to_string()))
         }
     }
+}
+
+/// Whether `path` is a Markdown file, by its extension.
+fn is_markdown(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
+}
+
+/// What opens the document at `path`, one a task's notes link. Markdown
+/// opens in a VS Code instance of its own, apart from the user's, never
+/// with xdg-open, whatever the desktop opens Markdown with; anything else,
+/// a refine report's HTML page, with xdg-open, in the browser. `editor` is
+/// whether VS Code is installed; Markdown without it is an error.
+pub fn opener(path: &Path, dirs: &Dirs, editor: bool) -> Result<Vec<String>> {
+    if !is_markdown(path) {
+        return Ok(refine::open_report_command(&path.to_string_lossy()));
+    }
+    anyhow::ensure!(editor, "VS Code ({}) is not installed: Markdown opens in it.", programs::EDITOR);
+    Ok(programs::document_command(&documents_data(dirs), &extensions(dirs), path))
+}
+
+/// Open the document at `path` as [`opener`] says, through niri, so what
+/// opens outlives the `niritasks` process a press spawned. The caller has
+/// checked the file is there.
+pub fn open_document(path: &Path) -> Result<()> {
+    let dirs = Dirs::from_env()?;
+    let argv = opener(path, &dirs, programs::on_path(programs::EDITOR))?;
+    if is_markdown(path) {
+        share_settings(&dirs);
+    }
+    niri::spawn(argv).with_context(|| format!("could not open {}", path.display()))
 }
 
 /// Where the VS Code that documents open in keeps its state, apart from
@@ -178,7 +206,7 @@ mod tests {
         assert_eq!(resolve("/tmp/spec.md", Some(Path::new(WORKTREE)), folder), PathBuf::from("/tmp/spec.md"));
     }
 
-    /// The plan and the spec open in a VS Code of their own, never with
+    /// A Markdown plan or spec opens in a VS Code of its own, never with
     /// xdg-open, and only when VS Code is installed.
     #[test]
     fn a_linked_document_opens_in_a_vs_code_of_its_own() {
@@ -193,7 +221,20 @@ mod tests {
         let (argv, _) = command(Target::Spec, &noted(), None, Path::new(FOLDER), &dirs(), true, &always).unwrap();
         assert_eq!(argv, own(&format!("{FOLDER}/docs/s.md")));
         let e = command(Target::Plan, &noted(), None, Path::new(FOLDER), &dirs(), false, &always).unwrap_err();
-        assert_eq!(e.to_string(), "VS Code (code) is not installed: the plan opens in it.");
+        assert_eq!(e.to_string(), "VS Code (code) is not installed: Markdown opens in it.");
+    }
+
+    /// Markdown, whatever the case of its extension, opens in the
+    /// separate VS Code; anything else, a refine report's HTML, in the
+    /// browser with xdg-open, with or without VS Code.
+    #[test]
+    fn markdown_opens_in_vs_code_and_anything_else_in_the_browser() {
+        for md in ["/r/a.md", "/r/a.MD", "/r/a.markdown"] {
+            assert_eq!(opener(Path::new(md), &dirs(), true).unwrap()[0], "code", "{md}");
+        }
+        let report = "/home/x/.local/share/niri-tasks/reviews/refine-1.html";
+        assert_eq!(opener(Path::new(report), &dirs(), true).unwrap(), refine::open_report_command(report));
+        assert_eq!(opener(Path::new(report), &dirs(), false).unwrap(), refine::open_report_command(report));
     }
 
     #[test]
