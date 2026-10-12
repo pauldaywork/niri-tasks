@@ -693,7 +693,7 @@ mod tests {
         assert!(Cli::try_parse_from(["niritasks", "task", "session", "c53b6e3d", "--work", "--refine"]).is_err());
     }
 
-    /// A card's Report runs `task report <uuid>`; `--fresh` is how a script,
+    /// A card's Go to list runs `task report <uuid>`; `--fresh` is how a script,
     /// or a person, gets a second report on a task that already has one.
     #[test]
     fn a_fresh_report_is_a_flag_on_task_report() {

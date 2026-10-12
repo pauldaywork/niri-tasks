@@ -402,7 +402,7 @@ export const withReportNotes = (made: readonly MadeReport[], plan: Plan): string
   ]
 }
 
-// Report mode: the card's Report button on a planned task, with no refine
+// Report mode: the Go to list's Generate report on a planned task, with no refine
 // before it. Why the task may not be reported on, or undefined when it is
 // pending and has a plan.
 export const unreportable = (task: Task | undefined): string | undefined => {

@@ -12,7 +12,7 @@ const REPORTS = { uuid: UUID, reports: '/r' }
 const REPORT_PATH = '/r/refine-0b8f6a52-20261006-010203.html'
 // The report's Markdown twin, written beside it.
 const REPORT_MD = '/r/refine-0b8f6a52-20261006-010203.md'
-// A Report session: the card's Report button, not a refine.
+// A Report session: the Go to list's Generate report, not a refine.
 const REPORT_MODE = { uuid: UUID, reports: '/r', report: true }
 // The smallest report show_task_report takes.
 const MINIMAL = {

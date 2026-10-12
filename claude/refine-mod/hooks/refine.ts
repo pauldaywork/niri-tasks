@@ -264,7 +264,7 @@ const approval = async (
 export const register: Register = (on, options) => {
   // Where reports go, or undefined when this session offers none.
   const reports = reportsDir(options.reports)
-  // Report mode: the card's Report button on a planned task, not a refine.
+  // Report mode: the Go to list's Generate report on a planned task, not a refine.
   // Only the report tool is offered, armed from the start on the task's own
   // description and notes, and the mod links the report from the task
   // itself: the button press was the ask, so no question is put. One a
