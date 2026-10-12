@@ -96,6 +96,24 @@ stopped only by the instruction (see Consequences). Everything else stays
 where it is, because a flag or a setting set from outside the session does
 it as well or better.
 
+*2026-10-12:* a headless refine (`claude -p … --permission-prompts none`,
+Claude Code 2.1.296) runs in `default` mode with the Bash sandbox active
+(a probe of `ls /run/user` got "No such file or directory"). Its Bash
+denials came from Claude Code's own command-shape checks (a `for` loop
+over `src/*.rs` was refused with "A variable in this command can't be
+checked before it runs"), which `autoAllowBashIfSandboxed` does not
+override with no one to ask, and its network calls were refused because
+no host was allowed (`curl` got "Proxy CONNECT aborted"). Two reviews the
+same day also found two escapes this record's Consequences did not weigh:
+a refine can write `~/.task/hooks`, which the daemon's `task` calls then
+run unsandboxed (task `b268d068`), and its `$TMPDIR`, `/tmp/claude-<uid>`,
+is shared with the user's unsandboxed Claude sessions. Both are closed,
+more secret stores are hidden, and only then are the rules widened to
+state the fence: bare `Bash` in place of `Bash(task *)`, and a strict
+allowlist of read-only source and docs hosts on port 443. Allowing every
+host was rejected: IP literals bypass the sandbox's local-address guard.
+See `docs/superpowers/plans/2026-10-12-refine-permissions-match-sandbox.md`.
+
 ## Verdicts
 
 | Piece | Today | Verdict | Why, in a line |
