@@ -963,7 +963,7 @@ impl Panel {
         self.column.append(&empty_line(&list.title()));
         let mut folders = Vec::new();
         for (at, row) in list.shown().iter().enumerate() {
-            let card = self.row_card(at, &ProjectList::label(row), None, PanelState::on_folder);
+            let card = self.row_card(at, &ProjectList::label(row), None, None, PanelState::on_folder);
             self.column.append(&card.0);
             folders.push(card);
         }
@@ -980,8 +980,10 @@ impl Panel {
         self.cards.borrow_mut().clear();
         self.column.append(&empty_line(&list.title()));
         let mut rows = Vec::new();
+        let now = crate::task::now_secs();
         for (at, item) in list.rows().iter().enumerate() {
-            let row = self.row_card(at, &list.row_label(*item), Some(item.group().class()), PanelState::on_goto_row);
+            let age = list.row_age(*item, now);
+            let row = self.row_card(at, &list.row_label(*item), age.as_deref(), Some(item.group().class()), PanelState::on_goto_row);
             self.column.append(&row.0);
             rows.push(row);
         }
@@ -1122,14 +1124,16 @@ impl Panel {
     }
 
     /// One row of either list, drawn as a task card is: a box holding a
-    /// body button with the row's words. A click on it runs `pick` on the
-    /// state with its index. Out of the focus chain: the project list's
+    /// body button with the row's words and, on a Go to list's document,
+    /// its age at the right end, as a card's. A click on it runs `pick` on
+    /// the state with its index. Out of the focus chain: the project list's
     /// text field keeps the keyboard, the Go to list leaves it on the
     /// window, and the highlight (`sync`) says which row Enter takes.
     fn row_card(
         self: &Rc<Self>,
         at: usize,
         label: &str,
+        age: Option<&str>,
         class: Option<&str>,
         pick: fn(&mut PanelState, usize) -> Vec<Effect>,
     ) -> (gtk4::Box, gtk4::Button) {
@@ -1140,9 +1144,19 @@ impl Panel {
         }
         root.set_size_request(CARD_WIDTH_PX, -1);
         root.set_overflow(gtk4::Overflow::Hidden);
-        let label = gtk4::Label::new(Some(label));
-        label.set_xalign(0.0);
-        let body = gtk4::Button::builder().child(&label).build();
+        // The words take the room, pushing the age to the right end, as
+        // `card_label` lays out a card.
+        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        let text = gtk4::Label::new(Some(label));
+        text.set_xalign(0.0);
+        text.set_hexpand(true);
+        row.append(&text);
+        if let Some(age) = age {
+            let age = gtk4::Label::new(Some(age));
+            age.add_css_class("card-age");
+            row.append(&age);
+        }
+        let body = gtk4::Button::builder().child(&row).build();
         body.add_css_class("card-body");
         body.set_focusable(false);
         body.set_focus_on_click(false);

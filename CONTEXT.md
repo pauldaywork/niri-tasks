@@ -210,8 +210,10 @@ reading aloud — each row only when it applies: refining, starting, reports
 built and sessions on a task on the list (Back to worktree giving way to Go
 to work session while that Claude runs), the documents when its notes link
 them (`Report:`, `Plan:`, `Spec:`), the worktree when it has one, VS Code
-when installed, reading aloud always. Rows of a kind share a colour: a
-Claude on the plan mauve, Get started green, a running Claude blue, the
+when installed, reading aloud always. Each document's row shows how old it
+is at its right end, dimmed as a card's age is: from the note linking it,
+else the file's last change; worked out as the list is drawn, never saved.
+Rows of a kind share a colour: a Claude on the plan mauve, Get started green, a running Claude blue, the
 documents yellow, the worktree and VS Code sapphire, Read aloud pink. No
 text field: Up and Down move the highlight, Enter or a click runs the row's
 `niritasks` command and gives the keyboard back (Read aloud keeps it), and
