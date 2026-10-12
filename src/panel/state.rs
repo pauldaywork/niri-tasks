@@ -57,6 +57,17 @@ pub enum Armed {
     ClearAll { before: Option<Focus> },
 }
 
+/// Where Edit left the panel as it gave the keyboard back for the task box:
+/// the edited card's Edit, the tab it was pressed on and whether "+N more"
+/// was opened. The box on that task closing takes the keyboard back to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Return {
+    focus: Focus,
+    filter: Filter,
+    expanded: bool,
+}
+
+
 /// A card as the panel draws it: the card, and the buttons on its action
 /// row, left to right. None off the keyboard, or on "+N more".
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -162,6 +173,12 @@ pub struct PanelState {
     /// them open; cleared as the keyboard is given back.
     notes: Option<String>,
     armed: Armed,
+    /// Where Edit left the panel, until the box it opened closes. Dropped
+    /// whenever the keyboard is taken or given back meanwhile, so a box
+    /// closing later than that, or one opened from anywhere else, leaves the
+    /// keyboard alone.
+    returning: Option<Return>,
+
 }
 
 impl PanelState {
@@ -406,9 +423,40 @@ impl PanelState {
         self.filter = Filter::All;
         self.mode = Mode::Tasks;
         self.armed = Armed::None;
+        self.returning = None;
         self.focus = first_task(&self.visible());
         true
     }
+
+    /// The task box on `uuid` closing takes the keyboard back here: this
+    /// panel's Edit opened it, and the keyboard has been neither taken nor
+    /// given back since.
+    pub fn returns_to(&self, uuid: &str) -> bool {
+        !self.keyboard && self.returning.as_ref().is_some_and(|r| r.focus.uuid == uuid)
+    }
+
+    /// The task box on `uuid` closed. When this panel's Edit opened it, take
+    /// the keyboard back as Edit left the panel: on that tab, or All once
+    /// the tab has nothing under it, with the focus on the edited card's
+    /// Edit, or the tab's first card once the edited card has left it.
+    /// Nothing for any other box, and nothing with no cards to take the
+    /// keyboard for. `agents` are as `take_keyboard`'s.
+    pub fn take_keyboard_back(&mut self, uuid: &str, agents: Vec<String>) -> Vec<Effect> {
+        if !self.returns_to(uuid) {
+            return Vec::new();
+        }
+        let Some(back) = self.returning.take() else { return Vec::new() };
+        if !self.take_keyboard(agents) {
+            return Vec::new();
+        }
+        // The re-render keeps the focus where it can and falls back as
+        // anywhere else: the card's body, the tab's first card, All.
+        self.filter = back.filter;
+        self.expanded = back.expanded;
+        self.focus = Some(back.focus);
+        self.rerender()
+    }
+
 
     /// Mod+Alt+W: take the keyboard on the project list for opening a
     /// project, `projects` being the `~/Projects` folders and the GitHub
@@ -420,6 +468,7 @@ impl PanelState {
         self.filter = Filter::All;
         self.expanded = false;
         self.armed = Armed::None;
+        self.returning = None;
         self.focus = None;
         let list = ProjectList::new(Purpose::Open, projects.rows());
         self.mode = Mode::Projects { list, loaded: projects };
@@ -574,7 +623,8 @@ impl PanelState {
     /// hides them again. Remove only arms itself the first time; the second
     /// press runs it.
     /// Everything that opens something gives the keyboard back first, so the
-    /// box or terminal it opens can take it. Back, Waiting and Remove take
+    /// box or terminal it opens can take it. Edit remembers where it was, for
+    /// the box closing to come back to. Back, Waiting and Remove take
     /// the card off the list, so the focus moves to the next card (the one
     /// above, from the last) to still be there when the next tick drops this
     /// one. Up next keeps the card and the focus, so a second press undoes
@@ -613,7 +663,14 @@ impl PanelState {
                 effects = self.focus_on(next);
             }
         } else if !action.keeps_keyboard() {
+            // Read before the release, which puts the panel back on All.
+            let returning = (action == Action::Edit && self.keyboard).then(|| Return {
+                focus: Focus { uuid: uuid.into(), slot },
+                filter: self.filter,
+                expanded: self.expanded,
+            });
             effects = self.release();
+            self.returning = returning;
         }
         effects.push(Effect::Spawn(action.args(uuid)));
         effects
@@ -794,6 +851,7 @@ impl PanelState {
         self.filter = Filter::All;
         self.mode = Mode::Tasks;
         self.armed = Armed::None;
+        self.returning = None;
         self.focus = None;
         self.notes = None;
         vec![Effect::Render, Effect::Release]
@@ -1500,6 +1558,114 @@ mod tests {
             vec![Effect::Render, Effect::Release, Effect::Spawn(Action::Edit.args("a"))],
         );
     }
+
+    // ─── back from Edit's task box ───────────────────────────────────────
+
+    /// An active card, which is off To refine, and two to refine: Edit on
+    /// the second of those, pressed on the To refine tab.
+    fn edited_on_to_refine() -> PanelState {
+        let mut state = keyboard(vec![card("x", Status::Active), card("b", Status::Pending), card("c", Status::Pending)]);
+        key(&mut state, KeyAction::Filter(Filter::ToRefine));
+        assert_eq!(uuids(&state), vec!["b", "c"]);
+        assert_eq!(
+            state.on_press("c", Slot::Button(Action::Edit)),
+            vec![Effect::Render, Effect::Release, Effect::Spawn(Action::Edit.args("c"))],
+        );
+        state
+    }
+
+    /// Edit gives the keyboard back for the box, and the box on that task
+    /// closing takes it again: on the tab Edit was pressed on, the focus on
+    /// the edited card's Edit. Once only.
+    #[test]
+    fn the_box_edit_opened_closing_takes_the_keyboard_back_where_it_was() {
+        let mut state = edited_on_to_refine();
+        assert!(!state.keyboard());
+        assert!(state.returns_to("c"));
+        assert!(!state.returns_to("b"), "another task's box");
+        assert_eq!(state.take_keyboard_back("c", Vec::new()), vec![Effect::Render]);
+        assert!(state.keyboard());
+        assert_eq!(state.tab(), Tab::Filter(Filter::ToRefine));
+        assert_eq!(state.focus(), focused("c", Slot::Button(Action::Edit)).as_ref());
+        assert!(!state.returns_to("c"), "the return is spent");
+        key(&mut state, KeyAction::Release);
+        assert_eq!(state.take_keyboard_back("c", Vec::new()), Vec::new(), "a second close of that task's box");
+        assert!(!state.keyboard());
+    }
+
+    /// A box Edit did not open leaves the keyboard alone: one on another
+    /// task, and one on a panel whose Edit was never pressed.
+    #[test]
+    fn a_box_edit_did_not_open_leaves_the_keyboard_alone() {
+        let mut state = edited_on_to_refine();
+        assert_eq!(state.take_keyboard_back("b", Vec::new()), Vec::new());
+        assert!(!state.keyboard());
+        assert!(state.returns_to("c"), "another task's box spends nothing");
+
+        let mut untouched = PanelState::default();
+        untouched.set_cards(&pending(&["a"]));
+        assert!(!untouched.returns_to("a"));
+        assert_eq!(untouched.take_keyboard_back("a", Vec::new()), Vec::new());
+        assert!(!untouched.keyboard());
+    }
+
+    /// Taking the keyboard, by Mod+Alt+Ctrl+T or Mod+Alt+W, or giving it
+    /// back, while the box is open drops the return.
+    #[test]
+    fn taking_or_giving_back_the_keyboard_meanwhile_drops_the_return() {
+        let mut state = edited_on_to_refine();
+        assert!(state.take_keyboard(Vec::new()));
+        assert!(!state.returns_to("c"));
+        key(&mut state, KeyAction::Release);
+        assert_eq!(state.take_keyboard_back("c", Vec::new()), Vec::new());
+        assert!(!state.keyboard());
+
+        let mut state = edited_on_to_refine();
+        state.open_projects(projects(&["x"], &[]));
+        key(&mut state, KeyAction::Release);
+        assert_eq!(state.take_keyboard_back("c", Vec::new()), Vec::new());
+        assert!(!state.keyboard());
+    }
+
+    /// The edited card gone from the tab: the tab's first card. The tab
+    /// gone too: All's first card.
+    #[test]
+    fn back_from_edit_falls_back_to_the_tabs_first_card() {
+        let mut state = edited_on_to_refine();
+        state.set_cards(&[card("x", Status::Active), card("b", Status::Pending)]);
+        assert_eq!(state.take_keyboard_back("c", Vec::new()), vec![Effect::Render]);
+        assert_eq!(state.tab(), Tab::Filter(Filter::ToRefine));
+        assert_eq!(state.focus(), focused("b", Slot::Body).as_ref());
+
+        let mut state = edited_on_to_refine();
+        state.set_cards(&[card("x", Status::Active)]);
+        assert_eq!(state.take_keyboard_back("c", Vec::new()), vec![Effect::Render]);
+        assert_eq!(state.tab(), Tab::Filter(Filter::All));
+        assert_eq!(state.focus(), focused("x", Slot::Body).as_ref());
+    }
+
+    /// The edited card past "+N more" comes back with the list still
+    /// opened, so the focus can land on it.
+    #[test]
+    fn back_from_edit_keeps_the_list_opened_past_more() {
+        let names: Vec<String> = (0..model::CAP + 2).map(|i| format!("t{i}")).collect();
+        let last = names.last().unwrap().clone();
+        let mut state = keyboard(pending(&names.iter().map(String::as_str).collect::<Vec<_>>()));
+        state.on_more();
+        state.on_press(&last, Slot::Button(Action::Edit));
+        assert_eq!(state.take_keyboard_back(&last, Vec::new()), vec![Effect::Render]);
+        assert_eq!(state.focus(), focused(&last, Slot::Button(Action::Edit)).as_ref());
+    }
+
+    /// With no card left there is nothing to take the keyboard for.
+    #[test]
+    fn back_from_edit_takes_nothing_with_no_cards() {
+        let mut state = edited_on_to_refine();
+        state.set_cards(&[]);
+        assert_eq!(state.take_keyboard_back("c", Vec::new()), Vec::new());
+        assert!(!state.keyboard());
+    }
+
 
     #[test]
     fn enter_and_space_are_gtks_while_nothing_is_armed() {
