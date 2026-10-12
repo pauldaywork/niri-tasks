@@ -94,6 +94,16 @@ pub fn spawn(command: Vec<String>) -> Result<()> {
     action(Action::Spawn { command })
 }
 
+/// Move the window `id` to the workspace named `name`, leaving the focus
+/// where it is.
+pub fn move_window_to_workspace(id: u64, name: &str) -> Result<()> {
+    action(Action::MoveWindowToWorkspace {
+        window_id: Some(id),
+        reference: WorkspaceReferenceArg::Name(name.to_string()),
+        focus: false,
+    })
+}
+
 /// Focus a window by id — brings an already-open window back into view,
 /// instead of `refine` spawning a second one over a session whose window is
 /// merely unfocused rather than closed.

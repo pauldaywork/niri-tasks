@@ -270,6 +270,17 @@ enum TaskCommand {
         /// What to open: spec, plan, worktree or editor
         what: open::Target,
     },
+    /// Open a report the refine mod has just written, in a new browser window on this workspace
+    ///
+    /// What the refine session runs once it has written a report: a new
+    /// window of the default browser, moved to this herdr session's
+    /// workspace (else the focused one) however the user has moved since.
+    /// A Markdown report opens in VS Code instead, as a Markdown document a
+    /// task links does.
+    OpenReport {
+        /// The report's file
+        path: std::path::PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -464,7 +475,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             if !fresh {
                 if let Some(path) = t.report_path() {
                     if Path::new(path).is_file() {
-                        open::open_document(Path::new(path))?;
+                        open::open_document(Path::new(path), Workspace::of_caller()?.name())?;
                         notify::tasks(&format!("Opened the report: {}", t.description));
                         return Ok(());
                     }
@@ -516,6 +527,11 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             let workspace = Workspace::of_caller()?;
             let t = task::get(&uuid)?.context("task not found")?;
             open::open(&workspace, &t, what)?;
+        }
+
+        TaskCommand::OpenReport { path } => {
+            anyhow::ensure!(path.is_file(), "The report is not there: {}", path.display());
+            open::open_document(&path, Workspace::of_caller()?.name())?;
         }
     }
     Ok(())

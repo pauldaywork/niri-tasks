@@ -356,7 +356,7 @@ test('report, then approve: writes the page, opens it, then writes the task', { 
   expect(block).toContain('<p><strong>Description:</strong> feat: New words</p>')
   for (const note of CALL.notes) expect(block).toContain(`<li>${note}</li>`)
   expect(seen).toContain(`log: Report: ${REPORT_PATH}`)
-  expect(runs.at(-1)?.argv).toEqual(['sh', '-c', 'xdg-open "$1" >/dev/null 2>&1 </dev/null &', 'sh', REPORT_PATH])
+  expect(runs.at(-1)?.argv).toEqual(['sh', '-c', '{ niritasks task open-report "$1" || xdg-open "$1"; } >/dev/null 2>&1 </dev/null &', 'sh', REPORT_PATH])
 
   // One report per ask: a second needs the person to choose it again.
   const again = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
@@ -577,7 +577,7 @@ test('report mode: writes the page, opens it, and links it from the task, asking
   expect(seen).toEqual([`log: Report: ${REPORT_PATH}`])
   expect(runs.map(run => run.argv)).toEqual([
     ['task', 'rc.hooks=off', 'rc.json.array=on', UUID, 'export'],
-    ['sh', '-c', 'xdg-open "$1" >/dev/null 2>&1 </dev/null &', 'sh', REPORT_PATH],
+    ['sh', '-c', '{ niritasks task open-report "$1" || xdg-open "$1"; } >/dev/null 2>&1 </dev/null &', 'sh', REPORT_PATH],
     ['task', 'rc.hooks=off', 'rc.verbose=nothing', 'import'],
   ])
   // One note added; the description, the other notes and the tags kept.

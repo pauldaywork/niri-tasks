@@ -72,7 +72,7 @@ pub fn command(
                 .with_context(|| format!("This task's notes link no {}: add a `{note}<path>` note.", target.name()))?;
             let path = resolve(linked, worktree, folder);
             anyhow::ensure!(is_file(&path), "The {} is not there: {}", target.name(), path.display());
-            Ok((opener(&path, dirs, editor)?, format!("the {}", target.name())))
+            Ok((opener(&path, dirs, editor, None)?, format!("the {}", target.name())))
         }
         Target::Worktree => {
             let dir = worktree.context("This task has no worktree: Get started makes one.")?;
@@ -96,11 +96,15 @@ fn is_markdown(path: &Path) -> bool {
 /// What opens the document at `path`, one a task's notes link. Markdown
 /// opens in a VS Code instance of its own, apart from the user's, never
 /// with xdg-open, whatever the desktop opens Markdown with; anything else,
-/// a refine report's HTML page, with xdg-open, in the browser. `editor` is
-/// whether VS Code is installed; Markdown without it is an error.
-pub fn opener(path: &Path, dirs: &Dirs, editor: bool) -> Result<Vec<String>> {
+/// a refine report's HTML page, in a new window of the default `browser`,
+/// else with xdg-open. `editor` is whether VS Code is installed; Markdown
+/// without it is an error.
+pub fn opener(path: &Path, dirs: &Dirs, editor: bool, browser: Option<&programs::Browser>) -> Result<Vec<String>> {
     if !is_markdown(path) {
-        return Ok(refine::open_report_command(&path.to_string_lossy()));
+        return Ok(match browser {
+            Some(browser) => browser.new_window_command(path),
+            None => refine::open_report_command(&path.to_string_lossy()),
+        });
     }
     anyhow::ensure!(editor, "VS Code ({}) is not installed: Markdown opens in it.", programs::EDITOR);
     Ok(programs::document_command(&documents_data(dirs), &extensions(dirs), path))
@@ -108,14 +112,63 @@ pub fn opener(path: &Path, dirs: &Dirs, editor: bool) -> Result<Vec<String>> {
 
 /// Open the document at `path` as [`opener`] says, through niri, so what
 /// opens outlives the `niritasks` process a press spawned. The caller has
-/// checked the file is there.
-pub fn open_document(path: &Path) -> Result<()> {
+/// checked the file is there. A browser window is then moved to the
+/// workspace named `workspace`, the task's, from wherever niri put it: the
+/// focused workspace, which is not the task's when a report a refine
+/// session has just built opens while the user is on another.
+pub fn open_document(path: &Path, workspace: &str) -> Result<()> {
     let dirs = Dirs::from_env()?;
-    let argv = opener(path, &dirs, programs::on_path(programs::EDITOR))?;
+    let browser = if is_markdown(path) { None } else { default_browser(&dirs) };
+    let argv = opener(path, &dirs, programs::on_path(programs::EDITOR), browser.as_ref())?;
     if is_markdown(path) {
         share_settings(&dirs);
     }
-    niri::spawn(argv).with_context(|| format!("could not open {}", path.display()))
+    let before: Vec<u64> = niri::windows()?.iter().map(|w| w.id).collect();
+    niri::spawn(argv).with_context(|| format!("could not open {}", path.display()))?;
+    if let Some(browser) = browser {
+        if let Some(id) = new_window(&before, browser.app_id.as_deref()) {
+            niri::move_window_to_workspace(id, workspace)?;
+        }
+    }
+    Ok(())
+}
+
+/// How long a new browser window is waited for. A browser already running
+/// opens one in well under a second; a cold start takes a few.
+const NEW_WINDOW_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The first window that is not one of `before`, carrying `app_id` when it
+/// is known, waited for up to [`NEW_WINDOW_WAIT`]; `None` if none came.
+fn new_window(before: &[u64], app_id: Option<&str>) -> Option<u64> {
+    let start = std::time::Instant::now();
+    while start.elapsed() < NEW_WINDOW_WAIT {
+        let found = niri::windows().ok()?.into_iter().find(|w| {
+            !before.contains(&w.id)
+                && app_id.is_none_or(|want| w.app_id.as_deref().is_some_and(|got| got.eq_ignore_ascii_case(want)))
+        });
+        if let Some(w) = found {
+            return Some(w.id);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    None
+}
+
+/// The default web browser's desktop entry, as `xdg-settings` names it,
+/// found in the user's applications folder or the system's. `None` when
+/// any of that is missing, and the page then opens with xdg-open.
+fn default_browser(dirs: &Dirs) -> Option<programs::Browser> {
+    let out = std::process::Command::new("xdg-settings").args(["get", "default-web-browser"]).output().ok()?;
+    let id = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    if !out.status.success() || id.is_empty() || id.contains('/') {
+        return None;
+    }
+    let system = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
+    let system = if system.is_empty() { "/usr/local/share:/usr/share".to_string() } else { system };
+    std::iter::once(dirs.data())
+        .chain(system.split(':').filter(|d| !d.is_empty()).map(PathBuf::from))
+        .find_map(|d| std::fs::read_to_string(d.join("applications").join(&id)).ok())
+        .and_then(|text| programs::Browser::from_desktop_entry(&text))
 }
 
 /// Where the VS Code that documents open in keeps its state, apart from
@@ -226,15 +279,20 @@ mod tests {
 
     /// Markdown, whatever the case of its extension, opens in the
     /// separate VS Code; anything else, a refine report's HTML, in the
-    /// browser with xdg-open, with or without VS Code.
+    /// browser, in a new window of its own, with or without VS Code.
     #[test]
     fn markdown_opens_in_vs_code_and_anything_else_in_the_browser() {
         for md in ["/r/a.md", "/r/a.MD", "/r/a.markdown"] {
-            assert_eq!(opener(Path::new(md), &dirs(), true).unwrap()[0], "code", "{md}");
+            assert_eq!(opener(Path::new(md), &dirs(), true, None).unwrap()[0], "code", "{md}");
         }
         let report = "/home/x/.local/share/niri-tasks/reviews/refine-1.html";
-        assert_eq!(opener(Path::new(report), &dirs(), true).unwrap(), refine::open_report_command(report));
-        assert_eq!(opener(Path::new(report), &dirs(), false).unwrap(), refine::open_report_command(report));
+        let chrome = programs::Browser { exec: vec!["/usr/bin/google-chrome-stable".to_string()], app_id: None };
+        assert_eq!(
+            opener(Path::new(report), &dirs(), false, Some(&chrome)).unwrap(),
+            ["/usr/bin/google-chrome-stable", "--new-window", report].map(String::from).to_vec()
+        );
+        // No default browser found: xdg-open, as before.
+        assert_eq!(opener(Path::new(report), &dirs(), true, None).unwrap(), refine::open_report_command(report));
     }
 
     #[test]

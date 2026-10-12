@@ -359,13 +359,15 @@ export const reportPath = (dir: string, uuid: string, nowMs: number): string => 
   return `${dir}/refine-${uuid.slice(0, 8).toLowerCase()}-${stamp}.html`
 }
 
-// xdg-open in the background with its streams closed: a browser it starts
-// would otherwise hold `$.process.run` until its timeout. The path is `$1`,
-// an argument, never part of the script.
+// `niritasks task open-report`, which opens a new browser window and moves
+// it to this session's workspace however the user has moved since; xdg-open
+// where niritasks is not on PATH or fails. In the background with its streams
+// closed: a browser it starts would otherwise hold `$.process.run` until its
+// timeout. The path is `$1`, an argument, never part of the script.
 export const openArgv = (path: string): string[] => [
   'sh',
   '-c',
-  'xdg-open "$1" >/dev/null 2>&1 </dev/null &',
+  '{ niritasks task open-report "$1" || xdg-open "$1"; } >/dev/null 2>&1 </dev/null &',
   'sh',
   path,
 ]

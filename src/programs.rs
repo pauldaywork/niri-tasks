@@ -54,6 +54,55 @@ pub fn document_command(data: &std::path::Path, extensions: &std::path::Path, fi
     ]
 }
 
+/// A browser's desktop entry, as far as opening a page in a new window of
+/// its own needs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Browser {
+    /// The program its `Exec=` line runs, with the line's own arguments
+    /// and without its field codes (`%U` and the like).
+    pub exec: Vec<String>,
+    /// Its `StartupWMClass=`, which is the app id its windows carry.
+    pub app_id: Option<String>,
+}
+
+impl Browser {
+    /// Read from the text of a `.desktop` file: the keys of its
+    /// `[Desktop Entry]` group, not of its actions'. `None` without an
+    /// `Exec=` line there.
+    pub fn from_desktop_entry(text: &str) -> Option<Browser> {
+        let mut in_entry = false;
+        let (mut exec, mut app_id) = (None, None);
+        for line in text.lines().map(str::trim) {
+            if line.starts_with('[') {
+                in_entry = line == "[Desktop Entry]";
+            } else if !in_entry {
+                continue;
+            } else if let Some(value) = line.strip_prefix("Exec=") {
+                exec.get_or_insert_with(|| {
+                    value
+                        .split_whitespace()
+                        .filter(|word| !word.starts_with('%'))
+                        .map(|word| word.trim_matches('"').to_string())
+                        .collect::<Vec<_>>()
+                });
+            } else if let Some(value) = line.strip_prefix("StartupWMClass=") {
+                app_id.get_or_insert_with(|| value.to_string());
+            }
+        }
+        exec.filter(|e| !e.is_empty()).map(|exec| Browser { exec, app_id })
+    }
+
+    /// The browser on `page` in a new window, never a tab in a window it
+    /// already has, which may be on any workspace. `--new-window` is
+    /// Chrome's, Chromium's and Firefox's alike.
+    pub fn new_window_command(&self, page: &std::path::Path) -> Vec<String> {
+        let mut argv = self.exec.clone();
+        argv.push("--new-window".to_string());
+        argv.push(page.display().to_string());
+        argv
+    }
+}
+
 /// The session manager the project terminal runs, one session per workspace.
 pub const SESSION_MANAGER: &str = "herdr";
 
@@ -197,5 +246,23 @@ mod tests {
             cmds[1],
             vec![EDITOR.to_string(), "/home/x/Projects/alpha".to_string()]
         );
+    }
+
+    /// Chrome's own entry: the `[Desktop Entry]` group's Exec without its
+    /// `%U`, not the new-window action's, and its window class.
+    #[test]
+    fn a_browser_is_read_from_its_desktop_entry() {
+        let chrome = "[Desktop Entry]\nName=Google Chrome\nExec=/usr/bin/google-chrome-stable %U\nStartupWMClass=google-chrome\n\n[Desktop Action new-window]\nExec=/usr/bin/google-chrome-stable --incognito\n";
+        let browser = Browser::from_desktop_entry(chrome).unwrap();
+        assert_eq!(browser.exec, vec!["/usr/bin/google-chrome-stable"]);
+        assert_eq!(browser.app_id.as_deref(), Some("google-chrome"));
+        assert_eq!(
+            browser.new_window_command(std::path::Path::new("/r/a report.html")),
+            vec!["/usr/bin/google-chrome-stable", "--new-window", "/r/a report.html"]
+        );
+        let firefox = "[Desktop Entry]\nExec=firefox --name firefox %u\n";
+        assert_eq!(Browser::from_desktop_entry(firefox).unwrap().exec, vec!["firefox", "--name", "firefox"]);
+        assert_eq!(Browser::from_desktop_entry("[Desktop Entry]\nName=x\n"), None);
+        assert_eq!(Browser::from_desktop_entry("[Desktop Action a]\nExec=x\n"), None);
     }
 }

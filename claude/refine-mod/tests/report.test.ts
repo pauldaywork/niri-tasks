@@ -204,7 +204,7 @@ test('reportPath names the task and the UTC time', () => {
 
 test('openArgv passes the path as an argument, never as script', () => {
   const path = '/r/it\'s "here" $(x).html'
-  expect(openArgv(path)).toEqual(['sh', '-c', 'xdg-open "$1" >/dev/null 2>&1 </dev/null &', 'sh', path])
+  expect(openArgv(path)).toEqual(['sh', '-c', '{ niritasks task open-report "$1" || xdg-open "$1"; } >/dev/null 2>&1 </dev/null &', 'sh', path])
 })
 
 describe('withReportNotes', () => {

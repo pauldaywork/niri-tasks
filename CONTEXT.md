@@ -215,8 +215,8 @@ keyboard back (Read aloud keeps it), and Escape goes back to the card. A
 `Spec:` or `Plan:` path is the repository's, read in the task's worktree
 while it has one, else the workspace's `~/Projects` folder. Every Markdown
 document a task links opens in a VS Code instance of its own, never the
-user's VS Code or xdg-open; a refine report's HTML opens in the browser. In
-the code, `panel::goto`.
+user's VS Code or xdg-open; a refine report's HTML opens in a new browser
+window, moved to the task's workspace. In the code, `panel::goto`.
 _Avoid_: menu, popup, jump list
 
 **Mode**:

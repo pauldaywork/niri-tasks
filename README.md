@@ -94,7 +94,7 @@ applies:
 | **Refine**, **Redo refine** once planned, and **Grill me** | on a task on the list |
 | **Get started**, **Back to worktree** once started | on a task on the list, unless its work Claude is running: Go to work session then goes there |
 | **Generate report**, **Regenerate report** once one exists | on a planned task on the list |
-| **Open report** | its notes link a report (`Report: <path>`): an HTML one in the browser, a Markdown one in a VS Code of its own, as the plan and spec are |
+| **Open report** | its notes link a report (`Report: <path>`): an HTML one in a new browser window on this workspace, a Markdown one in a VS Code of its own, as the plan and spec are |
 | **Planning doc**, **Design spec** | its notes link a plan (`Plan: <path>`) or a spec (`Spec: <path>`): opened in a VS Code of its own, apart from your VS Code windows, sharing your extensions, settings and keybindings |
 | **Go to refine session**, **Go to work session** | on a task on the list, that Claude (`task-<uuid8>`, `work-<uuid8>`) is running, checked as the panel slides out |
 | **Open worktree folder** | the task has a worktree: a terminal in it |
@@ -360,6 +360,7 @@ niritasks task open <uuid> spec    # open the design spec its notes link (Spec: 
 niritasks task open <uuid> plan    #   the same for its plan (Plan: <path>)
 niritasks task open <uuid> worktree  # a terminal in its worktree
 niritasks task open <uuid> editor  # VS Code on its worktree, else the project folder
+niritasks task open-report <path>  # a report just written, in a new browser window on this workspace (what refine runs)
 niritasks project open             # the panel's project list: pick a ~/Projects folder or GitHub repo
                                    #   onto its own named workspace, or type a new name (Mod+Alt+W)
 niritasks project open <name>      # open that one, cloning or making it first: what a pick runs
