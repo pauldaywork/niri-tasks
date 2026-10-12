@@ -275,7 +275,8 @@ fn ensure_no_exposed_sockets(hidden: &[PathBuf]) -> Result<()> {
 /// Open Claude on a task in `ws`'s herdr session.
 ///
 /// Opens the project terminal first if the session is not running, and goes
-/// back to the task's existing tab if it is already being refined.
+/// back to the task's existing tab for `mode` if there is one: a refine for
+/// Refine and Grill me, a report for Generate report.
 ///
 /// The prompt is confirmed, and resent if Claude was still starting, as
 /// Start working's is; a start Claude blocks on a question is waited out the
@@ -286,7 +287,6 @@ fn ensure_no_exposed_sockets(hidden: &[PathBuf]) -> Result<()> {
 pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
     let dirs = Dirs::from_env()?;
     let home = dirs.home();
-    let name = names::refine_agent(&t.uuid);
 
     // Before anything opens: a refused refine should leave nothing behind.
     let hidden = hidden_paths(home);
@@ -313,11 +313,37 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
     );
 
     let claude = Claude::Refiner { settings, mod_dir };
+    open_in(&session, t, ws.name(), &claude, mode)
+}
+
+/// The herdr agent `mode`'s session runs under: Refine and Grill me share
+/// the task's refine agent, so either press lands in a refine already open;
+/// a report has its own, since a refine tab cannot run one.
+fn agent_name(mode: Mode, uuid: &str) -> String {
+    match mode {
+        Mode::Quick | Mode::Grill => names::refine_agent(uuid),
+        Mode::Report => names::report_agent(uuid),
+    }
+}
+
+/// What a press says when `mode`'s session was open on the task already.
+fn already_open(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Quick | Mode::Grill => "Already refining this task — switched to its tab.",
+        Mode::Report => "Already reporting on this task — switched to its tab.",
+    }
+}
+
+/// [`launch`]'s steps in `session` once `claude` is built: the agent, tab,
+/// pane name and prompt for `mode` on `t`, handed to [`launch_in`], and a
+/// notice when its session was open already. Kept apart from what reads the
+/// machine so the fake can check that each mode lands in its own tab.
+fn open_in(session: &Session, t: &task::Task, workspace_label: &str, claude: &Claude, mode: Mode) -> Result<()> {
+    let name = agent_name(mode, &t.uuid);
     let label = tab_label(mode, &t.description);
     let pane = names::PaneName::for_task(names::Role::Refine, t.id, &t.uuid, &t.description);
-    if launch_in(&session, &name, &label, ws.name(), &claude, &pane, &prompt(&t.uuid, mode))? == Launched::AlreadyRunning {
-        // The same agent name for all three modes, so a press of any lands in the tab already open on the task.
-        session.notify("Already open on this task — switched to its tab.");
+    if launch_in(session, &name, &label, workspace_label, claude, &pane, &prompt(&t.uuid, mode))? == Launched::AlreadyRunning {
+        session.notify(already_open(mode));
     }
     Ok(())
 }
@@ -1118,5 +1144,57 @@ Num       RefCount Protocol Flags    Type St Inode Path
         assert!(at(&log, "agent_start alpha task-abc") < at(&log, "release alpha"), "{log:?}");
         assert!(at(&log, "release alpha") < at(&log, "agent_wait_ready alpha task-abc"), "{log:?}");
         assert!(at(&log, "release alpha") < at(&log, "agent_prompt alpha task-abc"), "{log:?}");
+    }
+
+    /// `launch`'s session steps for `mode` on [`tk`] over `fake`.
+    fn open(fake: &Fake, mode: Mode) -> Result<()> {
+        let session = Session::with_port("alpha", PathBuf::from("/p/alpha"), Box::new(fake.clone()));
+        open_in(&session, &tk(), "alpha", &refiner(), mode)
+    }
+
+    #[test]
+    fn each_mode_has_its_agent() {
+        assert_eq!(agent_name(Mode::Quick, "7CD9FD3A-d27b"), "task-7cd9fd3a");
+        assert_eq!(agent_name(Mode::Grill, "7CD9FD3A-d27b"), "task-7cd9fd3a");
+        assert_eq!(agent_name(Mode::Report, "7CD9FD3A-d27b"), "report-7cd9fd3a");
+    }
+
+    /// Generate report with a refine tab still open on the task: the refine
+    /// tab was started without the report option and may be mid-interview,
+    /// so the report starts a Claude of its own, prompted, and the refine is
+    /// left alone.
+    #[test]
+    fn a_report_opens_its_own_tab_beside_a_refine() {
+        let fake = Fake::running(&[("w1", "alpha")]);
+        open(&fake, Mode::Quick).unwrap();
+        open(&fake, Mode::Report).unwrap();
+        let log = fake.log();
+        assert!(!log.iter().any(|l| l.starts_with("agent_focus alpha task-7cd9fd3a")), "{log:?}");
+        assert!(log.iter().any(|l| l.starts_with("agent_start alpha report-7cd9fd3a ")), "{log:?}");
+        assert!(
+            log.iter().any(|l| l == "agent_prompt alpha report-7cd9fd3a /report-task 7cd9fd3a-d27b-4387-8249-aaf0d6785f90"),
+            "{log:?}"
+        );
+        assert!(!log.iter().any(|l| l.starts_with("notify ")), "{log:?}");
+        assert_eq!(fake.agents().len(), 2);
+    }
+
+    /// A second press of each goes back to its own tab, and says so in its
+    /// own words; nothing new starts.
+    #[test]
+    fn a_second_press_goes_back_to_its_own_tab() {
+        let fake = Fake::running(&[("w1", "alpha")]);
+        open(&fake, Mode::Quick).unwrap();
+        open(&fake, Mode::Report).unwrap();
+        let before = fake.log().len();
+        open(&fake, Mode::Report).unwrap();
+        open(&fake, Mode::Grill).unwrap();
+        let log: Vec<String> = fake.log().into_iter().skip(before).collect();
+        assert!(!log.iter().any(|l| l.starts_with("agent_start ")), "{log:?}");
+        assert!(at(&log, "agent_focus alpha report-7cd9fd3a") < at(&log, "agent_focus alpha task-7cd9fd3a"), "{log:?}");
+        assert!(log.iter().any(|l| *l == format!("notify {}", already_open(Mode::Report))), "{log:?}");
+        assert!(log.iter().any(|l| *l == format!("notify {}", already_open(Mode::Grill))), "{log:?}");
+        assert_ne!(already_open(Mode::Report), already_open(Mode::Quick));
+        assert_eq!(fake.agents().len(), 2);
     }
 }

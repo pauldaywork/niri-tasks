@@ -363,8 +363,9 @@ niritasks task refine <uuid> --grill  #   the same, interviewing you first
 niritasks task refine <uuid> --unattended  # headless: Claude plans it asking nothing, then builds and links its
                                    #   report, in the background; the card shows an hourglass meanwhile
 niritasks task report <uuid>       # open the report of its plan linked from its notes; without one, a report
-                                   #   built by Claude in the workspace's herdr session, opened in the browser
-                                   #   and linked from the task's notes (a planned task only)
+                                   #   built by Claude in a Report: tab of its own in the workspace's herdr session
+                                   #   (beside any refine tab), opened in the browser and linked from the task's
+                                   #   notes (a planned task only)
 niritasks task report <uuid> --fresh  #   build a new report even when its notes link one
 niritasks task docs <uuid> --project <dir> --notes-dir <dir>
                                    # list its documents, label<TAB>path: its reports (the Markdown twin, else
