@@ -315,17 +315,36 @@ pub struct Fence {
 /// and hides the sandbox's own proxy socket. With `TMPDIR` there is no
 /// length limit (Claude uses `<TMPDIR>/claude-<uid>`).
 pub fn session_tmp(dirs: &Dirs, uuid: &str) -> PathBuf {
-    dirs.cache().join("niri-tasks/refine-tmp").join(names::uuid8(uuid))
+    refine_tmp_root(dirs).join(names::uuid8(uuid))
+}
+
+/// The folder every refine's [`session_tmp`] is made in:
+/// `<cache>/niri-tasks/refine-tmp`.
+fn refine_tmp_root(dirs: &Dirs) -> PathBuf {
+    dirs.cache().join("niri-tasks/refine-tmp")
 }
 
 /// The fence for a refine of `uuid`, ready to start a session behind:
 /// its folders made ([`make_fence_dirs`]), then refused if any socket is
 /// left in reach.
+///
+/// The sockets under [`refine_tmp_root`] are left out of that check. The
+/// only ones there are the sandbox's own proxy sockets, which it binds
+/// under `$TMPDIR`: this session's, and those of any other refine running
+/// now. Each forwards into a proxy that lets through only the same
+/// [`NETWORK_HOSTS`], so reaching another session's grants nothing this
+/// one lacks. Counting them would stop a refine while any other runs, and
+/// a second press on a task whose tab is open before it could be focused.
+/// The root is not hidden instead: that would cover this session's own
+/// proxy socket, which is what broke its network under `/tmp`.
 fn prepare_fence(dirs: &Dirs, task_data: &Path, uuid: &str) -> Result<Fence> {
     let tmp = session_tmp(dirs, uuid);
     make_fence_dirs(task_data, &tmp)?;
     let hidden = hidden_paths(dirs.home());
-    ensure_no_exposed_sockets(&hidden, &tmp)?;
+    let root = refine_tmp_root(dirs);
+    // Made just above, and the socket table is compared resolved.
+    let root = std::fs::canonicalize(&root).unwrap_or(root);
+    ensure_no_exposed_sockets(&hidden, &[root])?;
     Ok(Fence { home: dirs.home().to_path_buf(), hidden, tmp })
 }
 
@@ -353,13 +372,14 @@ fn socket_paths(table: &str) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The sockets a refine session could still reach: those under none of
-/// `hidden`, or under one of `visible` — folders the sandbox shows inside a
-/// hidden one. By path component, so hiding `/run` does not hide `/runner`.
-fn exposed_sockets(sockets: &[PathBuf], hidden: &[PathBuf], visible: &[PathBuf]) -> Vec<PathBuf> {
+/// The sockets a refine session could still reach and that matter: those
+/// under none of `hidden`, leaving out those under `ignored`, folders whose
+/// sockets are in reach but harmless (see [`prepare_fence`]). By path
+/// component, so hiding `/run` does not hide `/runner`.
+fn exposed_sockets(sockets: &[PathBuf], hidden: &[PathBuf], ignored: &[PathBuf]) -> Vec<PathBuf> {
     sockets
         .iter()
-        .filter(|s| !hidden.iter().any(|h| s.starts_with(h)) || visible.iter().any(|v| s.starts_with(v)))
+        .filter(|s| !hidden.iter().any(|h| s.starts_with(h)) && !ignored.iter().any(|i| s.starts_with(i)))
         .cloned()
         .collect()
 }
@@ -370,15 +390,14 @@ fn exposed_sockets(sockets: &[PathBuf], hidden: &[PathBuf], visible: &[PathBuf])
 ///
 /// Paths are resolved first, since a socket bound under `/var/run` is really
 /// under `/run`; one that no longer exists cannot be connected to and is
-/// skipped. `tmp` is the session's own temp folder, which the sandbox
-/// keeps visible even under a hidden path.
-fn ensure_no_exposed_sockets(hidden: &[PathBuf], tmp: &Path) -> Result<()> {
+/// skipped. Sockets under `ignored` do not count ([`exposed_sockets`]).
+fn ensure_no_exposed_sockets(hidden: &[PathBuf], ignored: &[PathBuf]) -> Result<()> {
     let table = std::fs::read_to_string("/proc/net/unix").context("could not read /proc/net/unix")?;
     let sockets: Vec<PathBuf> = socket_paths(&table)
         .iter()
         .filter_map(|p| std::fs::canonicalize(p).ok())
         .collect();
-    let exposed = exposed_sockets(&sockets, hidden, &[tmp.to_path_buf()]);
+    let exposed = exposed_sockets(&sockets, hidden, ignored);
     if !exposed.is_empty() {
         let list: Vec<String> = exposed.iter().map(|p| p.display().to_string()).collect();
         bail!(
@@ -405,7 +424,8 @@ fn ensure_no_exposed_sockets(hidden: &[PathBuf], tmp: &Path) -> Result<()> {
 pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
     let dirs = Dirs::from_env()?;
 
-    // Before anything opens: a refused refine should leave nothing behind.
+    // Before anything opens, so a refused refine opens no tab. It may
+    // leave the hooks and temp folders made, which the next one reuses.
     let task_data = task::data_location()?;
     let fence = prepare_fence(&dirs, &task_data, &t.uuid)?;
     let mod_dir = refine_mod_dir(&dirs);
@@ -1402,16 +1422,23 @@ Num       RefCount Protocol Flags    Type St Inode Path
         );
     }
 
-    /// The sandbox keeps its own temp folder visible inside a hidden `/tmp`,
-    /// so a socket there is exposed even though `/tmp` is hidden.
+    /// Another refine's live proxy sockets, under the refine temp root, do
+    /// not stop a refine: they forward into a proxy with the same host list,
+    /// so reaching one grants nothing new. A socket elsewhere under the
+    /// cache still does.
     #[test]
-    fn a_socket_in_the_sandboxes_own_temp_folder_is_exposed() {
-        let hidden = [PathBuf::from("/tmp")];
-        let visible = [PathBuf::from("/tmp/claude-1000")];
-        let sockets = [PathBuf::from("/tmp/claude-1000/x.sock"), PathBuf::from("/tmp/.X11-unix/X0")];
+    fn a_socket_under_the_refine_temp_root_is_not_exposed() {
+        let hidden = [PathBuf::from("/run"), PathBuf::from("/tmp")];
+        let ignored = [PathBuf::from("/home/x/.cache/niri-tasks/refine-tmp")];
+        let sockets = [
+            PathBuf::from("/home/x/.cache/niri-tasks/refine-tmp/aaaaaaaa/claude-http-x.sock"),
+            PathBuf::from("/home/x/.cache/niri-tasks/refine-tmp/d9f76b94/srt-mux-1.sock"),
+            PathBuf::from("/home/x/.cache/other/app.sock"),
+            PathBuf::from("/home/x/.cache/niri-tasks/refine-tmp-other/y.sock"),
+        ];
         assert_eq!(
-            exposed_sockets(&sockets, &hidden, &visible),
-            vec![PathBuf::from("/tmp/claude-1000/x.sock")]
+            exposed_sockets(&sockets, &hidden, &ignored),
+            vec![PathBuf::from("/home/x/.cache/other/app.sock"), PathBuf::from("/home/x/.cache/niri-tasks/refine-tmp-other/y.sock")]
         );
     }
 
