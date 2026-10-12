@@ -16,6 +16,9 @@
 #   reload   rebuild, and restart the nested daemon on the new binary
 #   exit     close the nested niri and throw the copy away
 #
+# Closing the nested window from your niri ends the try shell too, and the
+# copy goes as with exit.
+#
 # Notifications are printed in the try shell rather than shown on your
 # desktop. Nothing is written back to your task database. Terminals, editors
 # and clones are not opened from a try window either: ghostty and VS Code
@@ -130,6 +133,10 @@ tail -n0 -F --pid=$$ "$SB/notifications" 2>/dev/null | sed -u 's/^/[notify] /' &
 cat > "$SB/try.bashrc" <<'RC'
 # The try shell's rc, written by try.sh. Not ~/.bashrc, which could put
 # herdr back on PATH.
+# Its pid, first, for try.sh to end this shell when the nested niri exits.
+# Only an interactive shell's: daemon_restart's bash -c sources this too,
+# and would leave a dead pid behind.
+if [[ $- == *i* ]]; then echo $$ > "$TRY_SB/shell.pid"; fi
 # Its own history: the try shell's commands stay out of ~/.bash_history.
 HISTFILE="$TRY_SB/history"
 PS1="(try $TRY_PROJECT) \w \$ "
@@ -169,6 +176,19 @@ RC
 TRY_ENV=(TRY_ROOT="$ROOT" TRY_SB="$SB" TRY_CARGO="$CARGO" TRY_PROFILE="$PROFILE" TRY_PROJECT="$PROJECT")
 nested env "${TRY_ENV[@]}" bash -c '. "$TRY_SB/try.bashrc" && daemon_restart' ||
     die "the nested daemon would not start"
+
+# A nested niri that dies, its window closed from your niri say, ends the
+# try at once, rather than leave the try shell on dead sockets until you
+# type exit. The shell gets SIGHUP, as from a closed terminal: an
+# interactive bash ignores SIGTERM. Until the shell has written its pid,
+# try.sh gets it instead, and its HUP trap runs once what it is running
+# returns. cleanup kills the watcher first, so exit never trips it.
+(
+    while kill -0 "$NESTED" 2>/dev/null; do sleep 0.5; done
+    printf '\nthe nested niri exited, closing the try\n'
+    kill -HUP "$(cat "$SB/shell.pid" 2>/dev/null)" 2>/dev/null || kill -HUP $$
+) &
+WATCH=$!
 
 cat <<EOF
 

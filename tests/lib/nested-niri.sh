@@ -37,8 +37,10 @@
 #
 # try.sh starts the same sandbox by hand with `nested_start --focused`: the
 # window is not parked but left where niri opens it, on your workspace with
-# the focus, sized like any other window, and nothing watches it. Its config
-# keeps niri's animations and key repeat, which only a test wants off.
+# the focus, sized like any other window, and nothing watches its focus.
+# try.sh watches only that the nested niri still runs, in WATCH, to end the
+# try when it does not. Its config keeps niri's animations and key repeat,
+# which only a test wants off.
 
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
 command -v task >/dev/null || { echo "taskwarrior is required" >&2; exit 1; }
