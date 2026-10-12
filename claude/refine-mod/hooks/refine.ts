@@ -380,7 +380,13 @@ export const register: Register = (on, options) => {
       // The page is built from the report's Markdown twin as it reads back,
       // never from the fields beside it, so the two cannot disagree.
       const twin = twinOf(report, shown)
-      if (typeof twin === 'string') return { deny: `show_task_report: nothing written: ${twin}.` }
+      if (typeof twin === 'string') {
+        return {
+          deny:
+            `show_task_report: nothing written: ${twin}. The task's own description and notes are reported ` +
+            'as they are; one on several lines must be made one line first.',
+        }
+      }
       const path = reportPath(reports, uuid, await $.clock.now())
       const page = reportPage(twin.report, twin.plan, await readFonts($, fonts), await drawDiagrams($, twin.report))
       await $.fs.write(path, page)

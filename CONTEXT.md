@@ -60,9 +60,9 @@ task card's Generate report, in its Go to list, on the plan the task already
 holds. It is saved under the reviews folder, with a Markdown twin,
 `<report>.md`, beside it: the slides are built from the twin, and herdr's
 task-docs plugin opens it in plannotator-tui. It is linked from the task's
-notes as `Report: <path>`; once
-linked, the card's dot becomes the report icon, its Go to list's Open report
-opens it, and `niritasks task report <uuid> --fresh` builds another.
+notes as `Report: <path>`; once linked, the card's dot becomes the report
+icon, its Go to list's Open report opens it, and
+`niritasks task report <uuid> --fresh` builds another.
 _Avoid_: plan report, explainer
 
 **Plan note**:

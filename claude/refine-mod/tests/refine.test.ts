@@ -615,6 +615,7 @@ test('report mode: a plan whose twin would not read back writes nothing', { opti
   const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
 
   expect(shown.deny).toStartWith('show_task_report: nothing written: its Markdown twin does not read back (line ')
+  expect(shown.deny).toContain('must be made one line first')
   expect(writes).toEqual([])
   expect(runs.map(run => run.argv.at(-1))).toEqual(['export'])
 })

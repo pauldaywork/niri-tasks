@@ -105,7 +105,7 @@ describe('drawnSvgs', () => {
     expect(drawnSvgs(JSON.stringify({ svgs: [svg, null] }), sources)[0]).toBe('<svg viewBox="0 0 1 1">\n\n<rect/>\n</svg>')
   })
 
-  test('drops what would break the page, as for an SVG the model writes', () => {
+  test('drops what would break the page, as for detail shown as given', () => {
     for (const bad of [
       '<svg><!-- open',
       '<svg><text>a</text></section><section></svg>',
