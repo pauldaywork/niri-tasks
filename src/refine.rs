@@ -183,7 +183,7 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// folder ([`session_tmp`]), not the temp folder the user's unsandboxed
 /// Claude sessions share. It is not set here: the settings' `env` does not
 /// reach Claude Code's temp folder (measured 2026-10-12), so
-/// `CLAUDE_CODE_TMPDIR` is exported in the tab's shell before Claude starts
+/// `TMPDIR` is exported in the tab's shell before Claude starts
 /// ([`Claude::Refiner`]'s `tmp`) and set on an unattended run's process.
 ///
 /// Unix sockets are allowed because the sandbox's socket filter cannot load
@@ -307,8 +307,13 @@ pub struct Fence {
 /// `/tmp/claude-<uid>` the user's own, unsandboxed Claude sessions share:
 /// a sandboxed command may write its temp folder, and one it shares is a
 /// place to leave a trap for a process that is not sandboxed. Under the
-/// cache, named by the task's first eight characters, kept short because
-/// Claude Code falls back to the shared folder for a long one.
+/// cache, named by the task's first eight characters.
+///
+/// It is set as `TMPDIR`, not `CLAUDE_CODE_TMPDIR`: Claude Code ignores a
+/// `CLAUDE_CODE_TMPDIR` longer than 32 bytes and falls back to `$TMPDIR`,
+/// and the fallback under `/tmp` both shares the user's sessions' folder
+/// and hides the sandbox's own proxy socket. With `TMPDIR` there is no
+/// length limit (Claude uses `<TMPDIR>/claude-<uid>`).
 pub fn session_tmp(dirs: &Dirs, uuid: &str) -> PathBuf {
     dirs.cache().join("niri-tasks/refine-tmp").join(names::uuid8(uuid))
 }
@@ -758,14 +763,15 @@ fn report_wrote<'a>(before: Option<&str>, after: Option<&'a str>) -> Result<&'a 
 /// the refusals are added to `denials`. Stdout that is not that JSON is
 /// logged as it came. Stdin is closed: there is no one typing.
 /// `tmp` is the session's own temp folder ([`session_tmp`]), set as
-/// `CLAUDE_CODE_TMPDIR`, which is the only way it reaches Claude Code.
+/// `TMPDIR`, which is the only way it reaches Claude Code (see
+/// [`session_tmp`]).
 fn run_claude(project: &Path, log: &Path, step: Step, argv: &[String], tmp: &Path, denials: &mut Vec<Denial>) -> Result<()> {
     append_line(log, &format!("== {}: {}", step.name(), argv[..3].join(" ")));
     let err = File::options().append(true).create(true).open(log).with_context(|| format!("could not open {}", log.display()))?;
     let out = Command::new(&argv[0])
         .args(&argv[1..])
         .current_dir(project)
-        .env("CLAUDE_CODE_TMPDIR", tmp)
+        .env("TMPDIR", tmp)
         .stdin(Stdio::null())
         .stderr(Stdio::from(err))
         .output()
@@ -1301,7 +1307,7 @@ mod tests {
 
         // The session's own temp folder reaches Claude through its
         // environment, since the settings' `env` does not move it.
-        let echo = ["sh", "-c", "echo \"$CLAUDE_CODE_TMPDIR\""].map(String::from);
+        let echo = ["sh", "-c", "echo \"$TMPDIR\""].map(String::from);
         run_claude(&dir, &log, Step::Refine, &echo, tmp, &mut denials).unwrap();
         let text = std::fs::read_to_string(&log).unwrap();
         assert!(text.ends_with("\n/home/x/.cache/niri-tasks/refine-tmp/d9f76b94\n"), "{text}");
@@ -1487,7 +1493,7 @@ Num       RefCount Protocol Flags    Type St Inode Path
         let log = fake.log();
         assert_eq!(log[0], "claim alpha", "{log:?}");
         assert_eq!(
-            at(&log, "pane_run alpha p1 export CLAUDE_CODE_TMPDIR='/c/tmp'") + 1,
+            at(&log, "pane_run alpha p1 export TMPDIR='/c/tmp'") + 1,
             at(&log, "agent_start alpha task-abc"),
             "the temp folder is set in the pane's shell just before Claude starts in it: {log:?}"
         );
