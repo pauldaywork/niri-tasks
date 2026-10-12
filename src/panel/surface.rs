@@ -685,15 +685,20 @@ impl Panel {
                 Effect::ListGoTo(uuid) => {
                     // Looked at on every press: a worktree made, VS Code
                     // installed or a speech started since shows.
+                    let ws = crate::workspace::Workspace::focused().ok();
+                    let worktree = ws.as_ref().and_then(|ws| crate::work::worktree_path(ws, &uuid));
+                    let folder = ws.as_ref().zip(crate::dirs::Dirs::from_env().ok()).map(|(ws, dirs)| ws.folder(&dirs));
                     let found = Found {
-                        worktree: crate::workspace::Workspace::focused()
-                            .ok()
-                            .and_then(|ws| crate::work::worktree_path(&ws, &uuid))
-                            .is_some(),
+                        worktree: worktree.is_some(),
                         editor: crate::programs::on_path(crate::programs::EDITOR),
                         speaking: crate::speak::speaking_now(),
                     };
-                    let effects = self.state.borrow_mut().show_goto(&uuid, found);
+                    // A document whose note's date cannot be read is aged
+                    // by its file, found where `task open` would open it.
+                    let modified = |linked: &str| {
+                        crate::open::modified_secs(&crate::open::resolve(linked, worktree.as_deref(), folder.as_deref()?))
+                    };
+                    let effects = self.state.borrow_mut().show_goto(&uuid, found, &modified);
                     self.apply(effects);
                 }
                 Effect::ShowFolder => self.follow_focus(),

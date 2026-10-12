@@ -19,7 +19,7 @@ use super::actions::{self, Step};
 use super::keys::{self, KeyAction};
 use super::model::{self, Card, Filter, Tab};
 use super::projects::{Escaped, Matcher, Picked, ProjectList, Purpose, NO_DESTINATIONS};
-use super::goto::{Found, GoToList};
+use super::goto::{Found, GoToList, Since};
 use crate::project::{Projects, Row};
 use gtk4::gdk;
 
@@ -796,15 +796,18 @@ impl PanelState {
     }
 
     /// What the surface found for Go to… on this task's card: its Go to
-    /// list in place of the cards, the first row highlighted. Nothing
-    /// without the keyboard, with a list already up, or for a card no longer
-    /// there.
-    pub fn show_goto(&mut self, uuid: &str, found: Found) -> Vec<Effect> {
+    /// list in place of the cards, the first row highlighted. `modified` is
+    /// when a document's file last changed, for a document whose note's
+    /// date cannot be read. Nothing without the keyboard, with a list
+    /// already up, or for a card no longer there.
+    pub fn show_goto(&mut self, uuid: &str, found: Found, modified: &dyn Fn(&str) -> Option<i64>) -> Vec<Effect> {
         if !self.keyboard || self.on_a_list() {
             return Vec::new();
         }
         let Some(card) = self.all.iter().find(|c| c.uuid.as_deref() == Some(uuid)) else { return Vec::new() };
-        let Some(list) = card.state(&self.agents).and_then(|state| GoToList::new(uuid, &card.text, state, found)) else {
+        let since = Since::of(card.report.as_ref(), card.plan.as_ref(), card.spec.as_ref(), modified);
+        let Some(list) = card.state(&self.agents).and_then(|state| GoToList::new(uuid, &card.text, state, found, since))
+        else {
             return Vec::new();
         };
         self.mode = Mode::GoTo(list);
@@ -1917,7 +1920,7 @@ mod tests {
     fn listing_a() -> PanelState {
         let mut state = going_from_a();
         assert_eq!(key(&mut state, KeyAction::Run(Action::GoTo)), vec![Effect::ListGoTo("a".into())]);
-        assert_eq!(state.show_goto("a", Found::default()), vec![Effect::Render]);
+        assert_eq!(state.show_goto("a", Found::default(), &|_| None), vec![Effect::Render]);
         state
     }
 
@@ -1947,10 +1950,28 @@ mod tests {
     fn what_was_found_adds_its_rows() {
         let mut state = going_from_a();
         key(&mut state, KeyAction::Run(Action::GoTo));
-        state.show_goto("a", Found { worktree: true, editor: true, speaking: true });
+        state.show_goto("a", Found { worktree: true, editor: true, speaking: true }, &|_| None);
         let list = state.goto().unwrap();
         assert!(list.rows().contains(&Item::Worktree) && list.rows().contains(&Item::Editor));
         assert_eq!(list.row_label(Item::ReadAloud), format!("{}  Stop reading aloud", Item::ReadAloud.icon()));
+    }
+
+    /// A card's linked report reaches its Go to row's age, through the
+    /// file's date when the note's cannot be read.
+    #[test]
+    fn a_linked_reports_date_reaches_its_row() {
+        let mut a = card("a", Status::Active);
+        a.planned = true;
+        a.report = Some(crate::task::Link { path: "/r/a.html".into(), entry: "someday".into() });
+        let mut state = PanelState::default();
+        state.set_cards(&[a, card("b", Status::Pending)]);
+        assert!(state.take_keyboard(vec![crate::names::refine_agent("a")]));
+        assert_eq!(key(&mut state, KeyAction::Run(Action::GoTo)), vec![Effect::ListGoTo("a".into())]);
+        let now = crate::task::stamp_secs("20261008T000000Z").unwrap();
+        state.show_goto("a", Found::default(), &|path| (path == "/r/a.html").then_some(now - 120));
+        let list = state.goto().unwrap();
+        assert!(list.rows().contains(&Item::OpenReport));
+        assert_eq!(list.row_age(Item::OpenReport, now).as_deref(), Some("2m"));
     }
 
     /// Up and Down walk the rows and stop at the ends; Enter gives the
@@ -2000,7 +2021,7 @@ mod tests {
         key(&mut state, KeyAction::NextSlot);
         assert_eq!(state.focus(), focused("a", Slot::Button(Action::GoTo)).as_ref());
         assert_eq!(state.on_press("a", Slot::Button(Action::GoTo)), vec![Effect::ListGoTo("a".into())]);
-        state.show_goto("a", Found::default());
+        state.show_goto("a", Found::default(), &|_| None);
         assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render]);
         assert_eq!(state.goto(), None);
         assert!(state.keyboard());
@@ -2032,7 +2053,7 @@ mod tests {
         assert_eq!(state.on_press("b", Slot::Body), Vec::new());
         state.on_focus(None);
         assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
-        assert_eq!(state.show_goto("b", Found::default()), Vec::new(), "one list at a time");
+        assert_eq!(state.show_goto("b", Found::default(), &|_| None), Vec::new(), "one list at a time");
     }
 
     /// The raw keys map as on the project list: the arrows, Enter and
@@ -2067,10 +2088,10 @@ mod tests {
     #[test]
     fn a_late_answer_shows_nothing() {
         let mut state = going_from_a();
-        assert_eq!(state.show_goto("gone", Found::default()), Vec::new());
+        assert_eq!(state.show_goto("gone", Found::default(), &|_| None), Vec::new());
         let mut released = going_from_a();
         key(&mut released, KeyAction::Release);
-        assert_eq!(released.show_goto("a", Found::default()), Vec::new());
+        assert_eq!(released.show_goto("a", Found::default(), &|_| None), Vec::new());
     }
 
     // ─── Ctrl+Delete ─────────────────────────────────────────────────────

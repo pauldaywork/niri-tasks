@@ -5,10 +5,12 @@
 //! aloud — each row only when it applies, and what picking one runs. Plain
 //! data, like the project list: the rows are read off the task's
 //! `TaskState` and what the surface found on the machine ([`Found`]), and
-//! `surface.rs` only draws what this says.
+//! `surface.rs` only draws what this says. A document's row shows how old it
+//! is, from the note linking it, else its file ([`Since`]).
 
 use super::style as c;
 use crate::actions::{Action, TaskState};
+use crate::task::{self, Link};
 
 /// The button's words, and the start of the list's title.
 pub const LABEL: &str = "Go to…";
@@ -28,6 +30,38 @@ pub struct Found {
     /// A speech is playing or being got ready, any task's: reading aloud
     /// again stops it.
     pub speaking: bool,
+}
+
+/// When each document the task's notes link was made, as a taskwarrior
+/// stamp, for the age at its row's right end: the linking note's date,
+/// else the file's last change. Worked out as Go to… is pressed and never
+/// saved. None for a document not linked, or with neither date.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Since {
+    pub report: Option<String>,
+    pub plan: Option<String>,
+    pub spec: Option<String>,
+}
+
+impl Since {
+    /// The stamps of the `report`, `plan` and `spec` a card links, asking
+    /// `modified` for the Unix seconds a linked path last changed whenever
+    /// a note's date is not taskwarrior's shape.
+    pub fn of(
+        report: Option<&Link>,
+        plan: Option<&Link>,
+        spec: Option<&Link>,
+        modified: &dyn Fn(&str) -> Option<i64>,
+    ) -> Since {
+        let since = |link: Option<&Link>| {
+            let link = link?;
+            match task::stamp_secs(&link.entry) {
+                Some(_) => Some(link.entry.clone()),
+                None => modified(&link.path).map(task::stamp),
+            }
+        };
+        Since { report: since(report), plan: since(plan), spec: since(spec) }
+    }
 }
 
 /// One row on the Go to list.
@@ -247,6 +281,8 @@ pub struct GoToList {
     /// What the rows were picked by, for their words.
     state: TaskState,
     found: Found,
+    /// When its documents were made, for their rows' ages.
+    since: Since,
     rows: Vec<Item>,
     /// The row the highlight is on: Up, Down and Enter's.
     at: usize,
@@ -254,11 +290,11 @@ pub struct GoToList {
 
 impl GoToList {
     /// The list for the task `uuid`, described `text`, in `state`, with
-    /// what was `found`, the first row highlighted. None with no row: a
-    /// processing task.
-    pub fn new(uuid: &str, text: &str, state: TaskState, found: Found) -> Option<GoToList> {
+    /// what was `found` and when its documents were made, the first row
+    /// highlighted. None with no row: a processing task.
+    pub fn new(uuid: &str, text: &str, state: TaskState, found: Found, since: Since) -> Option<GoToList> {
         let rows = Item::of(state, found);
-        (!rows.is_empty()).then(|| GoToList { uuid: uuid.into(), text: text.into(), state, found, rows, at: 0 })
+        (!rows.is_empty()).then(|| GoToList { uuid: uuid.into(), text: text.into(), state, found, since, rows, at: 0 })
     }
 
     /// The task the list is for.
@@ -294,6 +330,20 @@ impl GoToList {
     /// are the gap a task card leaves after its icon.
     pub fn row_label(&self, item: Item) -> String {
         format!("{}  {}", item.icon(), item.label(self.state, self.found))
+    }
+
+    /// How long ago a document row's document was made, as a task card
+    /// shows its age, `now` in Unix seconds: Open report, Planning doc and
+    /// Design spec alone. None on every other row, and on a document with
+    /// no date.
+    pub fn row_age(&self, item: Item, now: i64) -> Option<String> {
+        let since = match item {
+            OpenReport => &self.since.report,
+            Plan => &self.since.plan,
+            Spec => &self.since.spec,
+            _ => return None,
+        };
+        task::age(since.as_deref()?, now)
     }
 }
 
@@ -389,7 +439,7 @@ mod tests {
     fn a_processing_task_gets_no_list() {
         let processing = TaskState { processing: true, ..everything() };
         assert_eq!(Item::of(processing, all_found()), Vec::new());
-        assert_eq!(GoToList::new("a", "task a", processing, all_found()), None);
+        assert_eq!(GoToList::new("a", "task a", processing, all_found(), Since::default()), None);
     }
 
     /// The worktree and VS Code rows follow what was found.
@@ -453,7 +503,7 @@ mod tests {
 
     #[test]
     fn a_new_list_highlights_the_first_row_and_steps_to_the_ends() {
-        let mut list = GoToList::new("a", "task a", everything(), all_found()).unwrap();
+        let mut list = GoToList::new("a", "task a", everything(), all_found(), Since::default()).unwrap();
         assert_eq!(list.uuid(), "a");
         assert_eq!(list.at(), 0);
         list.step(false);
@@ -468,7 +518,7 @@ mod tests {
 
     #[test]
     fn the_title_names_the_button_and_the_task_and_rows_wear_their_icon() {
-        let list = GoToList::new("a", "Fix the peek", planned(), Found::default()).unwrap();
+        let list = GoToList::new("a", "Fix the peek", planned(), Found::default(), Since::default()).unwrap();
         assert_eq!(list.title(), "Go to…: Fix the peek");
         assert_eq!(list.row_label(Refine), "\u{f0d0}  Redo refine");
         assert_eq!(list.rows(), [Refine, Grill, Start, Report, ReadAloud]);
@@ -490,5 +540,59 @@ mod tests {
                 assert_ne!(a.class(), b.class());
             }
         }
+    }
+
+    fn link(path: &str, entry: &str) -> crate::task::Link {
+        crate::task::Link { path: path.into(), entry: entry.into() }
+    }
+
+    /// 2026-10-08T00:00:00Z, four days after the links below were made.
+    const NOW: i64 = 1_791_417_600;
+
+    /// Each document row shows how long ago its note linked it; no other
+    /// row has an age, and a document not linked has none.
+    #[test]
+    fn document_rows_show_their_age_and_others_none() {
+        assert_eq!(crate::task::stamp_secs("20261008T000000Z"), Some(NOW));
+        let since = Since::of(
+            Some(&link("/r/a.html", "20261004T000000Z")),
+            Some(&link("docs/p.md", "20261007T000000Z")),
+            None,
+            &|_| panic!("every note's date reads"),
+        );
+        let list = GoToList::new("a", "task a", everything(), all_found(), since).unwrap();
+        assert_eq!(list.row_age(OpenReport, NOW).as_deref(), Some("4d"));
+        assert_eq!(list.row_age(Plan, NOW).as_deref(), Some("1d"));
+        assert_eq!(list.row_age(Spec, NOW), None, "no spec linked");
+        for item in Item::ALL.into_iter().filter(|i| !matches!(i, OpenReport | Plan | Spec)) {
+            assert_eq!(list.row_age(item, NOW), None, "{item:?}");
+        }
+    }
+
+    /// A regenerated report's newest note is the one its age counts from.
+    #[test]
+    fn a_regenerated_reports_age_counts_from_its_newest_note() {
+        let t: crate::task::Task = serde_json::from_str(
+            r#"{"uuid":"a","description":"d","annotations":[
+                {"entry":"20261001T000000Z","description":"Report: /r/first.html"},
+                {"entry":"20261007T120000Z","description":"Report: /r/second.html"}
+            ]}"#,
+        )
+        .unwrap();
+        let since = Since::of(t.report_link().as_ref(), None, None, &|_| None);
+        let list = GoToList::new("a", "d", everything(), all_found(), since).unwrap();
+        assert_eq!(list.row_age(OpenReport, NOW).as_deref(), Some("12h"));
+    }
+
+    /// A note's date that cannot be read gives way to the file's last
+    /// change, found by the note's path; with neither, no age.
+    #[test]
+    fn an_unreadable_note_date_falls_back_to_the_files() {
+        let modified = |path: &str| (path == "docs/p.md").then_some(NOW - 3 * 3600);
+        let since = Since::of(Some(&link("/r/gone.html", "someday")), Some(&link("docs/p.md", "")), None, &modified);
+        assert_eq!(since, Since { report: None, plan: Some("20261007T210000Z".into()), spec: None });
+        let list = GoToList::new("a", "d", everything(), all_found(), since).unwrap();
+        assert_eq!(list.row_age(Plan, NOW).as_deref(), Some("3h"));
+        assert_eq!(list.row_age(OpenReport, NOW), None);
     }
 }
