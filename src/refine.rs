@@ -168,18 +168,18 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// outside the sandbox — niri's spawn, the session bus, docker, herdr's panes —
 /// are hidden from it instead, along with the credentials.
 ///
-/// Allowed unasked on top: web search and fetch, which write nothing; and
-/// `task`, which Claude Code asks about even inside the sandbox, for reasons
-/// it does not log — the skill reads with it, and it still runs sandboxed.
+/// Allowed unasked: every Bash command (`Bash`, bare), since the sandbox
+/// is the fence and the rules only say so. Auto-allow alone leaves
+/// Claude Code's own command-shape checks in place (a variable, quoted
+/// text, a `;` chain), and with no one to ask, as in an unattended run,
+/// they deny (ADR 0002, 2026-10-12). Bare `Bash` opens no way out of the
+/// sandbox: `allowUnsandboxedCommands` is false and there are no
+/// `excludedCommands`. Also web search and fetch.
 /// The Read tool may read anywhere (`Read(//**)`: `//` is Claude Code's
 /// absolute form, one `/` would be the project's), as sandboxed Bash
-/// already can. Without it the tool asks outside the project, where the
-/// installed skills, the report catalogue, an unattended run's log and the
-/// reviews folder all live, and an unattended run has no one to answer.
-/// Deny rules win over it: the [`CREDENTIALS`], the [`SECRET_GLOBS`], and every path `fence.hidden`
-/// hides from sandboxed Bash, so the tool opens nothing Bash could not read
-/// already. One rule for every project, not a list of
-/// folders.
+/// already can. Deny rules win over it: the [`CREDENTIALS`], the
+/// [`SECRET_GLOBS`], and every path `hidden` hides from sandboxed Bash,
+/// so the tool opens nothing Bash could not read already.
 /// The write itself is the refine mod's tool, which `pluginConfigs` tells
 /// which task it may write: `uuid`, never anything the model says.
 /// It is told `reports` too, the folder its report tool writes to, and
@@ -197,7 +197,7 @@ pub fn session_settings(project: &Path, task_data: &Path, fence: &Fence, uuid: &
     deny.extend(SECRET_GLOBS.iter().map(|g| format!("Read({g})")));
     let mut deny_read: Vec<String> = fence.hidden.iter().map(|p| p.display().to_string()).collect();
     deny_read.extend(SECRET_GLOBS.iter().map(|g| fence.home.join(g.trim_start_matches("~/")).display().to_string()));
-    let allow = ["WebSearch", "WebFetch", "Bash(task *)", "Read(//**)"];
+    let allow = ["WebSearch", "WebFetch", "Bash", "Read(//**)"];
     let mut settings = serde_json::json!({
         "permissions": {
             "allow": allow,
@@ -545,7 +545,7 @@ pub fn unattended_prompts(uuid: &str) -> [String; 2] {
 /// the mod) and `--permission-prompts none`, so anything that would ask — a
 /// permission, AskUserQuestion — is refused rather than waited on. Not plan
 /// mode and not auto mode, for the reasons `agent_start_claude_refiner`
-/// gives; the sandbox already runs every command unasked.
+/// gives; the settings already allow every sandboxed command and read.
 pub fn claude_unattended_argv(prompt: &str, settings: &str, mod_dir: &Path) -> Vec<String> {
     let mut argv = vec![CLAUDE.to_string(), "-p".to_string(), prompt.to_string()];
     argv.extend(crate::session::refiner_flags(settings, mod_dir));
@@ -918,26 +918,26 @@ mod tests {
         assert_eq!(sb["network"]["allowAllUnixSockets"], true);
     }
 
-    /// The web and the skill's reads run unasked, and so does the Read tool
-    /// anywhere: the installed skills and the report catalogue, an
-    /// unattended run's log and the reviews folder all lie outside the
-    /// project, where the tool would otherwise ask and an unattended run has
-    /// no one to answer, while sandboxed Bash can read them anyway. `//` is
-    /// Claude Code's absolute form; one `/` would be the project's.
-    /// Credentials still cannot be read through it, the one reader the Bash
-    /// sandbox does not cover: a deny rule wins over an allow. The Read tool
-    /// is also denied every path the sandbox hides from Bash, so it reads no
-    /// further than Bash. No `python3`: the write is the mod's tool now.
+    /// Every shell command runs unasked, of any shape: a bare `Bash` rule,
+    /// because the sandbox is the fence, not the rules. Claude Code's
+    /// command-shape checks otherwise deny loops and `$( )` when there is
+    /// no one to ask, even with auto-allow (ADR 0002, 2026-10-12). No
+    /// scoped `Bash(…)` rule is left beside it. Web search and fetch, and
+    /// the Read tool anywhere (`//` is the absolute form), as sandboxed
+    /// Bash can. Deny rules win over the allows: secrets, and every path
+    /// the sandbox hides from Bash.
     #[test]
-    fn the_session_may_search_the_web_but_not_read_credentials() {
+    fn the_session_may_run_any_sandboxed_command_but_not_read_secrets() {
         let hidden = [PathBuf::from("/run"), PathBuf::from("/home/x/.config/herdr")];
         let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&hidden), "u", Path::new("/r"), Mode::Quick, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let allow = v["permissions"]["allow"].as_array().unwrap();
-        for tool in ["WebSearch", "WebFetch", "Bash(task *)", "Read(//**)"] {
+        for tool in ["WebSearch", "WebFetch", "Bash", "Read(//**)"] {
             assert!(allow.iter().any(|a| a == tool), "{tool} allowed");
         }
         assert_eq!(allow.len(), 4, "nothing else runs unasked");
+        assert!(!allow.iter().any(|a| a.as_str().is_some_and(|s| s.starts_with("Bash("))), "no scoped Bash rule beside the bare one");
+        assert!(!allow.iter().any(|a| a.as_str().is_some_and(|s| s.starts_with("WebFetch(domain:"))), "hosts come from the sandbox's own list");
         assert!(!allow.iter().any(|a| a.as_str().is_some_and(|s| s.contains("python3"))));
         assert!(!allow.iter().any(|a| a.as_str().is_some_and(|s| s.contains("skills"))), "one rule for every folder, not a list");
         let deny = v["permissions"]["deny"].as_array().unwrap();
@@ -966,7 +966,7 @@ mod tests {
             assert!(CREDENTIALS.contains(&c), "{c}");
         }
         assert_eq!(SECRET_GLOBS, ["~/Projects/**/.env*"]);
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, false);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         assert!(v["permissions"]["deny"].as_array().unwrap().iter().any(|d| d == "Read(~/Projects/**/.env*)"));
         let deny_read = v["sandbox"]["filesystem"]["denyRead"].as_array().unwrap();

@@ -121,9 +121,11 @@ pub fn export_tmpdir(tmp: &Path) -> String {
 /// guard against starting the task is a classifier's judgement, not a rule.
 ///
 /// What keeps it from prompting instead is `settings` (see
-/// `refine::session_settings`): a Bash sandbox whose commands run unasked while
-/// the OS stops them writing anywhere but the task database, plus the few
-/// allow and deny rules that go with it.
+/// `refine::session_settings`): a Bash sandbox that stops commands writing
+/// anywhere but the task database and their own temp folder, and allow
+/// rules that state that fence (any Bash command, the Read tool anywhere
+/// but secrets and hidden paths, the web), so nothing the sandbox permits
+/// is asked about.
 ///
 /// `mod_dir` is the refine mod (`refine::refine_mod_dir`), loaded for this
 /// session only: it serves the one tool the skill writes the task with.
