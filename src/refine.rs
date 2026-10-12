@@ -55,6 +55,30 @@ pub fn tab_label(mode: Mode, description: &str) -> String {
     format!("{verb}: {}", names::elide(description))
 }
 
+/// The hosts sandboxed Bash may reach, on port 443 alone: public source
+/// and docs, for `curl` of a raw file or a shallow `git clone` into the
+/// session's temp folder. Every other host is refused outright
+/// (`strictAllowlist`), not asked about. Never a wildcard or an IP, and
+/// never every host: the sandbox's guard against local addresses skips IP
+/// literals, so an open list reaches loopback, Docker and the LAN.
+/// WebFetch is separate and reaches any host, as it always has.
+pub const NETWORK_HOSTS: &[&str] = &[
+    "github.com",
+    "api.github.com",
+    "raw.githubusercontent.com",
+    "codeload.github.com",
+    "objects.githubusercontent.com",
+    "gitlab.com",
+    "crates.io",
+    "static.crates.io",
+    "index.crates.io",
+    "docs.rs",
+    "pypi.org",
+    "files.pythonhosted.org",
+    "registry.npmjs.org",
+    "herdr.dev",
+];
+
 /// Credential files and folders, as `Read` rule patterns relative to home.
 ///
 /// The session searches and fetches from the web unasked, so a page it reads
@@ -180,6 +204,11 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// already can. Deny rules win over it: the [`CREDENTIALS`], the
 /// [`SECRET_GLOBS`], and every path `hidden` hides from sandboxed Bash,
 /// so the tool opens nothing Bash could not read already.
+/// Bash's network is [`NETWORK_HOSTS`] on 443 and nothing else, refused
+/// rather than asked about (`strictAllowlist`, which Claude Code honours
+/// from `--settings`). That comes after the secrets are hidden and the
+/// hooks and shared temp folder are fenced off, since a page the session
+/// reads can tell it to fetch and run something.
 /// The write itself is the refine mod's tool, which `pluginConfigs` tells
 /// which task it may write: `uuid`, never anything the model says.
 /// It is told `reports` too, the folder its report tool writes to, and
@@ -198,6 +227,7 @@ pub fn session_settings(project: &Path, task_data: &Path, fence: &Fence, uuid: &
     let mut deny_read: Vec<String> = fence.hidden.iter().map(|p| p.display().to_string()).collect();
     deny_read.extend(SECRET_GLOBS.iter().map(|g| fence.home.join(g.trim_start_matches("~/")).display().to_string()));
     let allow = ["WebSearch", "WebFetch", "Bash", "Read(//**)"];
+    let hosts: Vec<String> = NETWORK_HOSTS.iter().map(|h| format!("{h}:443")).collect();
     let mut settings = serde_json::json!({
         "permissions": {
             "allow": allow,
@@ -208,7 +238,7 @@ pub fn session_settings(project: &Path, task_data: &Path, fence: &Fence, uuid: &
             "autoAllowBashIfSandboxed": true,
             "allowUnsandboxedCommands": false,
             "failIfUnavailable": true,
-            "network": { "allowAllUnixSockets": true },
+            "network": { "allowAllUnixSockets": true, "allowedDomains": hosts, "strictAllowlist": true },
             "filesystem": {
                 "denyWrite": [project, task_data.join("hooks")],
                 "allowWrite": [task_data],
@@ -916,6 +946,30 @@ mod tests {
         assert!(deny_read.starts_with(&[serde_json::json!("/run/user/1000"), serde_json::json!("/run/docker.sock")]));
         assert_eq!(deny_read.len(), 2 + SECRET_GLOBS.len(), "the hidden paths, then the secret globs");
         assert_eq!(sb["network"]["allowAllUnixSockets"], true);
+    }
+
+    /// Bash may reach a fixed list of hosts that serve public source and
+    /// docs, on 443 alone, and every other host is refused, not asked
+    /// about, in a tab as headless. No wildcard, no IP: allowing every
+    /// host would reach loopback, Docker and the LAN by IP literal, which
+    /// the sandbox's local-address guard does not cover.
+    #[test]
+    fn bash_reaches_only_the_listed_hosts_on_443() {
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, false, None);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        let net = &v["sandbox"]["network"];
+        assert_eq!(net["strictAllowlist"], true);
+        assert_eq!(net["allowAllUnixSockets"], true);
+        let hosts: Vec<&str> = net["allowedDomains"].as_array().unwrap().iter().map(|h| h.as_str().unwrap()).collect();
+        assert_eq!(hosts.len(), NETWORK_HOSTS.len());
+        for h in &hosts {
+            assert!(h.ends_with(":443"), "{h}");
+            assert!(!h.contains('*'), "{h}");
+            assert!(!h.trim_end_matches(":443").chars().all(|c| c.is_ascii_digit() || c == '.'), "no IP literal: {h}");
+        }
+        for h in ["github.com:443", "raw.githubusercontent.com:443", "crates.io:443", "herdr.dev:443"] {
+            assert!(hosts.contains(&h), "{h}");
+        }
     }
 
     /// Every shell command runs unasked, of any shape: a bare `Bash` rule,
