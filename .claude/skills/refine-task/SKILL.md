@@ -252,9 +252,12 @@ nothing to the task. Build the report:
 
 When the task is written, the tool adds a note linking each report made in
 this session: `Report: <path>`, or `Report (earlier draft): <path>` for one
-made before the plan changed. Do not add these notes yourself. The tool
-relabels any `Report …` note for this session's reports, so keeping earlier
-ones is always safe.
+made before the plan changed. Do not add these notes yourself. If the
+description or notes differ from what you read, the tool also rewrites a
+`Report: <path>` note from an earlier session as
+`Report (earlier draft): <path>` in its place, since that report shows the
+old plan; an unchanged plan keeps it. So keeping earlier `Report …` notes
+as they are is always safe.
 
 If, after reading the report, the user answers with changes, revise, print
 the block again (step 4) and call `write_task_plan` again.
@@ -262,7 +265,8 @@ the block again (step 4) and call `write_task_plan` again.
 ## 6. Verify and report
 
 Export once more and check: the description matches, the notes are exactly the
-new list, followed by any `Report …` notes the tool added, `planned` is in
+new list (with a kept `Report:` note as `Report (earlier draft):` if the plan
+changed), followed by any `Report …` notes the tool added, `planned` is in
 `tags`, and the other tags are unchanged. Tell the user what was written, and
 stop. Leave the session open — if the user then asks you to start on the task,
 that is a new request of theirs, not part of this skill.
