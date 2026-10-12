@@ -222,6 +222,8 @@ pub(crate) trait Port {
     fn tab_close(&self, session: &str, tab: &str) -> HerdrResult<()>;
     fn worktree_open(&self, session: &str, repo: &Path, path: &Path, label: &str) -> HerdrResult<Opened>;
     fn pane_run(&self, session: &str, pane: &str, command: &str) -> HerdrResult<()>;
+    fn pane_rename(&self, session: &str, pane: &str, label: &str) -> HerdrResult<()>;
+    fn pane_report_metadata(&self, session: &str, pane: &str, tokens: &[(String, String)]) -> HerdrResult<()>;
     fn agent_get(&self, session: &str, target: &str) -> HerdrResult<Agent>;
     fn agent_list(&self, session: &str) -> HerdrResult<Vec<String>>;
     fn agent_focus(&self, session: &str, name: &str) -> HerdrResult<()>;
@@ -601,6 +603,21 @@ impl Session {
     pub fn rename_agent(&self, target: &str, name: &str) -> Result<()> {
         Ok(self.port.agent_rename(&self.name, target, name)??)
     }
+
+    /// Say on `pane` which task it is on: its label, drawn in its border, and
+    /// its task tokens. Best effort, since the Claude in it is running by
+    /// now; a failure is only reported, so a terminal caller sees it.
+    pub fn label_pane(&self, pane: &str, name: &crate::names::PaneName) {
+        let renamed = self.port.pane_rename(&self.name, pane, &name.label);
+        let reported = self.port.pane_report_metadata(&self.name, pane, &name.tokens);
+        for (what, result) in [("label", renamed), ("task tokens", reported)] {
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => eprintln!("Could not give the pane its {what}: {e}"),
+                Err(e) => eprintln!("Could not give the pane its {what}: {e:#}"),
+            }
+        }
+    }
 }
 
 /// The ghostty window already showing one of the session's `labels`, if niri
@@ -732,6 +749,31 @@ mod tests {
 
     fn logged_start(f: &Fake, prefix: &str) -> bool {
         f.log().iter().any(|l| l.starts_with(prefix))
+    }
+
+    #[test]
+    fn labelling_a_pane_renames_it_and_reports_its_tokens() {
+        let (s, f) = session(Fake::running(&[("w1", "alpha")]));
+        s.label_pane("p1", &crate::names::PaneName::for_task(crate::names::Role::Work, 61, "u-1", "fix the peek"));
+        assert_eq!(
+            f.log(),
+            [
+                "pane_rename alpha p1 Work #61 · fix the peek",
+                "pane_report_metadata alpha p1 task_id=61 task=fix the peek task_uuid=u-1",
+            ]
+        );
+    }
+
+    /// The Claude is running by the time its pane is labelled: a refusal, or
+    /// no herdr at all, is no reason to fail the launch.
+    #[test]
+    fn labelling_a_pane_is_best_effort() {
+        let name = crate::names::PaneName::for_task(crate::names::Role::Refine, 61, "u-1", "x");
+        let (s, f) = session(Fake::stopped(0, "alpha"));
+        s.label_pane("p1", &name);
+        assert!(logged(&f, "pane_report_metadata alpha p1 task_id=61 task=x task_uuid=u-1"), "{:?}", f.log());
+        let (s, _) = session(Fake::running(&[]).not_installed());
+        s.label_pane("p1", &name);
     }
 
     /// A setup tab holds its task's setup lock, waiting briefly for it,

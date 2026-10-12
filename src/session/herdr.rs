@@ -224,6 +224,29 @@ pub fn pane_run(session: &str, pane: &str, command: &str) -> Vec<String> {
     cmd(session, &["pane", "run", pane, command])
 }
 
+/// Give a pane a manual label, which herdr draws in the pane's border — on a
+/// lone pane too with `ui.pane_borders = "always"`. How a task's Claude pane
+/// says which task it is on. (`report-metadata --title` sets the pane's
+/// terminal title instead, which no border shows.)
+pub fn pane_rename(session: &str, pane: &str, label: &str) -> Vec<String> {
+    cmd(session, &["pane", "rename", pane, label])
+}
+
+/// The source niri-tasks reports pane metadata under, so its tokens are its
+/// own to set and clear.
+pub const METADATA_SOURCE: &str = "niri-tasks";
+
+/// Report display-only tokens on a pane, which a sidebar row can show as
+/// `$name`. They stay until the pane closes.
+pub fn pane_report_metadata(session: &str, pane: &str, tokens: &[(String, String)]) -> Vec<String> {
+    let mut argv = cmd(session, &["pane", "report-metadata", pane, "--source", METADATA_SOURCE]);
+    for (name, value) in tokens {
+        argv.push("--token".to_string());
+        argv.push(format!("{name}={value}"));
+    }
+    argv
+}
+
 /// herdr's error message out of its stderr, or the stderr itself when it is
 /// not herdr's JSON (a usage error, say).
 pub fn error_message(stderr: &[u8]) -> String {
@@ -313,6 +336,12 @@ impl Port for Process {
     }
     fn pane_run(&self, s: &str, pane: &str, command: &str) -> HerdrResult<()> {
         self.call(&pane_run(s, pane, command), |_| Ok(()))
+    }
+    fn pane_rename(&self, s: &str, pane: &str, label: &str) -> HerdrResult<()> {
+        self.call(&pane_rename(s, pane, label), |_| Ok(()))
+    }
+    fn pane_report_metadata(&self, s: &str, pane: &str, tokens: &[(String, String)]) -> HerdrResult<()> {
+        self.call(&pane_report_metadata(s, pane, tokens), |_| Ok(()))
     }
     fn agent_get(&self, s: &str, target: &str) -> HerdrResult<Agent> {
         self.call(&agent_get(s, target), |v| Ok(Agent { name: agent_name_of(v), status: agent_status(v) }))
@@ -744,6 +773,28 @@ mod tests {
         assert_eq!(
             pane_run("alpha", "w1:p4", "echo hi"),
             vec!["herdr", "--session", "alpha", "pane", "run", "w1:p4", "echo hi"]
+        );
+    }
+
+    #[test]
+    fn a_pane_is_labelled_by_its_manual_name() {
+        assert_eq!(
+            pane_rename("alpha", "w2:p1", "Work #61 · fix the peek"),
+            vec!["herdr", "--session", "alpha", "pane", "rename", "w2:p1", "Work #61 · fix the peek"]
+        );
+    }
+
+    /// One report, under niri-tasks' own source, so nothing another reporter
+    /// sets is touched.
+    #[test]
+    fn a_panes_task_tokens_are_reported_under_niri_tasks() {
+        let tokens = vec![("task_id".to_string(), "61".to_string()), ("task".to_string(), "fix = peek".to_string())];
+        assert_eq!(
+            pane_report_metadata("alpha", "w2:p1", &tokens),
+            vec![
+                "herdr", "--session", "alpha", "pane", "report-metadata", "w2:p1", "--source", "niri-tasks",
+                "--token", "task_id=61", "--token", "task=fix = peek",
+            ]
         );
     }
 

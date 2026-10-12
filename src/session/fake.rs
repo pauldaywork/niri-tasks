@@ -270,6 +270,15 @@ impl Port for Fake {
         self.note(format!("pane_run {session} {pane} {command}"));
         self.check()
     }
+    fn pane_rename(&self, session: &str, pane: &str, label: &str) -> HerdrResult<()> {
+        self.note(format!("pane_rename {session} {pane} {label}"));
+        self.check()
+    }
+    fn pane_report_metadata(&self, session: &str, pane: &str, tokens: &[(String, String)]) -> HerdrResult<()> {
+        let tokens: Vec<String> = tokens.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        self.note(format!("pane_report_metadata {session} {pane} {}", tokens.join(" ")));
+        self.check()
+    }
     fn agent_get(&self, session: &str, target: &str) -> HerdrResult<Agent> {
         self.note(format!("agent_get {session} {target}"));
         if let Err(e) = self.check()? {
