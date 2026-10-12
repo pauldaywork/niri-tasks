@@ -392,6 +392,43 @@ test('a report made before the plan changed is linked as an earlier draft', { op
   expect(imported.annotations.at(-1).description).toBe(`Report (earlier draft): ${REPORT_PATH}`)
 })
 
+// TASK refined once before, in an earlier session that made a report.
+const OLD_REPORT = '/r/refine-0b8f6a52-20260101-000000.html'
+const REPORTED = {
+  ...PLANNED,
+  annotations: [
+    { entry: '20260101T000001Z', description: 'first note' },
+    { entry: '20260101T000002Z', description: `Report: ${OLD_REPORT}` },
+  ],
+}
+const REREFINE = {
+  ...CALL,
+  expected: { description: 'feat: Old words', notes: ['first note', `Report: ${OLD_REPORT}`] },
+}
+
+test("a re-refine that changes the plan relabels an earlier session's report", { options: { uuid: UUID } }, async ($, on) => {
+  const { runs, seen } = world(on, SANDBOX, WRITE, [REPORTED])
+  await $.session.start(START)
+  const written = await $.tool.call({ ...REREFINE, notes: ['step one', `Report: ${OLD_REPORT}`] })
+  expect(written.deny).toBeUndefined()
+  expect(seen).toContain(`log: Note 2: Report (earlier draft): ${OLD_REPORT}`)
+  const [imported] = JSON.parse(runs.at(-1)?.init?.stdin ?? 'null')
+  expect(imported.annotations.map((a: { description: string }) => a.description)).toEqual([
+    'step one',
+    `Report (earlier draft): ${OLD_REPORT}`,
+  ])
+})
+
+test("a re-refine that keeps the plan keeps an earlier session's report", { options: { uuid: UUID } }, async ($, on) => {
+  const { runs, seen } = world(on, SANDBOX, WRITE, [REPORTED])
+  await $.session.start(START)
+  const written = await $.tool.call({ ...REREFINE, ...REREFINE.expected })
+  expect(written.deny).toBeUndefined()
+  expect(seen).toContain(`log: Note 2: Report: ${OLD_REPORT}`)
+  const [imported] = JSON.parse(runs.at(-1)?.init?.stdin ?? 'null')
+  expect(imported.annotations.at(-1).description).toBe(`Report: ${OLD_REPORT}`)
+})
+
 test('a report choice is superseded by the next question', { options: REPORTS }, async ($, on) => {
   const { writes } = world(on, SANDBOX, [REPORT, 'Change something'])
   await $.session.start(START)

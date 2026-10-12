@@ -396,6 +396,17 @@ export type MadeReport = { path: string; plan: Plan }
 const samePlan = (a: Plan, b: Plan): boolean =>
   a.description === b.description && a.notes.length === b.notes.length && a.notes.every((n, i) => n === b.notes[i])
 
+// What a note linking a report starts with, as the tool writes it: the
+// report of the plan, or one of a plan since changed. The card opens only
+// the first.
+const REPORT_NOTE = 'Report: '
+const EARLIER_DRAFT_NOTE = 'Report (earlier draft): '
+
+const isReportNote = (note: string): boolean => note.startsWith(REPORT_NOTE) || note.startsWith(EARLIER_DRAFT_NOTE)
+
+// The plan with its report notes dropped: what a refine changes.
+const planOnly = (plan: Plan): Plan => ({ description: plan.description, notes: plan.notes.filter(n => !isReportNote(n)) })
+
 // The plan's own notes: those that link one of the session's reports are
 // the mod's to write, so they are dropped here and written afresh. A note
 // linking a report from an earlier session is the plan's own.
@@ -405,16 +416,23 @@ const ownNotes = (made: readonly MadeReport[], notes: readonly string[]): string
 // The notes the task is written with: the plan's own, then one linking each
 // report made this session, in the order made, marked as an earlier draft
 // when the plan changed since. A report note the model kept is relabelled,
-// never doubled.
-export const withReportNotes = (made: readonly MadeReport[], plan: Plan): string[] => {
+// never doubled. When the plan differs from `expected`, the task as read, a
+// `Report:` note from an earlier session reports the old plan, so it is
+// marked as an earlier draft in its place and the card no longer opens it.
+export const withReportNotes = (made: readonly MadeReport[], plan: Plan, expected: Plan): string[] => {
   const own = ownNotes(made, plan.notes)
+  const changed = !samePlan(planOnly(expected), planOnly(plan))
+  // Each made report is held to the notes before any relabel: the plan it
+  // was shown kept the earlier session's note as the model did.
   const now = { description: plan.description, notes: own }
   return [
-    ...own,
+    ...own.map(note =>
+      changed && note.startsWith(REPORT_NOTE) ? EARLIER_DRAFT_NOTE + note.slice(REPORT_NOTE.length) : note,
+    ),
     ...made.map(m =>
       samePlan({ description: m.plan.description, notes: ownNotes(made, m.plan.notes) }, now)
-        ? `Report: ${m.path}`
-        : `Report (earlier draft): ${m.path}`,
+        ? `${REPORT_NOTE}${m.path}`
+        : `${EARLIER_DRAFT_NOTE}${m.path}`,
     ),
   ]
 }

@@ -238,11 +238,11 @@ describe('withReportNotes', () => {
   const plan = { description: 'feat: A', notes: ['Goal: x'] }
 
   test("adds a note linking a report made for this very plan, after the plan's own", () => {
-    expect(withReportNotes([{ path: '/r/a.html', plan }], plan)).toEqual(['Goal: x', 'Report: /r/a.html'])
+    expect(withReportNotes([{ path: '/r/a.html', plan }], plan, plan)).toEqual(['Goal: x', 'Report: /r/a.html'])
   })
 
   test('marks a report made before the plan changed', () => {
-    expect(withReportNotes([{ path: '/r/a.html', plan }], { ...plan, notes: ['Goal: y'] })).toEqual([
+    expect(withReportNotes([{ path: '/r/a.html', plan }], { ...plan, notes: ['Goal: y'] }, plan)).toEqual([
       'Goal: y',
       'Report (earlier draft): /r/a.html',
     ])
@@ -250,7 +250,7 @@ describe('withReportNotes', () => {
 
   test('relabels a kept note for a report of this session once the plan is revised', () => {
     const revised = { ...plan, notes: ['Goal: y', 'Report: /r/a.html'] }
-    expect(withReportNotes([{ path: '/r/a.html', plan }], revised)).toEqual([
+    expect(withReportNotes([{ path: '/r/a.html', plan }], revised, plan)).toEqual([
       'Goal: y',
       'Report (earlier draft): /r/a.html',
     ])
@@ -258,20 +258,61 @@ describe('withReportNotes', () => {
 
   test('keeps a kept note for an unrevised plan once, as it was', () => {
     const kept = { ...plan, notes: ['Goal: x', 'Report: /r/a.html'] }
-    expect(withReportNotes([{ path: '/r/a.html', plan }], kept)).toEqual(['Goal: x', 'Report: /r/a.html'])
+    expect(withReportNotes([{ path: '/r/a.html', plan }], kept, plan)).toEqual(['Goal: x', 'Report: /r/a.html'])
     // A second report on the same plan: the first's note does not make it differ.
     const made = [
       { path: '/r/a.html', plan },
       { path: '/r/b.html', plan: kept },
     ]
-    expect(withReportNotes(made, kept)).toEqual(['Goal: x', 'Report: /r/a.html', 'Report: /r/b.html'])
+    expect(withReportNotes(made, kept, kept)).toEqual(['Goal: x', 'Report: /r/a.html', 'Report: /r/b.html'])
   })
 
-  test("keeps an earlier session's report note in its place", () => {
+  test("keeps an earlier session's report note in its place on an unchanged plan", () => {
     const notes = ['Goal: x', 'Report: /old/z.html', 'Done when: y']
-    expect(withReportNotes([{ path: '/r/a.html', plan }], { ...plan, notes })).toEqual([
+    const read = { ...plan, notes }
+    expect(withReportNotes([{ path: '/r/a.html', plan }], read, read)).toEqual([
       ...notes,
       'Report (earlier draft): /r/a.html',
+    ])
+  })
+
+  test("relabels an earlier session's report note in its place when the plan changed", () => {
+    const read = { ...plan, notes: ['Goal: x', 'Report: /old/z.html', 'Done when: y'] }
+    const revised = { ...plan, notes: ['Goal: x', 'Report: /old/z.html', 'Done when: z'] }
+    expect(withReportNotes([], revised, read)).toEqual([
+      'Goal: x',
+      'Report (earlier draft): /old/z.html',
+      'Done when: z',
+    ])
+    // A new description alone is a changed plan too.
+    expect(withReportNotes([], { ...read, description: 'feat: B' }, read)).toEqual([
+      'Goal: x',
+      'Report (earlier draft): /old/z.html',
+      'Done when: y',
+    ])
+  })
+
+  test('report notes alone do not make the plan differ', () => {
+    // The model dropped one report note and kept another: the plan is the same.
+    const read = { ...plan, notes: ['Goal: x', 'Report (earlier draft): /old/y.html', 'Report: /old/z.html'] }
+    const kept = { ...plan, notes: ['Goal: x', 'Report: /old/z.html'] }
+    expect(withReportNotes([], kept, read)).toEqual(['Goal: x', 'Report: /old/z.html'])
+  })
+
+  test("leaves an earlier session's earlier-draft note as it is", () => {
+    const read = { ...plan, notes: ['Goal: x', 'Report (earlier draft): /old/y.html'] }
+    const revised = { ...plan, notes: ['Goal: y', 'Report (earlier draft): /old/y.html'] }
+    expect(withReportNotes([], revised, read)).toEqual(['Goal: y', 'Report (earlier draft): /old/y.html'])
+  })
+
+  test('a report of the changed plan stays the report while the old one is relabelled', () => {
+    // The plan shown for /r/a.html held the old note unrelabelled, as the model kept it.
+    const read = { ...plan, notes: ['Goal: x', 'Report: /old/z.html'] }
+    const revised = { ...plan, notes: ['Goal: y', 'Report: /old/z.html'] }
+    expect(withReportNotes([{ path: '/r/a.html', plan: revised }], revised, read)).toEqual([
+      'Goal: y',
+      'Report (earlier draft): /old/z.html',
+      'Report: /r/a.html',
     ])
   })
 
@@ -280,11 +321,15 @@ describe('withReportNotes', () => {
       { path: '/r/a.html', plan: { ...plan, description: 'feat: Old' } },
       { path: '/r/b.html', plan },
     ]
-    expect(withReportNotes(made, plan)).toEqual(['Goal: x', 'Report (earlier draft): /r/a.html', 'Report: /r/b.html'])
+    expect(withReportNotes(made, plan, plan)).toEqual([
+      'Goal: x',
+      'Report (earlier draft): /r/a.html',
+      'Report: /r/b.html',
+    ])
   })
 
   test("none made: the plan's own notes", () => {
-    expect(withReportNotes([], plan)).toEqual(['Goal: x'])
+    expect(withReportNotes([], plan, plan)).toEqual(['Goal: x'])
   })
 })
 

@@ -321,8 +321,10 @@ export const register: Register = (on, options) => {
 
     // The plan as the tool will write it, from its own arguments, not from
     // what the model printed, with a note linking each report made this
-    // session; refused whole before a line could be cut.
-    const plan = { description: input.description, notes: withReportNotes(made, input) }
+    // session, and an earlier session's report marked as an earlier draft
+    // when the plan differs from the task as read; refused whole before a
+    // line could be cut.
+    const plan = { description: input.description, notes: withReportNotes(made, input, input.expected) }
     const lines = planLines(plan)
     const tooLong = overlong(lines)
     if (tooLong !== undefined) return { deny: `Nothing written: ${tooLong}` }
