@@ -75,10 +75,12 @@ pub fn elide_to(text: &str, max: usize) -> String {
 pub const PANE_LABEL_MAX: usize = 80;
 
 /// Which of a task's Claudes a pane holds, as its border label says. Every
-/// refine mode is `Refine`: they share one agent, `task-<uuid8>`.
+/// refine mode is `Refine`: they share one agent, `task-<uuid8>`. A report
+/// runs its own, `report-<uuid8>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     Refine,
+    Report,
     Work,
 }
 
@@ -93,12 +95,13 @@ pub struct PaneName {
 }
 
 impl PaneName {
-    /// `Refine #61 · <description>` or `Work #61 · …`, cut to what herdr
+    /// `Refine #61 · <description>`, `Report #61 · …` or `Work #61 · …`, cut to what herdr
     /// keeps. A task with no number, as a finished one has after gc, shows
     /// none rather than `#0`.
     pub fn for_task(role: Role, id: u64, uuid: &str, description: &str) -> PaneName {
         let verb = match role {
             Role::Refine => "Refine",
+            Role::Report => "Report",
             Role::Work => "Work",
         };
         let head = if id == 0 { verb.to_string() } else { format!("{verb} #{id}") };
@@ -164,6 +167,8 @@ mod tests {
         assert_eq!(n.label, "Refine #61 · feat: Name the task on its Claude's pane");
         let n = PaneName::for_task(Role::Work, 61, "7b4f4c5c-185a", "fix the peek");
         assert_eq!(n.label, "Work #61 · fix the peek");
+        let n = PaneName::for_task(Role::Report, 61, "7b4f4c5c-185a", "fix the peek");
+        assert_eq!(n.label, "Report #61 · fix the peek");
     }
 
     /// herdr caps a label at 80 characters; cut here, with an ellipsis, it

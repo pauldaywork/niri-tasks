@@ -341,7 +341,11 @@ fn already_open(mode: Mode) -> &'static str {
 fn open_in(session: &Session, t: &task::Task, workspace_label: &str, claude: &Claude, mode: Mode) -> Result<()> {
     let name = agent_name(mode, &t.uuid);
     let label = tab_label(mode, &t.description);
-    let pane = names::PaneName::for_task(names::Role::Refine, t.id, &t.uuid, &t.description);
+    let role = match mode {
+        Mode::Quick | Mode::Grill => names::Role::Refine,
+        Mode::Report => names::Role::Report,
+    };
+    let pane = names::PaneName::for_task(role, t.id, &t.uuid, &t.description);
     if launch_in(session, &name, &label, workspace_label, claude, &pane, &prompt(&t.uuid, mode))? == Launched::AlreadyRunning {
         session.notify(already_open(mode));
     }
@@ -1175,6 +1179,7 @@ Num       RefCount Protocol Flags    Type St Inode Path
             log.iter().any(|l| l == "agent_prompt alpha report-7cd9fd3a /report-task 7cd9fd3a-d27b-4387-8249-aaf0d6785f90"),
             "{log:?}"
         );
+        assert!(log.iter().any(|l| l.starts_with("pane_rename ") && l.ends_with(" Report · fix: a thing")), "{log:?}");
         assert!(!log.iter().any(|l| l.starts_with("notify ")), "{log:?}");
         assert_eq!(fake.agents().len(), 2);
     }
