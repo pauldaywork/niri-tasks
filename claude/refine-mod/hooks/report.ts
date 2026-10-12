@@ -64,7 +64,9 @@ export type Report = {
 
 // What keeps a report easy to take in: about four things held in mind at
 // once, one idea per line, short plain sentences. A report over them is
-// refused with every reason at once, so it is fixed in one go.
+// refused with every reason at once, so it is fixed in one go; a line only
+// a word or two over its word limit is taken, and named, so one word does
+// not cost a whole report resent.
 export const LIMITS = {
   titleChars: 120,
   summaryWords: 35,
@@ -82,6 +84,11 @@ export const LIMITS = {
   files: { min: 0, max: 40, pathChars: 200, whyWords: 20 },
   checks: { min: 1, max: 6, words: 20 },
 } as const
+
+// How many words a line may run over its word limit and still be taken.
+// Not in the tool's descriptions or the catalogue: the model aims for the
+// limits themselves.
+export const WORD_GRACE = 2
 
 export const CHANGES: readonly string[] = ['new', 'change', 'remove']
 
@@ -108,7 +115,10 @@ const SWALLOWS_DETAIL = /<\s*(style|plaintext|xmp|textarea|title|noscript|templa
 // How many problems one refusal lists before it says how many more.
 const MAX_ERRORS = 20
 
-type Errors = string[]
+// The problems found, refused all at once, and beside them the lines taken
+// though over their word limits, which the tool names.
+type Errors = string[] & { warnings: string[] }
+const findings = (): Errors => Object.assign([] as string[], { warnings: [] as string[] })
 type Count = { readonly min: number; readonly max: number }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -126,7 +136,11 @@ const text = (errors: Errors, at: string, value: unknown, limit: { words?: numbe
   if (/[\r\n]/.test(value)) errors.push(`${at} must be one line`)
   else if (HIDDEN.test(value)) errors.push(`${at} must be plain text: no control or invisible characters`)
   const n = wordCount(value)
-  if (limit.words !== undefined && n > limit.words) errors.push(`${at} has ${n} words; at most ${limit.words}`)
+  if (limit.words !== undefined && n > limit.words) {
+    const over = `${at} has ${n} words; at most ${limit.words}`
+    if (n - limit.words <= WORD_GRACE) errors.warnings.push(over)
+    else errors.push(over)
+  }
   if (limit.chars !== undefined && value.length > limit.chars) {
     errors.push(`${at} has ${value.length} characters; at most ${limit.chars}`)
   }
@@ -318,9 +332,12 @@ const check = (errors: Errors, at: string, value: unknown): Check => {
   }
 }
 
+// A report the tool takes, and the lines in it over their word limits.
+export type Parsed = { report: Report; warnings: string[] }
+
 // Answers the report, or every problem with it, joined.
-export const parseReport = (e: Record<string, unknown>): Report | string => {
-  const errors: Errors = []
+export const parseReport = (e: Record<string, unknown>): Parsed | string => {
+  const errors = findings()
   const lines = (at: string, value: unknown, count: Count & { readonly words: number }): string[] =>
     list(errors, at, value, count, (v, i) => text(errors, i, v, { words: count.words }))
   const report: Report = {
@@ -334,7 +351,7 @@ export const parseReport = (e: Record<string, unknown>): Report | string => {
     files: list(errors, 'files', e.files, LIMITS.files, (v, at) => file(errors, at, v)),
     checks: list(errors, 'checks', e.checks, LIMITS.checks, (v, at) => check(errors, at, v)),
   }
-  if (errors.length === 0) return report
+  if (errors.length === 0) return { report, warnings: errors.warnings }
   const more = errors.length > MAX_ERRORS ? `; and ${errors.length - MAX_ERRORS} more` : ''
   return errors.slice(0, MAX_ERRORS).join('; ') + more
 }

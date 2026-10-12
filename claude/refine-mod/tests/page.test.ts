@@ -323,8 +323,8 @@ describe('readingMinutes', () => {
 test('the worked example renders every part', () => {
   const parsed = parseReport(EXAMPLE)
   if (typeof parsed === 'string') throw new Error(parsed)
-  const page = reportPage(parsed, EXAMPLE_PLAN)
-  for (const section of parsed.sections) expect(page).toContain(section.heading)
+  const page = reportPage(parsed.report, EXAMPLE_PLAN)
+  for (const section of parsed.report.sections) expect(page).toContain(section.heading)
   // A before/after pair and six single diagrams, all left to the browser here.
   expect(page.split('<pre class="mermaid">').length - 1).toBe(8)
 })

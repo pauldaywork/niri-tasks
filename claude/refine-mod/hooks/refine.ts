@@ -373,13 +373,13 @@ export const register: Register = (on, options) => {
       const why = unreportable(task)
       if (why !== undefined || task === undefined) return { deny: `show_task_report: nothing written: ${why}.` }
 
-      const report = parseReport(e)
-      if (typeof report === 'string') return { deny: `show_task_report: ${report}` }
+      const parsed = parseReport(e)
+      if (typeof parsed === 'string') return { deny: `show_task_report: ${parsed}` }
 
       const shown = { description: task.description, notes: notesOf(task) }
       // The page is built from the report's Markdown twin as it reads back,
       // never from the fields beside it, so the two cannot disagree.
-      const twin = twinOf(report, shown)
+      const twin = twinOf(parsed.report, shown)
       if (typeof twin === 'string') {
         return {
           deny:
@@ -421,10 +421,10 @@ export const register: Register = (on, options) => {
     }
     if (askedFor === undefined) return { deny: NOT_ASKED_FOR }
 
-    const report = parseReport(e)
-    if (typeof report === 'string') return { deny: `show_task_report: ${report}` }
+    const parsed = parseReport(e)
+    if (typeof parsed === 'string') return { deny: `show_task_report: ${parsed}` }
 
-    const twin = twinOf(report, askedFor)
+    const twin = twinOf(parsed.report, askedFor)
     if (typeof twin === 'string') return { deny: `show_task_report: nothing written: ${twin}.` }
 
     const shown = askedFor

@@ -6,15 +6,22 @@ import { parseReport } from '../hooks/report'
 import type { Report } from '../hooks/report'
 import { EXAMPLE, EXAMPLE_PLAN } from './example-report'
 
+// The report parseReport takes, failing the test where it is refused.
+const parsed = (input: Record<string, unknown>): Report => {
+  const answer = parseReport(input)
+  if (typeof answer === 'string') throw new Error(answer)
+  return answer.report
+}
+
 // The smallest report the tool takes, as parseReport answers it.
-const MINIMAL = parseReport({
+const MINIMAL = parsed({
   title: 'feat: New words',
   summary: 'The task gets new words.',
   changes: ['Words: the description changes.'],
   sections: [{ heading: 'What changes', points: ['The words.'] }],
   files: [{ path: 'src/words.rs', change: 'change', why: 'Holds the words.' }],
   checks: [{ check: 'The words show', how: 'By eye' }],
-}) as Report
+})
 
 const PLAN = { description: 'feat: New words', notes: ['step one', 'step two'] }
 
@@ -77,7 +84,7 @@ const EDGES_INPUT = {
   ],
   checks: [{ check: 'a | b', how: ' leading space' }],
 }
-const EDGES = parseReport(EDGES_INPUT) as Report
+const EDGES = parsed(EDGES_INPUT)
 
 describe('markdownPath', () => {
   test('is the report with .md for .html', () => {
@@ -186,7 +193,7 @@ describe('reportMarkdown', () => {
   })
 
   test('the worked example has every part as a heading', () => {
-    const report = parseReport(EXAMPLE) as Report
+    const report = parsed(EXAMPLE)
     const md = reportMarkdown(report, PLAN)
     for (const s of report.sections) expect(md).toContain(`## ${s.heading}`)
   })
@@ -202,7 +209,7 @@ describe('reportFromMarkdown', () => {
   })
 
   test('reads the worked example back into the fields it was written from', () => {
-    const report = parseReport(EXAMPLE) as Report
+    const report = parsed(EXAMPLE)
     expect(reportFromMarkdown(reportMarkdown(report, EXAMPLE_PLAN))).toEqual({ report, plan: EXAMPLE_PLAN })
   })
 
@@ -229,7 +236,7 @@ describe('reportFromMarkdown', () => {
   })
 
   test("the worked example's page from its twin is the page from its fields, byte for byte", () => {
-    const report = parseReport(EXAMPLE) as Report
+    const report = parsed(EXAMPLE)
     const twin = reportFromMarkdown(reportMarkdown(report, EXAMPLE_PLAN))
     expect(reportPage(twin.report, twin.plan)).toBe(reportPage(report, EXAMPLE_PLAN))
     expect(drawSources(twin.report)).toEqual(drawSources(report))
@@ -255,8 +262,6 @@ describe('twinOf', () => {
   })
   test('refuses a term the twin reads back as another', () => {
     const input = { ...MINIMAL, terms: [{ term: 'a**: b', meaning: 'c' }] }
-    const report = parseReport(input)
-    expect(typeof report).toBe('object')
-    expect(twinOf(report as Report, PLAN)).toBe('its Markdown twin reads back as a different report')
+    expect(twinOf(parsed(input), PLAN)).toBe('its Markdown twin reads back as a different report')
   })
 })

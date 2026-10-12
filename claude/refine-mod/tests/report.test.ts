@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { LIMITS, madeAlready, openArgv, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from '../hooks/report'
+import { LIMITS, WORD_GRACE, madeAlready, openArgv, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from '../hooks/report'
 import type { Task } from '../hooks/plan'
 import { EXAMPLE } from './example-report'
 
@@ -31,16 +31,16 @@ const detailed = (detail: string) => ({
 
 describe('parseReport', () => {
   test('takes the smallest report, with the optional lists empty', () => {
-    expect(parseReport(MINIMAL)).toEqual({ ...MINIMAL, unchanged: [], needs_your_eye: [], terms: [] })
+    expect(parseReport(MINIMAL)).toEqual({
+      report: { ...MINIMAL, unchanged: [], needs_your_eye: [], terms: [] },
+      warnings: [],
+    })
   })
 
   test('takes a plan that touches no file', () => {
     expect(parseReport({ ...MINIMAL, files: [] })).toEqual({
-      ...MINIMAL,
-      files: [],
-      unchanged: [],
-      needs_your_eye: [],
-      terms: [],
+      report: { ...MINIMAL, files: [], unchanged: [], needs_your_eye: [], terms: [] },
+      warnings: [],
     })
   })
 
@@ -53,9 +53,9 @@ describe('parseReport', () => {
     expect(parseReport(rest)).toBe('summary must be a non-empty string')
   })
 
-  test('refuses text over its word limit, saying the count and the limit', () => {
-    expect(parseReport({ ...MINIMAL, summary: words(36) })).toBe('summary has 36 words; at most 35')
-    expect(parseReport({ ...MINIMAL, changes: [words(21)] })).toBe('changes[0] has 21 words; at most 20')
+  test('refuses text three words over its word limit, saying the count and the limit', () => {
+    expect(parseReport({ ...MINIMAL, summary: words(38) })).toBe('summary has 38 words; at most 35')
+    expect(parseReport({ ...MINIMAL, changes: [words(23)] })).toBe('changes[0] has 23 words; at most 20')
   })
 
   test('refuses too many or too few lines', () => {
@@ -168,6 +168,45 @@ describe('parseReport keeps the page to one layout', () => {
   })
 })
 
+describe('the word grace', () => {
+  test('takes a line one or two words over its word limit, and names each', () => {
+    const input = {
+      ...MINIMAL,
+      summary: words(36),
+      needs_your_eye: [words(31)],
+      sections: [{ heading: words(10 + WORD_GRACE), points: ['p'] }],
+    }
+    expect(parseReport(input)).toEqual({
+      report: { ...input, unchanged: [], terms: [] },
+      warnings: [
+        'summary has 36 words; at most 35',
+        'needs_your_eye[0] has 31 words; at most 30',
+        'sections[0].heading has 12 words; at most 10',
+      ],
+    })
+  })
+
+  test('refuses a line three words over, and names no line within the grace beside it', () => {
+    expect(parseReport({ ...MINIMAL, summary: words(36), needs_your_eye: [words(30 + WORD_GRACE + 1)] })).toBe(
+      'needs_your_eye[0] has 33 words; at most 30',
+    )
+  })
+
+  test('gives no grace on characters, lines or items', () => {
+    expect(parseReport({ ...MINIMAL, title: 'x'.repeat(LIMITS.titleChars + 1) })).toBe(
+      `title has ${LIMITS.titleChars + 1} characters; at most ${LIMITS.titleChars}`,
+    )
+    expect(parseReport({ ...MINIMAL, files: [{ path: 'p'.repeat(LIMITS.files.pathChars + 1), change: 'new', why: 'w' }] })).toBe(
+      `files[0].path has ${LIMITS.files.pathChars + 1} characters; at most ${LIMITS.files.pathChars}`,
+    )
+    expect(parseReport({ ...MINIMAL, changes: ['a', 'b', 'c', 'd'] })).toBe('changes must have 1 to 3 items, not 4')
+    const long = Array.from({ length: LIMITS.mermaidLines + 1 }, () => 'a --> b').join('\n')
+    expect(
+      parseReport({ ...MINIMAL, sections: [{ heading: 'h', points: ['p'], look_at: 'x', diagram: { mermaid: long } }] }),
+    ).toBe(`sections[0].diagram.mermaid has ${LIMITS.mermaidLines + 1} lines; at most ${LIMITS.mermaidLines}: split it into two diagrams`)
+  })
+})
+
 describe('reportsDir', () => {
   test('takes an absolute folder, without a trailing slash', () => {
     expect(reportsDir('/home/x/.local/share/niri-tasks/reviews')).toBe('/home/x/.local/share/niri-tasks/reviews')
@@ -251,7 +290,7 @@ describe('lenses', () => {
 
   test('a part may name its lens, and one that does not is a plain part', () => {
     const parsed = parseReport(at({ kind: 'data-flow', look_at: 'x', diagram: flow }))
-    expect(typeof parsed !== 'string' && parsed.sections[0]?.kind).toBe('data-flow')
+    expect(typeof parsed !== 'string' && parsed.report.sections[0]?.kind).toBe('data-flow')
     expect(parseReport(at({ kind: 'gossip' }))).toBe(
       'sections[0].kind must be one of before-after, part, structure, data-flow, outside-tools, styling, code, newcomer',
     )
