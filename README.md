@@ -303,9 +303,10 @@ instead, as a card's Open report does. A pane with no task, or a task with
 no Claude running, gets a notification saying so and nothing opens. The list
 is `niritasks task docs <uuid>`, so a script can read it too.
 
-Each refine report is written twice, as its HTML slides and as `<report>.md`
-beside them, from the same fields; the Markdown is what plannotator-tui
-opens.
+Each refine report is written first as `<report>.md`, its Markdown twin,
+diagrams kept as Mermaid blocks; its HTML slides are then built from what
+that twin reads back as, so the two never disagree. The Markdown is what
+plannotator-tui opens.
 
 ## Commands
 

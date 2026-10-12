@@ -605,6 +605,20 @@ test('report mode: one report a session; the second names the first', { options:
   expect(verbs(runs).filter(v => v === 'import')).toHaveLength(1)
 })
 
+// The page is built from the twin as it reads back: a task note on two lines
+// cannot be one numbered line of the twin, so nothing is written.
+test('report mode: a plan whose twin would not read back writes nothing', { options: REPORT_MODE }, async ($, on) => {
+  const torn = { ...PLANNED, annotations: [{ entry: '20260101T000001Z', description: 'first\nnote' }] }
+  const { runs, writes } = world(on, SANDBOX, WRITE, [torn])
+  await $.session.start(START)
+
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+
+  expect(shown.deny).toStartWith('show_task_report: nothing written: its Markdown twin does not read back (line ')
+  expect(writes).toEqual([])
+  expect(runs.map(run => run.argv.at(-1))).toEqual(['export'])
+})
+
 test('report mode: an unplanned task is refused before anything is written', { options: REPORT_MODE }, async ($, on) => {
   const { runs, writes } = world(on, SANDBOX, WRITE, [TASK])
   await $.session.start(START)

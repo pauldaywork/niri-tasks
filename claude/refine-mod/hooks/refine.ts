@@ -24,7 +24,7 @@ import { RENDERER, drawArgv, drawSources, drawnSvgs, runtimePath, whichArgv } fr
 import { reportPage } from './page'
 import { FONT_FILES } from './style'
 import type { Fonts } from './style'
-import { markdownPath, reportMarkdown } from './markdown'
+import { markdownPath, twinOf } from './markdown'
 import { madeAlready, openArgv, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from './report'
 import type { MadeReport, Report } from './report'
 
@@ -377,11 +377,16 @@ export const register: Register = (on, options) => {
       if (typeof report === 'string') return { deny: `show_task_report: ${report}` }
 
       const shown = { description: task.description, notes: notesOf(task) }
+      // The page is built from the report's Markdown twin as it reads back,
+      // never from the fields beside it, so the two cannot disagree.
+      const twin = twinOf(report, shown)
+      if (typeof twin === 'string') return { deny: `show_task_report: nothing written: ${twin}.` }
       const path = reportPath(reports, uuid, await $.clock.now())
-      await $.fs.write(path, reportPage(report, shown, await readFonts($, fonts), await drawDiagrams($, report)))
-      // Its Markdown twin, which herdr's task-docs plugin opens in
+      const page = reportPage(twin.report, twin.plan, await readFonts($, fonts), await drawDiagrams($, twin.report))
+      await $.fs.write(path, page)
+      // The twin itself, which herdr's task-docs plugin opens in
       // plannotator-tui so comments on it reach the task's Claude.
-      await $.fs.write(markdownPath(path), reportMarkdown(report, shown))
+      await $.fs.write(markdownPath(path), twin.markdown)
       $.ui.log(`Report: ${path}`)
       // Unattended, nothing opens: no one is at the screen, and the task's
       // Report: note is how the report is found later.
@@ -413,11 +418,15 @@ export const register: Register = (on, options) => {
     const report = parseReport(e)
     if (typeof report === 'string') return { deny: `show_task_report: ${report}` }
 
+    const twin = twinOf(report, askedFor)
+    if (typeof twin === 'string') return { deny: `show_task_report: nothing written: ${twin}.` }
+
     const shown = askedFor
     askedFor = undefined
     const path = reportPath(reports, uuid, await $.clock.now())
-    await $.fs.write(path, reportPage(report, shown, await readFonts($, fonts), await drawDiagrams($, report)))
-    await $.fs.write(markdownPath(path), reportMarkdown(report, shown))
+    const page = reportPage(twin.report, twin.plan, await readFonts($, fonts), await drawDiagrams($, twin.report))
+    await $.fs.write(path, page)
+    await $.fs.write(markdownPath(path), twin.markdown)
     made.push({ path, plan: shown })
     $.ui.log(`Report: ${path}`)
     await $.process.run(openArgv(path))
