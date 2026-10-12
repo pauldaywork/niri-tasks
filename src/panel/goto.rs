@@ -7,6 +7,7 @@
 //! `TaskState` and what the surface found on the machine ([`Found`]), and
 //! `surface.rs` only draws what this says.
 
+use super::style as c;
 use crate::actions::{Action, TaskState};
 
 /// The button's words, and the start of the list's title.
@@ -59,6 +60,56 @@ pub enum Item {
 }
 
 use Item::*;
+
+/// The kinds of step the list's rows are, each drawn in its own colour, so
+/// similar rows look alike. Where a row was a button before, its group
+/// keeps that button's colour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Group {
+    /// A Claude works on the plan: Refine, Grill me, Generate report. The
+    /// Refine, Grill me and Report buttons' mauve.
+    Plan,
+    /// Get started or Back to worktree: Start's green.
+    Work,
+    /// Go to a Claude already running: the old Go to session's blue, Go
+    /// to…'s own.
+    Session,
+    /// Read what the task links: its report, plan and spec. Yellow.
+    Document,
+    /// Its worktree in a terminal or VS Code. Sapphire.
+    Folder,
+    /// Read aloud: the old Speak button's pink.
+    Aloud,
+}
+
+impl Group {
+    pub const ALL: [Group; 6] = [Group::Plan, Group::Work, Group::Session, Group::Document, Group::Folder, Group::Aloud];
+
+    /// Its CSS class, on each of its rows.
+    pub fn class(self) -> &'static str {
+        match self {
+            Group::Plan => "goto-plan",
+            Group::Work => "goto-work",
+            Group::Session => "goto-session",
+            Group::Document => "goto-document",
+            Group::Folder => "goto-folder",
+            Group::Aloud => "goto-aloud",
+        }
+    }
+
+    /// Its rows' colour.
+    pub fn colour(self) -> &'static str {
+        match self {
+            Group::Plan => c::REFINE,
+            Group::Work => c::ACTIVE,
+            Group::Session => c::GO_TO,
+            Group::Document => c::EDIT,
+            Group::Folder => c::MOVE,
+            Group::Aloud => c::READ_ALOUD,
+        }
+    }
+}
+
 
 impl Item {
     /// Every row, in the order the list shows the ones that apply.
@@ -119,6 +170,18 @@ impl Item {
             Editor => "Open in VS Code",
             ReadAloud if found.speaking => "Stop reading aloud",
             ReadAloud => "Read aloud",
+        }
+    }
+
+    /// The kind of step the row is, which gives it its colour.
+    pub fn group(self) -> Group {
+        match self {
+            Refine | Grill | Report => Group::Plan,
+            Start => Group::Work,
+            RefineSession | WorkSession => Group::Session,
+            OpenReport | Plan | Spec => Group::Document,
+            Worktree | Editor => Group::Folder,
+            ReadAloud => Group::Aloud,
         }
     }
 
@@ -409,5 +472,23 @@ mod tests {
         assert_eq!(list.title(), "Go to…: Fix the peek");
         assert_eq!(list.row_label(Refine), "\u{f0d0}  Redo refine");
         assert_eq!(list.rows(), [Refine, Grill, Start, Report, ReadAloud]);
+    }
+
+    /// Similar rows share a colour, and no two groups have the same one.
+    #[test]
+    fn rows_are_coloured_by_their_group() {
+        assert_eq!(Refine.group(), Grill.group());
+        assert_eq!(Grill.group(), Report.group());
+        assert_eq!(RefineSession.group(), WorkSession.group());
+        assert_eq!(OpenReport.group(), Plan.group());
+        assert_eq!(Plan.group(), Spec.group());
+        assert_eq!(Worktree.group(), Editor.group());
+        assert_ne!(Start.group(), WorkSession.group());
+        for (i, a) in Group::ALL.iter().enumerate() {
+            for b in &Group::ALL[i + 1..] {
+                assert_ne!(a.colour(), b.colour(), "{a:?} and {b:?}");
+                assert_ne!(a.class(), b.class());
+            }
+        }
     }
 }

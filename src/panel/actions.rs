@@ -50,11 +50,12 @@ impl Action {
     /// The buttons a card in `state` gets, left to right: the row's actions
     /// that apply. An active task gets Stop in the place of Start working,
     /// which would only go back to its worktree; its Go to list goes back to
-    /// its Claude.
+    /// its Claude. Refine is never on the row: its Go to list has it, and
+    /// Ctrl+Enter still takes it.
     pub fn row(state: TaskState) -> Vec<Action> {
         Self::ALL
             .into_iter()
-            .filter(|a| a.applies(state) && !(*a == Start && state.active))
+            .filter(|a| a.applies(state) && *a != Refine && !(*a == Start && state.active))
             .collect()
     }
 
@@ -82,7 +83,7 @@ impl Action {
     /// key and name ("o: Go to…", "Del: Remove", or just "Up next" for a
     /// button only Enter presses), or, on the card's body, what Space does
     /// to its notes; then what Ctrl+Enter does to this task, in the words of
-    /// its step ("Ctrl+Enter: Refine"), when `row` has that button. `notes` is whether the card's notes show. Enter and
+    /// its step ("Ctrl+Enter: Refine"), when `row` has that button, or for Refine, which no row has. `notes` is whether the card's notes show. Enter and
     /// Ctrl+Delete do the same on every card, so they are the footer's,
     /// [`CARD_KEYS`]. Pure, so every card's hint is tested without a window;
     /// `PanelState::card_hint` picks the card and `surface.rs` only sets the
@@ -105,10 +106,10 @@ impl Action {
             // the body.
             None => parts.push(format!("Space: {} notes", if notes { "hide" } else { "view" })),
         }
-        // A button step only when the card has that button; the session is
-        // no button's.
+        // A button step only when the card has that button; the session and
+        // Refine are no button's.
         let on_card = |step: &Step| match step {
-            Step::Press(action) => row.contains(action),
+            Step::Press(action) => row.contains(action) || *action == Refine,
             Step::Session => true,
         };
         if let Some(step) = Self::advance(state).filter(on_card) {
@@ -237,13 +238,25 @@ mod tests {
     }
 
     /// What Ctrl+Enter picks is always one of the card's own buttons, so the
-    /// key never does something no click could.
+    /// key never does something no click could, or Refine, which the
+    /// card's Go to list has in place of a button.
     #[test]
     fn ctrl_enter_only_presses_a_button_the_card_has() {
         for state in every_state() {
             if let Some(Step::Press(action)) = Action::advance(state) {
-                assert!(Action::row(state).contains(&action), "{state:?} picks {action:?}, which it has no button for");
+                assert!(
+                    Action::row(state).contains(&action) || action == Refine,
+                    "{state:?} picks {action:?}, which it has no button for"
+                );
             }
+        }
+    }
+
+    /// Refine is the Go to list's, not the row's: no card gets its button.
+    #[test]
+    fn no_card_gets_a_refine_button() {
+        for state in every_state() {
+            assert!(!Action::row(state).contains(&Refine), "{state:?}");
         }
     }
 
@@ -267,20 +280,14 @@ mod tests {
     #[test]
     fn an_active_task_gets_stop_in_place_of_start() {
         let classes: Vec<&str> = Action::row(active(false)).iter().map(|a| a.class()).collect();
-        assert_eq!(classes, vec!["go-to", "refine", "edit", "up-next", "complete", "move", "stop", "wait", "remove"]);
+        assert_eq!(classes, vec!["go-to", "edit", "up-next", "complete", "move", "stop", "wait", "remove"]);
     }
 
     /// A task not yet started gets Start working and no Stop; planned or not.
     #[test]
     fn a_task_not_yet_active_gets_start_and_no_stop() {
-        assert_eq!(
-            Action::row(on_list(false)),
-            vec![GoTo, Start, Refine, Edit, UpNext, Complete, Move, Wait, Remove]
-        );
-        assert_eq!(
-            Action::row(on_list(true)),
-            vec![GoTo, Start, Refine, Edit, UpNext, Complete, Move, Wait, Remove]
-        );
+        assert_eq!(Action::row(on_list(false)), vec![GoTo, Start, Edit, UpNext, Complete, Move, Wait, Remove]);
+        assert_eq!(Action::row(on_list(true)), vec![GoTo, Start, Edit, UpNext, Complete, Move, Wait, Remove]);
     }
 
     /// Go to… leads every card's row, whatever its task's state.
@@ -344,16 +351,16 @@ mod tests {
         assert!(!UpNext.leaves_the_list());
     }
 
-    /// o b s r e c m t press Go to…, Back to list, Start working, Refine,
-    /// Edit, Complete, Move to workspace and Stop, and each letter finds its
-    /// own button. g, i and p press nothing now.
+    /// o b s e c m t press Go to…, Back to list, Start working, Edit,
+    /// Complete, Move to workspace and Stop, and each letter finds its own
+    /// button. g, i, p and r press nothing now.
     #[test]
     fn letters_press_their_own_buttons() {
         let lettered: Vec<(char, Action)> =
             Action::ALL.into_iter().filter_map(|a| a.letter().map(|c| (c, a))).collect();
         assert_eq!(
             lettered,
-            vec![('o', GoTo), ('b', Back), ('s', Start), ('r', Refine), ('e', Edit), ('c', Complete), ('m', Move), ('t', Stop)]
+            vec![('o', GoTo), ('b', Back), ('s', Start), ('e', Edit), ('c', Complete), ('m', Move), ('t', Stop)]
         );
         for (c, action) in lettered {
             assert_eq!(Action::for_letter(c), Some(action));
@@ -434,7 +441,6 @@ mod tests {
     fn a_lettered_button_hints_its_letter_and_name() {
         assert_eq!(hint(with_claude(on_list(true)), Some(GoTo)), "o: Go to… · Ctrl+Enter: Start working");
         assert_eq!(hint(on_list(true), Some(Start)), "s: Start working · Ctrl+Enter: Start working");
-        assert_eq!(hint(on_list(false), Some(Refine)), "r: Refine · Ctrl+Enter: Refine");
         assert_eq!(hint(active(false), Some(Edit)), "e: Edit · Ctrl+Enter: Refine");
         assert_eq!(hint(on_list(true), Some(Complete)), "c: Complete · Ctrl+Enter: Start working");
         assert_eq!(hint(on_list(true), Some(Move)), "m: Move to workspace · Ctrl+Enter: Start working");
@@ -459,11 +465,13 @@ mod tests {
         assert_eq!(hint(up_next, Some(UpNext)), "Not up next · Ctrl+Enter: Start working");
     }
 
-    /// Ctrl+Enter is left out when what it would press is not on the card.
+    /// Ctrl+Enter is left out when what it would press is not on the card,
+    /// except Refine, which no card has a button for.
     #[test]
     fn ctrl_enter_is_left_out_when_the_card_lacks_its_button() {
-        assert_eq!(Action::hint(on_list(false), &[Edit, Remove], None, false), "Space: view notes");
+        assert_eq!(Action::hint(on_list(true), &[Edit, Remove], None, false), "Space: view notes");
         assert_eq!(Action::hint(on_list(true), &[Edit, Remove], Some(Edit), false), "e: Edit");
+        assert_eq!(Action::hint(on_list(false), &[Edit, Remove], None, false), "Space: view notes · Ctrl+Enter: Refine");
     }
 
     /// Every state, up next or not, with the body (with its notes hidden and

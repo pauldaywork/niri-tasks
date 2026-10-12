@@ -929,7 +929,7 @@ impl Panel {
         self.column.append(&empty_line(&list.title()));
         let mut folders = Vec::new();
         for (at, row) in list.shown().iter().enumerate() {
-            let card = self.row_card(at, &ProjectList::label(row), PanelState::on_folder);
+            let card = self.row_card(at, &ProjectList::label(row), None, PanelState::on_folder);
             self.column.append(&card.0);
             folders.push(card);
         }
@@ -947,7 +947,7 @@ impl Panel {
         self.column.append(&empty_line(&list.title()));
         let mut rows = Vec::new();
         for (at, item) in list.rows().iter().enumerate() {
-            let row = self.row_card(at, &list.row_label(*item), PanelState::on_goto_row);
+            let row = self.row_card(at, &list.row_label(*item), Some(item.group().class()), PanelState::on_goto_row);
             self.column.append(&row.0);
             rows.push(row);
         }
@@ -1096,10 +1096,14 @@ impl Panel {
         self: &Rc<Self>,
         at: usize,
         label: &str,
+        class: Option<&str>,
         pick: fn(&mut PanelState, usize) -> Vec<Effect>,
     ) -> (gtk4::Box, gtk4::Button) {
         let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         root.add_css_class("task-card");
+        if let Some(class) = class {
+            root.add_css_class(class);
+        }
         root.set_size_request(CARD_WIDTH_PX, -1);
         root.set_overflow(gtk4::Overflow::Hidden);
         let label = gtk4::Label::new(Some(label));

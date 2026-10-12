@@ -993,7 +993,8 @@ impl PanelState {
     /// the list — not through `on_press`, which would give the keyboard
     /// back. On a worked task with a Claude it goes to the session, giving
     /// the keyboard back first, as the Go to list's session rows do. A
-    /// button step only when the card has that button.
+    /// button step only when the card has that button; Refine, which has
+    /// none, whenever it is the step.
     fn advance(&mut self) -> Vec<Effect> {
         let shown = self.visible();
         let Some(card) = self.current(&shown).map(|at| &shown[at]) else { return Vec::new() };
@@ -1005,7 +1006,7 @@ impl PanelState {
                 effects.push(Effect::Spawn(Step::Session.args(&uuid)));
                 effects
             }
-            Some(Step::Press(action)) if card.actions.contains(&action) => vec![
+            Some(Step::Press(action)) if card.actions.contains(&action) || action == Action::Refine => vec![
                 Effect::Notify(format!("{}: {}", action.label(state), card.card.text)),
                 Effect::Spawn(action.args(&uuid)),
             ],

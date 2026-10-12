@@ -131,13 +131,14 @@ up next on a task already up next. Which ones a task gets goes by its state:
 a processing task gets none, a waiting task gets only Go to…, Back to list,
 Edit, Complete, Move to workspace and Remove, a finished one only Go to…,
 Back to list, Edit and Remove, and Back to list reopens a finished one. The
-action row shows them.
+action row shows them, all but Refine, which the Go to list has and
+Ctrl+Enter runs.
 _Avoid_: command (the CLI's word), button, verb
 
 **Action row**:
 The buttons along the focused task card's bottom edge while the task panel has
 the keyboard; the other cards hide theirs — Go to… first, then Start working,
-Refine, Edit, Up next, Complete, Move to workspace, Stop, Waiting and Remove,
+Edit, Up next, Complete, Move to workspace, Stop, Waiting and Remove,
 an active task getting Stop in place of Start working, a waiting task getting
 just Go to…, Back to list, Edit, Complete, Move to workspace and Remove, and a
 finished one just Go to…, Back to list, Edit and Remove, and a card being
@@ -209,9 +210,12 @@ reading aloud — each row only when it applies: refining, starting, reports
 built and sessions on a task on the list (Back to worktree giving way to Go
 to work session while that Claude runs), the documents when its notes link
 them (`Report:`, `Plan:`, `Spec:`), the worktree when it has one, VS Code
-when installed, reading aloud always. No text field: Up and Down move the
-highlight, Enter or a click runs the row's `niritasks` command and gives the
-keyboard back (Read aloud keeps it), and Escape goes back to the card. A
+when installed, reading aloud always. Rows of a kind share a colour: a
+Claude on the plan mauve, Get started green, a running Claude blue, the
+documents yellow, the worktree and VS Code sapphire, Read aloud pink. No
+text field: Up and Down move the highlight, Enter or a click runs the row's
+`niritasks` command and gives the keyboard back (Read aloud keeps it), and
+Escape goes back to the card. A
 `Spec:` or `Plan:` path is the repository's, read in the task's worktree
 while it has one, else the workspace's `~/Projects` folder. Every Markdown
 document a task links opens in a VS Code instance of its own, never the

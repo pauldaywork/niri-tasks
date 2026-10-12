@@ -179,12 +179,11 @@ mod tests {
     #[test]
     fn letters_and_delete_run_their_buttons() {
         assert_eq!(key_action(gdk::Key::o, false, false), KeyAction::Run(Action::GoTo));
-        for gone in [gdk::Key::g, gdk::Key::i, gdk::Key::p] {
+        for gone in [gdk::Key::g, gdk::Key::i, gdk::Key::p, gdk::Key::r] {
             assert_eq!(key_action(gone, false, false), KeyAction::Ignore);
         }
         assert_eq!(key_action(gdk::Key::b, false, false), KeyAction::Run(Action::Back));
         assert_eq!(key_action(gdk::Key::s, false, false), KeyAction::Run(Action::Start));
-        assert_eq!(key_action(gdk::Key::r, false, false), KeyAction::Run(Action::Refine));
         assert_eq!(key_action(gdk::Key::e, false, false), KeyAction::Run(Action::Edit));
         assert_eq!(key_action(gdk::Key::c, false, false), KeyAction::Run(Action::Complete));
         assert_eq!(key_action(gdk::Key::m, false, false), KeyAction::Run(Action::Move));
@@ -198,7 +197,6 @@ mod tests {
         assert_eq!(key_action(gdk::Key::O, false, false), KeyAction::Run(Action::GoTo));
         assert_eq!(key_action(gdk::Key::B, false, false), KeyAction::Run(Action::Back));
         assert_eq!(key_action(gdk::Key::S, false, false), KeyAction::Run(Action::Start));
-        assert_eq!(key_action(gdk::Key::R, false, false), KeyAction::Run(Action::Refine));
         assert_eq!(key_action(gdk::Key::E, false, false), KeyAction::Run(Action::Edit));
         assert_eq!(key_action(gdk::Key::C, false, false), KeyAction::Run(Action::Complete));
         assert_eq!(key_action(gdk::Key::M, false, false), KeyAction::Run(Action::Move));

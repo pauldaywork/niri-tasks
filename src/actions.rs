@@ -168,7 +168,7 @@ impl Action {
             GoTo => Facts { icon: "\u{f141}", class: "go-to", key: Some("o"), colour: c::GO_TO, keeps_keyboard: true, leaves_the_list: false },
             Back => Facts { icon: "\u{f0e2}", class: "back", key: Some("b"), colour: c::BACK, keeps_keyboard: true, leaves_the_list: true },
             Start => Facts { icon: "\u{f04b}", class: "start", key: Some("s"), colour: c::ACTIVE, keeps_keyboard: false, leaves_the_list: false },
-            Refine => Facts { icon: "\u{f0d0}", class: "refine", key: Some("r"), colour: c::REFINE, keeps_keyboard: false, leaves_the_list: false },
+            Refine => Facts { icon: "\u{f0d0}", class: "refine", key: None, colour: c::REFINE, keeps_keyboard: false, leaves_the_list: false },
             Edit => Facts { icon: "\u{f040}", class: "edit", key: Some("e"), colour: c::EDIT, keeps_keyboard: false, leaves_the_list: false },
             // Font Awesome's bookmark: marked as the one to do next.
             UpNext => Facts { icon: "\u{f02e}", class: "up-next", key: None, colour: c::UP_NEXT, keeps_keyboard: true, leaves_the_list: false },

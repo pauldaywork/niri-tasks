@@ -56,7 +56,7 @@ pub const ACTIVE: &str = "#8cd283";
 /// colour, and the Up next button's.
 pub const UP_NEXT: &str = "#f9e2af";
 /// The keyboard's action buttons, each its own colour from the same Catppuccin
-/// palette as [`ACTIVE`] (mocha's): Go to… blue, Back to list lavender, Refine mauve, Edit
+/// palette as [`ACTIVE`] (mocha's): Go to… blue, Back to list lavender, Refine mauve (in the Go to list), Edit
 /// yellow, Complete green, Move sapphire, Stop peach, Waiting teal, Remove red. Start shares [`ACTIVE`]'s green, because
 /// starting a task is what turns its card green, and Up next shares Edit's yellow, [`UP_NEXT`],
 /// because it is what turns its card yellow.
@@ -80,6 +80,9 @@ pub const COMPLETE: &str = "#a6e3a1";
 /// Move to workspace sapphire: mocha's `sapphire`, between Go to…'s
 /// blue and Waiting's teal, apart from both.
 pub const MOVE: &str = "#74c7ec";
+/// Read aloud pink, in the Go to list: mocha's `pink`, the colour the
+/// Speak button had.
+pub const READ_ALOUD: &str = "#f5c2e7";
 /// Text on a solid colour fill, the armed Remove: mocha's `base`, so it reads
 /// as dark on red.
 pub const ON_FILL: &str = "#1e1e2e";
@@ -250,6 +253,10 @@ window.task-panel {{ background-color: transparent; }}
             ".task-panel .card-actions .{name} {{ color: {colour}; }}\n\
              .task-panel .card-actions .{name}:focus {{ background-color: alpha({colour}, 0.2); }}\n"
         ));
+    }
+    for group in super::goto::Group::ALL {
+        let (name, colour) = (group.class(), group.colour());
+        css.push_str(&format!(".task-panel .task-card.{name} .card-body {{ color: {colour}; }}\n"));
     }
     css.push_str(&format!(
         ".task-panel .card-actions .remove.confirm,\n\
