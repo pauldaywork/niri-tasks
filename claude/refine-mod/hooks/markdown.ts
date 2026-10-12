@@ -7,7 +7,7 @@
 
 import type { Plan } from './plan'
 import { CHANGES, LENSES, SWAPS } from './report'
-import type { Change, CodePair, Diagram, Lens, Report, Section, Swap, Tool } from './report'
+import type { Change, CodePair, Diagram, FileChange, Lens, Report, Section, Swap, Tool } from './report'
 
 // The twin's path: the report's, with .md for .html.
 export const markdownPath = (htmlPath: string): string => `${htmlPath.replace(/\.html$/, '')}.md`
@@ -266,16 +266,17 @@ export const reportFromMarkdown = (markdown: string): ReadBack => {
     gap()
     sections.push(part())
   }
-  const files = !slide('Files')
-    ? []
-    : (gap(),
-      line('## Files'),
-      gap(),
-      rows(FILE_HEAD).map(([change = '', path = '', why = '']) => ({
-        change: oneOf<Change>(change, CHANGES, 'new, change or remove'),
-        path: /^`.*`$/.test(path) ? path.slice(1, -1) : fail('a `path`'),
-        why,
-      })))
+  let files: FileChange[] = []
+  if (slide('Files')) {
+    gap()
+    line('## Files')
+    gap()
+    files = rows(FILE_HEAD).map(([change = '', path = '', why = '']) => ({
+      change: oneOf<Change>(change, CHANGES, 'new, change or remove'),
+      path: /^`.*`$/.test(path) ? path.slice(1, -1) : fail('a `path`'),
+      why,
+    }))
+  }
   gap()
   line('## Done when')
   gap()
@@ -299,13 +300,26 @@ export const reportFromMarkdown = (markdown: string): ReadBack => {
   }
 }
 
+// Plain data equal field by field, whatever the key order; a key on one side
+// only is a difference.
+const same = (a: unknown, b: unknown): boolean => {
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return a === b
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  const ka = Object.keys(a)
+  const kb = Object.keys(b)
+  return (
+    ka.length === kb.length &&
+    ka.every(k => Object.hasOwn(b, k) && same((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+  )
+}
+
 // A report's twin, and what reads back from it, which the slides are built
 // from.
 export type Twin = ReadBack & { markdown: string }
 
-// The twin and what reads back from it; or why it does not read back as the
-// report it was written from, as for a plan note on two lines, and then the
-// slides would not match it and nothing is written.
+// The twin and what reads back from it; or why the fields do not come back as
+// given, as for a plan note on two lines or a term holding "**: ", and then the
+// slides would not match the report and nothing is written.
 export const twinOf = (report: Report, plan: Plan): Twin | string => {
   const markdown = reportMarkdown(report, plan)
   let read: ReadBack
@@ -314,7 +328,7 @@ export const twinOf = (report: Report, plan: Plan): Twin | string => {
   } catch (error) {
     return `its Markdown twin does not read back (${error instanceof Error ? error.message : String(error)})`
   }
-  return reportMarkdown(read.report, read.plan) === markdown
+  return same(read, { report, plan })
     ? { markdown, ...read }
     : 'its Markdown twin reads back as a different report'
 }

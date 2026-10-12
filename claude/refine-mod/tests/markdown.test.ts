@@ -253,4 +253,10 @@ describe('twinOf', () => {
       'its Markdown twin does not read back (line ',
     )
   })
+  test('refuses a term the twin reads back as another', () => {
+    const input = { ...MINIMAL, terms: [{ term: 'a**: b', meaning: 'c' }] }
+    const report = parseReport(input)
+    expect(typeof report).toBe('object')
+    expect(twinOf(report as Report, PLAN)).toBe('its Markdown twin reads back as a different report')
+  })
 })
