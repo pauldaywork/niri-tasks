@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Refine, Grill me, Report and the unattended run never prompt for, or auto-deny, an action the Bash sandbox already allows, and an unattended run's log and notification name every action that was denied.
+**Goal:** Block what is unsafe and stop asking about what is safe. Refine, Grill me, Report and the unattended run keep every way to inspect the codebase and gather what the plan needs: reading any file but the credentials, any read-only shell command of any shape, and the web. They never prompt for, or auto-deny, an action the Bash sandbox already allows. An unattended run's log and notification name every action that was denied, so a safe action that is still blocked shows up instead of quietly producing a weaker plan.
 
 **Architecture:** The permission rules in `refine::session_settings` (`src/refine.rs`) state the fence the OS enforces: a bare `Bash` allow (the sandbox is the fence, and `allowUnsandboxedCommands: false` keeps the unsandboxed retry shut), `Read(//**)` under the existing deny rules, `WebSearch` and `WebFetch`. The tab and the headless run share these settings, so a single change covers both. The unattended run switches to `claude -p --output-format json`, parses `result` and `permission_denials`, writes both to its log and names any denials in the notification. A diagnosis run comes first, so the change answers the measured cause.
 
@@ -12,6 +12,7 @@
 
 ## Global Constraints
 
+- The aim is to block unsafe actions and stop asking about safe ones. No change may take away a way to read the codebase or gather information that the session has today.
 - Stay in `--permission-mode default` with the sandbox in auto-allow. Not auto mode, not plan mode.
 - Fix at the permission layer in `session_settings`, tab and headless alike. No `tool.check` or `PermissionRequest` hook in the mod, and no skill sentences that tell the model which shell shapes to avoid.
 - Do not change the sandbox fence: `hidden` paths, `denyWrite`, `allowWrite`, `allowUnsandboxedCommands: false` and `failIfUnavailable: true` stay as they are.
@@ -110,6 +111,10 @@ grep '^{' "$LOG" | jq -r 'select(.type=="user") | .message.content[]? | select(.
 ```
 
 Note `permissionMode` (expected `default`), any sandbox field in init, and every entry in `permission_denials` with its `tool_name` and `tool_input`. Also note the error text of each failed tool result, for example `A variable in this command can't be checked before it runs` or `contains multiple operations`.
+
+Sort every denial and failed tool result into one of two groups:
+- **Safe work that was blocked:** reads, read-only commands, network fetches, and commands that fail only because they write scratch output, such as a build's `target/` folder or `git fetch` updating `.git`. Bare `Bash` fixes command-shape denials. Anything in this group that bare `Bash` does not fix, for example a sandbox network prompt for a domain or a `Read-only file system` error from a command that only checks something, is listed in the addendum and reported to the user as an open gap. Do not widen the fence here: that is out of scope and the user's call.
+- **Unsafe work that was rightly blocked:** writes to the project, credentials, and hidden sockets. List these, but they are the fence working.
 
 - [ ] **Step 6: Probe whether the sandbox is active under `-p`**
 
