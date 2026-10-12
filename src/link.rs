@@ -2,7 +2,8 @@
 //! name. Refine names its agent `task-<uuid8>` and Start working names its
 //! `work-<uuid8>`, so nothing is stored on the task — the panel finds a task's
 //! agent by asking herdr for those names. A Claude started by hand gets the
-//! same `work-` name when it marks the task active. The names are spelled in
+//! same `work-` name, and its pane the task's label, when it marks the task
+//! active. The names are spelled in
 //! [`names`].
 
 use crate::session::{current_pane, CurrentPane, Session};
@@ -24,29 +25,37 @@ pub fn pane_link_name(current: Option<&str>, uuid: &str) -> Option<String> {
     Some(names::work_agent(uuid))
 }
 
-/// Name the agent in the herdr pane this process runs in after `uuid`, as
-/// [`pane_link_name`] decides — so a Claude started by hand, marking its task
-/// active, can be found from the task's card like one Start working made.
+/// Name the agent in the herdr pane this process runs in after `t`, as
+/// [`pane_link_name`] decides, and label the pane with the task — so a Claude
+/// started by hand, marking its task active, can be found from the task's
+/// card like one Start working made.
 ///
 /// Outside a herdr pane, in a pane with no agent (a script in a plain shell),
 /// or without herdr at all, there is nothing to link and this does nothing.
 /// Only a rename herdr refuses — the name held by another live agent, say —
 /// is an error.
-pub fn link_current_pane(uuid: &str) -> Result<()> {
+pub fn link_current_pane(t: &crate::task::Task) -> Result<()> {
     let Some(CurrentPane { session, pane: Some(pane), .. }) = current_pane() else {
         return Ok(());
     };
-    let session = Session::named(&session);
+    link_pane(&Session::named(&session), &pane, t)
+}
+
+/// [`link_current_pane`]'s steps in `session`'s `pane`: name its agent after
+/// `t` as [`pane_link_name`] decides and, when it did, label the pane with
+/// the task, as Start working labels its own.
+fn link_pane(session: &Session, pane: &str, t: &crate::task::Task) -> Result<()> {
     // Any failure to ask, herdr not installed included, is nothing to link.
-    let Ok(Some(agent)) = session.agent(&pane) else {
+    let Ok(Some(agent)) = session.agent(pane) else {
         return Ok(());
     };
-    let Some(name) = pane_link_name(agent.name.as_deref(), uuid) else {
+    let Some(name) = pane_link_name(agent.name.as_deref(), &t.uuid) else {
         return Ok(());
     };
     session
-        .rename_agent(&pane, &name)
+        .rename_agent(pane, &name)
         .with_context(|| format!("The task is active, but this pane's agent could not be named {name}"))?;
+    session.label_pane(pane, &names::PaneName::for_task(names::Role::Work, t.id, &t.uuid, &t.description));
     Ok(())
 }
 
@@ -120,6 +129,33 @@ pub fn go_to(ws: &Workspace, uuid: &str, which: Which) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::fake::Fake;
+    use std::path::PathBuf;
+
+    fn task(id: u64, uuid: &str, description: &str) -> crate::task::Task {
+        serde_json::from_value(serde_json::json!({"id": id, "uuid": uuid, "description": description})).unwrap()
+    }
+
+    /// A Claude started by hand takes the task's work- name and its pane the
+    /// task's label.
+    #[test]
+    fn linking_a_hand_started_claude_names_and_labels_its_pane() {
+        let fake = Fake::running(&[("w1", "alpha")]).with_agent(None, "p1", "idle");
+        let s = Session::with_port("alpha", PathBuf::new(), Box::new(fake.clone()));
+        link_pane(&s, "p1", &task(61, "7cd9fd3a-d27b", "fix the peek")).unwrap();
+        let log = fake.log();
+        assert!(log.contains(&"agent_rename alpha p1 work-7cd9fd3a".to_string()), "{log:?}");
+        assert!(log.contains(&"pane_rename alpha p1 Work #61 · fix the peek".to_string()), "{log:?}");
+    }
+
+    /// A refine marking its task active keeps its name, and so its label.
+    #[test]
+    fn linking_a_refine_pane_leaves_its_label_alone() {
+        let fake = Fake::running(&[("w1", "alpha")]).with_agent(Some("task-7cd9fd3a"), "p1", "idle");
+        let s = Session::with_port("alpha", PathBuf::new(), Box::new(fake.clone()));
+        link_pane(&s, "p1", &task(61, "7cd9fd3a-d27b", "fix the peek")).unwrap();
+        assert!(!fake.log().iter().any(|l| l.starts_with("agent_rename") || l.starts_with("pane_rename")), "{:?}", fake.log());
+    }
 
     #[test]
     fn an_unnamed_or_otherwise_named_agent_takes_the_tasks_work_name() {

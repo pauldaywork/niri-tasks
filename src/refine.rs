@@ -305,7 +305,8 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
 
     let claude = Claude::Refiner { settings, mod_dir };
     let label = tab_label(mode, &t.description);
-    if launch_in(&session, &name, &label, ws.name(), &claude, &prompt(&t.uuid, mode))? == Launched::AlreadyRunning {
+    let pane = names::PaneName::for_task(names::Role::Refine, t.id, &t.uuid, &t.description);
+    if launch_in(&session, &name, &label, ws.name(), &claude, &pane, &prompt(&t.uuid, mode))? == Launched::AlreadyRunning {
         // The same agent name for all three modes, so a press of any lands in the tab already open on the task.
         session.notify("Already open on this task — switched to its tab.");
     }
@@ -332,7 +333,10 @@ enum Launched {
 /// go as soon as herdr has the agent, before a blocked start's question and
 /// the prompt's retries, either of which can take a while: by then the
 /// agent exists for that second press to find.
-fn launch_in(session: &Session, name: &str, label: &str, workspace_label: &str, claude: &Claude, text: &str) -> Result<Launched> {
+///
+/// Once Claude has started, its pane is labelled with the task (`pane_name`);
+/// a Claude found running is left as it is.
+fn launch_in(session: &Session, name: &str, label: &str, workspace_label: &str, claude: &Claude, pane_name: &names::PaneName, text: &str) -> Result<Launched> {
     let claim = session.claim()?;
     let workspaces = session.open()?;
     if session.focus_agent(name)? {
@@ -349,6 +353,7 @@ fn launch_in(session: &Session, name: &str, label: &str, workspace_label: &str, 
         }
         return Err(e);
     }
+    session.label_pane(&tab.pane, pane_name);
     session.prompt(name, text)?;
     Ok(Launched::Started)
 }
@@ -1010,7 +1015,8 @@ Num       RefCount Protocol Flags    Type St Inode Path
     /// Refine's session steps over `fake`, as `launch` runs them.
     fn refine(fake: &Fake) -> Result<Launched> {
         let session = Session::with_port("alpha", PathBuf::from("/p/alpha"), Box::new(fake.clone()));
-        launch_in(&session, "task-abc", "Refine: x", "alpha", &refiner(), "/refine-task abc")
+        let pane = crate::names::PaneName::for_task(crate::names::Role::Refine, 61, "abc", "x");
+        launch_in(&session, "task-abc", "Refine: x", "alpha", &refiner(), &pane, "/refine-task abc")
     }
 
     /// Where `line` first appears in the log, failing the test when it is
@@ -1025,6 +1031,21 @@ Num       RefCount Protocol Flags    Type St Inode Path
     /// project terminals) and held until Claude has started, then given up
     /// before the prompt, whose retries can take seconds while the second
     /// press could already find and focus the agent.
+    /// The new Claude's pane says which task it is on, once Claude has
+    /// started in it and before the prompt; one found running is left as
+    /// it is.
+    #[test]
+    fn refine_labels_its_new_pane_and_only_that() {
+        let fake = Fake::running(&[("w1", "alpha")]);
+        refine(&fake).unwrap();
+        let log = fake.log();
+        assert!(at(&log, "agent_start alpha task-abc") < at(&log, "pane_rename alpha"), "{log:?}");
+        assert!(at(&log, "pane_rename alpha") < at(&log, "agent_prompt alpha task-abc"), "{log:?}");
+        assert!(log.iter().any(|l| l.ends_with(" Refine #61 · x")), "{log:?}");
+        refine(&fake).unwrap();
+        assert_eq!(fake.log().iter().filter(|l| l.starts_with("pane_rename")).count(), 1);
+    }
+
     #[test]
     fn refine_holds_the_session_from_opening_it_until_claude_has_started() {
         let fake = Fake::running(&[("w1", "alpha")]);
