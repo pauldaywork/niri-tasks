@@ -1,5 +1,6 @@
-//! The names a task carries into herdr: its agents' names, and the label its
-//! tabs show. Refine names its agent `task-<uuid8>` and Start working names
+//! The names a task carries into herdr: its agents' names, the label its tabs
+//! show, and what its Claude's pane is called.
+//! Refine names its agent `task-<uuid8>` and Start working names
 //! its `work-<uuid8>`, so nothing is stored on the task — the panel finds a
 //! task's agent by asking herdr for those names. They are spelled here once,
 //! so the pane link, Refine, Start working and the panel's lookup cannot
@@ -44,12 +45,61 @@ const LABEL_MAX: usize = 30;
 /// A description cut to fit a tab label, by characters, with an ellipsis. Its
 /// whitespace is collapsed first, so a two-line description reads as one.
 pub fn elide(description: &str) -> String {
-    let d = text::collapse_whitespace(description);
-    if d.chars().count() > LABEL_MAX {
-        let cut: String = d.chars().take(LABEL_MAX - 1).collect();
+    elide_to(description, LABEL_MAX)
+}
+
+/// `text` with its whitespace collapsed, cut to `max` characters with an
+/// ellipsis when longer.
+pub fn elide_to(text: &str, max: usize) -> String {
+    let d = text::collapse_whitespace(text);
+    if d.chars().count() > max {
+        let cut: String = d.chars().take(max - 1).collect();
         format!("{cut}…")
     } else {
         d
+    }
+}
+
+/// Longest pane label, and token value, herdr keeps (herdr 0.9.3 caps both
+/// at 80 characters).
+pub const PANE_LABEL_MAX: usize = 80;
+
+/// Which of a task's Claudes a pane holds, as its border label says. Every
+/// refine mode is `Refine`: they share one agent, `task-<uuid8>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    Refine,
+    Work,
+}
+
+/// What a task's Claude pane is called in herdr: the label drawn in its
+/// border (with `ui.pane_borders = "always"`, even on a lone pane), and the
+/// display-only tokens a sidebar row can show as `$task_id`, `$task` and
+/// `$task_uuid`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneName {
+    pub label: String,
+    pub tokens: Vec<(String, String)>,
+}
+
+impl PaneName {
+    /// `Refine #61 · <description>` or `Work #61 · …`, cut to what herdr
+    /// keeps. A task with no number, as a finished one has after gc, shows
+    /// none rather than `#0`.
+    pub fn for_task(role: Role, id: u64, uuid: &str, description: &str) -> PaneName {
+        let verb = match role {
+            Role::Refine => "Refine",
+            Role::Work => "Work",
+        };
+        let head = if id == 0 { verb.to_string() } else { format!("{verb} #{id}") };
+        let description = text::collapse_whitespace(description);
+        let mut tokens = Vec::new();
+        if id != 0 {
+            tokens.push(("task_id".to_string(), id.to_string()));
+        }
+        tokens.push(("task".to_string(), elide_to(&description, PANE_LABEL_MAX)));
+        tokens.push(("task_uuid".to_string(), uuid.to_string()));
+        PaneName { label: elide_to(&format!("{head} · {description}"), PANE_LABEL_MAX), tokens }
     }
 }
 
@@ -94,5 +144,44 @@ mod tests {
         assert_eq!(elide("two\n lines"), "two lines");
         let exact = "a".repeat(LABEL_MAX);
         assert_eq!(elide(&exact), exact);
+    }
+
+    #[test]
+    fn a_pane_label_names_the_role_the_task_number_and_the_description() {
+        let n = PaneName::for_task(Role::Refine, 61, "7b4f4c5c-185a", "feat: Name the task  on its\nClaude's pane");
+        assert_eq!(n.label, "Refine #61 · feat: Name the task on its Claude's pane");
+        let n = PaneName::for_task(Role::Work, 61, "7b4f4c5c-185a", "fix the peek");
+        assert_eq!(n.label, "Work #61 · fix the peek");
+    }
+
+    /// herdr caps a label at 80 characters; cut here, with an ellipsis, it
+    /// at least says it was cut.
+    #[test]
+    fn a_long_pane_label_is_elided_to_what_herdr_keeps() {
+        let n = PaneName::for_task(Role::Work, 61, "u", &"word ".repeat(40));
+        assert_eq!(n.label.chars().count(), PANE_LABEL_MAX);
+        assert!(n.label.ends_with('…'), "{}", n.label);
+    }
+
+    /// A finished task loses its number to gc: no `#0`, no task_id.
+    #[test]
+    fn a_task_with_no_number_has_none_on_its_pane() {
+        let n = PaneName::for_task(Role::Work, 0, "u-1", "fix the peek");
+        assert_eq!(n.label, "Work · fix the peek");
+        assert!(!n.tokens.iter().any(|(k, _)| k == "task_id"), "{:?}", n.tokens);
+    }
+
+    #[test]
+    fn the_pane_tokens_carry_the_number_the_description_and_the_uuid() {
+        let n = PaneName::for_task(Role::Refine, 61, "7b4f4c5c-185a", "fix  the peek");
+        let tokens: Vec<(&str, &str)> = n.tokens.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        assert_eq!(tokens, [("task_id", "61"), ("task", "fix the peek"), ("task_uuid", "7b4f4c5c-185a")]);
+    }
+
+    #[test]
+    fn elide_to_cuts_by_characters() {
+        assert_eq!(elide_to("abcdef", 4), "abc…");
+        assert_eq!(elide_to("abcd", 4), "abcd");
+        assert_eq!(elide("x".repeat(31).as_str()).chars().count(), 30, "elide keeps the tab label's 30");
     }
 }
