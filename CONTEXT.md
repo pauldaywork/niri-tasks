@@ -247,6 +247,8 @@ in a herdr tab, and Add & all, with no key, adds it and plans and reports it
 unattended in the background (see Processing task); Mod+Alt+Shift+T opens
 the box with Add & refine as the default.
 Only one is ever open: asking for another brings the open one forward.
+One a task card's Edit opened hands the keyboard back to that task panel as
+it closes, on the same tab and card.
 _Avoid_: dialog, prompt
 
 **Note row**:

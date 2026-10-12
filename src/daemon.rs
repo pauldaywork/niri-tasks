@@ -267,6 +267,16 @@ fn no_cards_text(tag: anyhow::Result<String>) -> String {
     }
 }
 
+/// The live herdr agents in the session of the workspace named `name`, for
+/// a panel taking the keyboard: one `herdr agent list` for every card at
+/// once. None for an unnamed workspace, or a session that is not running,
+/// which answers at once with none.
+fn live_agents(name: Option<&str>) -> Vec<String> {
+    name.and_then(|n| Workspace::named(n).ok())
+        .map(|w| crate::link::live_agent_names(&w))
+        .unwrap_or_default()
+}
+
 /// Serve one request from the CLI: a task box, the panel's keyboard, or the
 /// project list. A task box's taskwarrior work is done here when it is
 /// submitted, because the CLI has already exited by then.
@@ -287,18 +297,7 @@ fn serve_request(app: &Application, req: crate::ipc::Request) {
         Request::Panel => {
             // No panel reads as no cards: either way there is nothing to
             // hand the keyboard to, and the tag says why.
-            if !focused_panel().is_some_and(|(panel, focused)| {
-                // One `herdr agent list` per slide-out, for every card at
-                // once; a session that is not running answers at once with
-                // none.
-                let agents = focused
-                    .name
-                    .as_deref()
-                    .and_then(|n| Workspace::named(n).ok())
-                    .map(|w| crate::link::live_agent_names(&w))
-                    .unwrap_or_default();
-                panel.take_keyboard(agents)
-            }) {
+            if !focused_panel().is_some_and(|(panel, focused)| panel.take_keyboard(live_agents(focused.name.as_deref()))) {
                 notify::tasks(&no_cards_text(Workspace::focused().map(|w| w.tag().to_string())));
             }
         }
@@ -337,6 +336,7 @@ fn serve_request(app: &Application, req: crate::ipc::Request) {
                         }
                     }
                 },
+                || {},
             );
             notice_if_other_open(opened);
         }
@@ -355,8 +355,10 @@ fn open_task_box(app: &Application, uuid: String, mode: crate::taskbox::Mode) {
         notify::tasks("Task not found");
         return;
     };
-    // The full uuid, not the one asked for, which may be a prefix.
+    // The full uuid, not the one asked for, which may be a prefix: the
+    // panel's Edit remembers the card's, which is full.
     let uuid = t.uuid.clone();
+    let closed = uuid.clone();
     let opened = taskbox::open_in(
         app,
         taskbox::BoxConfig::for_task(mode, t),
@@ -365,8 +367,33 @@ fn open_task_box(app: &Application, uuid: String, mode: crate::taskbox::Mode) {
                 notify::tasks(&e.to_string());
             }
         },
+        move || return_keyboard(&closed),
     );
     notice_if_other_open(opened);
+}
+
+/// A task box on `uuid` closed, however it closed: the panel whose Edit
+/// opened it takes the keyboard back, asking the session of the workspace
+/// its monitor shows for its agents. A box from the CLI or a keybind finds
+/// no such panel and asks niri and herdr nothing.
+fn return_keyboard(uuid: &str) {
+    let returning: Vec<(String, Rc<Panel>)> = PANELS.with(|p| {
+        p.borrow()
+            .iter()
+            .filter(|(_, panel)| panel.returns_to(uuid))
+            .map(|(connector, panel)| (connector.clone(), panel.clone()))
+            .collect()
+    });
+    if returning.is_empty() {
+        return;
+    }
+    let names = niri::workspaces()
+        .map(|ws| niri::active_workspace_by_output(&ws))
+        .unwrap_or_default();
+    for (connector, panel) in returning {
+        let name = names.get(&connector).cloned().flatten();
+        panel.take_keyboard_back(uuid, live_agents(name.as_deref()));
+    }
 }
 
 fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {

@@ -47,12 +47,18 @@ fn opened(open: Option<&Subject>, asked: &Subject) -> Opened {
 }
 
 /// Open the box inside the daemon's running Application, calling `on_submit`
-/// with what was saved. The window is built once, in `build_window`.
+/// with what was saved, and `on_close` once the box is gone, however it
+/// went. The window is built once, in `build_window`.
 ///
 /// While a box is open this opens nothing: it brings the open box forward and
 /// drops the request, saying whether that box was the one asked for, so the
 /// daemon can tell you when it was not.
-pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission) + 'static) -> Opened {
+pub fn open_in(
+    app: &Application,
+    cfg: BoxConfig,
+    on_submit: impl Fn(Submission) + 'static,
+    on_close: impl Fn() + 'static,
+) -> Opened {
     let open = OPEN.with(|o| {
         o.borrow()
             .as_ref()
@@ -68,10 +74,11 @@ pub fn open_in(app: &Application, cfg: BoxConfig, on_submit: impl Fn(Submission)
     let window = build_window(app, &cfg, Rc::new(on_submit));
     // Destroy, not close-request: every way out — Esc, Cancel, a save, niri's
     // close-window — ends in it, and it comes after the window is gone.
-    window.connect_destroy(|_| {
+    window.connect_destroy(move |_| {
         OPEN.with(|o| {
             o.borrow_mut().take();
         });
+        on_close();
     });
     OPEN.with(|o| *o.borrow_mut() = Some((window.downgrade(), cfg.subject)));
     Opened::New

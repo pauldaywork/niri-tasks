@@ -445,6 +445,70 @@ if command -v wtype >/dev/null; then
       ${x0}-${x1}, rows ${y0}-${y1}"
     fi
 
+    # Edit's box closing hands the keyboard back: on the To refine tab
+    # (4), the second card, its Edit focused, exactly as before e opened
+    # the box. Right three times from the body is Go to…, Start working,
+    # Edit, a task on the list's row (Action::row, which has no Refine
+    # button).
+    box_up() {
+        nested niri msg -j windows 2>/dev/null | python3 -c "
+import json,sys
+print(any((w.get('app_id') or '')=='dev.niri-tasks.box' for w in json.load(sys.stdin)))
+"
+    }
+    wait_box() {  # True|False
+        for _ in $(seq 1 50); do [ "$(box_up)" = "$1" ] && return 0; sleep 0.1; done
+        return 1
+    }
+    "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
+    settle
+    "${NENV[@]}" wtype 4
+    sleep 1
+    "${NENV[@]}" wtype -k Down
+    for _ in 1 2 3; do "${NENV[@]}" wtype -k Right; done
+    sleep 1
+    shot edit_before || { summary; exit 1; }
+    "${NENV[@]}" wtype e
+    if wait_box True; then
+        sleep 1
+        "${NENV[@]}" wtype -k Escape
+        wait_box False || bad "Escape did not close the box Edit opened"
+        settle
+        shot edit_back || { summary; exit 1; }
+        if same edit_before edit_back; then
+            ok "closing the box Edit opened puts the keyboard back on that tab, card and button"
+        else
+            read -r x0 x1 y0 y1 < <(measure edit_back edit_before)
+            bad "after the box closed the screen differs from before Edit in columns
+      ${x0}-${x1}, rows ${y0}-${y1} — the whole surface means the panel
+      stayed tucked; a band means the tab or the focus moved"
+        fi
+        "${NENV[@]}" wtype -k Escape
+        settle
+    else
+        bad "e on a card opened no task box"
+    fi
+
+    # A box opened from the CLI closes with the panel left tucked.
+    glossary=$(task "+$TAG" "description.is:write the glossary" _uuids 2>/dev/null | head -n 1)
+    "${NENV[@]}" "$NIRITASKS" task edit "$glossary" >/dev/null 2>&1
+    if wait_box True; then
+        sleep 1
+        "${NENV[@]}" wtype -k Escape
+        wait_box False || bad "Escape did not close the box task edit opened"
+        settle
+        shot outside_closed || { summary; exit 1; }
+        if same three outside_closed; then
+            ok "a box opened from outside the panel closes with the panel tucked away"
+        else
+            read -r x0 x1 y0 y1 < <(measure outside_closed three)
+            bad "after a CLI box closed the screen differs from the tucked panel in
+      columns ${x0}-${x1}, rows ${y0}-${y1}"
+        fi
+    else
+        bad "task edit opened no task box"
+    fi
+
     "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
     settle
 

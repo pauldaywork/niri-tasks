@@ -595,6 +595,22 @@ impl Panel {
         true
     }
 
+    /// The task box on `uuid` closing takes the keyboard back here: this
+    /// panel's Edit opened it.
+    pub fn returns_to(&self, uuid: &str) -> bool {
+        self.state.borrow().returns_to(uuid)
+    }
+
+    /// The task box on `uuid` closed: when this panel's Edit opened it, take
+    /// the keyboard back in the middle of the monitor, on the tab and card
+    /// Edit was pressed on. `agents` are as `take_keyboard`'s.
+    pub fn take_keyboard_back(self: &Rc<Self>, uuid: &str, agents: Vec<String>) {
+        let effects = self.state.borrow_mut().take_keyboard_back(uuid, agents);
+        if !effects.is_empty() {
+            self.centre(effects);
+        }
+    }
+
     /// Mod+Alt+W: the project list for opening a project, in the middle of
     /// the monitor with the keyboard, as `take_keyboard` puts the cards
     /// there. With no cards too: the panel shows for the list alone.

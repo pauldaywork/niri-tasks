@@ -51,7 +51,7 @@ under it:
 |---|---|---|
 | **Go to…** (blue) | `o` | A list in the panel of what else can be done with the task and where it can be gone to — Refine (Redo refine), Grill me, Get started (Back to worktree), Generate report (Regenerate report), Open report, Planning doc, Design spec, Go to refine session, Go to work session, Open worktree folder, Open in VS Code and Read aloud (Stop reading aloud), each only when it applies (see below) — first on every card |
 | **Start working** (green) | `s` | The task's own worktree, herdr tab and Claude, which plans the task first and links the plan it saves as a `Plan: docs/superpowers/plans/<file>.md` note — not on an active task, which is already being worked |
-| **Edit** (yellow) | `e` | Open it in the task box |
+| **Edit** (yellow) | `e` | Open it in the task box. Closing the box, saved or not, hands the keyboard back to the panel on the same tab, on this card |
 | **Up next** (yellow) | | Mark it as the one to do next: its card turns yellow and moves up under the active tasks. On a task already up next it reads **Not up next**, and clears it — not on a waiting or finished task |
 | **Complete** (green) | `c` | Mark it done: it leaves the panel, which keeps the keyboard — not on a finished task |
 | **Move to workspace** (sapphire) | `m` | Pick another `~/Projects` folder from a list in the panel, and move the task to that folder's workspace — not on a finished task |
@@ -419,6 +419,13 @@ There is only ever one box. Mod+Alt+T, or Edit or Note on a card, while a box
 is open brings that box forward and opens nothing, so nothing typed into it is
 lost; if you asked for a different box, a notification says one is already
 open. Save or discard it, then ask again.
+
+A box opened by a card's Edit hands the keyboard back to the task panel
+when it closes, however it closes, on the tab Edit was pressed on with
+that card focused (or the tab's first card, if that one has gone). A box
+opened any other way, by Mod+Alt+T or `niritasks task edit`, leaves the
+panel tucked away, as does taking or giving back the panel's keyboard
+while the box is open.
 
 | Key | Does |
 |---|---|
