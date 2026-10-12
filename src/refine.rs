@@ -60,7 +60,9 @@ pub fn tab_label(mode: Mode, description: &str) -> String {
 /// The session searches and fetches from the web unasked, so a page it reads
 /// could try to talk it into sending a secret out in a URL. Hiding these from
 /// every reader it has — the `Read` tool by deny rule, sandboxed Bash by
-/// [`credential_paths`] — leaves nothing of that kind to send.
+/// [`credential_paths`] — leaves nothing of that kind to send. Beyond the
+/// classic credentials it covers app tokens (Codex, Vercel, t3) and the
+/// browsers' profiles, which hold saved logins and session cookies.
 pub const CREDENTIALS: &[&str] = &[
     "~/.ssh/**",
     "~/.gnupg/**",
@@ -72,7 +74,22 @@ pub const CREDENTIALS: &[&str] = &[
     "~/.git-credentials",
     "~/.claude/.credentials.json",
     "~/.local/share/keyrings/**",
+    "~/.codex/**",
+    "~/.local/share/com.vercel.cli/**",
+    "~/.t3/**",
+    "~/.mozilla/**",
+    "~/snap/firefox/common/.mozilla/**",
+    "~/.config/google-chrome/**",
+    "~/.config/chromium/**",
 ];
+
+/// Secrets found by pattern, not by a fixed path: the `.env` files of
+/// every project under `~/Projects`, which hold API keys and database
+/// URLs. Hidden from the Read tool by a deny rule and from sandboxed
+/// Bash by `denyRead`, which takes globs on Linux (it does not for
+/// writes). A refine loses nothing it needs: a project's `.env.example`
+/// goes too, and the code that reads the variables still shows their names.
+pub const SECRET_GLOBS: &[&str] = &["~/Projects/**/.env*"];
 
 /// The refine mod's plugin name, as `claude/refine-mod/.claude-plugin/plugin.json`
 /// declares it: the key its options travel under in `--settings`.
@@ -159,7 +176,7 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// already can. Without it the tool asks outside the project, where the
 /// installed skills, the report catalogue, an unattended run's log and the
 /// reviews folder all live, and an unattended run has no one to answer.
-/// Deny rules win over it: the [`CREDENTIALS`], and every path `fence.hidden`
+/// Deny rules win over it: the [`CREDENTIALS`], the [`SECRET_GLOBS`], and every path `fence.hidden`
 /// hides from sandboxed Bash, so the tool opens nothing Bash could not read
 /// already. One rule for every project, not a list of
 /// folders.
@@ -177,6 +194,9 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 pub fn session_settings(project: &Path, task_data: &Path, fence: &Fence, uuid: &str, reports: &Path, mode: Mode, unattended: bool, status_line: Option<&str>) -> String {
     let mut deny: Vec<String> = CREDENTIALS.iter().map(|c| format!("Read({c})")).collect();
     deny.extend(fence.hidden.iter().map(|p| format!("Read(//{}/**)", p.display().to_string().trim_start_matches('/'))));
+    deny.extend(SECRET_GLOBS.iter().map(|g| format!("Read({g})")));
+    let mut deny_read: Vec<String> = fence.hidden.iter().map(|p| p.display().to_string()).collect();
+    deny_read.extend(SECRET_GLOBS.iter().map(|g| fence.home.join(g.trim_start_matches("~/")).display().to_string()));
     let allow = ["WebSearch", "WebFetch", "Bash(task *)", "Read(//**)"];
     let mut settings = serde_json::json!({
         "permissions": {
@@ -192,7 +212,7 @@ pub fn session_settings(project: &Path, task_data: &Path, fence: &Fence, uuid: &
             "filesystem": {
                 "denyWrite": [project, task_data.join("hooks")],
                 "allowWrite": [task_data],
-                "denyRead": &fence.hidden,
+                "denyRead": deny_read,
             },
         },
         "pluginConfigs": {
@@ -225,7 +245,8 @@ fn credential_paths(home: &Path) -> Vec<PathBuf> {
 /// the session's (`/var/run` is the same folder), `/tmp` the X11 and app
 /// sockets — the session's own temp folder is under the cache instead
 /// ([`session_tmp`]) — `/var/snap` the snaps', and herdr keeps its own
-/// under its config.
+/// under its config. `~/.cache/ibus` holds the input method's private bus,
+/// which can type into other windows.
 /// [`exposed_sockets`] checks the result against the live socket table.
 fn hidden_paths(home: &Path) -> Vec<PathBuf> {
     [
@@ -233,6 +254,7 @@ fn hidden_paths(home: &Path) -> Vec<PathBuf> {
         PathBuf::from("/tmp"),
         PathBuf::from("/var/snap"),
         home.join(".config/herdr"),
+        home.join(".cache/ibus"),
     ]
     .into_iter()
     .filter(|p| p.exists())
@@ -890,7 +912,9 @@ mod tests {
             "the project, and the hooks the user's own task commands would run"
         );
         assert_eq!(sb["filesystem"]["allowWrite"], serde_json::json!(["/home/x/.task"]));
-        assert_eq!(sb["filesystem"]["denyRead"], serde_json::json!(["/run/user/1000", "/run/docker.sock"]));
+        let deny_read = sb["filesystem"]["denyRead"].as_array().unwrap();
+        assert!(deny_read.starts_with(&[serde_json::json!("/run/user/1000"), serde_json::json!("/run/docker.sock")]));
+        assert_eq!(deny_read.len(), 2 + SECRET_GLOBS.len(), "the hidden paths, then the secret globs");
         assert_eq!(sb["network"]["allowAllUnixSockets"], true);
     }
 
@@ -921,7 +945,32 @@ mod tests {
         assert!(deny.iter().any(|d| d == "Read(~/.claude/.credentials.json)"));
         assert!(deny.iter().any(|d| d == "Read(//run/**)"));
         assert!(deny.iter().any(|d| d == "Read(//home/x/.config/herdr/**)"));
-        assert_eq!(deny.len(), CREDENTIALS.len() + hidden.len());
+        assert_eq!(deny.len(), CREDENTIALS.len() + SECRET_GLOBS.len() + hidden.len());
+    }
+
+    /// Secret stores beyond the classic credentials are hidden too: the
+    /// Codex and Vercel CLIs' tokens, t3's keys, the browsers' profiles
+    /// (saved logins and cookies), and project `.env` files. Reviews on
+    /// 2026-10-12 found each readable from a refine.
+    #[test]
+    fn app_tokens_browser_profiles_and_env_files_are_secrets() {
+        for c in [
+            "~/.codex/**",
+            "~/.local/share/com.vercel.cli/**",
+            "~/.t3/**",
+            "~/.mozilla/**",
+            "~/snap/firefox/common/.mozilla/**",
+            "~/.config/google-chrome/**",
+            "~/.config/chromium/**",
+        ] {
+            assert!(CREDENTIALS.contains(&c), "{c}");
+        }
+        assert_eq!(SECRET_GLOBS, ["~/Projects/**/.env*"]);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, false);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        assert!(v["permissions"]["deny"].as_array().unwrap().iter().any(|d| d == "Read(~/Projects/**/.env*)"));
+        let deny_read = v["sandbox"]["filesystem"]["denyRead"].as_array().unwrap();
+        assert!(deny_read.iter().any(|d| d.as_str().is_some_and(|s| s.ends_with("/Projects/**/.env*") && s.starts_with('/'))), "{deny_read:?}");
     }
 
     /// The task the mod may write, and where it may write a report, come from
