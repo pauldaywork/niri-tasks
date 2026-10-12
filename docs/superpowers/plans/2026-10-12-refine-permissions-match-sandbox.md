@@ -421,11 +421,26 @@ Add a paragraph to the doc comment after the one about `task_data`:
 /// the user's unsandboxed Claude sessions share.
 ```
 
-- [ ] **Step 6: If `ENV_TMPDIR` was `ignored`**
+- [ ] **Step 6: Set `CLAUDE_CODE_TMPDIR` in the process environment (Task 1 found `ENV_TMPDIR` ignored)**
 
-The settings `env` key then does not set Claude Code's temp folder. Keep `env` out of `session_settings` and the test, and instead:
-- **Unattended run:** in `run_claude`, add `.env("CLAUDE_CODE_TMPDIR", tmp)` to the `Command`, with `tmp: &Path` as a new parameter that `unattended_steps` passes as `&fence.tmp`.
-- **Tab:** herdr's `agent start` has no environment option. **Stop and report to the user.** The tab cannot get a private temp folder this way, and the choice of what to do next (for example a launcher wrapper, or refusing bare `Bash` in the tab) is theirs.
+Task 1 measured that the settings `env` key does not move Claude Code's temp folder. Ruling (ledger): set it in the environment Claude starts in, on both paths. Do **not** add `env` to `session_settings`. Drop the `env` assertion from the Step 1 test, and the `env` line from Step 5.
+
+- **Unattended run:** `run_claude` gains a `tmp: &Path` parameter (after `argv`) and adds `.env("CLAUDE_CODE_TMPDIR", tmp)` to its `Command`. `unattended_steps` passes `&fence.tmp`. Update the `run_claude` test to pass a temp path, and assert it reaches the child: run `sh -c 'echo "$CLAUDE_CODE_TMPDIR"'` and check the log.
+- **Tab:** `Claude::Refiner` in `src/session.rs` gains `tmp: PathBuf`, documented as "the session's own temp folder, exported as `CLAUDE_CODE_TMPDIR` in the pane's shell before Claude starts". In `src/session/herdr.rs`, `agent_start` for `Claude::Refiner` first calls `self.pane_run(s, pane, &export_tmpdir(tmp))?` and then starts the agent. herdr starts Claude in that same interactive shell, so Claude inherits the variable. Add:
+
+```rust
+/// The shell line that sets a refine's temp folder in its pane before
+/// Claude starts there: herdr's `agent start` launches Claude in the
+/// pane's own shell, which then passes the variable on. Single-quoted,
+/// with any `'` in the path closed, escaped and reopened.
+pub fn export_tmpdir(tmp: &Path) -> String {
+    format!("export CLAUDE_CODE_TMPDIR='{}'", tmp.display().to_string().replace('\'', "'\\''"))
+}
+```
+
+  Test it: `/home/x/.cache/niri-tasks/refine-tmp/d9f76b94` gives `export CLAUDE_CODE_TMPDIR='/home/x/.cache/niri-tasks/refine-tmp/d9f76b94'`, and a path containing `a'b` gives `'…a'\''b…'`.
+- **The fake port** (`src/session/fake.rs`) logs the `pane_run` the refiner start makes. Update the session tests that assert the exact refiner start log (`agent_start alpha task-abc p1 refiner`) so they also expect a `pane_run alpha p1 export CLAUDE_CODE_TMPDIR=…` line just before it. Every `Claude::Refiner { … }` literal in tests gains `tmp: PathBuf::from("/c/tmp")`. `launch` builds it with `tmp: fence.tmp.clone()`.
+- **Doc:** in `session_settings`'s new doc paragraph, say `$TMPDIR` comes from `CLAUDE_CODE_TMPDIR`, which the tab's shell exports and the unattended run sets on the process, because the settings `env` key does not reach Claude Code's temp folder (measured 2026-10-12).
 
 - [ ] **Step 7: Use `prepare_fence` in `launch` and `unattended_steps`**
 
@@ -1346,7 +1361,7 @@ niritasks task note "$U" 'Context: list ~/.task and ~/.local/share/niri-tasks/un
 niritasks task refine "$U"
 ```
 
-Ask the user to watch the tab. Pass: no permission prompt at all, and the only question is the write tool's.
+Ask the user to watch the tab. Pass: no permission prompt at all, and the only question is the write tool's. Then ask the tab to run `echo $TMPDIR`. Pass: `…/.cache/niri-tasks/refine-tmp/<uuid8>`, not `/tmp/claude-1000`. If it shows `/tmp/claude-1000`, the export did not reach Claude: stop and report this to the user before closing anything.
 
 - [ ] **Step 4: Unattended check**
 
