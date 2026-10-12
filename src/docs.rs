@@ -9,7 +9,6 @@ use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::UNIX_EPOCH;
 
 /// One document: what the list shows, and the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,13 +90,7 @@ fn plans_in(folder: &Path, kind: &str, since: i64, times: &HashMap<PathBuf, i64>
         if !path.is_file() || path.extension().and_then(|x| x.to_str()) != Some("md") {
             continue;
         }
-        let Some(changed) = times.get(&path).copied().or_else(|| {
-            path.metadata()
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_secs() as i64)
-        }) else {
+        let Some(changed) = times.get(&path).copied().or_else(|| crate::open::modified_secs(&path)) else {
             continue;
         };
         if changed < since {

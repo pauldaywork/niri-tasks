@@ -49,6 +49,14 @@ pub fn resolve(linked: &str, worktree: Option<&Path>, folder: &Path) -> PathBuf 
     worktree.unwrap_or(folder).join(path)
 }
 
+/// When the file at `path` last changed, in Unix seconds: the Go to
+/// list's age for a document whose note's date cannot be read. None when
+/// it is not there or the filesystem keeps no such time.
+pub fn modified_secs(path: &Path) -> Option<i64> {
+    let modified = path.metadata().and_then(|m| m.modified()).ok()?;
+    Some(modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64)
+}
+
 /// What opening `target` for `task` runs, and what it opens, for the
 /// notification. Pure: the worktree, the project folder, the user's
 /// folders, whether VS Code is installed and which files exist are handed
@@ -220,6 +228,20 @@ pub fn open(ws: &Workspace, task: &Task, target: Target) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file's last change in Unix seconds; nothing for a file not there.
+    #[test]
+    fn modified_secs_reads_a_files_last_change() {
+        let dir = std::env::temp_dir().join(format!("niritasks-open-modified-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("plan.md");
+        std::fs::write(&file, "# plan").unwrap();
+        let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_791_331_200);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(when).unwrap();
+        assert_eq!(modified_secs(&file), Some(1_791_331_200));
+        assert_eq!(modified_secs(&dir.join("gone.md")), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn noted() -> Task {
         serde_json::from_str(

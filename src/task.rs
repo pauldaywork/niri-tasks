@@ -124,6 +124,15 @@ pub struct Annotation {
     pub description: String,
 }
 
+/// A document a task's notes link: the path the newest `Report:`,
+/// `Plan:` or `Spec:` note names, and that note's `entry` stamp, when it
+/// was linked — what the Go to list counts the document's age from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Link {
+    pub path: String,
+    pub entry: String,
+}
+
 impl Task {
     pub fn is_active(&self) -> bool {
         self.start.is_some()
@@ -154,31 +163,52 @@ impl Task {
     /// `Report (earlier draft):` note is a report of a plan since changed,
     /// and never counts. A `Report:` note with nothing after it is skipped.
     pub fn report_path(&self) -> Option<&str> {
-        self.linked(REPORT_NOTE)
+        self.linked(REPORT_NOTE).map(|(path, _)| path)
     }
 
     /// The design spec linked from the task's notes: the newest
     /// `Spec: <path>` note's path, read as [`Task::report_path`] reads a
     /// report's. None on a task with no such note.
     pub fn spec_path(&self) -> Option<&str> {
-        self.linked(SPEC_NOTE)
+        self.linked(SPEC_NOTE).map(|(path, _)| path)
     }
 
     /// The implementation plan linked from the task's notes: the newest
     /// `Plan: <path>` note's path. None on a task with no such note.
     pub fn plan_path(&self) -> Option<&str> {
-        self.linked(PLAN_NOTE)
+        self.linked(PLAN_NOTE).map(|(path, _)| path)
     }
 
-    /// The path the newest note starting with `prefix` links, trimmed. A
-    /// note with nothing after the prefix is skipped.
-    fn linked(&self, prefix: &str) -> Option<&str> {
+    /// [`Task::report_path`] with the date its note was added.
+    pub fn report_link(&self) -> Option<Link> {
+        self.link(REPORT_NOTE)
+    }
+
+    /// [`Task::spec_path`] with the date its note was added.
+    pub fn spec_link(&self) -> Option<Link> {
+        self.link(SPEC_NOTE)
+    }
+
+    /// [`Task::plan_path`] with the date its note was added.
+    pub fn plan_link(&self) -> Option<Link> {
+        self.link(PLAN_NOTE)
+    }
+
+    /// The path the newest note starting with `prefix` links, trimmed, and
+    /// that note. A note with nothing after the prefix is skipped.
+    fn linked(&self, prefix: &str) -> Option<(&str, &Annotation)> {
         self.annotations.iter().rev().find_map(|a| {
             a.description
                 .strip_prefix(prefix)
                 .map(str::trim)
                 .filter(|p| !p.is_empty())
+                .map(|p| (p, a))
         })
+    }
+
+    /// [`Task::linked`] as an owned [`Link`].
+    fn link(&self, prefix: &str) -> Option<Link> {
+        self.linked(prefix).map(|(path, a)| Link { path: path.into(), entry: a.entry.clone() })
     }
 
     /// Every report the task's notes link, the newest first: `Report:` and
@@ -1339,6 +1369,27 @@ mod tests {
         assert_eq!(t.spec_path(), Some("docs/superpowers/specs/a.md"));
         assert_eq!(t.plan_path(), Some("docs/superpowers/plans/new.md"));
         assert_eq!(t.report_path(), Some("/r/a.html"));
+    }
+
+    /// Each link carries the note's own date beside its path: the newest
+    /// note's, so a regenerated report's link is dated when it was made.
+    #[test]
+    fn a_link_carries_its_notes_date() {
+        let t: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[
+                {"entry":"20261006T010000Z","description":"Report: /r/first.html"},
+                {"entry":"20261006T020000Z","description":"Spec: docs/superpowers/specs/a.md "},
+                {"entry":"20261006T030000Z","description":"Plan: docs/superpowers/plans/a.md"},
+                {"entry":"20261007T040000Z","description":"Report: /r/second.html"}
+            ]}"#,
+        )
+        .unwrap();
+        let link = |path: &str, entry: &str| Some(Link { path: path.into(), entry: entry.into() });
+        assert_eq!(t.report_link(), link("/r/second.html", "20261007T040000Z"));
+        assert_eq!(t.spec_link(), link("docs/superpowers/specs/a.md", "20261006T020000Z"));
+        assert_eq!(t.plan_link(), link("docs/superpowers/plans/a.md", "20261006T030000Z"));
+        let bare: Task = serde_json::from_str(r#"{"uuid":"u","description":"d"}"#).unwrap();
+        assert_eq!((bare.report_link(), bare.spec_link(), bare.plan_link()), (None, None, None));
     }
 
     /// No note, a note that merely mentions a plan, or a blank one: no
