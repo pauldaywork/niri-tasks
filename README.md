@@ -253,7 +253,7 @@ key in `~/.config/herdr/config.toml`, then run `herdr config check` and
 
 ```toml
 [[keys.command]]
-key = "prefix+shift+t"
+key = "prefix+shift+f"
 type = "plugin_action"
 command = "task-docs.open"
 description = "task docs: annotate one of this task's documents"

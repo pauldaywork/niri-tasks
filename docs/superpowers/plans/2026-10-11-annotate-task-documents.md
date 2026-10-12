@@ -39,7 +39,7 @@ These facts come from plannotator-tui's source (`crates/plannotator-tui/src/herd
 - **Earlier drafts.** `Report (earlier draft): <path>` notes are listed too, labelled as earlier drafts, after nothing else changes about them. The newest report comes first.
 - **The notes document.** `task docs --notes-dir <dir>` writes `<dir>/task-<uuid8>.md` (the description as a heading, then one bullet per note) and lists it. The plugin passes its state folder.
 - **Which Claude gets the comments.** The pane the key was pressed in, when its agent is named for the task; else the `work-<uuid8>` agent; else the `task-<uuid8>` refine. With none running, the plugin says so and opens nothing.
-- **The key.** `prefix+shift+t`. Free in this machine's `~/.config/herdr/config.toml`, which already binds `shift+g c o m e v a b`. herdr itself owns `shift+d r p x`.
+- **The key.** `prefix+shift+f` (files). herdr binds `shift+d g n p r t w x` and `shift+tab` by default (`t` is rename tab), and this machine's `~/.config/herdr/config.toml` binds `shift+g c o m e v a b`.
 
 ## File Structure
 
@@ -1493,7 +1493,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `herdr/task-docs/` from Task 3.
-- Produces: the installed plugin, linked as `local:<repo>/herdr/task-docs`, and the documented key `prefix+shift+t` running `task-docs.open`.
+- Produces: the installed plugin, linked as `local:<repo>/herdr/task-docs`, and the documented key `prefix+shift+f` running `task-docs.open`.
 
 - [ ] **Step 1: Link the plugin in `install.sh`**
 
@@ -1542,7 +1542,7 @@ key in `~/.config/herdr/config.toml`, then run `herdr config check` and
 
 ```toml
 [[keys.command]]
-key = "prefix+shift+t"
+key = "prefix+shift+f"
 type = "plugin_action"
 command = "task-docs.open"
 description = "task docs: annotate one of this task's documents"
@@ -1628,7 +1628,7 @@ This machine has herdr-annotate **Lite**, which has no plannotator-tui. Ask the 
 
 - [ ] **Step 3: Bind the key, with the user's agreement**
 
-Add the README's `[[keys.command]]` block to `~/.config/herdr/config.toml`, with a comment in that file's style saying what it does. Run `herdr config check && herdr server reload-config`. If `prefix+shift+t` turns out to run one of herdr's own actions, use `prefix+shift+k` instead, in the config and the README both.
+Add the README's `[[keys.command]]` block to `~/.config/herdr/config.toml`, with a comment in that file's style saying what it does. Run `herdr config check && herdr server reload-config`. If `prefix+shift+f` turns out to run one of herdr's own actions, use another free letter (`h i j k l q s u y z`), in the config and the README both.
 
 - [ ] **Step 4: Walk the "Done when"**
 
