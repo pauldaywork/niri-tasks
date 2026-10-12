@@ -206,9 +206,9 @@ and says so once.
 open` runs the workspace's herdr session in the project terminal; without it the
 terminal is a plain shell in the project folder. A card's Go to list's **Refine**, **Grill me** and **Generate report** need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod), and the box's **Add & all** Claude Code alone, on `$PATH` — they open
 Claude inside that session — plus `bubblewrap` and `socat` for the Bash
-sandbox that keeps that Claude to reading the project, its own temp folder
-and a fixed list of source and docs hosts, and writing only the task
-(`sudo apt install bubblewrap socat`). Without them Claude refuses to
+sandbox that keeps that Claude to reading anything but secrets, reaching
+only a fixed list of source and docs hosts, and writing only the task and
+its own temp folder (`sudo apt install bubblewrap socat`). Without them Claude refuses to
 start rather than run unfenced. **Start working** needs herdr, Claude Code and
 [worktrunk](https://worktrunk.dev) (`wt`), and the workspace's `~/Projects`
 folder to be a git repository: worktrunk makes the task's worktree and runs the
