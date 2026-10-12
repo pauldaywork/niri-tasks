@@ -2,7 +2,7 @@
 """herdr's task-docs plugin: annotate one of a task's documents in plannotator-tui.
 
 `task_docs.py open` is the action. It finds the task of the pane the key was
-pressed in, from its agent's name (work-/task-<uuid8>) or its folder's branch
+pressed in, from its agent's name (work-/task-/report-<uuid8>) or its folder's branch
 (task/<slug>-<uuid8>), and that task's Claude, then opens the `pick` overlay.
 `task_docs.py pick` runs in that overlay: fzf over `niritasks task docs`, and
 the pick opens in the `review` pane, right of the task's Claude, where
@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 PLUGIN = os.environ.get("HERDR_PLUGIN_ID") or "task-docs"
-AGENT = re.compile(r"^(?:work|task)-([0-9a-f]{8})$")
+AGENT = re.compile(r"^(?:work|task|report)-([0-9a-f]{8})$")
 BRANCH = re.compile(r"^task/.+-([0-9a-f]{8})$")
 FULL = "Install herdr-annotate Full, which ships it: herdr plugin install plannotator/herdr-annotate"
 PREVIEW = (
@@ -74,7 +74,7 @@ def agent(target):
 
 
 def uuid8_of_agent(name):
-    """The task a work-/task-<uuid8> agent is named for, or None."""
+    """The task a work-/task-/report-<uuid8> agent is named for, or None."""
     match = AGENT.match(name or "")
     return match.group(1) if match else None
 
@@ -137,7 +137,7 @@ def open_action():
     cwd = ctx.get("focused_pane_cwd")
     uuid8 = find_task(pane, cwd)
     if not uuid8:
-        notify("Task docs: no task here. This pane runs no task's Claude (work-/task-<uuid8>) "
+        notify("Task docs: no task here. This pane runs no task's Claude (work-/task-/report-<uuid8>) "
                "and is not on a task/<slug>-<uuid8> branch.")
         return
     if not reviewer():

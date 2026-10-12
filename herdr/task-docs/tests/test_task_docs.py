@@ -108,6 +108,7 @@ class FindingTheTask(PluginTest):
     def test_an_agent_named_for_a_task_gives_its_uuid8(self):
         self.assertEqual(task_docs.uuid8_of_agent("work-1234abcd"), "1234abcd")
         self.assertEqual(task_docs.uuid8_of_agent("task-1234abcd"), "1234abcd")
+        self.assertEqual(task_docs.uuid8_of_agent("report-1234abcd"), "1234abcd")
         self.assertIsNone(task_docs.uuid8_of_agent("reviewer"))
         self.assertIsNone(task_docs.uuid8_of_agent(None))
 

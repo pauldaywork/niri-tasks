@@ -11,7 +11,7 @@ description = "Annotate a niri-tasks task's reports, notes and plans in plannota
 platforms = ["linux"]
 
 # Press in a task's pane: finds the task from the pane's agent name
-# (work-/task-<uuid8>) or its branch (task/<slug>-<uuid8>), and opens the list.
+# (work-/task-/report-<uuid8>) or its branch (task/<slug>-<uuid8>), and opens the list.
 [[actions]]
 id = "open"
 title = "Task docs: annotate one of this task's documents"
