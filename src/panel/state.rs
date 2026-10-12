@@ -1109,7 +1109,7 @@ mod tests {
     use crate::panel::goto::{Found, Item};
 
     fn card(uuid: &str, status: Status) -> Card {
-        Card { status, text: uuid.into(), uuid: Some(uuid.into()), id: 0, planned: status == Status::Planned, up_next: false, since: String::new(), notes: Vec::new(), has_report: false, has_spec: false, has_plan: false, processing: false }
+        Card { status, text: uuid.into(), uuid: Some(uuid.into()), id: 0, planned: status == Status::Planned, up_next: false, since: String::new(), notes: Vec::new(), report: None, spec: None, plan: None, processing: false }
     }
 
     /// A pending card whose task has one note.

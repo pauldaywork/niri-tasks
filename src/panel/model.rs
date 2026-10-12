@@ -4,7 +4,7 @@
 //! testing, and none of them needs a compositor.
 
 use crate::actions::TaskState;
-use crate::task::{Listing, Task};
+use crate::task::{Link, Listing, Task};
 
 /// The most task cards a panel shows. Past this, the rest fold into one
 /// "+N more" card rather than running off the bottom of the screen.
@@ -59,15 +59,16 @@ pub struct Card {
     /// shows under the description once the card's body is pressed. Empty on
     /// "+N more" and on a task with none.
     pub notes: Vec<String>,
-    /// The task's notes link a refine report, `Report: <path>`: its Go to
-    /// list offers Open report and Regenerate report. False on "+N more".
-    pub has_report: bool,
-    /// The task's notes link a design spec, `Spec: <path>`, for its Go to
-    /// list. False on "+N more".
-    pub has_spec: bool,
-    /// The task's notes link an implementation plan, `Plan: <path>`, for
-    /// its Go to list. False on "+N more".
-    pub has_plan: bool,
+    /// The refine report the task's notes link, `Report: <path>`, and when:
+    /// its Go to list offers Open report, with its age, and Regenerate
+    /// report. None on "+N more".
+    pub report: Option<Link>,
+    /// The design spec the task's notes link, `Spec: <path>`, and when, for
+    /// its Go to list. None on "+N more".
+    pub spec: Option<Link>,
+    /// The implementation plan the task's notes link, `Plan: <path>`, and
+    /// when, for its Go to list. None on "+N more".
+    pub plan: Option<Link>,
     /// The task carries `+processing`, whatever its status: an active task
     /// being planned shows Active, and still offers nothing. False on
     /// "+N more".
@@ -88,7 +89,7 @@ impl Card {
             // Font Awesome's file-text, the Go to list's Open report row's
             // icon: a plan with a report to open, as a waiting card wears
             // Waiting's pause.
-            Status::Planned if self.has_report => "\u{f15c}",
+            Status::Planned if self.report.is_some() => "\u{f15c}",
             // The pending circle filled in: still waiting, but worked up.
             Status::Planned => "●",
             // Font Awesome's pause, the Waiting button's own icon.
@@ -135,9 +136,9 @@ impl Card {
             finished: self.status == Status::Finished,
             planned: self.planned,
             up_next: self.up_next,
-            has_report: self.has_report,
-            has_spec: self.has_spec,
-            has_plan: self.has_plan,
+            has_report: self.report.is_some(),
+            has_spec: self.spec.is_some(),
+            has_plan: self.plan.is_some(),
             processing: self.processing,
             ..TaskState::default()
         };
@@ -347,9 +348,9 @@ pub fn cards(listing: &Listing, blocked: &[String]) -> Vec<Card> {
             up_next: t.is_up_next(),
             since: if finished(part) { t.end.clone() } else { t.entry.clone() },
             notes: t.annotations.iter().map(|a| a.description.clone()).collect(),
-            has_report: t.report_path().is_some(),
-            has_spec: t.spec_path().is_some(),
-            has_plan: t.plan_path().is_some(),
+            report: t.report_link(),
+            spec: t.spec_link(),
+            plan: t.plan_link(),
             processing: t.is_processing(),
         })
         .collect()
@@ -379,9 +380,9 @@ pub fn cap(cards: &[Card], n: usize) -> Vec<Card> {
             up_next: false,
             since: String::new(),
             notes: Vec::new(),
-            has_report: false,
-            has_spec: false,
-            has_plan: false,
+            report: None,
+            spec: None,
+            plan: None,
             processing: false,
         });
     }
@@ -553,11 +554,14 @@ mod tests {
         }];
         let got = cards(&todo(vec![reported, drafted, planned("plain", false)]), &[]);
         let by = |text: &str| got.iter().find(|c| c.text == text).unwrap();
-        assert!(by("reported").has_report);
-        assert!(!by("drafted").has_report, "an earlier draft's report is not the plan's");
-        assert!(!by("plain").has_report);
+        assert_eq!(
+            by("reported").report,
+            Some(crate::task::Link { path: "/r/a.html".into(), entry: "20261006T020000Z".into() })
+        );
+        assert_eq!(by("drafted").report, None, "an earlier draft's report is not the plan's");
+        assert_eq!(by("plain").report, None);
         let many: Vec<Task> = (0..CAP + 1).map(|i| planned(&format!("t{i}"), false)).collect();
-        assert!(!cap(&cards(&todo(many), &[]), CAP).last().unwrap().has_report);
+        assert_eq!(cap(&cards(&todo(many), &[]), CAP).last().unwrap().report, None);
     }
 
     /// A card knows whether its task's notes link a spec and a plan, and
@@ -571,8 +575,9 @@ mod tests {
         ];
         let got = cards(&todo(vec![linked, task("plain", 1, false)]), &[]);
         let by = |text: &str| got.iter().find(|c| c.text == text).unwrap();
-        assert!(by("linked").has_spec && by("linked").has_plan);
-        assert!(!by("plain").has_spec && !by("plain").has_plan);
+        assert_eq!(by("linked").spec.as_ref().map(|l| l.entry.as_str()), Some("20261006T010000Z"));
+        assert_eq!(by("linked").plan.as_ref().map(|l| l.path.as_str()), Some("docs/superpowers/plans/a.md"));
+        assert!(by("plain").spec.is_none() && by("plain").plan.is_none());
         let agents = vec![crate::names::refine_agent("linked"), crate::names::work_agent("plain")];
         let linked = by("linked").state(&agents).unwrap();
         assert!(linked.has_refine && !linked.has_work && linked.has_spec && linked.has_plan);
@@ -580,7 +585,7 @@ mod tests {
         assert!(plain.has_work && !plain.has_refine);
         let many: Vec<Task> = (0..CAP + 1).map(|i| task(&format!("t{i}"), 1, false)).collect();
         let more = cap(&cards(&todo(many), &[]), CAP).pop().unwrap();
-        assert!(!more.has_spec && !more.has_plan);
+        assert!(more.spec.is_none() && more.plan.is_none());
         assert_eq!(more.state(&agents), None);
     }
 
@@ -1009,7 +1014,7 @@ mod tests {
     /// A card's status, tags and report are its task's state; "+N more" has none.
     #[test]
     fn a_cards_state_is_its_tasks() {
-        let card = |status, planned, up_next, has_report| Card {
+        let card = |status, planned, up_next, reported: bool| Card {
             status,
             text: "t".into(),
             uuid: Some("u".into()),
@@ -1018,9 +1023,9 @@ mod tests {
             up_next,
             since: String::new(),
             notes: Vec::new(),
-            has_report,
-            has_spec: false,
-            has_plan: false,
+            report: reported.then(|| crate::task::Link { path: "/r/a.html".into(), entry: "20261006T020000Z".into() }),
+            spec: None,
+            plan: None,
             processing: false,
         };
         let work = vec![crate::names::work_agent("u")];
