@@ -217,7 +217,8 @@ hooks need approving.
 A Refine or Start working Claude's pane says which task it is on: its border
 reads `Refine #61 · <description>` or `Work #61 · <description>`, and Claude's
 status line, under its prompt, `#61 · <description> · <state> · <branch>`,
-read afresh on each refresh. herdr draws a border, and the label in it, only
+read afresh on each refresh; it replaces any status line of your own in
+those two Claudes only. herdr draws a border, and the label in it, only
 around split panes unless you add this to `~/.config/herdr/config.toml` and
 run `herdr server reload-config` (niri-tasks never edits that file):
 

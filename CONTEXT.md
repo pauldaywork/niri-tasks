@@ -31,9 +31,11 @@ _Avoid_: visible workspace, current workspace
 **Session**:
 The herdr session a workspace's project terminal attaches to: one per
 workspace, where that workspace's agents and terminals run. Refine, Start
-working and the Go to list's sessions each open a task's tab or agent in it,
-label that agent's pane with the task (`Refine #61 · …` or `Work #61 · …`, in
-its border), and a pane inside one knows which session it is in without asking what is focused.
+working and the Go to list's sessions each open a task's tab or agent in it.
+Refine and Start working (and a hand-started Claude marking its task active)
+also label that agent's pane with the task, `Refine #61 · …` or `Work #61 · …`,
+in its border. A pane inside a session knows which one it is in without asking
+what is focused.
 In the code, `session::Session` opens a workspace's session and finds or
 starts the Claude in it, and `Session::named` knows a session by name alone,
 for the pane link and the panel's agent list. Nothing outside the `session`

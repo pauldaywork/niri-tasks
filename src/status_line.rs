@@ -7,7 +7,7 @@
 
 use crate::{names, task, text, work};
 use serde_json::{json, Value};
-use std::io::{IsTerminal, Read};
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -66,10 +66,17 @@ pub fn run(uuid: &str) {
     }
     let dir = cwd_from(&input).or_else(|| std::env::current_dir().ok());
     let branch = dir.as_deref().and_then(branch_in);
+    let mut out = std::io::stdout().lock();
     match task::get(uuid) {
-        Ok(Some(t)) => println!("{}", line(&t, task::now_secs(), branch.as_deref())),
-        Ok(None) => println!("task {}: not found", names::uuid8(uuid)),
-        Err(_) => println!("task {}: could not read it", names::uuid8(uuid)),
+        Ok(Some(t)) => {
+            let _ = writeln!(out, "{}", line(&t, task::now_secs(), branch.as_deref()));
+        }
+        Ok(None) => {
+            let _ = writeln!(out, "task {}: not found", names::uuid8(uuid));
+        }
+        Err(_) => {
+            let _ = writeln!(out, "task {}: could not read it", names::uuid8(uuid));
+        }
     }
 }
 

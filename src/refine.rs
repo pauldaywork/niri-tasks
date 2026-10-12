@@ -729,9 +729,6 @@ mod tests {
         assert_eq!(command.len(), 5);
     }
 
-    /// The fence the refine session runs in: every command sandboxed with no
-    /// way out, the project read-only, the task database writable, and the
-    /// sockets that could start a process outside the sandbox hidden.
     /// A tab's refine shows the task in its status line; an unattended run
     /// has no screen to show it on.
     #[test]
@@ -745,6 +742,9 @@ mod tests {
         assert!(v.get("statusLine").is_none(), "{v}");
     }
 
+    /// The fence the refine session runs in: every command sandboxed with no
+    /// way out, the project read-only, the task database writable, and the
+    /// sockets that could start a process outside the sandbox hidden.
     #[test]
     fn the_sandbox_fences_the_session_to_the_task_database() {
         let hidden = [PathBuf::from("/run/user/1000"), PathBuf::from("/run/docker.sock")];
@@ -1047,12 +1047,6 @@ Num       RefCount Protocol Flags    Type St Inode Path
         log.iter().position(|l| l.starts_with(line)).unwrap_or_else(|| panic!("no {line:?} in {log:?}"))
     }
 
-    /// The race of two quick Refine presses: each would find no agent and
-    /// start one. The claim is what stops it, so it has to be taken before
-    /// the session is even opened (a stopped session would otherwise get two
-    /// project terminals) and held until Claude has started, then given up
-    /// before the prompt, whose retries can take seconds while the second
-    /// press could already find and focus the agent.
     /// The new Claude's pane says which task it is on, once Claude has
     /// started in it and before the prompt; one found running is left as
     /// it is.
@@ -1068,6 +1062,12 @@ Num       RefCount Protocol Flags    Type St Inode Path
         assert_eq!(fake.log().iter().filter(|l| l.starts_with("pane_rename")).count(), 1);
     }
 
+    /// The race of two quick Refine presses: each would find no agent and
+    /// start one. The claim is what stops it, so it has to be taken before
+    /// the session is even opened (a stopped session would otherwise get two
+    /// project terminals) and held until Claude has started, then given up
+    /// before the prompt, whose retries can take seconds while the second
+    /// press could already find and focus the agent.
     #[test]
     fn refine_holds_the_session_from_opening_it_until_claude_has_started() {
         let fake = Fake::running(&[("w1", "alpha")]);

@@ -556,9 +556,10 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
 /// a script looks exactly like one completed from its card.
 ///
 /// Marking a task active from inside a herdr pane also names that pane's
-/// agent after it and the pane labelled with it (see `link::link_current_pane`): that is how a Claude
-/// started by hand becomes findable from the task's card. Best effort — the
-/// task is active either way, so a refused rename is only reported.
+/// agent after the task and labels the pane with it (see
+/// `link::link_current_pane`): that is how a Claude started by hand becomes
+/// findable from the task's card. Best effort — the task is active either
+/// way, so a refused rename is only reported.
 fn apply_status(t: &task::Task, status: task::Status) -> Result<()> {
     task::set_status(&t.uuid, status)?;
     if status == task::Status::Active {
