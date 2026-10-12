@@ -92,7 +92,7 @@ applies:
 | Row | Shows when |
 |---|---|
 | **Refine**, **Redo refine** once planned, and **Grill me** | on a task on the list |
-| **Get started**, **Back to worktree** once started | on a task on the list |
+| **Get started**, **Back to worktree** once started | on a task on the list, unless its work Claude is running: Go to work session then goes there |
 | **Generate report**, **Regenerate report** once one exists | on a planned task on the list |
 | **Open report** | its notes link a report (`Report: <path>`) |
 | **Planning doc**, **Design spec** | its notes link a plan (`Plan: <path>`) or a spec (`Spec: <path>`) |

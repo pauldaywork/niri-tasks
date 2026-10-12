@@ -206,7 +206,8 @@ Grill me, Get started or Back to worktree, Generate or Regenerate report,
 Open report, Planning doc, Design spec, Go to refine session, Go to work
 session, Open worktree folder, Open in VS Code, and Read aloud or Stop
 reading aloud — each row only when it applies: refining, starting, reports
-built and sessions on a task on the list, the documents when its notes link
+built and sessions on a task on the list (Back to worktree giving way to Go
+to work session while that Claude runs), the documents when its notes link
 them (`Report:`, `Plan:`, `Spec:`), the worktree when it has one, VS Code
 when installed, reading aloud always. No text field: Up and Down move the
 highlight, Enter or a click runs the row's `niritasks` command and gives the

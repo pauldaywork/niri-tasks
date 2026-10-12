@@ -67,7 +67,9 @@ impl Item {
 
     /// Whether the row shows for a task in `state`, with what was `found`.
     /// Refining, starting and the herdr sessions are for a task on the
-    /// list, as their buttons were; generating a report for a planned one;
+    /// list, as their buttons were, Start giving way to Go to work session
+    /// while the work Claude is live, since both would focus it; generating
+    /// a report for a planned one;
     /// the documents whenever the notes link them, the worktree whenever
     /// there is one, VS Code whenever it is installed, and reading aloud
     /// always. Nothing on a processing task: a Claude is writing it.
@@ -77,7 +79,8 @@ impl Item {
         }
         let on_list = !state.off_list();
         match self {
-            Refine | Grill | Start => on_list,
+            Refine | Grill => on_list,
+            Start => on_list && !state.has_work,
             Report => on_list && state.planned,
             OpenReport => state.has_report,
             Plan => state.has_plan,
@@ -281,7 +284,21 @@ mod tests {
 
     #[test]
     fn everything_on_the_list_shows_every_row_in_order() {
-        assert_eq!(Item::of(everything(), all_found()), Item::ALL.to_vec());
+        let every_but_start: Vec<Item> = Item::ALL.into_iter().filter(|&i| i != Start).collect();
+        assert_eq!(Item::of(everything(), all_found()), every_but_start);
+    }
+
+    /// Back to worktree and Go to work session would both focus a live work
+    /// Claude, so only the session shows then; Back to worktree comes back
+    /// once that Claude has gone, to start a fresh one.
+    #[test]
+    fn a_live_work_claude_shows_its_session_in_place_of_start() {
+        let started = TaskState { active: true, ..on_list() };
+        let live = TaskState { has_work: true, ..started };
+        assert!(Item::of(started, Found::default()).contains(&Start));
+        assert!(!Item::of(started, Found::default()).contains(&WorkSession));
+        assert!(Item::of(live, Found::default()).contains(&WorkSession));
+        assert!(!Item::of(live, Found::default()).contains(&Start));
     }
 
     /// The herdr sessions each need their own Claude live.
@@ -381,7 +398,7 @@ mod tests {
         for _ in 0..20 {
             list.step(true);
         }
-        assert_eq!(list.at(), Item::ALL.len() - 1, "stops at the last");
+        assert_eq!(list.at(), list.rows().len() - 1, "stops at the last");
         assert_eq!(list.item(list.at()), Some(ReadAloud));
         assert_eq!(list.item(99), None);
     }
