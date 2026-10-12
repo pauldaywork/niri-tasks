@@ -38,8 +38,8 @@
 //! hidden as the focus moves rather than built again, since a render would
 //! lose the focused button. Up and Down move between cards, Down onto "+N
 //! more" showing the cards it stands for and landing on the first of them;
-//! Left, Right and Tab move along the focused one, and o, b, s, r, e, c, m,
-//! t and Delete press its Go to…, Back to list, Start, Refine, Edit,
+//! Left, Right and Tab move along the focused one, and o, b, s, e, c, m, t
+//! and Delete press its Go to…, Back to list, Start, Edit,
 //! Complete, Move to workspace, Stop and Remove.
 //! Ctrl+Delete deletes the focused card's task at once and keeps the
 //! keyboard. After the buttons a dimmed hint names the keys that change per
@@ -50,7 +50,9 @@
 //! the panel. The focused card is darkened. Enter, Space or a click on its
 //! body shows the task's id and uuid and its notes, or hides them.
 //! Escape, or anything that runs, hands the keyboard back, folds the cards to
-//! one line again, and puts the panel back on the right edge as a peek.
+//! one line again, and puts the panel back on the right edge as a peek. The
+//! task box Edit opened takes it again as it closes, on the card Edit was
+//! pressed on.
 //!
 //! Move to workspace (m) swaps the cards for the project list: the
 //! `~/Projects` folders the task can move to, drawn as cards under a line
@@ -573,6 +575,8 @@ impl Panel {
     pub fn show(self: &Rc<Self>, tag: &str, cards: &[Card]) {
         if self.tag.borrow().as_str() != tag {
             *self.tag.borrow_mut() = tag.to_string();
+            // Edit's box was for the old workspace's card.
+            self.state.borrow_mut().forget_return();
             if self.state.borrow().keyboard() {
                 self.notepad.load(tag);
             } else {
@@ -599,6 +603,15 @@ impl Panel {
     /// panel's Edit opened it.
     pub fn returns_to(&self, uuid: &str) -> bool {
         self.state.borrow().returns_to(uuid)
+    }
+
+    /// The task box on `uuid` will not open for this panel's Edit: drop its
+    /// return, when it is for that task.
+    pub fn forget_return(&self, uuid: &str) {
+        let mut state = self.state.borrow_mut();
+        if state.returns_to(uuid) {
+            state.forget_return();
+        }
     }
 
     /// The task box on `uuid` closed: when this panel's Edit opened it, take

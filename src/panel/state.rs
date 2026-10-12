@@ -11,7 +11,8 @@
 //! move the focus, spawn a command. So the rules between them (one arming at
 //! a time, any re-render disarming, where the focus lands) are tested without
 //! a window, and `surface.rs` only draws what this says and runs what it
-//! asks.
+//! asks. Where Edit left the panel, for the task box on that task closing to
+//! take the keyboard back to, lives here too.
 
 use crate::actions::{Action, TaskState};
 use super::actions::{self, Step};
@@ -66,7 +67,6 @@ struct Return {
     filter: Filter,
     expanded: bool,
 }
-
 
 /// A card as the panel draws it: the card, and the buttons on its action
 /// row, left to right. None off the keyboard, or on "+N more".
@@ -178,7 +178,6 @@ pub struct PanelState {
     /// closing later than that, or one opened from anywhere else, leaves the
     /// keyboard alone.
     returning: Option<Return>,
-
 }
 
 impl PanelState {
@@ -457,6 +456,12 @@ impl PanelState {
         self.rerender()
     }
 
+    /// The task box on this panel's Edit will not come: the task was gone,
+    /// or another box was up instead. Drop the return, so a later box on
+    /// that task, from the CLI or a keybind, leaves the keyboard alone.
+    pub fn forget_return(&mut self) {
+        self.returning = None;
+    }
 
     /// Mod+Alt+W: take the keyboard on the project list for opening a
     /// project, `projects` being the `~/Projects` folders and the GitHub
@@ -1666,6 +1671,16 @@ mod tests {
         assert!(!state.keyboard());
     }
 
+    /// A box that never opened, or a workspace switch, forgets the return:
+    /// a later box on that task leaves the keyboard alone.
+    #[test]
+    fn a_forgotten_return_takes_nothing_back() {
+        let mut state = edited_on_to_refine();
+        state.forget_return();
+        assert!(!state.returns_to("c"));
+        assert_eq!(state.take_keyboard_back("c", Vec::new()), Vec::new());
+        assert!(!state.keyboard());
+    }
 
     #[test]
     fn enter_and_space_are_gtks_while_nothing_is_armed() {

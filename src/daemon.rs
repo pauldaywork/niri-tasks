@@ -353,12 +353,14 @@ fn open_task_box(app: &Application, uuid: String, mode: crate::taskbox::Mode) {
 
     let Ok(Some(t)) = task::get(&uuid) else {
         notify::tasks("Task not found");
+        forget_returns(&uuid);
         return;
     };
     // The full uuid, not the one asked for, which may be a prefix: the
     // panel's Edit remembers the card's, which is full.
     let uuid = t.uuid.clone();
     let closed = uuid.clone();
+    let closed_for = uuid.clone();
     let opened = taskbox::open_in(
         app,
         taskbox::BoxConfig::for_task(mode, t),
@@ -369,7 +371,20 @@ fn open_task_box(app: &Application, uuid: String, mode: crate::taskbox::Mode) {
         },
         move || return_keyboard(&closed),
     );
+    if opened == taskbox::Opened::Other {
+        // Not the box a panel's Edit asked for.
+        forget_returns(&closed_for);
+    }
     notice_if_other_open(opened);
+}
+
+/// A panel's Edit on `uuid` got no box of its own: drop the return it
+/// remembered, so a later box on that task leaves the keyboard alone.
+fn forget_returns(uuid: &str) {
+    let panels: Vec<Rc<Panel>> = PANELS.with(|p| p.borrow().values().cloned().collect());
+    for panel in panels {
+        panel.forget_return(uuid);
+    }
 }
 
 /// A task box on `uuid` closed, however it closed: the panel whose Edit
