@@ -180,13 +180,20 @@ nested env "${TRY_ENV[@]}" bash -c '. "$TRY_SB/try.bashrc" && daemon_restart' ||
 # A nested niri that dies, its window closed from your niri say, ends the
 # try at once, rather than leave the try shell on dead sockets until you
 # type exit. The shell gets SIGHUP, as from a closed terminal: an
-# interactive bash ignores SIGTERM. Until the shell has written its pid,
-# try.sh gets it instead, and its HUP trap runs once what it is running
-# returns. cleanup kills the watcher first, so exit never trips it.
+# interactive bash ignores SIGTERM. Before the shell has written its pid,
+# try.sh gets the HUP, which is enough while try.sh is still setting up.
+# A shell already starting would hold that HUP off until it returned, so
+# the watcher then waits a moment for its pid and hangs it up too.
+# cleanup kills the watcher first, so exit never trips it.
 (
     while kill -0 "$NESTED" 2>/dev/null; do sleep 0.5; done
     printf '\nthe nested niri exited, closing the try\n'
-    kill -HUP "$(cat "$SB/shell.pid" 2>/dev/null)" 2>/dev/null || kill -HUP $$
+    kill -HUP "$(cat "$SB/shell.pid" 2>/dev/null)" 2>/dev/null && exit
+    kill -HUP $$
+    for _ in $(seq 1 20); do
+        [ -s "$SB/shell.pid" ] && { kill -HUP "$(cat "$SB/shell.pid")" 2>/dev/null; exit; }
+        sleep 0.1
+    done
 ) &
 WATCH=$!
 
