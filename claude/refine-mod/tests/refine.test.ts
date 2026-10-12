@@ -24,6 +24,12 @@ const MINIMAL = {
   checks: [{ check: 'The words show', how: 'By eye' }],
 }
 
+// A needs_your_eye line one word over its limit of 30, which the tool takes
+// and names; and one three over, which it refuses.
+const OVER = Array.from({ length: 31 }, () => 'word').join(' ')
+const TOO_FAR_OVER = Array.from({ length: 33 }, () => 'word').join(' ')
+const OVERAGE = 'needs_your_eye[0] has 31 words; at most 30'
+
 const TASK = {
   uuid: UUID,
   status: 'pending',
@@ -425,6 +431,30 @@ test('a report over its limits is refused with every reason', { options: REPORTS
   expect(writes).toEqual([])
 })
 
+test('a report a word over its limit is written, and the overage named', { options: REPORTS }, async ($, on) => {
+  const { seen, writes } = world(on, SANDBOX, REPORT)
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL, needs_your_eye: [OVER] })
+  expect(shown.deny).toBeUndefined()
+  expect(shown.result).toBe(
+    `Wrote the report to ${REPORT_PATH} and opened it in the browser. ` +
+      'Now call write_task_plan again with the same plan; the person approves or changes it there, ' +
+      `and the task will link the report in its notes. Taken, though over its word limits: ${OVERAGE}.`,
+  )
+  expect(writes.map(w => w.path)).toEqual([REPORT_PATH, REPORT_MD])
+  expect(seen).toContain(`log: Over its word limit: ${OVERAGE}`)
+})
+
+test('a report three words over its limit is still refused', { options: REPORTS }, async ($, on) => {
+  const { writes } = world(on, SANDBOX, REPORT)
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  const answer = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL, needs_your_eye: [TOO_FAR_OVER] })
+  expect(answer.deny).toBe('show_task_report: needs_your_eye[0] has 33 words; at most 30')
+  expect(writes).toEqual([])
+})
+
 test('a report that cannot be written is denied by its .catch', { options: REPORTS }, async ($, on) => {
   engine(on, SANDBOX, REPORT, 'disk full')
   on('process.run', ($, e) => (e.argv.includes('export') ? ran(JSON.stringify([TASK])) : ran('')))
@@ -555,6 +585,18 @@ test('report mode without a reports folder: no tool at all', { options: { uuid: 
   const { registered } = world(on, SANDBOX)
   await $.session.start(START)
   expect(registered).toEqual([])
+})
+
+test('report mode: a report a word over its limit is written, and the overage named', { options: REPORT_MODE }, async ($, on) => {
+  const { seen, writes } = world(on, SANDBOX, { deny: 'nobody should be asked' }, [PLANNED])
+  await $.session.start(START)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL, needs_your_eye: [OVER] })
+  expect(shown.result).toBe(
+    `Wrote the report to ${REPORT_PATH}, opened it in the browser, and linked it from the task ` +
+      `as the note "Report: ${REPORT_PATH}". Taken, though over its word limits: ${OVERAGE}.`,
+  )
+  expect(writes.map(w => w.path)).toEqual([REPORT_PATH, REPORT_MD])
+  expect(seen).toEqual([`log: Report: ${REPORT_PATH}`, `log: Over its word limit: ${OVERAGE}`])
 })
 
 test('report mode: writes the page, opens it, and links it from the task, asking nothing', { options: REPORT_MODE }, async ($, on) => {

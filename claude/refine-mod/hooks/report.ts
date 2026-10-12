@@ -356,6 +356,11 @@ export const parseReport = (e: Record<string, unknown>): Parsed | string => {
   return errors.slice(0, MAX_ERRORS).join('; ') + more
 }
 
+// What the tool's answer adds for the lines taken over their word limits:
+// each named, so the next report keeps to the limits. Nothing when none is.
+export const overLimits = (warnings: readonly string[]): string =>
+  warnings.length === 0 ? '' : ` Taken, though over its word limits: ${warnings.join('; ')}.`
+
 // The folder the reports go in, from the session's settings: absolute, or
 // none, and then the tool is not offered.
 export const reportsDir = (value: unknown): string | undefined => {

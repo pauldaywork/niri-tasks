@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { LIMITS, WORD_GRACE, madeAlready, openArgv, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from '../hooks/report'
+import { LIMITS, WORD_GRACE, madeAlready, openArgv, overLimits, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from '../hooks/report'
 import type { Task } from '../hooks/plan'
 import { EXAMPLE } from './example-report'
 
@@ -169,6 +169,13 @@ describe('parseReport keeps the page to one layout', () => {
 })
 
 describe('the word grace', () => {
+  test('the tool result names each line taken over its limit, and says nothing when none is', () => {
+    expect(overLimits([])).toBe('')
+    expect(overLimits(['summary has 36 words; at most 35', 'changes[0] has 22 words; at most 20'])).toBe(
+      ' Taken, though over its word limits: summary has 36 words; at most 35; changes[0] has 22 words; at most 20.',
+    )
+  })
+
   test('takes a line one or two words over its word limit, and names each', () => {
     const input = {
       ...MINIMAL,

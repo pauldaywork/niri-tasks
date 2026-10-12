@@ -25,7 +25,7 @@ import { reportPage } from './page'
 import { FONT_FILES } from './style'
 import type { Fonts } from './style'
 import { markdownPath, twinOf } from './markdown'
-import { madeAlready, openArgv, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from './report'
+import { madeAlready, openArgv, overLimits, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from './report'
 import type { MadeReport, Report } from './report'
 
 // The tool's listed name: mcp__<plugin>__<name>, hyphens kept.
@@ -394,6 +394,7 @@ export const register: Register = (on, options) => {
       // plannotator-tui so comments on it reach the task's Claude.
       await $.fs.write(markdownPath(path), twin.markdown)
       $.ui.log(`Report: ${path}`)
+      for (const warning of parsed.warnings) $.ui.log(`Over its word limit: ${warning}`)
       // Unattended, nothing opens: no one is at the screen, and the task's
       // Report: note is how the report is found later.
       if (!unattended) await $.process.run(openArgv(path))
@@ -413,10 +414,11 @@ export const register: Register = (on, options) => {
       }
       linked = path
       return {
-        result: unattended
-          ? `Wrote the report to ${path} and linked it from the task as the note "Report: ${path}".`
-          : `Wrote the report to ${path}, opened it in the browser, and linked it from the task ` +
-            `as the note "Report: ${path}".`,
+        result:
+          (unattended
+            ? `Wrote the report to ${path} and linked it from the task as the note "Report: ${path}".`
+            : `Wrote the report to ${path}, opened it in the browser, and linked it from the task ` +
+              `as the note "Report: ${path}".`) + overLimits(parsed.warnings),
       }
     }
     if (askedFor === undefined) return { deny: NOT_ASKED_FOR }
@@ -435,12 +437,14 @@ export const register: Register = (on, options) => {
     await $.fs.write(markdownPath(path), twin.markdown)
     made.push({ path, plan: shown })
     $.ui.log(`Report: ${path}`)
+    for (const warning of parsed.warnings) $.ui.log(`Over its word limit: ${warning}`)
     await $.process.run(openArgv(path))
     return {
       result:
         `Wrote the report to ${path} and opened it in the browser. ` +
         'Now call write_task_plan again with the same plan; the person approves or changes it there, ' +
-        'and the task will link the report in its notes.',
+        'and the task will link the report in its notes.' +
+        overLimits(parsed.warnings),
     }
   }).catch($ => ({ deny: `${$.plugin.name}: show_task_report failed.` }))
 }
