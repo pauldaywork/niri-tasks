@@ -102,12 +102,22 @@ Claude Code 2.1.296) runs in `default` mode with the Bash sandbox active
 denials came from Claude Code's own command-shape checks (a `for` loop
 over `src/*.rs` was refused with "A variable in this command can't be
 checked before it runs"), which `autoAllowBashIfSandboxed` does not
-override with no one to ask, and its network calls were refused because
-no host was allowed (`curl` got "Proxy CONNECT aborted"). Two reviews the
-same day also found two escapes this record's Consequences did not weigh:
-a refine can write `~/.task/hooks`, which the daemon's `task` calls then
-run unsandboxed (task `b268d068`), and its `$TMPDIR`, `/tmp/claude-<uid>`,
-is shared with the user's unsandboxed Claude sessions. Both are closed,
+override with no one to ask. Its network calls failed, every host alike
+(`curl` got "Proxy CONNECT aborted"), because the sandbox runtime binds
+its proxy socket under `$TMPDIR`, unset and so `/tmp`, and the tmpfs that
+hides `/tmp` covered it. Two reviews the same day also found two escapes
+this record's Consequences did not weigh: a refine can write
+`~/.task/hooks`, which the daemon's `task` calls then run unsandboxed
+(task `b268d068`), and its `$TMPDIR`, `/tmp/claude-<uid>`, is shared with
+the user's unsandboxed Claude sessions. The sandbox runtime re-binds that
+folder read-write inside the denied `/tmp`, so it stayed exposed until
+the session's temp folder moved. It moves through `TMPDIR`, set on an
+unattended run's process and exported in a tab's shell, not through
+`CLAUDE_CODE_TMPDIR`: Claude Code 2.1.296 ignores a `CLAUDE_CODE_TMPDIR`
+whose `<path>/claude-<uid>` is over 44 bytes and falls back to `/tmp`,
+and the settings' `env` does not reach it. With `TMPDIR` under the cache,
+the proxy socket lands outside `/tmp` too, and an unlisted host gets a
+real refusal. Both escapes are closed,
 more secret stores are hidden, and only then are the rules widened to
 state the fence: bare `Bash` in place of `Bash(task *)`, and a strict
 allowlist of read-only source and docs hosts on port 443. Allowing every
