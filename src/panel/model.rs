@@ -564,8 +564,9 @@ mod tests {
         assert_eq!(cap(&cards(&todo(many), &[]), CAP).last().unwrap().report, None);
     }
 
-    /// A card knows whether its task's notes link a spec and a plan, and
-    /// its state which of its Claudes are live; "+N more" has neither.
+    /// A card knows which spec and plan its task's notes link, with their
+    /// dates, and its state which of its Claudes are live; "+N more" has
+    /// neither.
     #[test]
     fn a_card_knows_its_tasks_spec_plan_and_claudes() {
         let mut linked = task("linked", 1, false);
