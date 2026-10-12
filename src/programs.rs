@@ -32,6 +32,28 @@ fn found_in(path: &std::ffi::OsStr, bin: &str) -> bool {
     })
 }
 
+/// VS Code on `file` in an instance of its own, whose state is kept in
+/// `data`, using the extensions installed in `extensions`.
+///
+/// `--user-data-dir` is what makes it a separate instance. Without it,
+/// VS Code hands the file to the instance already running, so a document
+/// would open among the user's own windows, in whichever one it picked.
+/// A separate data folder also keeps that instance's open windows and
+/// history apart from theirs. `--extensions-dir` points at their usual
+/// extensions, so nothing has to be installed twice. Sublime Text cannot
+/// do the same: its undocumented `--multiinstance` still loads the
+/// user's own session, and nothing gives it a data folder of its own.
+pub fn document_command(data: &std::path::Path, extensions: &std::path::Path, file: &std::path::Path) -> Vec<String> {
+    vec![
+        EDITOR.to_string(),
+        "--user-data-dir".to_string(),
+        data.display().to_string(),
+        "--extensions-dir".to_string(),
+        extensions.display().to_string(),
+        file.display().to_string(),
+    ]
+}
+
 /// The session manager the project terminal runs, one session per workspace.
 pub const SESSION_MANAGER: &str = "herdr";
 

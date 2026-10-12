@@ -95,7 +95,7 @@ applies:
 | **Get started**, **Back to worktree** once started | on a task on the list, unless its work Claude is running: Go to work session then goes there |
 | **Generate report**, **Regenerate report** once one exists | on a planned task on the list |
 | **Open report** | its notes link a report (`Report: <path>`) |
-| **Planning doc**, **Design spec** | its notes link a plan (`Plan: <path>`) or a spec (`Spec: <path>`) |
+| **Planning doc**, **Design spec** | its notes link a plan (`Plan: <path>`) or a spec (`Spec: <path>`): opened in a VS Code of its own, apart from your VS Code windows, sharing your extensions, settings and keybindings |
 | **Go to refine session**, **Go to work session** | on a task on the list, that Claude (`task-<uuid8>`, `work-<uuid8>`) is running, checked as the panel slides out |
 | **Open worktree folder** | the task has a worktree: a terminal in it |
 | **Open in VS Code** | `code` is installed: on the worktree, else the project folder |
@@ -355,7 +355,7 @@ niritasks task start <uuid> --here --workspace <name>
 niritasks task session <uuid>      # back to the Claude working on it (work-/task-<uuid8>) in the herdr session
 niritasks task session <uuid> --work    #   its working Claude alone (work-<uuid8>): the Go to list's Go to work session
 niritasks task session <uuid> --refine  #   its refine Claude alone (task-<uuid8>): Go to refine session
-niritasks task open <uuid> spec    # open the design spec its notes link (Spec: <path>) with xdg-open, read in its
+niritasks task open <uuid> spec    # open the design spec its notes link (Spec: <path>) in a VS Code of its own, read in its
                                    #   worktree while it has one, else the project folder
 niritasks task open <uuid> plan    #   the same for its plan (Plan: <path>)
 niritasks task open <uuid> worktree  # a terminal in its worktree

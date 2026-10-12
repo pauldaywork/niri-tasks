@@ -256,7 +256,8 @@ enum TaskCommand {
     /// Open a task's design spec, implementation plan, worktree or project in VS Code
     ///
     /// spec and plan open the file a `Spec: <path>` or `Plan: <path>` note
-    /// links, with xdg-open; the path is the repository's
+    /// links, in a VS Code instance of its own, apart from the user's
+    /// windows and never with xdg-open; the path is the repository's
     /// (`docs/superpowers/plans/<file>.md`), read in the task's worktree
     /// while it has one, else in the workspace's ~/Projects folder. worktree
     /// opens a terminal in the task's worktree; editor opens VS Code on it,
