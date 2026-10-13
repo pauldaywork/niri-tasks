@@ -361,13 +361,29 @@ export const parseReport = (e: Record<string, unknown>): Parsed | string => {
 export const overLimits = (warnings: readonly string[]): string =>
   warnings.length === 0 ? '' : ` Taken, though over its word limits: ${warnings.join('; ')}.`
 
-// The folder the reports go in, from the session's settings: absolute, or
-// none, and then the tool is not offered.
-export const reportsDir = (value: unknown): string | undefined => {
+// An absolute folder from the session's settings, without a trailing slash,
+// or undefined.
+const absoluteDir = (value: unknown): string | undefined => {
   if (typeof value !== 'string' || !value.startsWith('/')) return undefined
   const dir = value.replace(/\/+$/, '')
   return dir === '' ? undefined : dir
 }
+
+// The folder the reports go in, from the session's settings: absolute, or
+// none, and then the tool is not offered.
+export const reportsDir = absoluteDir
+
+// The home folder, from the session's settings: absolute, or none, and then
+// every report is named by its absolute path.
+export const homeDir = absoluteDir
+
+// A report's path as the task's note and the tool's answers name it: from
+// `~/` under `home`, so the note survives a username or home folder change
+// (`niritasks` reads a `~/` note back under the home folder); absolute
+// elsewhere, as for a data folder outside home. The files themselves are
+// written and opened by the absolute path.
+export const notePath = (path: string, home: string | undefined): string =>
+  home !== undefined && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path
 
 // <dir>/refine-<uuid8>-<YYYYMMDD-HHMMSS>.html in UTC: a second report on the
 // same task, after a revision, does not overwrite the first.
@@ -389,8 +405,8 @@ export const openArgv = (path: string): string[] => [
   path,
 ]
 
-// A report made in this session, and the plan the person was shown when
-// they asked for it.
+// A report made in this session, by the path its note names (`notePath`),
+// and the plan the person was shown when they asked for it.
 export type MadeReport = { path: string; plan: Plan }
 
 const samePlan = (a: Plan, b: Plan): boolean =>

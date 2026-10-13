@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { LIMITS, WORD_GRACE, madeAlready, openArgv, overLimits, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from '../hooks/report'
+import { LIMITS, WORD_GRACE, homeDir, madeAlready, notePath, openArgv, overLimits, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from '../hooks/report'
 import type { Task } from '../hooks/plan'
 import { EXAMPLE } from './example-report'
 
@@ -234,6 +234,32 @@ test('openArgv passes the path as an argument, never as script', () => {
   expect(openArgv(path)).toEqual(['sh', '-c', '{ niritasks task open-report "$1" || xdg-open "$1"; } >/dev/null 2>&1 </dev/null &', 'sh', path])
 })
 
+describe('homeDir', () => {
+  test('takes an absolute folder, without a trailing slash', () => {
+    expect(homeDir('/home/x')).toBe('/home/x')
+    expect(homeDir('/home/x/')).toBe('/home/x')
+  })
+  test('refuses the rest', () => {
+    for (const value of [undefined, '', 'x', '~', '/', 7]) expect(homeDir(value)).toBeUndefined()
+  })
+})
+
+describe('notePath', () => {
+  test('names a path under home from ~/', () => {
+    expect(notePath('/home/x/.local/share/niri-tasks/reviews/r.html', '/home/x')).toBe(
+      '~/.local/share/niri-tasks/reviews/r.html',
+    )
+  })
+  test('leaves a path outside home absolute', () => {
+    expect(notePath('/data/niri-tasks/reviews/r.html', '/home/x')).toBe('/data/niri-tasks/reviews/r.html')
+    // A neighbour whose name starts with home's is not under it.
+    expect(notePath('/home/xy/r.html', '/home/x')).toBe('/home/xy/r.html')
+  })
+  test('leaves every path absolute without a home', () => {
+    expect(notePath('/home/x/r.html', undefined)).toBe('/home/x/r.html')
+  })
+})
+
 describe('withReportNotes', () => {
   const plan = { description: 'feat: A', notes: ['Goal: x'] }
 
@@ -265,6 +291,14 @@ describe('withReportNotes', () => {
       { path: '/r/b.html', plan: kept },
     ]
     expect(withReportNotes(made, kept, kept)).toEqual(['Goal: x', 'Report: /r/a.html', 'Report: /r/b.html'])
+  })
+
+  test('a kept ~/ note for a report of this session is kept once, or relabelled once', () => {
+    const made = [{ path: '~/r/a.html', plan }]
+    const kept = { ...plan, notes: ['Goal: x', 'Report: ~/r/a.html'] }
+    expect(withReportNotes(made, kept, plan)).toEqual(['Goal: x', 'Report: ~/r/a.html'])
+    const revised = { ...plan, notes: ['Goal: y', 'Report: ~/r/a.html'] }
+    expect(withReportNotes(made, revised, plan)).toEqual(['Goal: y', 'Report (earlier draft): ~/r/a.html'])
   })
 
   test("keeps an earlier session's report note in its place on an unchanged plan", () => {
