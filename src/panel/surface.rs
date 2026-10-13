@@ -165,7 +165,7 @@ use super::notepad::Notepad;
 use super::goto::{Found, GoToList};
 use super::model::{Card, Filter, Status, Tab};
 use super::projects::ProjectList;
-use super::state::{Armed, Effect, Focus, Mode, PanelState, Shown, Slot};
+use super::state::{Armed, Effect, Focus, Mode, PanelState, Shown, Slot, Taken};
 use super::style::{CARD_WIDTH_PX, GAP_PX, PADDING_PX, RING_PX};
 use crate::project::Projects;
 use gtk4::prelude::*;
@@ -597,6 +597,16 @@ impl Panel {
         }
         self.centre(vec![Effect::Render]);
         true
+    }
+
+    /// Take the keyboard as `take_keyboard` does, focused on `uuid`'s card:
+    /// herdr's task-docs.panel. Centred unless there were no cards.
+    pub fn take_keyboard_on(self: &Rc<Self>, uuid: &str, agents: Vec<String>) -> Taken {
+        let taken = self.state.borrow_mut().take_keyboard_on(uuid, agents);
+        if taken != Taken::Not {
+            self.centre(vec![Effect::Render]);
+        }
+        taken
     }
 
     /// The task box on `uuid` closing takes the keyboard back here: this

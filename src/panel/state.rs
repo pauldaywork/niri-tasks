@@ -45,6 +45,17 @@ impl Focus {
     }
 }
 
+/// What taking the keyboard on one task's card came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Taken {
+    /// The focus is on that card's body.
+    Card,
+    /// The card is not under All, so the focus is on the first card.
+    First,
+    /// No cards to take the keyboard for.
+    Not,
+}
+
 /// What a first press has armed, waiting for its second. One enum, so only
 /// one of Remove and Clear all can be armed at a time.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -425,6 +436,26 @@ impl PanelState {
         self.returning = None;
         self.focus = first_task(&self.visible());
         true
+    }
+
+    /// Take the keyboard as `take_keyboard` does, with the focus on `uuid`'s
+    /// card body instead of the first card and every card's notes hidden:
+    /// herdr's task-docs.panel, from that task's pane. A card past "+N more"
+    /// opens the list expanded. A task that is not under All, on another
+    /// workspace or waiting or finished, leaves the focus on the first card.
+    pub fn take_keyboard_on(&mut self, uuid: &str, agents: Vec<String>) -> Taken {
+        if !self.take_keyboard(agents) {
+            return Taken::Not;
+        }
+        self.notes = None;
+        let Some(at) = Filter::All.pick(&self.all).iter().position(|c| c.uuid.as_deref() == Some(uuid)) else {
+            return Taken::First;
+        };
+        if at >= model::CAP {
+            self.expanded = true;
+        }
+        self.focus = Some(Focus::body(uuid));
+        Taken::Card
     }
 
     /// The task box on `uuid` closing takes the keyboard back here: this
@@ -3013,5 +3044,63 @@ mod tests {
         assert!(state.take_keyboard(Vec::new()));
         assert_eq!(state.projects(), None);
         assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
+    }
+
+    /// herdr's task-docs.panel: the keyboard on All with the focus on that
+    /// task's card body, not the first card.
+    #[test]
+    fn taking_the_keyboard_on_a_task_focuses_its_card() {
+        let mut state = PanelState::default();
+        state.set_cards(&pending(&["a", "b", "c"]));
+        assert_eq!(state.take_keyboard_on("b", Vec::new()), Taken::Card);
+        assert_eq!(state.focus, focused("b", Slot::Body));
+        assert_eq!(state.filter, Filter::All);
+    }
+
+    /// From another tab, with another card's notes open, it still lands on
+    /// All with every card's notes hidden.
+    #[test]
+    fn taking_the_keyboard_on_a_task_picks_all_and_hides_notes() {
+        let mut state = keyboard(vec![noted("a"), card("b", Status::Planned)]);
+        state.on_press("a", Slot::Body);
+        assert!(state.shows_notes("a"));
+        key(&mut state, KeyAction::Filter(Filter::Planned));
+        assert_eq!(state.take_keyboard_on("a", Vec::new()), Taken::Card);
+        assert_eq!(state.filter, Filter::All);
+        assert_eq!(state.focus, focused("a", Slot::Body));
+        assert!(!state.shows_notes("a"));
+    }
+
+    /// A card past "+N more" is shown: the list opens expanded.
+    #[test]
+    fn taking_the_keyboard_on_a_hidden_task_expands_the_list() {
+        let names: Vec<String> = (0..10).map(|i| format!("t{i}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut state = PanelState::default();
+        state.set_cards(&pending(&refs));
+        assert_eq!(state.take_keyboard_on("t9", Vec::new()), Taken::Card);
+        assert_eq!(state.focus, focused("t9", Slot::Body));
+        assert!(uuids(&state).contains(&"t9".to_string()), "{:?}", uuids(&state));
+    }
+
+    /// Another workspace's task, or one finished or waiting, is not under
+    /// All: the panel opens as usual on the first card.
+    #[test]
+    fn taking_the_keyboard_on_a_task_not_here_focuses_the_first_card() {
+        let mut state = PanelState::default();
+        state.set_cards(&[card("a", Status::Pending), card("w", Status::Waiting), card("f", Status::Finished)]);
+        assert_eq!(state.take_keyboard_on("elsewhere", Vec::new()), Taken::First);
+        assert_eq!(state.focus, focused("a", Slot::Body));
+        assert_eq!(state.take_keyboard_on("w", Vec::new()), Taken::First);
+        assert_eq!(state.focus, focused("a", Slot::Body));
+        assert_eq!(state.take_keyboard_on("f", Vec::new()), Taken::First);
+        assert_eq!(state.focus, focused("a", Slot::Body));
+    }
+
+    #[test]
+    fn taking_the_keyboard_on_a_task_with_no_cards_takes_nothing() {
+        let mut state = PanelState::default();
+        assert_eq!(state.take_keyboard_on("a", Vec::new()), Taken::Not);
+        assert_eq!(state.footer(), None, "no keyboard");
     }
 }
