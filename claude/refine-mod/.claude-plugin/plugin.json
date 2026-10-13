@@ -20,6 +20,13 @@
       "required": false,
       "default": ""
     },
+    "home": {
+      "type": "string",
+      "title": "Home folder",
+      "description": "The absolute home folder. A report under it is named from ~/ in the task's Report: note and in the tool's answers, so the note survives a username or home folder change; the files are still written and opened by their absolute path. Unset, or for a report outside it, the absolute path is named.",
+      "required": false,
+      "default": ""
+    },
     "report": {
       "type": "boolean",
       "title": "Report only",

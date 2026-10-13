@@ -138,9 +138,10 @@ pub fn reports_dir(dirs: &Dirs) -> PathBuf {
     dirs.data().join("niri-tasks/reviews")
 }
 
-/// The file a `Report: <path>` note names. The mod always writes an absolute
-/// path, which is used as written; a hand-written `~` or `~/...` is under the
-/// home folder, and a relative path is in [`reports_dir`].
+/// The file a `Report: <path>` note names. The mod writes `~/...` for a
+/// report under the home folder and an absolute path for one outside it; an
+/// absolute path is used as written, `~` or `~/...` is under the home
+/// folder, and a relative path is in [`reports_dir`].
 pub fn report_file(path: &str, dirs: &Dirs) -> PathBuf {
     if path == "~" {
         return dirs.home().to_path_buf();
@@ -215,7 +216,8 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// reads can tell it to fetch and run something.
 /// The write itself is the refine mod's tool, which `pluginConfigs` tells
 /// which task it may write: `uuid`, never anything the model says.
-/// It is told `reports` too, the folder its report tool writes to, and
+/// It is told `reports` too, the folder its report tool writes to, `home`,
+/// so the note linking a report under it names it as `~/...`, and
 /// `report`: true in a Report session, where it offers only the report tool
 /// and links the report from the task itself, and `unattended`: true in an
 /// unattended run, where the write tool writes with no question and the
@@ -250,7 +252,7 @@ pub fn session_settings(project: &Path, task_data: &Path, fence: &Fence, uuid: &
             },
         },
         "pluginConfigs": {
-            (REFINE_MOD): { "options": { "uuid": uuid, "reports": reports, "report": (mode == Mode::Report), "unattended": unattended } },
+            (REFINE_MOD): { "options": { "uuid": uuid, "reports": reports, "home": fence.home, "report": (mode == Mode::Report), "unattended": unattended } },
         },
     });
     if let Some(command) = status_line {
@@ -1164,6 +1166,15 @@ mod tests {
         assert_eq!(options["reports"], "/home/x/.local/share/niri-tasks/reviews");
         assert_eq!(options["report"], false, "a refine is not a report session");
         assert_eq!(REFINE_MOD, "niri-tasks-refine", "the name in claude/refine-mod's plugin.json");
+    }
+
+    /// The mod is told the home folder, so the note it writes names a report
+    /// under it as `~/...`, which survives a username or home folder change.
+    #[test]
+    fn the_mod_is_told_the_home_folder() {
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/home/x/.local/share/niri-tasks/reviews"), Mode::Quick, false, None);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["home"], "/home/x");
     }
 
     /// A Report session tells the mod so: it offers only the report tool,
