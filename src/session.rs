@@ -184,8 +184,9 @@ pub enum Claude {
         settings: String,
         /// The folder of the refine mod Claude loads.
         mod_dir: PathBuf,
-        /// The session's own temp folder, exported as `TMPDIR`
-        /// in the pane's shell before Claude starts.
+        /// The session's own temp folder, exported as `TMPDIR`, with
+        /// `CLAUDE_CODE_TMPDIR` unset, in the pane's shell before Claude
+        /// starts.
         tmp: PathBuf,
     },
     /// Start working's: the user's own defaults, since it is meant to do the
@@ -987,7 +988,7 @@ mod tests {
         s.start_claude(s.claim().unwrap(), "task-abc", "p1", &refiner).unwrap();
         let log = f.log();
         let start = log.iter().position(|l| l == "agent_start alpha task-abc p1 refiner").expect("started");
-        assert_eq!(log[start - 1], "pane_run alpha p1 export TMPDIR='/c/tmp'", "{log:?}");
+        assert_eq!(log[start - 1], "pane_run alpha p1 unset CLAUDE_CODE_TMPDIR; export TMPDIR='/c/tmp'", "{log:?}");
         assert!(!logged_start(&f, "agent_wait_ready"));
     }
 

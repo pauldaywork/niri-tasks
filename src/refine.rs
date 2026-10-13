@@ -186,7 +186,8 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// Claude sessions share. It is not set here: the settings' `env` does not
 /// reach Claude Code's temp folder (measured 2026-10-12), so
 /// `TMPDIR` is exported in the tab's shell before Claude starts
-/// ([`Claude::Refiner`]'s `tmp`) and set on an unattended run's process.
+/// ([`Claude::Refiner`]'s `tmp`) and set on an unattended run's process,
+/// with `CLAUDE_CODE_TMPDIR` cleared in both.
 ///
 /// Unix sockets are allowed because the sandbox's socket filter cannot load
 /// under Ubuntu's bwrap AppArmor profile, which denies it the capability it
@@ -1567,7 +1568,7 @@ Num       RefCount Protocol Flags    Type St Inode Path
         let log = fake.log();
         assert_eq!(log[0], "claim alpha", "{log:?}");
         assert_eq!(
-            at(&log, "pane_run alpha p1 export TMPDIR='/c/tmp'") + 1,
+            at(&log, "pane_run alpha p1 unset CLAUDE_CODE_TMPDIR; export TMPDIR='/c/tmp'") + 1,
             at(&log, "agent_start alpha task-abc"),
             "the temp folder is set in the pane's shell just before Claude starts in it: {log:?}"
         );

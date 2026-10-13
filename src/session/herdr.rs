@@ -104,10 +104,13 @@ pub fn refiner_flags(settings: &str, mod_dir: &Path) -> Vec<String> {
 
 /// The shell line that sets a refine's temp folder in its pane before
 /// Claude starts there: herdr's `agent start` launches Claude in the
-/// pane's own shell, which then passes the variable on. Single-quoted,
-/// with any `'` in the path closed, escaped and reopened.
+/// pane's own shell, which then passes the variable on. It first unsets
+/// `CLAUDE_CODE_TMPDIR`, which Claude would prefer to `TMPDIR`; the line
+/// runs after the shell's rc files, so this clears one exported there
+/// too. Single-quoted, with any `'` in the path closed, escaped and
+/// reopened.
 pub fn export_tmpdir(tmp: &Path) -> String {
-    format!("export TMPDIR='{}'", tmp.display().to_string().replace('\'', "'\\''"))
+    format!("unset CLAUDE_CODE_TMPDIR; export TMPDIR='{}'", tmp.display().to_string().replace('\'', "'\\''"))
 }
 
 /// Claude as a named agent in `pane`, fenced in to refining a task rather
@@ -722,14 +725,15 @@ mod tests {
     }
 
     /// A refine's temp folder is exported in its pane's shell, quoted so a
-    /// `'` in the path cannot end the string early.
+    /// `'` in the path cannot end the string early, after unsetting any
+    /// `CLAUDE_CODE_TMPDIR` the shell has, which Claude would prefer.
     #[test]
     fn the_temp_folder_is_exported_quoted() {
         assert_eq!(
             export_tmpdir(Path::new("/home/x/.cache/niri-tasks/refine-tmp/d9f76b94")),
-            "export TMPDIR='/home/x/.cache/niri-tasks/refine-tmp/d9f76b94'"
+            "unset CLAUDE_CODE_TMPDIR; export TMPDIR='/home/x/.cache/niri-tasks/refine-tmp/d9f76b94'"
         );
-        assert_eq!(export_tmpdir(Path::new("/c/a'b/t")), "export TMPDIR='/c/a'\\''b/t'");
+        assert_eq!(export_tmpdir(Path::new("/c/a'b/t")), "unset CLAUDE_CODE_TMPDIR; export TMPDIR='/c/a'\\''b/t'");
     }
 
     #[test]
