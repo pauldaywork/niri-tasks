@@ -429,6 +429,54 @@ test("a re-refine that keeps the plan keeps an earlier session's report", { opti
   expect(imported.annotations.at(-1).description).toBe(`Report: ${OLD_REPORT}`)
 })
 
+// A session told its home folder, with the reports folder under it: the
+// files are written and opened by their absolute paths, and named from ~/
+// everywhere else.
+const HOME_REPORTS = { uuid: UUID, reports: '/home/x/r', home: '/home/x' }
+const HOME_PATH = '/home/x/r/refine-0b8f6a52-20261006-010203.html'
+const HOME_MD = '/home/x/r/refine-0b8f6a52-20261006-010203.md'
+const HOME_NOTE = '~/r/refine-0b8f6a52-20261006-010203.html'
+const OPEN = (path: string) => [
+  'sh',
+  '-c',
+  '{ niritasks task open-report "$1" || xdg-open "$1"; } >/dev/null 2>&1 </dev/null &',
+  'sh',
+  path,
+]
+const notesOf = (run: Run | undefined): string[] =>
+  JSON.parse(run?.init?.stdin ?? 'null')[0].annotations.map((a: { description: string }) => a.description)
+
+test('under home: the report is written and opened by its path, and named from ~/', { options: HOME_REPORTS }, async ($, on) => {
+  const { runs, seen, writes } = world(on, SANDBOX, [REPORT, WRITE])
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(shown.result).toStartWith(`Wrote the report to ${HOME_NOTE} and opened it in the browser. `)
+  expect(writes.map(w => w.path)).toEqual([HOME_PATH, HOME_MD])
+  expect(runs.at(-1)?.argv).toEqual(OPEN(HOME_PATH))
+  expect(seen).toContain(`log: Report: ${HOME_NOTE}`)
+  await $.tool.call(CALL)
+  expect(notesOf(runs.at(-1))).toEqual(['step one', 'step two', `Report: ${HOME_NOTE}`])
+})
+
+test('under home: a report note the model keeps is not doubled', { options: HOME_REPORTS }, async ($, on) => {
+  const { runs } = world(on, SANDBOX, [REPORT, WRITE])
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  await $.tool.call({ ...CALL, notes: [...CALL.notes, `Report: ${HOME_NOTE}`] })
+  expect(notesOf(runs.at(-1))).toEqual(['step one', 'step two', `Report: ${HOME_NOTE}`])
+})
+
+test('under home: a kept note of a plan since changed is relabelled, not doubled', { options: HOME_REPORTS }, async ($, on) => {
+  const { runs } = world(on, SANDBOX, [REPORT, WRITE])
+  await $.session.start(START)
+  await $.tool.call(CALL)
+  await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  await $.tool.call({ ...CALL, notes: ['step one', 'step three', `Report: ${HOME_NOTE}`] })
+  expect(notesOf(runs.at(-1))).toEqual(['step one', 'step three', `Report (earlier draft): ${HOME_NOTE}`])
+})
+
 test('a report choice is superseded by the next question', { options: REPORTS }, async ($, on) => {
   const { writes } = world(on, SANDBOX, [REPORT, 'Change something'])
   await $.session.start(START)
@@ -682,6 +730,32 @@ test('report mode: one report a session; the second names the first', { options:
   )
   expect(writes.map(w => w.path)).toEqual([REPORT_PATH, REPORT_MD])
   expect(verbs(runs).filter(v => v === 'import')).toHaveLength(1)
+})
+
+test('report mode under home: the note and the answers name the report from ~/', { options: { ...HOME_REPORTS, report: true } }, async ($, on) => {
+  const { runs, seen, writes } = world(on, SANDBOX, { deny: 'nobody should be asked' }, [PLANNED])
+  await $.session.start(START)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(shown.result).toBe(
+    `Wrote the report to ${HOME_NOTE}, opened it in the browser, and linked it from the task ` +
+      `as the note "Report: ${HOME_NOTE}".`,
+  )
+  expect(writes.map(w => w.path)).toEqual([HOME_PATH, HOME_MD])
+  expect(seen).toEqual([`log: Report: ${HOME_NOTE}`])
+  expect(runs[1]?.argv).toEqual(OPEN(HOME_PATH))
+  expect(JSON.parse(runs[2]?.init?.stdin ?? 'null')[0].annotations.at(-1)).toEqual({
+    entry: '20261006T010203Z',
+    description: `Report: ${HOME_NOTE}`,
+  })
+  const again = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(again.deny).toStartWith(`show_task_report: this session's report is made and linked from the task: ${HOME_NOTE}. `)
+})
+
+test('report mode: a reports folder outside home is named by its absolute path', { options: { ...REPORT_MODE, home: '/home/x' } }, async ($, on) => {
+  const { runs } = world(on, SANDBOX, { deny: 'nobody should be asked' }, [PLANNED])
+  await $.session.start(START)
+  await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(JSON.parse(runs[2]?.init?.stdin ?? 'null')[0].annotations.at(-1).description).toBe(`Report: ${REPORT_PATH}`)
 })
 
 // The page is built from the twin as it reads back: a task note on two lines

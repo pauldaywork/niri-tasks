@@ -25,7 +25,7 @@ import { reportPage } from './page'
 import { FONT_FILES } from './style'
 import type { Fonts } from './style'
 import { markdownPath, twinOf } from './markdown'
-import { madeAlready, openArgv, overLimits, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from './report'
+import { homeDir, madeAlready, notePath, openArgv, overLimits, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from './report'
 import type { MadeReport, Report } from './report'
 
 // The tool's listed name: mcp__<plugin>__<name>, hyphens kept.
@@ -269,6 +269,9 @@ const approval = async (
 export const register: Register = (on, options) => {
   // Where reports go, or undefined when this session offers none.
   const reports = reportsDir(options.reports)
+  // The home folder: a report under it is named from ~/ in its note and the
+  // answers, so the note survives a username or home folder change.
+  const home = homeDir(options.home)
   // Report mode: the Go to list's Generate report on a planned task, not a refine.
   // Only the report tool is offered, armed from the start on the task's own
   // description and notes, and the mod links the report from the task
@@ -390,12 +393,15 @@ export const register: Register = (on, options) => {
         }
       }
       const path = reportPath(reports, uuid, await $.clock.now())
+      // What the note and the answers name; the files are written and
+      // opened by `path`.
+      const note = notePath(path, home)
       const page = reportPage(twin.report, twin.plan, await readFonts($, fonts), await drawDiagrams($, twin.report))
       await $.fs.write(path, page)
       // The twin itself, which herdr's task-docs plugin opens in
       // plannotator-tui so comments on it reach the task's Claude.
       await $.fs.write(markdownPath(path), twin.markdown)
-      $.ui.log(`Report: ${path}`)
+      $.ui.log(`Report: ${note}`)
       for (const warning of parsed.warnings) $.ui.log(`Over its word limit: ${warning}`)
       // Unattended, nothing opens: no one is at the screen, and the task's
       // Report: note is how the report is found later.
@@ -405,22 +411,22 @@ export const register: Register = (on, options) => {
       // The session's one write to the task, and the mod's, not the model's:
       // the note's path is the one just written.
       const imported = await $.process.run([...TASK, 'rc.verbose=nothing', 'import'], {
-        stdin: JSON.stringify([withReportNote(task, path, await $.clock.now())]),
+        stdin: JSON.stringify([withReportNote(task, note, await $.clock.now())]),
       })
       if (imported.exitCode !== 0) {
         return {
           deny:
-            `Wrote the report to ${path}${opened}, but task import failed (${imported.exitCode}): ` +
+            `Wrote the report to ${note}${opened}, but task import failed (${imported.exitCode}): ` +
             `${imported.stderr.trim()} The task does not link it.`,
         }
       }
-      linked = path
+      linked = note
       return {
         result:
           (unattended
-            ? `Wrote the report to ${path} and linked it from the task as the note "Report: ${path}".`
-            : `Wrote the report to ${path}, opened it in the browser, and linked it from the task ` +
-              `as the note "Report: ${path}".`) + overLimits(parsed.warnings),
+            ? `Wrote the report to ${note} and linked it from the task as the note "Report: ${note}".`
+            : `Wrote the report to ${note}, opened it in the browser, and linked it from the task ` +
+              `as the note "Report: ${note}".`) + overLimits(parsed.warnings),
       }
     }
     if (askedFor === undefined) return { deny: NOT_ASKED_FOR }
@@ -434,16 +440,19 @@ export const register: Register = (on, options) => {
     const shown = askedFor
     askedFor = undefined
     const path = reportPath(reports, uuid, await $.clock.now())
+    // What the note and the answers name; the files are written and opened
+    // by `path`.
+    const note = notePath(path, home)
     const page = reportPage(twin.report, twin.plan, await readFonts($, fonts), await drawDiagrams($, twin.report))
     await $.fs.write(path, page)
     await $.fs.write(markdownPath(path), twin.markdown)
-    made.push({ path, plan: shown })
-    $.ui.log(`Report: ${path}`)
+    made.push({ path: note, plan: shown })
+    $.ui.log(`Report: ${note}`)
     for (const warning of parsed.warnings) $.ui.log(`Over its word limit: ${warning}`)
     await $.process.run(openArgv(path))
     return {
       result:
-        `Wrote the report to ${path} and opened it in the browser. ` +
+        `Wrote the report to ${note} and opened it in the browser. ` +
         'Now call write_task_plan again with the same plan; the person approves or changes it there, ' +
         'and the task will link the report in its notes.' +
         overLimits(parsed.warnings),
