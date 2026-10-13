@@ -242,6 +242,7 @@ class ThePanelAction(PluginTest):
         task_docs.panel_action()
         self.assertNotIn("plannotator", self.notified())
         self.assertNotIn("no Claude", self.notified())
+        self.assertEqual(self.asked(), ["task", "panel", "1234abcd"])
 
     def test_a_pane_with_no_task_says_so_and_opens_nothing(self):
         task_docs.panel_action()

@@ -343,7 +343,6 @@ fn dispatch(cli: Cli) -> Result<()> {
 
 fn task_command(cmd: TaskCommand) -> Result<()> {
     match cmd {
-        // The daemon draws the panel; with none, say so.
         // The daemon draws the panel; with none, say so. A uuid8 is resolved
         // here, since the panel's cards carry full uuids.
         TaskCommand::Panel { uuid } => {

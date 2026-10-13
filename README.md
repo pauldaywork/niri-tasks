@@ -340,7 +340,7 @@ description = "task panel: open it on this task's card"
 Press it in a task's pane, found as for Task docs: the task panel slides
 out with the keyboard, on All, the focus on that task's card with its notes
 hidden. A task with no card on the focused workspace's panel, one on
-another workspace or waiting or finished, opens the panel on its first card
+another workspace or not pending (waiting or finished, say), opens the panel on its first card
 with a notification saying why. A pane with no task gets a notification and
 nothing opens. It runs `niritasks task panel <uuid8>`.
 

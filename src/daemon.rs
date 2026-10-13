@@ -232,7 +232,7 @@ pub const NO_TASKS: &str = "No tasks here — Mod+Alt+T adds one.";
 /// What herdr's task-docs.panel says when the pane's task has no card under
 /// All on the focused workspace's panel, which then opens on its first card.
 pub const NOT_ON_PANEL: &str =
-    "That task's card is not on this panel: it is on another workspace, or waiting or finished. The panel opened on the first card.";
+    "That task's card is not on this panel: it is on another workspace, or not pending. The panel opened on the first card.";
 
 /// What Mod+Alt+W says when the focused monitor has no panel to show the
 /// project list on: a monitor GTK has not named yet (see `sync_monitors`).
@@ -527,8 +527,6 @@ fn sync_monitors(app: &Application, display: &gdk::Display, panels: &Panels, sta
 mod tests {
     use super::*;
 
-    /// Mod+Alt+Ctrl+T with no card to take the keyboard for: an unnamed
-    /// workspace says what the tag refusal says, a named one that it is empty.
     /// A bare panel request says nothing once it has the keyboard; one for a
     /// task whose card is not here says so; no cards says why, either way.
     #[test]
@@ -543,6 +541,8 @@ mod tests {
         assert_eq!(panel_notice(true, Taken::Not, web), Some(NO_TASKS.to_string()));
     }
 
+    /// Mod+Alt+Ctrl+T with no card to take the keyboard for: an unnamed
+    /// workspace says what the tag refusal says, a named one that it is empty.
     #[test]
     fn no_cards_says_why() {
         assert_eq!(no_cards_text(Ok("web".into())), NO_TASKS);
