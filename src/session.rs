@@ -558,21 +558,29 @@ impl Session {
     /// has the folder, and Claude starts only when that shows up: a Claude
     /// started without it falls back to `/tmp/claude-<uid>`, the temp folder
     /// the user's unsandboxed sessions share, and binds its proxy socket
-    /// there before anything inside the session could check.
+    /// there before anything inside the session could check. The marker is
+    /// only proof because the pane is new and has never shown it: herdr's
+    /// wait also matches output already on screen, so a refiner must be
+    /// started in a fresh pane, never a reused one.
     pub fn start_claude(&self, claim: Claim, name: &str, pane: &str, claude: &Claude) -> Result<()> {
         if let Claude::Refiner { tmp, .. } = claude {
             self.port.pane_run(&self.name, pane, &herdr::export_tmpdir(tmp))??;
             self.port.pane_run(&self.name, pane, &herdr::check_tmpdir(tmp))??;
-            self.port
-                .pane_wait_output(&self.name, pane, herdr::TMPDIR_SET, TMPDIR_WAIT)
-                .and_then(|waited| Ok(waited?))
-                .with_context(|| {
+            // Only herdr's own `timeout` says the shell never set it; any other
+            // failure, herdr refusing or not running, is the check failing.
+            let waited = self.port.pane_wait_output(&self.name, pane, herdr::TMPDIR_SET, TMPDIR_WAIT);
+            let timed_out = matches!(&waited, Ok(Err(e)) if e.code.as_deref() == Some("timeout"));
+            waited.and_then(|waited| Ok(waited?)).with_context(|| {
+                if timed_out {
                     format!(
                         "the Refine tab's shell did not set TMPDIR to {} within {}s, so Claude was not started",
                         tmp.display(),
                         TMPDIR_WAIT.as_secs()
                     )
-                })?;
+                } else {
+                    "could not check the Refine tab's TMPDIR, so Claude was not started".to_string()
+                }
+            })?;
         }
         let started = self.port.agent_start(&self.name, name, pane, claude);
         drop(claim);
@@ -1037,6 +1045,21 @@ mod tests {
         assert!(logged(&f, "pane_wait_output alpha p1 niri-tasks-tmpdir-set 10000ms"), "{:?}", f.log());
         assert!(!logged_start(&f, "agent_start"), "{:?}", f.log());
         assert_eq!(f.log().last().map(String::as_str), Some("release alpha"));
+    }
+
+    /// herdr failing the wait for any reason but its timeout is not the
+    /// shell's fault, and is not reported as it: the error says the check
+    /// could not be made, with herdr's own reason beneath, and Claude is
+    /// still not started.
+    #[test]
+    fn a_wait_herdr_refuses_is_not_blamed_on_the_shell() {
+        let (s, f) = session(Fake::running(&[("w1", "alpha")]).with_wait_refused("server_not_running"));
+        let refiner = Claude::Refiner { settings: "{}".into(), mod_dir: PathBuf::from("/m"), tmp: PathBuf::from("/c/tmp") };
+        let err = s.start_claude(s.claim().unwrap(), "task-abc", "p1", &refiner).unwrap_err();
+        assert_eq!(err.to_string(), "could not check the Refine tab's TMPDIR, so Claude was not started");
+        let chain: Vec<String> = err.chain().map(|e| e.to_string()).collect();
+        assert_eq!(chain[1], "timed out waiting for output match", "{chain:?}");
+        assert!(!logged_start(&f, "agent_start"), "{:?}", f.log());
     }
 
     /// A worker runs as the user runs Claude: nothing is typed or waited

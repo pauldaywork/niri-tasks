@@ -48,9 +48,9 @@ struct State {
     worktrees: HashMap<PathBuf, Opened>,
     agents: Vec<FakeAgent>,
     start: StartOutcome,
-    /// Whether the pane's shell never gets the temp folder, so waiting for
-    /// the check's marker times out.
-    tmpdir_unset: bool,
+    /// The code every wait for output is refused with, as when the pane's
+    /// shell never gets the temp folder and herdr's wait times out.
+    wait_refusal: Option<String>,
     /// One per confirmed `agent prompt` attempt: None delivered, Some(code)
     /// failed with it. Once they run out, every prompt is delivered.
     prompt_codes: Vec<Option<String>>,
@@ -144,7 +144,13 @@ impl Fake {
     /// A pane whose shell never gets the temp folder: every wait for output
     /// times out, as herdr's does.
     pub fn with_tmpdir_unset(self) -> Fake {
-        self.state.borrow_mut().tmpdir_unset = true;
+        self.with_wait_refused("timeout")
+    }
+
+    /// Every wait for output is refused by herdr with `code`, though the
+    /// calls before it went through.
+    pub fn with_wait_refused(self, code: &str) -> Fake {
+        self.state.borrow_mut().wait_refusal = Some(code.into());
         self
     }
 
@@ -285,8 +291,8 @@ impl Port for Fake {
         if let Err(e) = self.check()? {
             return Ok(Err(e));
         }
-        if self.state.borrow().tmpdir_unset {
-            return Ok(Err(Self::refuse("timeout", "timed out waiting for output match")));
+        if let Some(code) = &self.state.borrow().wait_refusal {
+            return Ok(Err(Self::refuse(code, "timed out waiting for output match")));
         }
         Ok(Ok(()))
     }
