@@ -1567,10 +1567,11 @@ Num       RefCount Protocol Flags    Type St Inode Path
         assert_eq!(refine(&fake).unwrap(), Launched::Started);
         let log = fake.log();
         assert_eq!(log[0], "claim alpha", "{log:?}");
+        let export = at(&log, "pane_run alpha p1 unset CLAUDE_CODE_TMPDIR; export TMPDIR='/c/tmp'");
         assert_eq!(
-            at(&log, "pane_run alpha p1 unset CLAUDE_CODE_TMPDIR; export TMPDIR='/c/tmp'") + 1,
-            at(&log, "agent_start alpha task-abc"),
-            "the temp folder is set in the pane's shell just before Claude starts in it: {log:?}"
+            log[export + 1..=export + 3].iter().map(|l| l.split(' ').next().unwrap()).collect::<Vec<_>>(),
+            ["pane_run", "pane_wait_output", "agent_start"],
+            "the temp folder is set and checked in the pane's shell just before Claude starts in it: {log:?}"
         );
         assert!(at(&log, "release alpha") > at(&log, "agent_start alpha task-abc"), "{log:?}");
         assert!(at(&log, "release alpha") < at(&log, "agent_prompt alpha task-abc"), "{log:?}");
@@ -1591,6 +1592,19 @@ Num       RefCount Protocol Flags    Type St Inode Path
         assert_eq!(second.first().map(|l| l.as_str()), Some("claim alpha"), "{log:?}");
         assert_eq!(second.last().map(|l| l.as_str()), Some("release alpha"), "{log:?}");
         assert!(second.iter().any(|l| *l == "agent_focus alpha task-abc"), "{log:?}");
+    }
+
+    /// A tab whose shell never shows its temp folder set is closed, with
+    /// the error saying why, and no Claude is started or prompted in it.
+    #[test]
+    fn a_refine_whose_shell_lacks_its_temp_folder_closes_its_tab() {
+        let fake = Fake::running(&[("w1", "alpha")]).with_tmpdir_unset();
+        let err = refine(&fake).unwrap_err().to_string();
+        assert!(err.contains("did not set TMPDIR"), "{err}");
+        let log = fake.log();
+        assert!(at(&log, "pane_wait_output alpha p1") < at(&log, "tab_close alpha"), "{log:?}");
+        assert!(!log.iter().any(|l| l.starts_with("agent_start") || l.starts_with("agent_prompt")), "{log:?}");
+        assert!(fake.agents().is_empty());
     }
 
     /// A failed start lets go as soon as `agent start` returns, and still

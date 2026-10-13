@@ -280,6 +280,9 @@ const SETUP_TAKE_WAIT: Duration = Duration::from_secs(2);
 const SETUP_POLLS: u32 = 50;
 /// The pause between those looks.
 const SETUP_POLL: Duration = Duration::from_millis(100);
+/// How long a Refine tab's shell gets to show its temp folder set before
+/// Claude would start without it.
+const TMPDIR_WAIT: Duration = Duration::from_secs(10);
 
 /// What a confirmed prompt's result means for sending it again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -550,10 +553,26 @@ impl Session {
     ///
     /// A refiner's temp folder is exported in the pane's shell first, here
     /// rather than in the herdr port so the fake logs it too: herdr starts
-    /// Claude in that same shell, which passes the variable on.
+    /// Claude in that same shell, which passes the variable on. `pane run`
+    /// only types the line, so a second one prints a marker once the shell
+    /// has the folder, and Claude starts only when that shows up: a Claude
+    /// started without it falls back to `/tmp/claude-<uid>`, the temp folder
+    /// the user's unsandboxed sessions share, and binds its proxy socket
+    /// there before anything inside the session could check.
     pub fn start_claude(&self, claim: Claim, name: &str, pane: &str, claude: &Claude) -> Result<()> {
         if let Claude::Refiner { tmp, .. } = claude {
             self.port.pane_run(&self.name, pane, &herdr::export_tmpdir(tmp))??;
+            self.port.pane_run(&self.name, pane, &herdr::check_tmpdir(tmp))??;
+            self.port
+                .pane_wait_output(&self.name, pane, herdr::TMPDIR_SET, TMPDIR_WAIT)
+                .and_then(|waited| Ok(waited?))
+                .with_context(|| {
+                    format!(
+                        "the Refine tab's shell did not set TMPDIR to {} within {}s, so Claude was not started",
+                        tmp.display(),
+                        TMPDIR_WAIT.as_secs()
+                    )
+                })?;
         }
         let started = self.port.agent_start(&self.name, name, pane, claude);
         drop(claim);
@@ -983,6 +1002,8 @@ mod tests {
         assert!(logged(&f, "pane_run alpha p4 wt switch x"));
     }
 
+    /// A refiner's temp folder is exported, checked and waited for in its
+    /// pane's shell, in that order, just before Claude starts there.
     #[test]
     fn a_clean_start_starts_once_and_waits_for_nothing() {
         let (s, f) = session(Fake::running(&[("w1", "alpha")]));
@@ -990,8 +1011,43 @@ mod tests {
         s.start_claude(s.claim().unwrap(), "task-abc", "p1", &refiner).unwrap();
         let log = f.log();
         let start = log.iter().position(|l| l == "agent_start alpha task-abc p1 refiner").expect("started");
-        assert_eq!(log[start - 1], "pane_run alpha p1 unset CLAUDE_CODE_TMPDIR; export TMPDIR='/c/tmp'", "{log:?}");
+        assert_eq!(
+            log[start - 3..start],
+            [
+                "pane_run alpha p1 unset CLAUDE_CODE_TMPDIR; export TMPDIR='/c/tmp'".to_string(),
+                format!("pane_run alpha p1 {}", herdr::check_tmpdir(Path::new("/c/tmp"))),
+                "pane_wait_output alpha p1 niri-tasks-tmpdir-set 10000ms".to_string(),
+            ],
+            "{log:?}"
+        );
         assert!(!logged_start(&f, "agent_wait_ready"));
+    }
+
+    /// A shell that never shows the temp folder set is an error saying so,
+    /// and Claude is never started in it.
+    #[test]
+    fn a_refiner_whose_shell_lacks_its_temp_folder_is_not_started() {
+        let (s, f) = session(Fake::running(&[("w1", "alpha")]).with_tmpdir_unset());
+        let refiner = Claude::Refiner { settings: "{}".into(), mod_dir: PathBuf::from("/m"), tmp: PathBuf::from("/c/tmp") };
+        let err = s.start_claude(s.claim().unwrap(), "task-abc", "p1", &refiner).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "the Refine tab's shell did not set TMPDIR to /c/tmp within 10s, so Claude was not started"
+        );
+        assert!(logged(&f, "pane_wait_output alpha p1 niri-tasks-tmpdir-set 10000ms"), "{:?}", f.log());
+        assert!(!logged_start(&f, "agent_start"), "{:?}", f.log());
+        assert_eq!(f.log().last().map(String::as_str), Some("release alpha"));
+    }
+
+    /// A worker runs as the user runs Claude: nothing is typed or waited
+    /// for in its shell first.
+    #[test]
+    fn a_worker_is_started_without_a_temp_folder_check() {
+        let (s, f) = session(Fake::running(&[("w1", "alpha")]).with_tmpdir_unset());
+        s.start_claude(s.claim().unwrap(), "work-abc", "p1", &Claude::Worker { settings: "{}".into() }).unwrap();
+        assert!(!logged_start(&f, "pane_run"), "{:?}", f.log());
+        assert!(!logged_start(&f, "pane_wait_output"), "{:?}", f.log());
+        assert!(logged(&f, "agent_start alpha work-abc p1 worker"));
     }
 
     #[test]
