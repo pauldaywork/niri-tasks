@@ -90,7 +90,7 @@ applies:
 
 | Row | Shows when |
 |---|---|
-| **Refine**, **Redo refine** once planned, and **Grill me** | on a task on the list |
+| **Refine**, **Redo refine** once planned, and **Grill me** | on a task on the list, unless its refine Claude is running: Go to refine session then goes there |
 | **Get started**, **Back to worktree** once started | on a task on the list, unless its work Claude is running: Go to work session then goes there |
 | **Generate report**, **Regenerate report** once one exists | on a planned task on the list |
 | **Open report** | its notes link a report (`Report: <path>`, the path absolute, `~/...`, or a name in `~/.local/share/niri-tasks/reviews`): an HTML one in a new browser window on this workspace, a Markdown one in a VS Code of its own, as the plan and spec are |

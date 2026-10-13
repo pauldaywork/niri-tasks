@@ -153,7 +153,9 @@ impl Item {
     /// Whether the row shows for a task in `state`, with what was `found`.
     /// Refining, starting and the herdr sessions are for a task on the
     /// list, as their buttons were, Start giving way to Go to work session
-    /// while the work Claude is live, since both would focus it; generating
+    /// while the work Claude is live, and Refine and Grill me to Go to
+    /// refine session while the refine Claude is, since each would only
+    /// focus it; generating
     /// a report for a planned one;
     /// the documents whenever the notes link them, the worktree whenever
     /// there is one, VS Code whenever it is installed, and reading aloud
@@ -164,7 +166,7 @@ impl Item {
         }
         let on_list = !state.off_list();
         match self {
-            Refine | Grill => on_list,
+            Refine | Grill => on_list && !state.has_refine,
             Start => on_list && !state.has_work,
             Report => on_list && state.planned,
             OpenReport => state.has_report,
@@ -397,8 +399,8 @@ mod tests {
 
     #[test]
     fn everything_on_the_list_shows_every_row_in_order() {
-        let every_but_start: Vec<Item> = Item::ALL.into_iter().filter(|&i| i != Start).collect();
-        assert_eq!(Item::of(everything(), all_found()), every_but_start);
+        let every_but_what_a_live_claude_takes: Vec<Item> = Item::ALL.into_iter().filter(|i| ![Refine, Grill, Start].contains(i)).collect();
+        assert_eq!(Item::of(everything(), all_found()), every_but_what_a_live_claude_takes);
     }
 
     /// Back to worktree and Go to work session would both focus a live work
@@ -412,6 +414,17 @@ mod tests {
         assert!(!Item::of(started, Found::default()).contains(&WorkSession));
         assert!(Item::of(live, Found::default()).contains(&WorkSession));
         assert!(!Item::of(live, Found::default()).contains(&Start));
+    }
+
+    /// Redo refine and Grill me would only focus a live refine Claude, as
+    /// Go to refine session does, so only the session shows then; both come
+    /// back once that Claude has gone. Generate report has its own tab, so
+    /// it stays.
+    #[test]
+    fn a_live_refine_claude_shows_its_session_in_place_of_refine() {
+        let live = TaskState { has_refine: true, ..planned() };
+        assert_eq!(Item::of(planned(), Found::default()), vec![Refine, Grill, Start, Report, ReadAloud]);
+        assert_eq!(Item::of(live, Found::default()), vec![Start, Report, RefineSession, ReadAloud]);
     }
 
     /// The herdr sessions each need their own Claude live.

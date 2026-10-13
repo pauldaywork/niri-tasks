@@ -1932,7 +1932,7 @@ mod tests {
     fn o_shows_the_go_to_list_in_place_of_the_cards() {
         let state = listing_a();
         let list = state.goto().unwrap();
-        assert_eq!(list.rows(), [Item::Refine, Item::Grill, Item::Start, Item::Report, Item::RefineSession, Item::ReadAloud]);
+        assert_eq!(list.rows(), [Item::Start, Item::Report, Item::RefineSession, Item::ReadAloud], "its live refine takes Refine's and Grill me's place");
         assert_eq!(list.title(), "Go to…: a");
         assert_eq!(list.row_label(Item::Start), format!("{}  Back to worktree", Item::Start.icon()));
         assert_eq!(state.row_at(), Some(0));
@@ -1986,7 +1986,7 @@ mod tests {
         assert_eq!(state.row_at(), Some(0), "stops at the first");
         assert_eq!(
             key(&mut state, KeyAction::Enter),
-            vec![Effect::Render, Effect::Release, Effect::Spawn(Item::Refine.args("a"))],
+            vec![Effect::Render, Effect::Release, Effect::Spawn(Item::Start.args("a"))],
         );
         assert!(!state.keyboard());
         assert_eq!(state.goto(), None);
@@ -1996,7 +1996,7 @@ mod tests {
     fn a_click_on_a_row_runs_it() {
         let mut state = listing_a();
         assert_eq!(
-            state.on_goto_row(4),
+            state.on_goto_row(2),
             vec![Effect::Render, Effect::Release, Effect::Spawn(vec!["task".into(), "session".into(), "a".into(), "--refine".into()])],
         );
         assert_eq!(state.on_goto_row(0), Vec::new(), "once the list has gone");
@@ -2007,7 +2007,7 @@ mod tests {
     #[test]
     fn read_aloud_goes_back_to_the_cards_keeping_the_keyboard() {
         let mut state = listing_a();
-        assert_eq!(state.on_goto_row(5), vec![Effect::Render, Effect::Spawn(Item::ReadAloud.args("a"))]);
+        assert_eq!(state.on_goto_row(3), vec![Effect::Render, Effect::Spawn(Item::ReadAloud.args("a"))]);
         assert_eq!(state.goto(), None);
         assert!(state.keyboard());
         assert_eq!(state.focus(), focused("a", Slot::Body).as_ref());
