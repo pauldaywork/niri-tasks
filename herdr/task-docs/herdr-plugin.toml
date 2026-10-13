@@ -1,5 +1,5 @@
-# Annotate one of a task's documents from the herdr pane where its Claude
-# runs: its refine reports, its own description and notes, and the plans
+# Annotate one of a task's documents, or open the task panel on it, from the
+# herdr pane where its Claude runs: its refine reports, its own description and notes, and the plans
 # written since it was added. The pick opens in plannotator-tui (from
 # herdr-annotate Full) beside that Claude, and Send makes the comments its
 # next message. Linked by niri-tasks' install.sh; the key is the README's.
@@ -7,7 +7,7 @@ id = "task-docs"
 name = "Task docs"
 version = "0.1.0"
 min_herdr_version = "0.9.1"
-description = "Annotate a niri-tasks task's reports, notes and plans in plannotator-tui, beside the task's Claude"
+description = "Annotate a niri-tasks task's reports, notes and plans in plannotator-tui, beside the task's Claude, or open the task panel on it"
 platforms = ["linux"]
 
 # Press in a task's pane: finds the task from the pane's agent name
@@ -17,6 +17,15 @@ id = "open"
 title = "Task docs: annotate one of this task's documents"
 contexts = ["pane"]
 command = ["python3", "task_docs.py", "open"]
+
+# Press in a task's pane: finds the task as `open` does and runs
+# `niritasks task panel <uuid8>`, sliding out the task panel with the
+# keyboard on that task's card.
+[[actions]]
+id = "panel"
+title = "Task panel: open it on this task's card"
+contexts = ["pane"]
+command = ["python3", "task_docs.py", "panel"]
 
 # Opened by the action over the pane, in the pane's folder: fzf over
 # `niritasks task docs`. Enter opens the pick beside the task's Claude; Esc

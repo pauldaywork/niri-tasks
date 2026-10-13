@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""herdr's task-docs plugin: annotate one of a task's documents in plannotator-tui.
+"""herdr's task-docs plugin: annotate one of a task's documents in plannotator-tui,
+or open the task panel on the task.
 
 `task_docs.py open` is the action. It finds the task of the pane the key was
 pressed in, from its agent's name (work-/task-/report-<uuid8>) or its folder's branch
@@ -9,6 +10,9 @@ the pick opens in the `review` pane, right of the task's Claude, where
 plannotator-tui's Send makes the comments that Claude's next message. A report
 made before reports had a Markdown twin opens in the browser instead.
 `task_docs.py review` runs in that pane: plannotator-tui's own pane mode.
+`task_docs.py panel` is the panel action: it finds the pane's task the same
+way and runs `niritasks task panel <uuid8>`, which slides out the task panel
+with the keyboard on that task's card.
 """
 
 import glob
@@ -130,6 +134,12 @@ def toplevel(cwd):
     return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else cwd
 
 
+def no_task(title):
+    """What an action says in a pane with no task, under its own title."""
+    notify(f"{title}: no task here. This pane runs no task's Claude (work-/task-/report-<uuid8>) "
+           "and is not on a task/<slug>-<uuid8> branch.")
+
+
 def open_action():
     """The task-docs.open action: open the task's documents over its pane, or say why not."""
     ctx = context()
@@ -137,8 +147,7 @@ def open_action():
     cwd = ctx.get("focused_pane_cwd")
     uuid8 = find_task(pane, cwd)
     if not uuid8:
-        notify("Task docs: no task here. This pane runs no task's Claude (work-/task-/report-<uuid8>) "
-               "and is not on a task/<slug>-<uuid8> branch.")
+        no_task("Task docs")
         return
     if not reviewer():
         notify(f"Task docs: plannotator-tui is needed. {FULL}")
@@ -153,6 +162,27 @@ def open_action():
                    "--env", f"TASK_DOCS_TASK={uuid8}", "--env", f"TASK_DOCS_CLAUDE={claude}")
     if result.returncode != 0:
         notify(f"Task docs: could not open the list. {result.stderr.strip()[-300:]}")
+
+
+def panel_action():
+    """The task-docs.panel action: slide out the task panel with the keyboard,
+    focused on the pane's task's card, or say why not. The daemon says when
+    the card is not on the panel."""
+    ctx = context()
+    pane = os.environ.get("HERDR_PANE_ID") or ctx.get("focused_pane_id")
+    cwd = ctx.get("focused_pane_cwd")
+    uuid8 = find_task(pane, cwd)
+    if not uuid8:
+        no_task("Task panel")
+        return
+    try:
+        result = subprocess.run(["niritasks", "task", "panel", uuid8],
+                                capture_output=True, text=True, check=False)
+    except OSError:
+        notify("Task panel: niritasks not found on PATH.")
+        return
+    if result.returncode != 0:
+        notify(f"Task panel: could not open the panel. {result.stderr.strip()[-300:]}")
 
 
 def parse_docs(stdout):
@@ -240,9 +270,9 @@ def review():
 
 
 def main(argv):
-    commands = {"open": open_action, "pick": pick, "review": review}
+    commands = {"open": open_action, "panel": panel_action, "pick": pick, "review": review}
     if len(argv) != 2 or argv[1] not in commands:
-        print("usage: task_docs.py open|pick|review", file=sys.stderr)
+        print("usage: task_docs.py open|panel|pick|review", file=sys.stderr)
         return 2
     commands[argv[1]]()
     return 0

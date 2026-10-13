@@ -41,6 +41,17 @@ printf 'Plan · b.md\\t/p/b.md\\n'
 """
 
 
+# niritasks: logs its arguments; exits $FAKE_NIRITASKS_EXIT with an error, as
+# niritasks does with no daemon.
+FAKE_NIRITASKS_PANEL = """#!/bin/sh
+printf '%s\\n' "$@" > "$FAKE_NIRITASKS_LOG"
+if [ -n "$FAKE_NIRITASKS_EXIT" ]; then
+    echo "Error: The niri-tasks daemon is not running" >&2
+    exit "$FAKE_NIRITASKS_EXIT"
+fi
+"""
+
+
 def fake(folder, name, body):
     path = Path(folder) / name
     path.write_text(body)
@@ -201,6 +212,61 @@ class TheAction(PluginTest):
         staged.parent.mkdir(parents=True)
         fake(staged.parent, staged.name, "#!/bin/sh\n")
         self.assertEqual(task_docs.reviewer(), str(staged))
+
+
+class ThePanelAction(PluginTest):
+    def setUp(self):
+        super().setUp()
+        fake(self.bin, "niritasks", FAKE_NIRITASKS_PANEL)
+        self.niritasks_log = self.tmp / "niritasks.log"
+        patcher = mock.patch.dict(os.environ, {"FAKE_NIRITASKS_LOG": str(self.niritasks_log)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def asked(self):
+        return self.niritasks_log.read_text().split("\n")[:-1] if self.niritasks_log.exists() else None
+
+    def test_a_tasks_pane_opens_the_panel_on_its_task(self):
+        self.with_agents({"w1:p1": {"name": "work-1234abcd", "pane_id": "w1:p1"}})
+        task_docs.panel_action()
+        self.assertEqual(self.asked(), ["task", "panel", "1234abcd"])
+        self.assertEqual(self.notified(), "")
+
+    def test_a_shell_on_the_tasks_branch_opens_it_too(self):
+        self.on_branch("task/fix-1234abcd")
+        task_docs.panel_action()
+        self.assertEqual(self.asked(), ["task", "panel", "1234abcd"])
+
+    def test_it_needs_no_claude_or_plannotator(self):
+        self.on_branch("task/fix-1234abcd")
+        task_docs.panel_action()
+        self.assertNotIn("plannotator", self.notified())
+        self.assertNotIn("no Claude", self.notified())
+
+    def test_a_pane_with_no_task_says_so_and_opens_nothing(self):
+        task_docs.panel_action()
+        self.assertIn("Task panel: no task here", self.notified())
+        self.assertIsNone(self.asked())
+
+    def test_a_failing_niritasks_says_why(self):
+        self.on_branch("task/fix-1234abcd")
+        with mock.patch.dict(os.environ, {"FAKE_NIRITASKS_EXIT": "1"}):
+            task_docs.panel_action()
+        self.assertIn("Task panel: could not open the panel", self.notified())
+        self.assertIn("daemon is not running", self.notified())
+
+    def test_without_niritasks_it_says_so(self):
+        self.on_branch("task/fix-1234abcd")
+        (self.bin / "niritasks").unlink()
+        task_docs.panel_action()
+        self.assertIn("Task panel: niritasks not found", self.notified())
+
+
+class TheCommandLine(unittest.TestCase):
+    def test_panel_is_a_command(self):
+        with mock.patch.object(task_docs, "panel_action") as panel:
+            self.assertEqual(task_docs.main(["task_docs.py", "panel"]), 0)
+        panel.assert_called_once_with()
 
 
 class Notifying(PluginTest):

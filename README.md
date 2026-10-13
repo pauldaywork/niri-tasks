@@ -325,6 +325,25 @@ diagrams kept as Mermaid blocks; its HTML slides are then built from what
 that twin reads back as, so the two never disagree. The Markdown is what
 plannotator-tui opens.
 
+### Opening the task panel on a herdr pane's task
+
+The same plugin has a second action, `task-docs.panel`. Bind it too:
+
+```toml
+[[keys.command]]
+key = "prefix+shift+t"
+type = "plugin_action"
+command = "task-docs.panel"
+description = "task panel: open it on this task's card"
+```
+
+Press it in a task's pane, found as for Task docs: the task panel slides
+out with the keyboard, on All, the focus on that task's card with its notes
+hidden. A task with no card on the focused workspace's panel, one on
+another workspace or waiting or finished, opens the panel on its first card
+with a notification saying why. A pane with no task gets a notification and
+nothing opens. It runs `niritasks task panel <uuid8>`.
+
 ## Commands
 
 `niritasks` is usable directly, not just from keybinds. [`llms.txt`](llms.txt)
