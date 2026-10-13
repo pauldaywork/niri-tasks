@@ -318,10 +318,12 @@ pub struct Fence {
 /// cache, named by the task's first eight characters.
 ///
 /// It is set as `TMPDIR`, not `CLAUDE_CODE_TMPDIR`: Claude Code ignores a
-/// `CLAUDE_CODE_TMPDIR` longer than 32 bytes and falls back to `$TMPDIR`,
-/// and the fallback under `/tmp` both shares the user's sessions' folder
+/// `CLAUDE_CODE_TMPDIR` whose `<path>/claude-<uid>` is over 44 bytes and
+/// falls back to `/tmp`, which both shares the user's sessions' folder
 /// and hides the sandbox's own proxy socket. With `TMPDIR` there is no
-/// length limit (Claude uses `<TMPDIR>/claude-<uid>`).
+/// length limit (Claude uses `<TMPDIR>/claude-<uid>`). But Claude prefers
+/// a `CLAUDE_CODE_TMPDIR` short enough to use, so one inherited from the
+/// daemon, herdr or the pane's shell is cleared wherever `TMPDIR` is set.
 pub fn session_tmp(dirs: &Dirs, uuid: &str) -> PathBuf {
     refine_tmp_root(dirs).join(names::uuid8(uuid))
 }
@@ -791,8 +793,8 @@ fn report_wrote<'a>(before: Option<&str>, after: Option<&'a str>) -> Result<&'a 
 /// the refusals are added to `denials`. Stdout that is not that JSON is
 /// logged as it came. Stdin is closed: there is no one typing.
 /// `tmp` is the session's own temp folder ([`session_tmp`]), set as
-/// `TMPDIR`, which is the only way it reaches Claude Code (see
-/// [`session_tmp`]).
+/// `TMPDIR`, which is the only way it reaches Claude Code, with any
+/// inherited `CLAUDE_CODE_TMPDIR` cleared (see [`session_tmp`]).
 fn run_claude(project: &Path, log: &Path, step: Step, argv: &[String], tmp: &Path, denials: &mut Vec<Denial>) -> Result<()> {
     append_line(log, &format!("== {}: {}", step.name(), argv[..3].join(" ")));
     let err = File::options().append(true).create(true).open(log).with_context(|| format!("could not open {}", log.display()))?;
@@ -800,6 +802,7 @@ fn run_claude(project: &Path, log: &Path, step: Step, argv: &[String], tmp: &Pat
         .args(&argv[1..])
         .current_dir(project)
         .env("TMPDIR", tmp)
+        .env_remove("CLAUDE_CODE_TMPDIR")
         .stdin(Stdio::null())
         .stderr(Stdio::from(err))
         .output()
@@ -1347,11 +1350,16 @@ mod tests {
         assert!(text.ends_with("== report: sh -c exit 3\n"), "{text}");
 
         // The session's own temp folder reaches Claude through its
-        // environment, since the settings' `env` does not move it.
-        let echo = ["sh", "-c", "echo \"$TMPDIR\""].map(String::from);
-        run_claude(&dir, &log, Step::Refine, &echo, tmp, &mut denials).unwrap();
+        // environment, since the settings' `env` does not move it, and an
+        // inherited `CLAUDE_CODE_TMPDIR`, which Claude would prefer, is
+        // cleared.
+        std::env::set_var("CLAUDE_CODE_TMPDIR", "/tmp/x");
+        let echo = ["sh", "-c", "echo \"$TMPDIR|$CLAUDE_CODE_TMPDIR\""].map(String::from);
+        let ran = run_claude(&dir, &log, Step::Refine, &echo, tmp, &mut denials);
+        std::env::remove_var("CLAUDE_CODE_TMPDIR");
+        ran.unwrap();
         let text = std::fs::read_to_string(&log).unwrap();
-        assert!(text.ends_with("\n/home/x/.cache/niri-tasks/refine-tmp/d9f76b94\n"), "{text}");
+        assert!(text.ends_with("\n/home/x/.cache/niri-tasks/refine-tmp/d9f76b94|\n"), "{text}");
 
         append_line(&log, "== failed: because");
         assert!(std::fs::read_to_string(&log).unwrap().ends_with("== failed: because\n"));
