@@ -93,11 +93,16 @@ git -C M rev-list --left-right --count main...origin/main   # "<ahead> <behind>"
 - If the repo's `.config/wt.toml` has `[pre-merge]` hooks, `wt merge` runs them
   in step 7, and that is the test.
 - Otherwise run the repo's own check here. Use what README or CLAUDE.md say runs
-  the tests, and failing that, the language's default (`cargo test`,
-  `npm test`, `pytest`, `go test ./...`).
-- Leave out any suite that drives the real screen, keyboard or clipboard, such
-  as a `tests/e2e-*.sh` that types with `wtype`. Name it in the report as
-  skipped.
+  everything, such as a `tests/all.sh`, and failing that, the language's
+  default (`cargo test`, `npm test`, `pytest`, `go test ./...`).
+- Point end-to-end suites at the build of this branch, not an installed copy:
+  one that runs the installed binary by default proves nothing about the
+  branch. In niri-tasks that is `NIRITASKS=$PWD/target/debug/niritasks bash
+  tests/all.sh`, after `cargo build`.
+- Run a suite that sandboxes itself: one that types only into a nested
+  compositor of its own, or borrows a spare workspace and gives it back.
+  Leave out only a suite that types or clicks on the user's own desktop, or
+  uses their clipboard, and name it in the report as skipped.
 - Red means stop. Nothing has been merged yet. Before asking, run the same
   check in `M`, so you can say whether `main` was already red without this
   branch or the branch broke it.
