@@ -20,6 +20,7 @@
 //! one of those actually moved, and once per workspace tag rather than once
 //! per monitor. Idle cost is a socket round-trip and three stats.
 
+use crate::panel::state::Taken;
 use crate::panel::{model, style, Panel};
 use crate::workspace::Workspace;
 use crate::{niri, tag, task};
@@ -228,6 +229,11 @@ fn debug(msg: &str) {
 /// What Mod+Alt+Ctrl+T says on a workspace with no task to show.
 pub const NO_TASKS: &str = "No tasks here — Mod+Alt+T adds one.";
 
+/// What herdr's task-docs.panel says when the pane's task has no card under
+/// All on the focused workspace's panel, which then opens on its first card.
+pub const NOT_ON_PANEL: &str =
+    "That task's card is not on this panel: it is on another workspace, or waiting or finished. The panel opened on the first card.";
+
 /// What Mod+Alt+W says when the focused monitor has no panel to show the
 /// project list on: a monitor GTK has not named yet (see `sync_monitors`).
 pub const NO_PANEL: &str = "No task panel on this monitor yet to show the project list on.";
@@ -267,6 +273,19 @@ fn no_cards_text(tag: anyhow::Result<String>) -> String {
     }
 }
 
+/// What a panel request says, if anything: why there was no card to take
+/// the keyboard for, or, when `asked` named a task, that its card is not on
+/// the panel. `tag` reads the focused workspace's tag, as `no_cards_text`
+/// takes it; it asks niri again, so it is called only when there were no
+/// cards.
+fn panel_notice(asked: bool, taken: Taken, tag: impl FnOnce() -> anyhow::Result<String>) -> Option<String> {
+    match taken {
+        Taken::Not => Some(no_cards_text(tag())),
+        Taken::First if asked => Some(NOT_ON_PANEL.to_string()),
+        _ => None,
+    }
+}
+
 /// The live herdr agents in the session of the workspace named `name`, for
 /// a panel taking the keyboard: one `herdr agent list` for every card at
 /// once. None for an unnamed workspace, or a session that is not running,
@@ -294,11 +313,20 @@ fn serve_request(app: &Application, req: crate::ipc::Request) {
                 Err(e) => notify::tasks(&e.to_string()),
             }
         }
-        Request::Panel => {
+        Request::Panel(uuid) => {
             // No panel reads as no cards: either way there is nothing to
             // hand the keyboard to, and the tag says why.
-            if !focused_panel().is_some_and(|(panel, focused)| panel.take_keyboard(live_agents(focused.name.as_deref()))) {
-                notify::tasks(&no_cards_text(Workspace::focused().map(|w| w.tag().to_string())));
+            let taken = focused_panel().map_or(Taken::Not, |(panel, focused)| {
+                let agents = live_agents(focused.name.as_deref());
+                match uuid.as_deref() {
+                    Some(uuid) => panel.take_keyboard_on(uuid, agents),
+                    None if panel.take_keyboard(agents) => Taken::First,
+                    None => Taken::Not,
+                }
+            });
+            let tag = || Workspace::focused().map(|w| w.tag().to_string());
+            if let Some(text) = panel_notice(uuid.is_some(), taken, tag) {
+                notify::tasks(&text);
             }
         }
 
@@ -501,6 +529,20 @@ mod tests {
 
     /// Mod+Alt+Ctrl+T with no card to take the keyboard for: an unnamed
     /// workspace says what the tag refusal says, a named one that it is empty.
+    /// A bare panel request says nothing once it has the keyboard; one for a
+    /// task whose card is not here says so; no cards says why, either way.
+    #[test]
+    fn the_panel_says_why_it_is_not_on_the_task() {
+        use crate::panel::state::Taken;
+        let web = || Ok("web".to_string());
+        let unasked = || -> anyhow::Result<String> { panic!("the tag is read only for no cards") };
+        assert_eq!(panel_notice(false, Taken::First, unasked), None);
+        assert_eq!(panel_notice(true, Taken::Card, unasked), None);
+        assert_eq!(panel_notice(true, Taken::First, unasked), Some(NOT_ON_PANEL.to_string()));
+        assert_eq!(panel_notice(false, Taken::Not, web), Some(NO_TASKS.to_string()));
+        assert_eq!(panel_notice(true, Taken::Not, web), Some(NO_TASKS.to_string()));
+    }
+
     #[test]
     fn no_cards_says_why() {
         assert_eq!(no_cards_text(Ok("web".into())), NO_TASKS);

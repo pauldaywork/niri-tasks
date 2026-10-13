@@ -14,6 +14,8 @@
 //! this test is as likely as not to run inside a herdr pane itself, and must
 //! never act on the pane running it.
 //!
+//! `task panel` likewise sends the daemon the full uuid.
+//!
 //! One test function, run in order, because writing an executable and then
 //! spawning it from parallel test threads can fail with "Text file busy".
 
@@ -253,4 +255,20 @@ fn a_task_number_names_everything_after_the_tasks_uuid() {
     let calls = s.take(&s.herdr_log());
     assert!(calls.contains(&format!("--session alpha agent start {refiner} ")), "{calls}");
     assert!(calls.contains(&format!("agent prompt {refiner} /refine-task {}", s.uuid)), "{calls}");
+
+    // ---- task panel hands the daemon the full uuid for a uuid8 ----------
+    // The panel's cards carry full uuids, so a uuid8 from herdr's
+    // task-docs.panel must be resolved before it is sent. A listener stands
+    // in for the daemon in the sandbox's runtime folder.
+    let daemon = UnixListener::bind(s.dir.join("run/niri-tasks.sock")).expect("bind the fake daemon socket");
+    let out = s.niritasks(&["task", "panel", uuid8], &home, "", NO_WORKTREES);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let (stream, _) = daemon.accept().expect("the CLI connects");
+    let mut sent = String::new();
+    BufReader::new(stream).read_line(&mut sent).unwrap();
+    assert_eq!(sent, format!("panel {}\n", s.uuid));
+
+    let out = s.niritasks(&["task", "panel", "ffffffff"], &home, "", NO_WORKTREES);
+    assert!(!out.status.success(), "an unknown task is refused");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("task not found"));
 }

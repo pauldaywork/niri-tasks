@@ -19,6 +19,7 @@
 //! edit <uuid>
 //! note <uuid>
 //! panel
+//! panel <uuid>
 //! projects
 //! ```
 
@@ -34,8 +35,9 @@ pub enum Request {
     Add { refine: bool },
     Edit(String),
     Note(String),
-    /// Slide out the focused monitor's task panel and give it the keyboard.
-    Panel,
+    /// Slide out the focused monitor's task panel and give it the keyboard,
+    /// focused on this task's card when one is named, else the first card.
+    Panel(Option<String>),
     /// Show the focused monitor's project list, for opening a project, with
     /// the keyboard: Mod+Alt+W.
     Projects,
@@ -48,7 +50,8 @@ impl Request {
             Request::Add { refine: true } => "add refine".into(),
             Request::Edit(uuid) => format!("edit {uuid}"),
             Request::Note(uuid) => format!("note {uuid}"),
-            Request::Panel => "panel".into(),
+            Request::Panel(None) => "panel".into(),
+            Request::Panel(Some(uuid)) => format!("panel {uuid}"),
             Request::Projects => "projects".into(),
         }
     }
@@ -57,7 +60,7 @@ impl Request {
         let mut parts = line.trim().splitn(2, ' ');
         match (parts.next()?, parts.next()) {
             ("add", rest) => Some(Request::Add { refine: rest == Some("refine") }),
-            ("panel", _) => Some(Request::Panel),
+            ("panel", rest) => Some(Request::Panel(rest.map(str::trim).filter(|u| !u.is_empty()).map(String::from))),
             ("projects", _) => Some(Request::Projects),
             ("edit", Some(uuid)) if !uuid.is_empty() => Some(Request::Edit(uuid.to_string())),
             ("note", Some(uuid)) if !uuid.is_empty() => Some(Request::Note(uuid.to_string())),
@@ -129,6 +132,17 @@ where
 mod tests {
     use super::*;
 
+    /// A bare `panel`, from Mod+Alt+Ctrl+T or an older CLI, still opens on
+    /// the first card; `panel <uuid>` names the card to open on.
+    #[test]
+    fn panel_carries_an_optional_uuid() {
+        assert_eq!(Request::Panel(None).encode(), "panel");
+        assert_eq!(Request::Panel(Some("abc".into())).encode(), "panel abc");
+        assert_eq!(Request::decode("panel\n"), Some(Request::Panel(None)));
+        assert_eq!(Request::decode("panel \n"), Some(Request::Panel(None)));
+        assert_eq!(Request::decode("panel abc\n"), Some(Request::Panel(Some("abc".into()))));
+    }
+
     #[test]
     fn round_trips_every_request() {
         for req in [
@@ -136,7 +150,8 @@ mod tests {
             Request::Add { refine: true },
             Request::Edit("abc-123".into()),
             Request::Note("def-456".into()),
-            Request::Panel,
+            Request::Panel(None),
+            Request::Panel(Some("9e400fbc-d371-4da6-afe1-6320df840239".into())),
             Request::Projects,
         ] {
             assert_eq!(Request::decode(&req.encode()), Some(req));
@@ -208,7 +223,7 @@ mod tests {
     fn no_daemon_is_one_sentence() {
         let _env = RUNTIME_DIR.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("XDG_RUNTIME_DIR", "/nonexistent-niri-tasks-test");
-        let err = send(&Request::Panel).unwrap_err();
+        let err = send(&Request::Panel(None)).unwrap_err();
         assert_eq!(err.to_string(), NO_DAEMON);
         std::env::remove_var("XDG_RUNTIME_DIR");
     }

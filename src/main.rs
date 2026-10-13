@@ -55,7 +55,15 @@ enum Command {
 #[derive(Subcommand)]
 enum TaskCommand {
     /// Slide out the task panel and work its tasks with the keyboard (Mod+Alt+Ctrl+T)
-    Panel,
+    ///
+    /// With a task, the focus starts on its card, as herdr's task-docs.panel
+    /// opens it from the task's pane; a task with no card on the focused
+    /// workspace's panel opens it on the first card, with a notification.
+    Panel {
+        /// The task's uuid, or its first 8 characters, as in a
+        /// `task/<slug>-<uuid8>` branch
+        uuid: Option<String>,
+    },
     /// Move a task to a state, as a card's Stop, Waiting, Complete and Remove do
     ///
     /// The same states, code and notification as the card's buttons, for
@@ -336,7 +344,15 @@ fn dispatch(cli: Cli) -> Result<()> {
 fn task_command(cmd: TaskCommand) -> Result<()> {
     match cmd {
         // The daemon draws the panel; with none, say so.
-        TaskCommand::Panel => ipc::send(&ipc::Request::Panel)?,
+        // The daemon draws the panel; with none, say so. A uuid8 is resolved
+        // here, since the panel's cards carry full uuids.
+        TaskCommand::Panel { uuid } => {
+            let uuid = match uuid {
+                Some(u) => Some(task::get(&u)?.context("task not found")?.uuid),
+                None => None,
+            };
+            ipc::send(&ipc::Request::Panel(uuid))?
+        }
 
         TaskCommand::Status { uuid, state, yes } => {
             anyhow::ensure!(
