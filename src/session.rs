@@ -231,6 +231,8 @@ pub(crate) trait Port {
     fn tab_close(&self, session: &str, tab: &str) -> HerdrResult<()>;
     fn worktree_open(&self, session: &str, repo: &Path, path: &Path, label: &str) -> HerdrResult<Opened>;
     fn pane_run(&self, session: &str, pane: &str, command: &str) -> HerdrResult<()>;
+    /// Wait up to `timeout` for `text` in a pane's output.
+    fn pane_wait_output(&self, session: &str, pane: &str, text: &str, timeout: Duration) -> HerdrResult<()>;
     fn pane_rename(&self, session: &str, pane: &str, label: &str) -> HerdrResult<()>;
     fn pane_report_metadata(&self, session: &str, pane: &str, tokens: &[(String, String)]) -> HerdrResult<()>;
     fn agent_get(&self, session: &str, target: &str) -> HerdrResult<Agent>;

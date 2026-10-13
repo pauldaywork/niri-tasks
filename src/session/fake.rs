@@ -48,6 +48,9 @@ struct State {
     worktrees: HashMap<PathBuf, Opened>,
     agents: Vec<FakeAgent>,
     start: StartOutcome,
+    /// Whether the pane's shell never gets the temp folder, so waiting for
+    /// the check's marker times out.
+    tmpdir_unset: bool,
     /// One per confirmed `agent prompt` attempt: None delivered, Some(code)
     /// failed with it. Once they run out, every prompt is delivered.
     prompt_codes: Vec<Option<String>>,
@@ -135,6 +138,13 @@ impl Fake {
     /// How the next `agent start` goes.
     pub fn with_start(self, outcome: StartOutcome) -> Fake {
         self.state.borrow_mut().start = outcome;
+        self
+    }
+
+    /// A pane whose shell never gets the temp folder: every wait for output
+    /// times out, as herdr's does.
+    pub fn with_tmpdir_unset(self) -> Fake {
+        self.state.borrow_mut().tmpdir_unset = true;
         self
     }
 
@@ -269,6 +279,16 @@ impl Port for Fake {
     fn pane_run(&self, session: &str, pane: &str, command: &str) -> HerdrResult<()> {
         self.note(format!("pane_run {session} {pane} {command}"));
         self.check()
+    }
+    fn pane_wait_output(&self, session: &str, pane: &str, text: &str, timeout: Duration) -> HerdrResult<()> {
+        self.note(format!("pane_wait_output {session} {pane} {text} {}ms", timeout.as_millis()));
+        if let Err(e) = self.check()? {
+            return Ok(Err(e));
+        }
+        if self.state.borrow().tmpdir_unset {
+            return Ok(Err(Self::refuse("timeout", "timed out waiting for output match")));
+        }
+        Ok(Ok(()))
     }
     fn pane_rename(&self, session: &str, pane: &str, label: &str) -> HerdrResult<()> {
         self.note(format!("pane_rename {session} {pane} {label}"));

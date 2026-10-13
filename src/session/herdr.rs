@@ -107,10 +107,31 @@ pub fn refiner_flags(settings: &str, mod_dir: &Path) -> Vec<String> {
 /// pane's own shell, which then passes the variable on. It first unsets
 /// `CLAUDE_CODE_TMPDIR`, which Claude would prefer to `TMPDIR`; the line
 /// runs after the shell's rc files, so this clears one exported there
-/// too. Single-quoted, with any `'` in the path closed, escaped and
-/// reopened.
+/// too.
 pub fn export_tmpdir(tmp: &Path) -> String {
-    format!("unset CLAUDE_CODE_TMPDIR; export TMPDIR='{}'", tmp.display().to_string().replace('\'', "'\\''"))
+    format!("unset CLAUDE_CODE_TMPDIR; export TMPDIR={}", shell_quote(&tmp.display().to_string()))
+}
+
+/// What [`check_tmpdir`] prints once the pane's shell has the temp folder.
+pub const TMPDIR_SET: &str = "niri-tasks-tmpdir-set";
+
+/// The shell line, typed after [`export_tmpdir`], that prints
+/// [`TMPDIR_SET`] only when `$TMPDIR` is `tmp`: `pane run` succeeding only
+/// means herdr typed the export, not that the shell ran it. The marker is
+/// put together by `printf` as it runs, because `wait-output` searches the
+/// whole screen, and the echoed line would match a marker written out in it.
+pub fn check_tmpdir(tmp: &Path) -> String {
+    let (head, tail) = TMPDIR_SET.split_at("niri-tasks".len());
+    format!(
+        "[ \"$TMPDIR\" = {} ] && printf '%s%s\\n' {head} {tail}",
+        shell_quote(&tmp.display().to_string())
+    )
+}
+
+/// `s` single-quoted for a POSIX shell, with any `'` in it closed, escaped
+/// and reopened.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 /// Claude as a named agent in `pane`, fenced in to refining a task rather
@@ -238,6 +259,13 @@ pub fn pane_run(session: &str, pane: &str, command: &str) -> Vec<String> {
     cmd(session, &["pane", "run", pane, command])
 }
 
+/// Wait up to `timeout` for `text` to show in a pane's recent output,
+/// including what is there already. A miss fails with herdr's `timeout`.
+pub fn pane_wait_output(session: &str, pane: &str, text: &str, timeout: Duration) -> Vec<String> {
+    let ms = timeout.as_millis().to_string();
+    cmd(session, &["pane", "wait-output", "--match", text, "--timeout", &ms, pane])
+}
+
 /// Give a pane a manual label, which herdr draws in the pane's border — on a
 /// lone pane too with `ui.pane_borders = "always"`. How a task's Claude pane
 /// says which task it is on. (`report-metadata --title` sets the pane's
@@ -350,6 +378,9 @@ impl Port for Process {
     }
     fn pane_run(&self, s: &str, pane: &str, command: &str) -> HerdrResult<()> {
         self.call(&pane_run(s, pane, command), |_| Ok(()))
+    }
+    fn pane_wait_output(&self, s: &str, pane: &str, text: &str, timeout: Duration) -> HerdrResult<()> {
+        self.call(&pane_wait_output(s, pane, text, timeout), |_| Ok(()))
     }
     fn pane_rename(&self, s: &str, pane: &str, label: &str) -> HerdrResult<()> {
         self.call(&pane_rename(s, pane, label), |_| Ok(()))
@@ -734,6 +765,38 @@ mod tests {
             "unset CLAUDE_CODE_TMPDIR; export TMPDIR='/home/x/.cache/niri-tasks/refine-tmp/d9f76b94'"
         );
         assert_eq!(export_tmpdir(Path::new("/c/a'b/t")), "unset CLAUDE_CODE_TMPDIR; export TMPDIR='/c/a'\\''b/t'");
+    }
+
+    /// The check prints the marker only when `$TMPDIR` is the folder, and
+    /// the line typed never holds the marker itself: herdr's `wait-output`
+    /// searches the pane's screen, the echoed command included.
+    #[test]
+    fn the_temp_folder_check_prints_its_marker_only_when_set() {
+        let tmp = Path::new("/c/a'b/t");
+        let line = check_tmpdir(tmp);
+        assert!(!line.contains(TMPDIR_SET), "{line}");
+        let run = |tmpdir: Option<&str>| {
+            let mut sh = std::process::Command::new("sh");
+            sh.args(["-c", &line]).env_remove("TMPDIR");
+            if let Some(t) = tmpdir {
+                sh.env("TMPDIR", t);
+            }
+            String::from_utf8(sh.output().unwrap().stdout).unwrap()
+        };
+        assert_eq!(run(Some("/c/a'b/t")), format!("{TMPDIR_SET}\n"));
+        assert_eq!(run(Some("/tmp")), "");
+        assert_eq!(run(None), "");
+    }
+
+    #[test]
+    fn waiting_for_pane_output_matches_text_with_a_timeout() {
+        assert_eq!(
+            pane_wait_output("alpha", "w1:p4", TMPDIR_SET, Duration::from_secs(10)),
+            vec![
+                "herdr", "--session", "alpha", "pane", "wait-output", "--match", "niri-tasks-tmpdir-set",
+                "--timeout", "10000", "w1:p4",
+            ]
+        );
     }
 
     #[test]
