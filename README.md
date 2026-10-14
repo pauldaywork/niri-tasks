@@ -327,11 +327,12 @@ plannotator-tui opens.
 
 ### Opening the task panel on a herdr pane's task
 
-The same plugin has a second action, `task-docs.panel`. Bind it too:
+The same plugin has a second action, `task-docs.panel`. Bind it too, on a
+key of its own: not `prefix+shift+t`, which is herdr's rename tab:
 
 ```toml
 [[keys.command]]
-key = "prefix+shift+t"
+key = "prefix+shift+k"
 type = "plugin_action"
 command = "task-docs.panel"
 description = "task panel: open it on this task's card"

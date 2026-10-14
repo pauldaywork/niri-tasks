@@ -17,7 +17,7 @@
 - If the task isn't among the focused panel's cards (another workspace, or not pending), the panel opens as usual on the first card, with a notification saying why.
 - A pane with no task gets a notification and nothing opens, as Task docs does now.
 - The action is `task-docs.panel` in the existing `herdr/task-docs` plugin, reusing `find_task` and `notify`: no new plugin, no `install.sh` change.
-- The README's key binding is a `[[keys.command]]` on `prefix+shift+t`.
+- The README's key binding is a `[[keys.command]]` on `prefix+shift+k` (the task said `prefix+shift+t`, which is herdr's default rename tab; changed with the user on 2026-10-14).
 - A bare `niritasks task panel` and Mod+Alt+Ctrl+T still focus the first card.
 - Out of scope: showing a finished task's card; switching niri to the task's workspace.
 - Commits: Conventional Commits, `feat(panel): …` / `feat(herdr): …`, ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
@@ -618,7 +618,7 @@ The same plugin has a second action, `task-docs.panel`. Bind it too:
 
 ```toml
 [[keys.command]]
-key = "prefix+shift+t"
+key = "prefix+shift+k"
 type = "plugin_action"
 command = "task-docs.panel"
 description = "task panel: open it on this task's card"
