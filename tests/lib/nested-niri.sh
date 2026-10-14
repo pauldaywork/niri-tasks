@@ -39,8 +39,8 @@
 # window is not parked but left where niri opens it, on your workspace with
 # the focus, sized like any other window, and nothing watches its focus.
 # try.sh watches only that the nested niri still runs, in WATCH, to end the
-# try when it does not. Its config keeps niri's animations and key repeat,
-# which only a test wants off.
+# try when it does not. Its config keeps niri's animations, key repeat and
+# cursor, which only a test wants off or hidden.
 
 command -v niri >/dev/null || { echo "niri is required" >&2; exit 1; }
 command -v task >/dev/null || { echo "taskwarrior is required" >&2; exit 1; }
@@ -207,9 +207,12 @@ nested_start() {
     # never draws a frame in between. Key
     # repeat off: these tests never hold a key, and a client still starting
     # up can handle a release late enough for its repeat to fire — the first
-    # box in a fresh nested niri typed doubled letters that way. A flat
-    # background, so a frame with nothing on it is the same every time. One
-    # named workspace, which is the tag tasks are filed under. The startup
+    # box in a fresh nested niri typed doubled letters that way. The cursor
+    # hidden once idle: the nested niri keeps a pointer wherever yours crossed
+    # its window before it was parked, and a panel slid out under it shows the
+    # hovered button's tooltip, which no frame expects; hidden, it hovers
+    # nothing. A flat background, so a frame with nothing on it is the same
+    # every time. One named workspace, which is the tag tasks are filed under. The startup
     # command is how the test learns the nested niri's own sockets.
     # What niri's own spawns run with — a refine Add & refine starts, say. Off
     # unless a test asks: by default the nested niri's children see your PATH,
@@ -226,9 +229,10 @@ nested_start() {
     if [ -n "${NESTED_SPAWN_PATH:-}" ]; then
         spawn_env="environment { PATH \"$NESTED_SPAWN_PATH\"; NOTIFY_LOG \"$SB/notifications\"; }"
     fi
-    # By hand (--focused), niri keeps its animations and key repeat.
+    # By hand (--focused), niri keeps its animations, key repeat and cursor.
     local test_kdl='animations { off; }
-input { keyboard { repeat-rate 0; }; }'
+input { keyboard { repeat-rate 0; }; }
+cursor { hide-after-inactive-ms 100; }'
     [ -n "$focused" ] && test_kdl=""
     cat > "$SB/niri.kdl" <<EOF
 hotkey-overlay { skip-at-startup; }
