@@ -282,7 +282,8 @@ fn credential_paths(home: &Path) -> Vec<PathBuf> {
 /// sockets — the session's own temp folder is under the cache instead
 /// ([`session_tmp`]) — `/var/snap` the snaps', and herdr keeps its own
 /// under its config. `~/.cache/ibus` holds the input method's private bus,
-/// which can type into other windows.
+/// which can type into other windows, and `~/.local/state` apps' own, such
+/// as terminal-browser's, which drives a browser.
 /// [`exposed_sockets`] checks the result against the live socket table.
 fn hidden_paths(home: &Path) -> Vec<PathBuf> {
     [
@@ -291,6 +292,7 @@ fn hidden_paths(home: &Path) -> Vec<PathBuf> {
         PathBuf::from("/var/snap"),
         home.join(".config/herdr"),
         home.join(".cache/ibus"),
+        home.join(".local/state"),
     ]
     .into_iter()
     .filter(|p| p.exists())
@@ -1473,6 +1475,24 @@ Num       RefCount Protocol Flags    Type St Inode Path
 
         let got = credential_paths(&home);
         assert_eq!(got, vec![home.join(".ssh"), home.join(".claude/.credentials.json")]);
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// Apps keep sockets in their state folder too — terminal-browser's,
+    /// which drives a browser, is under `~/.local/state/pixel` — so the
+    /// whole of it is hidden, when it exists.
+    #[test]
+    fn the_state_folder_is_hidden_when_it_exists() {
+        let home = std::env::temp_dir().join(format!("niritasks-state-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        assert!(!hidden_paths(&home).contains(&home.join(".local/state")));
+
+        std::fs::create_dir_all(home.join(".local/state/pixel/instances")).unwrap();
+        let hidden = hidden_paths(&home);
+        assert!(hidden.contains(&home.join(".local/state")), "{hidden:?}");
+        let socket = [home.join(".local/state/pixel/instances/_dev_pts_5.sock")];
+        assert!(exposed_sockets(&socket, &hidden, &[]).is_empty());
 
         std::fs::remove_dir_all(&home).ok();
     }
