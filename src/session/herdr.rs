@@ -116,14 +116,15 @@ pub fn export_tmpdir(tmp: &Path) -> String {
 pub const TMPDIR_SET: &str = "niri-tasks-tmpdir-set";
 
 /// The shell line, typed after [`export_tmpdir`], that prints
-/// [`TMPDIR_SET`] only when `$TMPDIR` is `tmp`: `pane run` succeeding only
-/// means herdr typed the export, not that the shell ran it. The marker is
+/// [`TMPDIR_SET`] only when `$TMPDIR` is `tmp` and `CLAUDE_CODE_TMPDIR`,
+/// which Claude would prefer, is unset: `pane run` succeeding only means
+/// herdr typed the export, not that the shell ran it. The marker is
 /// put together by `printf` as it runs, because `wait-output` searches the
 /// whole screen, and the echoed line would match a marker written out in it.
 pub fn check_tmpdir(tmp: &Path) -> String {
     let (head, tail) = TMPDIR_SET.split_at("niri-tasks".len());
     format!(
-        "[ \"$TMPDIR\" = {} ] && printf '%s%s\\n' {head} {tail}",
+        "[ \"$TMPDIR\" = {} ] && [ -z \"${{CLAUDE_CODE_TMPDIR+x}}\" ] && printf '%s%s\\n' {head} {tail}",
         shell_quote(&tmp.display().to_string())
     )
 }
@@ -767,25 +768,31 @@ mod tests {
         assert_eq!(export_tmpdir(Path::new("/c/a'b/t")), "unset CLAUDE_CODE_TMPDIR; export TMPDIR='/c/a'\\''b/t'");
     }
 
-    /// The check prints the marker only when `$TMPDIR` is the folder, and
-    /// the line typed never holds the marker itself: herdr's `wait-output`
-    /// searches the pane's screen, the echoed command included.
+    /// The check prints the marker only when `$TMPDIR` is the folder and
+    /// `CLAUDE_CODE_TMPDIR` is unset, even to empty, and the line typed
+    /// never holds the marker itself: herdr's `wait-output` searches the
+    /// pane's screen, the echoed command included.
     #[test]
     fn the_temp_folder_check_prints_its_marker_only_when_set() {
         let tmp = Path::new("/c/a'b/t");
         let line = check_tmpdir(tmp);
         assert!(!line.contains(TMPDIR_SET), "{line}");
-        let run = |tmpdir: Option<&str>| {
+        let run = |tmpdir: Option<&str>, claude_tmpdir: Option<&str>| {
             let mut sh = std::process::Command::new("sh");
-            sh.args(["-c", &line]).env_remove("TMPDIR");
+            sh.args(["-c", &line]).env_remove("TMPDIR").env_remove("CLAUDE_CODE_TMPDIR");
             if let Some(t) = tmpdir {
                 sh.env("TMPDIR", t);
             }
+            if let Some(t) = claude_tmpdir {
+                sh.env("CLAUDE_CODE_TMPDIR", t);
+            }
             String::from_utf8(sh.output().unwrap().stdout).unwrap()
         };
-        assert_eq!(run(Some("/c/a'b/t")), format!("{TMPDIR_SET}\n"));
-        assert_eq!(run(Some("/tmp")), "");
-        assert_eq!(run(None), "");
+        assert_eq!(run(Some("/c/a'b/t"), None), format!("{TMPDIR_SET}\n"));
+        assert_eq!(run(Some("/tmp"), None), "");
+        assert_eq!(run(None, None), "");
+        assert_eq!(run(Some("/c/a'b/t"), Some("/tmp")), "");
+        assert_eq!(run(Some("/c/a'b/t"), Some("")), "");
     }
 
     #[test]
