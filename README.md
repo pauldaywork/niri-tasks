@@ -503,30 +503,45 @@ Before a clean install:
    `git branch --list 'task/*'` lists them; `git push origin <branch>` each
    one. `export` does not do this for you.
 2. **Run `niritasks export`.** It writes every task, whatever its status,
-   to `~/niri-tasks-backup-<YYYYMMDD-HHMM>.tar.gz` (or the path you give),
-   and prints the path and how many tasks it holds. The archive holds
-   `tasks.json`, the store as `task export` writes it; `taskchampion.sqlite3`,
-   a copy of the store taken through SQLite's own backup; and `reviews/`,
-   the refine reports folder. It then lists each `Report:` or
-   `Report (earlier draft):` note whose file is already gone — the task's
-   uuid8, status and path. Those notes will dangle after the restore
-   whatever you do; the backup goes ahead without them.
+   to `~/niri-tasks-backup-<YYYYMMDD-HHMM>.tar.gz` (or the path you give;
+   it refuses one already there), and prints the path and how many tasks
+   it holds. The archive holds `tasks.json`, the store as `task export`
+   writes it; `taskchampion.sqlite3`, a copy of the store taken through
+   SQLite's own backup; and `reviews/`, the refine reports folder, when
+   the folder exists. It then lists each `Report:` or
+   `Report (earlier draft):` note whose file is already gone, or is outside
+   the reviews folder and so not in the archive — the task's uuid8, status
+   and path. Those notes will dangle after the restore whatever you do;
+   the backup goes ahead without them.
 3. **Copy the archive off the machine.**
 
-After reinstalling Taskwarrior 3.5 and niri-tasks, run
-`niritasks import <archive>`. It imports `tasks.json` with hooks off,
-copies `reviews/` back into `~/.local/share/niri-tasks/reviews` without
-overwriting any file already there, and prints how many tasks it imported.
-It refuses a store that already holds tasks, so an old backup cannot undo
-newer edits; `--force` imports anyway, and a task in both takes the
-backup's copy.
+After reinstalling Taskwarrior 3.5 and niri-tasks:
 
-If `tasks.json` will not import, restore the SQLite copy by hand, into a
-store with nothing in it and no `task` running:
+1. **Give `task` an rc file.** A fresh install has no `~/.taskrc`, which is
+   not backed up, and `task` refuses to run without one ("Cannot proceed
+   without rc file."). Restore yours, or run `task` once interactively and
+   let it create one; either way `data.location` must point where you want
+   the store.
+2. **Run `niritasks import <archive>`.** It imports `tasks.json` with hooks
+   off, copies `reviews/` back into the reviews folder
+   (`~/.local/share/niri-tasks/reviews`, or under `$XDG_DATA_HOME`)
+   without overwriting any file already there, and prints how many tasks it
+   imported. It refuses a store that already holds tasks (any status,
+   deleted ones included), so an old backup cannot undo newer edits;
+   `--force` imports anyway, and a task in both takes the backup's copy. If
+   it stops after the tasks are in, say while copying reports, rerunning
+   with `--force` from the same backup is safe.
+
+If `tasks.json` will not import, restore the SQLite copy by hand, once
+`task` has an rc file as above, into a store with nothing in it and no
+`task` running. A reinstalled `task` may already have made an empty
+`taskchampion.sqlite3` with `-wal` and `-shm` files beside it, so remove
+those first:
 
 ```bash
 tar -xzf niri-tasks-backup-<stamp>.tar.gz taskchampion.sqlite3
 mkdir -p "$(task _get rc.data.location)"
+rm -f "$(task _get rc.data.location)"/taskchampion.sqlite3*
 cp taskchampion.sqlite3 "$(task _get rc.data.location)/"
 task count                      # every task, back
 ```
