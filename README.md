@@ -410,6 +410,8 @@ niritasks task open-report <path>  # a report just written, in a new browser win
 niritasks project open             # the panel's project list: pick a ~/Projects folder or GitHub repo
                                    #   onto its own named workspace, or type a new name (Mod+Alt+W)
 niritasks project open <name>      # open that one, cloning or making it first: what a pick runs
+niritasks export [<path>]          # every task, any status, and the reviews folder to one .tar.gz, by default
+                                   #   ~/niri-tasks-backup-<YYYYMMDD-HHMM>.tar.gz; lists report notes whose file is gone
 niritasks terminal                 # a terminal in the focused workspace's ~/Projects folder (Mod+Return)
 niritasks daemon                   # internal: the task panels and task-box server, run by the
                                    #   niri-tasks systemd user unit
