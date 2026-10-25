@@ -369,7 +369,8 @@ fn dispatch(cli: Cli) -> Result<()> {
 }
 
 /// `niritasks export`: the archive and its task count on stdout, and any
-/// report notes whose file is gone on stderr, as a warning.
+/// report notes whose file is gone or outside the reviews folder on stderr,
+/// as a warning.
 fn backup_export(path: Option<PathBuf>) -> Result<()> {
     let dirs = dirs::Dirs::from_env()?;
     let path = match path {
@@ -379,9 +380,10 @@ fn backup_export(path: Option<PathBuf>) -> Result<()> {
     let done = backup::export(&dirs, &path)?;
     println!("Backed up {} tasks to {}", done.tasks, done.archive.display());
     if !done.missing.is_empty() {
+        let n = done.missing.len();
         eprintln!(
-            "{} report notes name a file that is gone, backed up without it:",
-            done.missing.len()
+            "{n} report {} the backup cannot carry (file gone, or outside the reviews folder):",
+            if n == 1 { "note names a file" } else { "notes name files" }
         );
         for m in &done.missing {
             eprintln!("  {}", m.line());

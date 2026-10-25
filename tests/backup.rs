@@ -136,7 +136,7 @@ fn export_writes_one_archive_and_lists_the_missing_report() {
         assert!(listing.lines().any(|l| l.trim_end_matches('/') == member), "{member} not in:\n{listing}");
     }
 
-    // The sqlite copy is a whole store, not a main file missing its WAL.
+    // The sqlite copy opens and holds every task.
     let unpacked = s.dir.join("unpacked");
     std::fs::create_dir_all(&unpacked).unwrap();
     assert!(Command::new("tar").arg("-xzf").arg(&archive).arg("-C").arg(&unpacked).status().unwrap().success());

@@ -9,6 +9,8 @@
 
 use crate::{dirs::Dirs, names, refine, task, task::Task};
 use anyhow::{bail, ensure, Context, Result};
+use std::fs::DirBuilder;
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -23,8 +25,9 @@ const STORE: &str = "taskchampion.sqlite3";
 /// the archive's top level.
 const REVIEWS: &str = "reviews";
 
-/// A `Report:` or `Report (earlier draft):` note whose file is not there:
-/// backed up without it, and dangling after a restore.
+/// A `Report:` or `Report (earlier draft):` note whose file is not there, or
+/// is outside the reviews folder: backed up without it, and dangling after a
+/// restore.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MissingReport {
     pub uuid8: String,
@@ -32,12 +35,19 @@ pub struct MissingReport {
     pub status: String,
     /// As the note writes it, any `#anchor` dropped.
     pub path: String,
+    /// The file is there but outside the reviews folder, so not backed up.
+    pub outside: bool,
 }
 
 impl MissingReport {
     /// One line of export's warning: uuid8, status, path.
     pub fn line(&self) -> String {
-        format!("{}  {:<9}  {}", self.uuid8, self.status, self.path)
+        let line = format!("{}  {:<9}  {}", self.uuid8, self.status, self.path);
+        if self.outside {
+            format!("{line}  (outside the reviews folder, not backed up)")
+        } else {
+            line
+        }
     }
 }
 
@@ -54,18 +64,24 @@ pub fn local_stamp() -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// Every report note, on any task, whose file is not there. A note's path is
-/// found as [`refine::report_file`] finds it, once its `#anchor` is dropped.
+/// Every report note, on any task, whose file is not there, or is there but
+/// outside the reviews folder, which the archive does not hold. A note's path
+/// is found as [`refine::report_file`] finds it, once its `#anchor` is dropped.
 pub fn missing_reports(tasks: &[Task], dirs: &Dirs) -> Vec<MissingReport> {
+    let reviews = refine::reports_dir(dirs);
     tasks
         .iter()
         .flat_map(|t| {
+            let reviews = &reviews;
             t.report_notes().into_iter().filter_map(move |n| {
                 let path = n.path.split('#').next().unwrap_or_default().trim().to_string();
-                (!refine::report_file(&path, dirs).is_file()).then(|| MissingReport {
+                let file = refine::report_file(&path, dirs);
+                let there = file.is_file();
+                (!there || !file.starts_with(reviews)).then(|| MissingReport {
                     uuid8: names::uuid8(&t.uuid),
                     status: t.status.clone(),
                     path,
+                    outside: there,
                 })
             })
         })
@@ -105,12 +121,14 @@ pub struct Exported {
     pub archive: PathBuf,
     /// How many tasks it holds, every status.
     pub tasks: usize,
-    /// Report notes whose file is gone, backed up without it.
+    /// Report notes whose file is gone or outside the reviews folder, backed
+    /// up without it.
     pub missing: Vec<MissingReport>,
 }
 
 /// Write every task, the store's sqlite copy and the reviews folder to
-/// `archive`, which must not be there yet. The store is only read.
+/// `archive`, which must not be there yet. No task is changed: the store is
+/// read through `task export` and SQLite's backup.
 pub fn export(dirs: &Dirs, archive: &Path) -> Result<Exported> {
     let archive = std::path::absolute(archive).with_context(|| format!("could not resolve {}", archive.display()))?;
     if archive.exists() {
@@ -174,7 +192,9 @@ impl Stage {
             .map(|d| d.subsec_nanos())
             .unwrap_or(0);
         let dir = std::env::temp_dir().join(format!("niritasks-{what}-{}-{nanos}", std::process::id()));
-        std::fs::create_dir_all(&dir).with_context(|| format!("could not make {}", dir.display()))?;
+        // Owner-only, and never a folder that was already there: it holds the
+        // whole task list.
+        DirBuilder::new().mode(0o700).create(&dir).with_context(|| format!("could not make {}", dir.display()))?;
         Ok(Stage(dir))
     }
 }
@@ -204,7 +224,7 @@ pub fn import(dirs: &Dirs, archive: &Path, force: bool) -> Result<Imported> {
     let held = task::export_all()?.len();
     if held > 0 && !force {
         bail!(
-            "The task store already holds {held} tasks, and an import would replace any the backup also has with its older copy. Import into an empty store, or pass --force to import anyway."
+            "The task store already holds {held} tasks (any status, deleted ones included), and an import would replace any the backup also has with its older copy. Import into an empty store, or pass --force to import anyway."
         );
     }
 
@@ -286,9 +306,40 @@ mod tests {
         let missing = missing_reports(&[t], &dirs);
         assert_eq!(
             missing,
-            vec![MissingReport { uuid8: "3caa9b56".into(), status: "completed".into(), path: "gone.html".into() }]
+            vec![MissingReport { uuid8: "3caa9b56".into(), status: "completed".into(), path: "gone.html".into(), outside: false }]
         );
         assert_eq!(missing[0].line(), "3caa9b56  completed  gone.html");
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A report note can point anywhere; only the reviews folder is archived.
+    #[test]
+    fn a_report_note_to_a_file_outside_the_reviews_folder_is_listed_as_outside() {
+        let home = scratch("outside");
+        let dirs = Dirs::at(&home);
+        let reviews = refine::reports_dir(&dirs);
+        std::fs::create_dir_all(&reviews).unwrap();
+        std::fs::write(reviews.join("in.html"), "<html>").unwrap();
+        let elsewhere = home.join("elsewhere.html");
+        std::fs::write(&elsewhere, "<html>").unwrap();
+        let t = task(&format!(
+            r#"{{"uuid":"3caa9b56-f748-48f8-917c-ed15e49dd66c","description":"d","status":"pending","annotations":[
+                {{"entry":"20261001T000000Z","description":"Report: {}/in.html"}},
+                {{"entry":"20261002T000000Z","description":"Report: {}#s2"}}]}}"#,
+            reviews.display(),
+            elsewhere.display()
+        ));
+        let missing = missing_reports(&[t], &dirs);
+        assert_eq!(
+            missing,
+            vec![MissingReport {
+                uuid8: "3caa9b56".into(),
+                status: "pending".into(),
+                path: elsewhere.display().to_string(),
+                outside: true
+            }]
+        );
+        assert!(missing[0].line().ends_with("  (outside the reviews folder, not backed up)"));
         std::fs::remove_dir_all(&home).ok();
     }
 
