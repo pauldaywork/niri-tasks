@@ -202,6 +202,9 @@ degrades to stderr without it. `fzf` ranks what you type on the
 project list; without it the list matches plain text instead,
 and says so once.
 
+`niritasks export` and `import` need `tar` and `sqlite3`
+(`sudo apt install sqlite3`).
+
 [herdr](https://herdr.dev) is optional. With it on `$PATH`, `niritasks project
 open` runs the workspace's herdr session in the project terminal; without it the
 terminal is a plain shell in the project folder. A card's Go to list's **Refine**, **Grill me** and **Generate report** need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod), and the box's **Add & all** Claude Code alone, on `$PATH` — they open
@@ -489,6 +492,47 @@ one `task import`. Untouched and edited notes keep the date they were first
 written; new ones are dated when saved, and a save that changed nothing writes
 nothing. Taskwarrior keeps notes in date order, so a note typed between two
 old ones moves to the end once saved. Empty rows are dropped.
+
+## Backing up before a reinstall
+
+Before a clean install:
+
+1. **Push every task worktree branch.** A task's `Plan:` and `Spec:` notes
+   name files in its repo's `docs/superpowers/`, and until the branch lands
+   they live only on that branch. In each repo,
+   `git branch --list 'task/*'` lists them; `git push origin <branch>` each
+   one. `export` does not do this for you.
+2. **Run `niritasks export`.** It writes every task, whatever its status,
+   to `~/niri-tasks-backup-<YYYYMMDD-HHMM>.tar.gz` (or the path you give),
+   and prints the path and how many tasks it holds. The archive holds
+   `tasks.json`, the store as `task export` writes it; `taskchampion.sqlite3`,
+   a copy of the store taken through SQLite's own backup; and `reviews/`,
+   the refine reports folder. It then lists each `Report:` or
+   `Report (earlier draft):` note whose file is already gone — the task's
+   uuid8, status and path. Those notes will dangle after the restore
+   whatever you do; the backup goes ahead without them.
+3. **Copy the archive off the machine.**
+
+After reinstalling Taskwarrior 3.5 and niri-tasks, run
+`niritasks import <archive>`. It imports `tasks.json` with hooks off,
+copies `reviews/` back into `~/.local/share/niri-tasks/reviews` without
+overwriting any file already there, and prints how many tasks it imported.
+It refuses a store that already holds tasks, so an old backup cannot undo
+newer edits; `--force` imports anyway, and a task in both takes the
+backup's copy.
+
+If `tasks.json` will not import, restore the SQLite copy by hand, into a
+store with nothing in it and no `task` running:
+
+```bash
+tar -xzf niri-tasks-backup-<stamp>.tar.gz taskchampion.sqlite3
+mkdir -p "$(task _get rc.data.location)"
+cp taskchampion.sqlite3 "$(task _get rc.data.location)/"
+task count                      # every task, back
+```
+
+Not backed up: `~/.taskrc`, and the rest of `~/.local/share/niri-tasks`
+(unattended logs, ideas, the VS Code profile).
 
 ## Notes
 
