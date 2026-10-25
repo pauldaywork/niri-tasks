@@ -4,6 +4,7 @@
 //! integration tests.
 
 pub mod actions;
+pub mod backup;
 pub mod daemon;
 pub mod dirs;
 pub mod docs;
