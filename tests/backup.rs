@@ -154,3 +154,52 @@ fn export_writes_one_archive_and_lists_the_missing_report() {
     assert!(!again.status.success(), "a second export overwrote the archive");
     assert!(text(&again.stderr).contains("already there"), "{}", text(&again.stderr));
 }
+
+/// Export the `filled` store, answering the archive's path.
+fn exported(s: &Sandbox) -> PathBuf {
+    let archive = s.dir.join("backup.tar.gz");
+    let out = s.niritasks(&["export", archive.to_str().unwrap()]);
+    assert!(out.status.success(), "export failed: {}", text(&out.stderr));
+    archive
+}
+
+#[test]
+fn import_into_an_empty_store_gives_back_every_task_and_report() {
+    let (src, _) = filled("roundtrip-src");
+    let archive = exported(&src);
+    let dst = Sandbox::new("roundtrip-dst");
+    // A report the new machine already has is not overwritten.
+    std::fs::create_dir_all(dst.reviews()).unwrap();
+    std::fs::write(dst.reviews().join("kept.html"), "mine").unwrap();
+
+    let out = dst.niritasks(&["import", archive.to_str().unwrap()]);
+    let stdout = text(&out.stdout);
+    assert!(out.status.success(), "import failed: {}", text(&out.stderr));
+    assert!(
+        stdout.contains("Imported 3 tasks; restored 1 report files, kept 1 already there"),
+        "{stdout}"
+    );
+
+    // Same uuids, statuses, tags, notes and dates: every field but id and urgency.
+    assert_eq!(dst.tasks(), src.tasks());
+    assert_eq!(std::fs::read_to_string(dst.reviews().join("kept.html")).unwrap(), "mine");
+    assert_eq!(std::fs::read_to_string(dst.reviews().join("sub/deep.md")).unwrap(), "# deep");
+}
+
+#[test]
+fn import_refuses_a_store_with_tasks_unless_forced() {
+    let (s, pending) = filled("guard");
+    let archive = exported(&s);
+    // An edit made after the backup, which the guard is there to keep.
+    assert!(s.task(&[&pending, "modify", "feat: newer edit"]).status.success(), "modify");
+    let description = |s: &Sandbox| s.tasks()[&pending]["description"].as_str().unwrap().to_string();
+
+    let out = s.niritasks(&["import", archive.to_str().unwrap()]);
+    assert!(!out.status.success(), "import into a store with tasks was not refused");
+    assert!(text(&out.stderr).contains("--force"), "{}", text(&out.stderr));
+    assert_eq!(description(&s), "feat: newer edit");
+
+    let forced = s.niritasks(&["import", "--force", archive.to_str().unwrap()]);
+    assert!(forced.status.success(), "import --force failed: {}", text(&forced.stderr));
+    assert_eq!(description(&s), "feat: pending one");
+}

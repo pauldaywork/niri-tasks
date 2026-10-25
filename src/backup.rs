@@ -98,81 +98,6 @@ fn copy_missing(from: &Path, to: &Path) -> Result<(usize, usize)> {
     Ok((copied, kept))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("niritasks-backup-unit-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn task(json: &str) -> Task {
-        serde_json::from_str(json).unwrap()
-    }
-
-    #[test]
-    fn the_default_archive_is_in_the_home_folder_named_by_the_minute() {
-        assert_eq!(
-            default_archive(&Dirs::at(Path::new("/home/x")), "20261025-1342"),
-            PathBuf::from("/home/x/niri-tasks-backup-20261025-1342.tar.gz")
-        );
-    }
-
-    #[test]
-    fn the_local_stamp_is_a_date_and_a_minute() {
-        let stamp = local_stamp().unwrap();
-        assert_eq!(stamp.len(), 13, "{stamp}");
-        assert_eq!(&stamp[8..9], "-", "{stamp}");
-        assert!(stamp.chars().filter(|c| *c != '-').all(|c| c.is_ascii_digit()), "{stamp}");
-    }
-
-    /// Both kinds of report note count, an `#anchor` is dropped before the
-    /// file is looked for, and a `Plan:` note is not a report.
-    #[test]
-    fn a_report_note_whose_file_is_gone_is_listed_without_its_anchor() {
-        let home = scratch("missing");
-        let dirs = Dirs::at(&home);
-        let reviews = refine::reports_dir(&dirs);
-        std::fs::create_dir_all(&reviews).unwrap();
-        std::fs::write(reviews.join("here.html"), "<html>").unwrap();
-        let t = task(
-            r#"{"uuid":"3caa9b56-f748-48f8-917c-ed15e49dd66c","description":"d","status":"completed","annotations":[
-                {"entry":"20261001T000000Z","description":"Report: ~/.local/share/niri-tasks/reviews/here.html#slide-3"},
-                {"entry":"20261002T000000Z","description":"Report (earlier draft): gone.html#s1"},
-                {"entry":"20261003T000000Z","description":"Plan: docs/superpowers/plans/nowhere.md"}]}"#,
-        );
-        let missing = missing_reports(&[t], &dirs);
-        assert_eq!(
-            missing,
-            vec![MissingReport { uuid8: "3caa9b56".into(), status: "completed".into(), path: "gone.html".into() }]
-        );
-        assert_eq!(missing[0].line(), "3caa9b56  completed  gone.html");
-        std::fs::remove_dir_all(&home).ok();
-    }
-
-    #[test]
-    fn copy_missing_copies_what_is_not_there_and_keeps_what_is() {
-        let dir = scratch("copy");
-        let (from, to) = (dir.join("from"), dir.join("to"));
-        std::fs::create_dir_all(from.join("sub")).unwrap();
-        std::fs::write(from.join("a.html"), "backed up").unwrap();
-        std::fs::write(from.join("sub/b.md"), "# b").unwrap();
-        std::fs::create_dir_all(&to).unwrap();
-        std::fs::write(to.join("a.html"), "mine").unwrap();
-
-        assert_eq!(copy_missing(&from, &to).unwrap(), (1, 1));
-        assert_eq!(std::fs::read_to_string(to.join("a.html")).unwrap(), "mine");
-        assert_eq!(std::fs::read_to_string(to.join("sub/b.md")).unwrap(), "# b");
-
-        // An archive with no reviews folder copies nothing.
-        assert_eq!(copy_missing(&dir.join("absent"), &to).unwrap(), (0, 0));
-        std::fs::remove_dir_all(&dir).ok();
-    }
-}
-
 /// What an export wrote.
 #[derive(Debug)]
 pub struct Exported {
@@ -257,5 +182,132 @@ impl Stage {
 impl Drop for Stage {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// What an import did.
+#[derive(Debug)]
+pub struct Imported {
+    /// How many tasks the archive held, every one imported.
+    pub tasks: usize,
+    /// Report files copied into the reviews folder.
+    pub reports: usize,
+    /// Report files left alone, the reviews folder already having one there.
+    pub kept: usize,
+}
+
+/// Put an [`export`]'s tasks and reports back. Refused when the store
+/// already holds a task, unless `force`: an import replaces any task the
+/// backup also has, so an old backup would undo newer edits.
+pub fn import(dirs: &Dirs, archive: &Path, force: bool) -> Result<Imported> {
+    ensure!(archive.is_file(), "no archive at {}", archive.display());
+    let held = task::export_all()?.len();
+    if held > 0 && !force {
+        bail!(
+            "The task store already holds {held} tasks, and an import would replace any the backup also has with its older copy. Import into an empty store, or pass --force to import anyway."
+        );
+    }
+
+    let stage = Stage::new("import")?;
+    let out = Command::new("tar")
+        .arg("-xzf")
+        .arg(archive)
+        .arg("-C")
+        .arg(&stage.0)
+        .output()
+        .context("could not run `tar`")?;
+    ensure!(
+        out.status.success(),
+        "`tar` could not unpack {}: {}",
+        archive.display(),
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    let json = stage.0.join(TASKS_JSON);
+    ensure!(json.is_file(), "{} has no {TASKS_JSON}: not a niritasks export", archive.display());
+    let tasks = serde_json::from_slice::<Vec<serde_json::Value>>(
+        &std::fs::read(&json).context("could not read tasks.json")?,
+    )
+    .context("could not parse tasks.json")?
+    .len();
+    if tasks > 0 {
+        task::import_file(&json)?;
+    }
+
+    let (reports, kept) = copy_missing(&stage.0.join(REVIEWS), &refine::reports_dir(dirs))?;
+    Ok(Imported { tasks, reports, kept })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("niritasks-backup-unit-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn task(json: &str) -> Task {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn the_default_archive_is_in_the_home_folder_named_by_the_minute() {
+        assert_eq!(
+            default_archive(&Dirs::at(Path::new("/home/x")), "20261025-1342"),
+            PathBuf::from("/home/x/niri-tasks-backup-20261025-1342.tar.gz")
+        );
+    }
+
+    #[test]
+    fn the_local_stamp_is_a_date_and_a_minute() {
+        let stamp = local_stamp().unwrap();
+        assert_eq!(stamp.len(), 13, "{stamp}");
+        assert_eq!(&stamp[8..9], "-", "{stamp}");
+        assert!(stamp.chars().filter(|c| *c != '-').all(|c| c.is_ascii_digit()), "{stamp}");
+    }
+
+    /// Both kinds of report note count, an `#anchor` is dropped before the
+    /// file is looked for, and a `Plan:` note is not a report.
+    #[test]
+    fn a_report_note_whose_file_is_gone_is_listed_without_its_anchor() {
+        let home = scratch("missing");
+        let dirs = Dirs::at(&home);
+        let reviews = refine::reports_dir(&dirs);
+        std::fs::create_dir_all(&reviews).unwrap();
+        std::fs::write(reviews.join("here.html"), "<html>").unwrap();
+        let t = task(
+            r#"{"uuid":"3caa9b56-f748-48f8-917c-ed15e49dd66c","description":"d","status":"completed","annotations":[
+                {"entry":"20261001T000000Z","description":"Report: ~/.local/share/niri-tasks/reviews/here.html#slide-3"},
+                {"entry":"20261002T000000Z","description":"Report (earlier draft): gone.html#s1"},
+                {"entry":"20261003T000000Z","description":"Plan: docs/superpowers/plans/nowhere.md"}]}"#,
+        );
+        let missing = missing_reports(&[t], &dirs);
+        assert_eq!(
+            missing,
+            vec![MissingReport { uuid8: "3caa9b56".into(), status: "completed".into(), path: "gone.html".into() }]
+        );
+        assert_eq!(missing[0].line(), "3caa9b56  completed  gone.html");
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn copy_missing_copies_what_is_not_there_and_keeps_what_is() {
+        let dir = scratch("copy");
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        std::fs::create_dir_all(from.join("sub")).unwrap();
+        std::fs::write(from.join("a.html"), "backed up").unwrap();
+        std::fs::write(from.join("sub/b.md"), "# b").unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(to.join("a.html"), "mine").unwrap();
+
+        assert_eq!(copy_missing(&from, &to).unwrap(), (1, 1));
+        assert_eq!(std::fs::read_to_string(to.join("a.html")).unwrap(), "mine");
+        assert_eq!(std::fs::read_to_string(to.join("sub/b.md")).unwrap(), "# b");
+
+        // An archive with no reviews folder copies nothing.
+        assert_eq!(copy_missing(&dir.join("absent"), &to).unwrap(), (0, 0));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

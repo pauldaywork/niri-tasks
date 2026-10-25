@@ -412,6 +412,8 @@ niritasks project open             # the panel's project list: pick a ~/Projects
 niritasks project open <name>      # open that one, cloning or making it first: what a pick runs
 niritasks export [<path>]          # every task, any status, and the reviews folder to one .tar.gz, by default
                                    #   ~/niri-tasks-backup-<YYYYMMDD-HHMM>.tar.gz; lists report notes whose file is gone
+niritasks import <archive>         # put an export back, into an empty store (see Backing up before a reinstall)
+niritasks import <archive> --force #   into a store that already holds tasks; a task in both takes the backup's copy
 niritasks terminal                 # a terminal in the focused workspace's ~/Projects folder (Mod+Return)
 niritasks daemon                   # internal: the task panels and task-box server, run by the
                                    #   niri-tasks systemd user unit

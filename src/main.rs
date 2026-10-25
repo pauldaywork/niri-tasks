@@ -8,7 +8,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use niri_tasks::{
     actions::{Action, TaskState}, backup, dirs, docs, github, ipc, link, niri, notify, open, programs, project, refine, speak, status_line, task,
     text, work, workspace::Workspace,
@@ -55,6 +55,19 @@ enum Command {
     Export {
         /// Where to write it; by default ~/niri-tasks-backup-<YYYYMMDD-HHMM>.tar.gz
         path: Option<PathBuf>,
+    },
+
+    /// Put an export's tasks and refine reports back, after a reinstall
+    ///
+    /// Refused when the task store already holds tasks, unless --force: an
+    /// older backup would replace newer edits. Report files already in the
+    /// reviews folder are kept.
+    Import {
+        /// The .tar.gz niritasks export wrote
+        archive: PathBuf,
+        /// Import into a store that already holds tasks; a task in both takes the backup's copy
+        #[arg(long)]
+        force: bool,
     },
 
     /// Open a terminal in the focused workspace's ~/Projects folder (Mod+Return)
@@ -348,6 +361,7 @@ fn dispatch(cli: Cli) -> Result<()> {
         Command::Task(c) => return task_command(c),
         Command::Project(ProjectCommand::Open { name }) => return project_open(name),
         Command::Export { path } => return backup_export(path),
+        Command::Import { archive, force } => return backup_import(&archive, force),
         Command::Terminal => return terminal(),
         Command::Daemon => return niri_tasks::daemon::run(),
     }
@@ -373,6 +387,16 @@ fn backup_export(path: Option<PathBuf>) -> Result<()> {
             eprintln!("  {}", m.line());
         }
     }
+    Ok(())
+}
+
+/// `niritasks import`: how many tasks came back, and how many report files.
+fn backup_import(archive: &Path, force: bool) -> Result<()> {
+    let done = backup::import(&dirs::Dirs::from_env()?, archive, force)?;
+    println!(
+        "Imported {} tasks; restored {} report files, kept {} already there",
+        done.tasks, done.reports, done.kept
+    );
     Ok(())
 }
 

@@ -447,6 +447,24 @@ pub fn export_all() -> Result<Vec<Value>> {
     serde_json::from_slice(&out.stdout).context("could not parse `task export` output as JSON")
 }
 
+/// Import a file of tasks as `task export` writes them, hooks off so no
+/// on-add or on-modify hook fires for a task coming back. A task whose uuid
+/// the store already holds is replaced by the file's.
+pub fn import_file(path: &std::path::Path) -> Result<()> {
+    let out = base()
+        .arg("rc.hooks=0")
+        .arg("import")
+        .arg(path)
+        .output()
+        .context("could not run `task` — is taskwarrior installed?")?;
+    anyhow::ensure!(
+        out.status.success(),
+        "`task import` failed: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    Ok(())
+}
+
 /// Pending tasks carrying `tag`, most urgent first: taskwarrior's own
 /// `status:pending` filter.
 ///
