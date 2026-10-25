@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use niri_tasks::{
-    actions::{Action, TaskState}, dirs, docs, github, ipc, link, niri, notify, open, programs, project, refine, speak, status_line, task,
+    actions::{Action, TaskState}, backup, dirs, docs, github, ipc, link, niri, notify, open, programs, project, refine, speak, status_line, task,
     text, work, workspace::Workspace,
 };
 
@@ -44,6 +44,18 @@ enum Command {
     /// Project folder operations
     #[command(subcommand)]
     Project(ProjectCommand),
+
+    /// Save every task, whatever its status, and the refine reports to one archive, before a reinstall
+    ///
+    /// The archive holds tasks.json (what import reads), a copy of
+    /// taskchampion.sqlite3 to restore by hand if that fails, and the reviews
+    /// folder. Report notes whose file is gone are listed, and backed up
+    /// without it. Push every task worktree branch first: their Plan: and
+    /// Spec: files live only there.
+    Export {
+        /// Where to write it; by default ~/niri-tasks-backup-<YYYYMMDD-HHMM>.tar.gz
+        path: Option<PathBuf>,
+    },
 
     /// Open a terminal in the focused workspace's ~/Projects folder (Mod+Return)
     Terminal,
@@ -335,8 +347,31 @@ fn dispatch(cli: Cli) -> Result<()> {
         }
         Command::Task(c) => return task_command(c),
         Command::Project(ProjectCommand::Open { name }) => return project_open(name),
+        Command::Export { path } => return backup_export(path),
         Command::Terminal => return terminal(),
         Command::Daemon => return niri_tasks::daemon::run(),
+    }
+    Ok(())
+}
+
+/// `niritasks export`: the archive and its task count on stdout, and any
+/// report notes whose file is gone on stderr, as a warning.
+fn backup_export(path: Option<PathBuf>) -> Result<()> {
+    let dirs = dirs::Dirs::from_env()?;
+    let path = match path {
+        Some(p) => p,
+        None => backup::default_archive(&dirs, &backup::local_stamp()?),
+    };
+    let done = backup::export(&dirs, &path)?;
+    println!("Backed up {} tasks to {}", done.tasks, done.archive.display());
+    if !done.missing.is_empty() {
+        eprintln!(
+            "{} report notes name a file that is gone, backed up without it:",
+            done.missing.len()
+        );
+        for m in &done.missing {
+            eprintln!("  {}", m.line());
+        }
     }
     Ok(())
 }

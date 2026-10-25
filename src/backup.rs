@@ -7,8 +7,8 @@
 //! the JSON will not import; and `reviews/`, the reports folder. `tar` and
 //! `sqlite3` do the packing and the copy.
 
-use crate::{dirs::Dirs, names, refine, task::Task};
-use anyhow::{ensure, Context, Result};
+use crate::{dirs::Dirs, names, refine, task, task::Task};
+use anyhow::{bail, ensure, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -170,5 +170,92 @@ mod tests {
         // An archive with no reviews folder copies nothing.
         assert_eq!(copy_missing(&dir.join("absent"), &to).unwrap(), (0, 0));
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+/// What an export wrote.
+#[derive(Debug)]
+pub struct Exported {
+    /// The archive, as an absolute path.
+    pub archive: PathBuf,
+    /// How many tasks it holds, every status.
+    pub tasks: usize,
+    /// Report notes whose file is gone, backed up without it.
+    pub missing: Vec<MissingReport>,
+}
+
+/// Write every task, the store's sqlite copy and the reviews folder to
+/// `archive`, which must not be there yet. The store is only read.
+pub fn export(dirs: &Dirs, archive: &Path) -> Result<Exported> {
+    let archive = std::path::absolute(archive).with_context(|| format!("could not resolve {}", archive.display()))?;
+    if archive.exists() {
+        bail!("{} is already there; name another file", archive.display());
+    }
+    let values = task::export_all()?;
+    let tasks = values
+        .iter()
+        .map(|v| serde_json::from_value::<Task>(v.clone()))
+        .collect::<Result<Vec<_>, _>>()
+        .context("could not parse a task from `task export`")?;
+    let store = task::data_location()?.join(STORE);
+    ensure!(store.is_file(), "no {STORE} in {}: export backs up a Taskwarrior 3 store", store.parent().unwrap_or(&store).display());
+
+    let stage = Stage::new("export")?;
+    std::fs::write(stage.0.join(TASKS_JSON), serde_json::to_vec_pretty(&values)?)
+        .context("could not write tasks.json")?;
+    copy_store(&store, &stage.0)?;
+
+    let mut tar = Command::new("tar");
+    tar.arg("-czf").arg(&archive).arg("-C").arg(&stage.0).args([TASKS_JSON, STORE]);
+    let reviews = refine::reports_dir(dirs);
+    if reviews.is_dir() {
+        tar.arg("-C").arg(reviews.parent().context("the reviews folder has no parent")?).arg(REVIEWS);
+    }
+    let out = tar.output().context("could not run `tar`")?;
+    if !out.status.success() {
+        let _ = std::fs::remove_file(&archive);
+        bail!("`tar` could not write {}: {}", archive.display(), String::from_utf8_lossy(&out.stderr).trim());
+    }
+    Ok(Exported { archive, tasks: tasks.len(), missing: missing_reports(&tasks, dirs) })
+}
+
+/// Copy the store into `into` with SQLite's online backup, never a plain
+/// copy: Taskwarrior keeps its latest writes in the `-wal` file beside it,
+/// which a copy of the main file alone would leave out. Run in `into`, so
+/// the target needs no quoting in the dot-command.
+fn copy_store(store: &Path, into: &Path) -> Result<()> {
+    let out = Command::new("sqlite3")
+        .arg(store)
+        .arg(format!(".backup {STORE}"))
+        .current_dir(into)
+        .output()
+        .context("could not run `sqlite3` — is it installed?")?;
+    ensure!(
+        out.status.success() && into.join(STORE).is_file(),
+        "sqlite3 could not back up {}: {}",
+        store.display(),
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    Ok(())
+}
+
+/// A scratch folder under the temp folder, removed when dropped.
+struct Stage(PathBuf);
+
+impl Stage {
+    fn new(what: &str) -> Result<Stage> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("niritasks-{what}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).with_context(|| format!("could not make {}", dir.display()))?;
+        Ok(Stage(dir))
+    }
+}
+
+impl Drop for Stage {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
     }
 }

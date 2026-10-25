@@ -429,6 +429,24 @@ fn export_values(filter: &[&str]) -> Result<Vec<Value>> {
     serde_json::from_str(trimmed).context("could not parse `task export` output as JSON")
 }
 
+/// Every task in the store, whatever its status, exactly as taskwarrior
+/// wrote it: what `niritasks export` backs up, and how `niritasks import`
+/// tells an empty store. Hooks off, so no hook runs or prints into the JSON.
+/// Unlike [`export_values`], a `task` that fails is an error, never an empty
+/// store: a backup of nothing would look like a backup.
+pub fn export_all() -> Result<Vec<Value>> {
+    let out = base()
+        .args(["rc.hooks=0", "rc.gc=off", "export"])
+        .output()
+        .context("could not run `task` — is taskwarrior installed?")?;
+    anyhow::ensure!(
+        out.status.success(),
+        "`task export` failed: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    serde_json::from_slice(&out.stdout).context("could not parse `task export` output as JSON")
+}
+
 /// Pending tasks carrying `tag`, most urgent first: taskwarrior's own
 /// `status:pending` filter.
 ///
