@@ -59,6 +59,14 @@ pub fn branch_name(description: &str, uuid: &str) -> String {
     format!("task/{}-{}", slug(description), names::uuid8(uuid))
 }
 
+/// The branch checked out in `dir`, or None: detached, no repository, or no
+/// git.
+pub fn branch_in(dir: &Path) -> Option<String> {
+    let out = Command::new("git").arg("-C").arg(dir).args(["branch", "--show-current"]).output().ok()?;
+    let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !branch.is_empty()).then_some(branch)
+}
+
 /// What the working Claude is asked first: plan the task, reading the task
 /// itself for the spec — only the uuid crosses, as with Refine, so nothing
 /// needs quoting through herdr and it always sees the current version — and

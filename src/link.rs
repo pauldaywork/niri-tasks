@@ -10,6 +10,7 @@ use crate::session::{current_pane, CurrentPane, Session};
 use crate::workspace::Workspace;
 use crate::names;
 use anyhow::{Context, Result};
+use std::path::Path;
 
 /// What to rename the agent in this pane to when it marks `uuid` active, or
 /// `None` to leave it as it is.
@@ -116,6 +117,29 @@ pub fn live_agents_named(name: Option<&str>) -> Vec<String> {
     name.and_then(|n| Workspace::named(n).ok()).map(|w| live_agent_names(&w)).unwrap_or_default()
 }
 
+/// The uuid8 of the task `session`'s focused pane is on: its agent's name
+/// when that is named for a task (`work-`, `task-` or `report-<uuid8>`),
+/// else the branch checked out in its folder (`task/<slug>-<uuid8>`), read
+/// with `branch_in`. None when the session is not running, no pane has the
+/// focus, or the pane is on no task. The daemon and `task peek --focused`
+/// both ask this, so herdr's focus hooks and a workspace switch cannot
+/// disagree on a pane's task.
+pub fn focused_uuid8(session: &Session, branch_in: impl Fn(&Path) -> Option<String>) -> Option<String> {
+    let pane = session.focused_pane()?;
+    let by_agent = session.agent(&pane.id).ok().flatten().and_then(|a| a.name);
+    by_agent
+        .and_then(|name| names::uuid8_of_agent(&name))
+        .or_else(|| pane.cwd.as_deref().and_then(branch_in).and_then(|b| names::uuid8_of_branch(&b)))
+}
+
+/// The full uuid of the task `session`'s focused pane is on, as
+/// [`focused_uuid8`] finds it, asking git for the folder's branch. None too
+/// for a uuid8 Taskwarrior does not know: a branch that outlived its task.
+pub fn focused_task(session: &Session) -> Option<String> {
+    let uuid8 = focused_uuid8(session, crate::work::branch_in)?;
+    crate::task::get(&uuid8).ok().flatten().map(|t| t.uuid)
+}
+
 /// The live agent `which` picks for `uuid` in `ws`'s herdr session, if
 /// there is one.
 pub fn live_agent(ws: &Workspace, uuid: &str, which: Which) -> Option<String> {
@@ -214,5 +238,64 @@ mod tests {
         assert_eq!(session_agent(&both, "7cd9fd3a-d27b", Which::Refine).as_deref(), Some("task-7cd9fd3a"));
         assert_eq!(session_agent(&names(&["task-7cd9fd3a"]), "7cd9fd3a-d27b", Which::Work), None);
         assert_eq!(session_agent(&names(&["work-7cd9fd3a"]), "7cd9fd3a-d27b", Which::Refine), None);
+    }
+
+    /// The branch reader the tests hand `focused_uuid8`: `branch` for any
+    /// folder, recording that it was asked.
+    fn on_branch<'a>(branch: Option<&str>, asked: &'a std::cell::Cell<bool>) -> impl Fn(&std::path::Path) -> Option<String> + 'a {
+        let branch = branch.map(String::from);
+        move |_| {
+            asked.set(true);
+            branch.clone()
+        }
+    }
+
+    /// The focused pane's agent, named for a task, wins over its folder's
+    /// branch; another pane's agent is not asked.
+    #[test]
+    fn the_focused_panes_agent_name_gives_its_task() {
+        let fake = Fake::running(&[("w1", "alpha")])
+            .with_pane("w1:p1", false, "/elsewhere")
+            .with_pane("w1:p2", true, "/work")
+            .with_agent(Some("work-11111111"), "w1:p1", "idle")
+            .with_agent(Some("task-1234abcd"), "w1:p2", "idle");
+        let s = Session::with_port("alpha", PathBuf::new(), Box::new(fake.clone()));
+        let asked = std::cell::Cell::new(false);
+        assert_eq!(focused_uuid8(&s, on_branch(Some("task/x-99999999"), &asked)).as_deref(), Some("1234abcd"));
+        assert!(!asked.get(), "the branch is not read when the agent names the task");
+        assert_eq!(fake.log(), vec!["pane_list alpha", "agent_get alpha w1:p2"]);
+    }
+
+    /// A shell, or a Claude nobody named for a task, is on the task its
+    /// folder's branch is for.
+    #[test]
+    fn a_focused_pane_on_no_tasks_agent_falls_back_to_its_branch() {
+        let fake = Fake::running(&[("w1", "alpha")])
+            .with_pane("w1:p2", true, "/work")
+            .with_agent(Some("reviewer"), "w1:p2", "idle");
+        let s = Session::with_port("alpha", PathBuf::new(), Box::new(fake));
+        let asked = std::cell::Cell::new(false);
+        assert_eq!(focused_uuid8(&s, on_branch(Some("task/fix-1234abcd"), &asked)).as_deref(), Some("1234abcd"));
+        let shell = Session::with_port(
+            "alpha",
+            PathBuf::new(),
+            Box::new(Fake::running(&[("w1", "alpha")]).with_pane("w1:p2", true, "/work")),
+        );
+        assert_eq!(focused_uuid8(&shell, on_branch(Some("task/fix-1234abcd"), &asked)).as_deref(), Some("1234abcd"));
+        assert_eq!(focused_uuid8(&shell, on_branch(Some("main"), &asked)), None);
+        assert_eq!(focused_uuid8(&shell, on_branch(None, &asked)), None, "no repository");
+    }
+
+    /// No focused pane, a stopped session, or no herdr: no task, and no
+    /// branch is read.
+    #[test]
+    fn no_focused_pane_or_no_session_gives_no_task() {
+        let asked = std::cell::Cell::new(false);
+        let unfocused = Fake::running(&[("w1", "alpha")]).with_pane("w1:p2", false, "/work");
+        for fake in [unfocused, Fake::stopped(0, "alpha"), Fake::running(&[("w1", "alpha")]).not_installed()] {
+            let s = Session::with_port("alpha", PathBuf::new(), Box::new(fake));
+            assert_eq!(focused_uuid8(&s, on_branch(Some("task/fix-1234abcd"), &asked)), None);
+        }
+        assert!(!asked.get());
     }
 }

@@ -5,7 +5,7 @@
 //! worktrees it has opened, niri's windows, and it logs every call it gets,
 //! and every claim's and setup lock's release.
 
-use super::{Agent, Claim, Claude, Created, HerdrError, HerdrResult, Opened, Port, WindowInfo, Workspace};
+use super::{Agent, Claim, Claude, Created, HerdrError, HerdrResult, Opened, Pane, Port, WindowInfo, Workspace};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -47,6 +47,8 @@ struct State {
     next_id: u32,
     worktrees: HashMap<PathBuf, Opened>,
     agents: Vec<FakeAgent>,
+    /// The panes `pane list` reports, in order.
+    panes: Vec<Pane>,
     start: StartOutcome,
     /// The code every wait for output is refused with, as when the pane's
     /// shell never gets the temp folder and herdr's wait times out.
@@ -112,6 +114,12 @@ impl Fake {
     /// No herdr on the machine: every herdr call fails to run at all.
     pub fn not_installed(self) -> Fake {
         self.state.borrow_mut().installed = false;
+        self
+    }
+
+    /// A pane in the session, focused or not, its foreground in `cwd`.
+    pub fn with_pane(self, id: &str, focused: bool, cwd: &str) -> Fake {
+        self.state.borrow_mut().panes.push(Pane { id: id.into(), focused, cwd: Some(cwd.into()) });
         self
     }
 
@@ -304,6 +312,13 @@ impl Port for Fake {
         let tokens: Vec<String> = tokens.iter().map(|(k, v)| format!("{k}={v}")).collect();
         self.note(format!("pane_report_metadata {session} {pane} {}", tokens.join(" ")));
         self.check()
+    }
+    fn pane_list(&self, session: &str) -> HerdrResult<Vec<Pane>> {
+        self.note(format!("pane_list {session}"));
+        if let Err(e) = self.check()? {
+            return Ok(Err(e));
+        }
+        Ok(Ok(self.state.borrow().panes.clone()))
     }
     fn agent_get(&self, session: &str, target: &str) -> HerdrResult<Agent> {
         self.note(format!("agent_get {session} {target}"));

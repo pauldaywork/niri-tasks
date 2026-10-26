@@ -15,7 +15,7 @@ use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use super::{Agent, Claim, Claude, Created, HerdrError, HerdrResult, Opened, Port, WindowInfo, Workspace};
+use super::{Agent, Claim, Claude, Created, HerdrError, HerdrResult, Opened, Pane, Port, WindowInfo, Workspace};
 
 fn cmd(session: &str, rest: &[&str]) -> Vec<String> {
     ["herdr", "--session", session]
@@ -59,6 +59,12 @@ pub fn agent_get(session: &str, name: &str) -> Vec<String> {
 /// has a Claude on it, for the panel's Go to list and Ctrl+Enter.
 pub fn agent_list(session: &str) -> Vec<String> {
     cmd(session, &["agent", "list"])
+}
+
+/// Every pane in the session, with which one has the focus: how the daemon
+/// and `task peek --focused` find the pane the user is on.
+pub fn pane_list(session: &str) -> Vec<String> {
+    cmd(session, &["pane", "list"])
 }
 
 /// Bring the user to an agent's pane, by name: how a launcher returns to a
@@ -241,6 +247,23 @@ pub fn agent_names(list: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Every pane in a `pane list` response, in herdr's order. A pane with no
+/// id is left out: nothing else can be asked about it.
+pub fn panes(list: &Value) -> Vec<Pane> {
+    list["result"]["panes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| {
+            Some(Pane {
+                id: p["pane_id"].as_str()?.to_string(),
+                focused: p["focused"].as_bool().unwrap_or(false),
+                cwd: p["foreground_cwd"].as_str().or(p["cwd"].as_str()).map(PathBuf::from),
+            })
+        })
+        .collect()
+}
+
 /// Open an existing git worktree as its own herdr workspace, grouped under
 /// the repository's — the same registration the herdr-worktrunk plugin does
 /// after worktrunk has made the checkout, so a worktree opened from a task
@@ -388,6 +411,9 @@ impl Port for Process {
     }
     fn pane_report_metadata(&self, s: &str, pane: &str, tokens: &[(String, String)]) -> HerdrResult<()> {
         self.call(&pane_report_metadata(s, pane, tokens), |_| Ok(()))
+    }
+    fn pane_list(&self, s: &str) -> HerdrResult<Vec<Pane>> {
+        self.call(&pane_list(s), |v| Ok(panes(v)))
     }
     fn agent_get(&self, s: &str, target: &str) -> HerdrResult<Agent> {
         self.call(&agent_get(s, target), |v| Ok(Agent { name: agent_name_of(v), status: agent_status(v) }))
@@ -1029,5 +1055,33 @@ mod tests {
             ]
         );
         assert!(workspaces(&Value::Null).is_empty());
+    }
+
+    #[test]
+    fn panes_are_listed_per_session() {
+        assert_eq!(pane_list("alpha"), vec!["herdr", "--session", "alpha", "pane", "list"]);
+    }
+
+    /// Shape from herdr 0.9.3's `pane list`. The folder is the foreground
+    /// process's, where a shell has cd'd to, else the one the pane started
+    /// in; a pane with no id is left out.
+    #[test]
+    fn panes_are_read_from_pane_list() {
+        let list: Value = serde_json::from_str(
+            r#"{"id":"cli:pane:list","result":{"panes":[
+                {"agent":"claude","cwd":"/a","focused":false,"foreground_cwd":"/a/sub","pane_id":"w1:p2A","tab_id":"w1:t1H","workspace_id":"w1"},
+                {"agent_status":"unknown","cwd":"/b","focused":true,"pane_id":"w2B:p2","tab_id":"w2B:t1","workspace_id":"w2B"},
+                {"cwd":"/c","focused":false}
+            ]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            panes(&list),
+            vec![
+                Pane { id: "w1:p2A".into(), focused: false, cwd: Some("/a/sub".into()) },
+                Pane { id: "w2B:p2".into(), focused: true, cwd: Some("/b".into()) },
+            ]
+        );
+        assert!(panes(&Value::Null).is_empty());
     }
 }

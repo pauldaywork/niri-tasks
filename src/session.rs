@@ -163,6 +163,19 @@ pub struct Agent {
     pub status: Option<String>,
 }
 
+/// A pane as `pane list` reports it: its id, whether it has the session's
+/// focus, and the folder its foreground process is in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pane {
+    /// The id other herdr calls take, such as `agent get`.
+    pub id: String,
+    /// Whether it is the session's focused pane; one at most is.
+    pub focused: bool,
+    /// Where a shell in it has cd'd to, else where it started; None when
+    /// herdr said neither.
+    pub cwd: Option<PathBuf>,
+}
+
 /// A niri window's id, app id and title: what finding the session's terminal
 /// window needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -235,6 +248,7 @@ pub(crate) trait Port {
     fn pane_wait_output(&self, session: &str, pane: &str, text: &str, timeout: Duration) -> HerdrResult<()>;
     fn pane_rename(&self, session: &str, pane: &str, label: &str) -> HerdrResult<()>;
     fn pane_report_metadata(&self, session: &str, pane: &str, tokens: &[(String, String)]) -> HerdrResult<()>;
+    fn pane_list(&self, session: &str) -> HerdrResult<Vec<Pane>>;
     fn agent_get(&self, session: &str, target: &str) -> HerdrResult<Agent>;
     fn agent_list(&self, session: &str) -> HerdrResult<Vec<String>>;
     fn agent_focus(&self, session: &str, name: &str) -> HerdrResult<()>;
@@ -641,6 +655,16 @@ impl Session {
     /// not runnable is an error, not None.
     pub fn agent(&self, target: &str) -> Result<Option<Agent>> {
         Ok(self.port.agent_get(&self.name, target)?.ok())
+    }
+
+    /// The pane with the session's focus, if any; none when the session is
+    /// stopped or herdr is not there, since the daemon asks on every
+    /// workspace switch and must not fail for it.
+    pub fn focused_pane(&self) -> Option<Pane> {
+        match self.port.pane_list(&self.name) {
+            Ok(Ok(panes)) => panes.into_iter().find(|p| p.focused),
+            _ => None,
+        }
     }
 
     /// Give the agent in `target`, a pane id or a name, the name `name`: how

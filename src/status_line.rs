@@ -9,7 +9,6 @@ use crate::{names, task, text, work};
 use serde_json::{json, Value};
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// The task's state in the Update status menu's words (`task::Status`), and
 /// `Pending` for a task not started, Taskwarrior's own word: the menu's
@@ -47,14 +46,6 @@ pub fn cwd_from(input: &str) -> Option<PathBuf> {
     v["workspace"]["current_dir"].as_str().or(v["cwd"].as_str()).map(PathBuf::from)
 }
 
-/// The branch checked out in `dir`, or None: detached, no repository, or no
-/// git.
-fn branch_in(dir: &Path) -> Option<String> {
-    let out = Command::new("git").arg("-C").arg(dir).args(["branch", "--show-current"]).output().ok()?;
-    let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (out.status.success() && !branch.is_empty()).then_some(branch)
-}
-
 /// Print `uuid`'s status line. Never fails and never notifies: Claude Code
 /// runs it on every refresh, so a task it cannot read prints a line saying
 /// so instead. Reads Claude Code's JSON from stdin unless that is a
@@ -65,7 +56,7 @@ pub fn run(uuid: &str) {
         let _ = std::io::stdin().read_to_string(&mut input);
     }
     let dir = cwd_from(&input).or_else(|| std::env::current_dir().ok());
-    let branch = dir.as_deref().and_then(branch_in);
+    let branch = dir.as_deref().and_then(work::branch_in);
     let mut out = std::io::stdout().lock();
     match task::get(uuid) {
         Ok(Some(t)) => {
