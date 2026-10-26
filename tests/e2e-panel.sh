@@ -30,13 +30,16 @@
 # longer trust.
 #
 # What it cannot check is the hover: nothing can move the pointer, so the slide
-# out, the slide back and clicks passing beside the peek are checked by hand
-# (README, "Testing"). The keyboard it can: `task panel` moves the panel to the
-# middle of the screen, and with wtype, Down (which moves the action row, and
-# shows the rest on reaching "+N more"), the filter tabs' keys, Ctrl+Enter,
-# Enter on a card's body (its notes), Ctrl+Shift+Delete and Enter for the
-# Waiting tab's Clear all, c and m on a card, and Escape are pressed in the
-# nested niri, never on your desktop.
+# out, the slide back, clicks on the peek's buttons and clicks passing beside
+# it are checked by hand (README, "Testing"). The peek itself it sets with
+# `task peek`, as herdr's task-docs plugin does from a focused pane.
+#
+# The keyboard it can check: `task panel` moves the panel to the middle of the
+# screen, and with wtype, Down (which moves the action row, and shows the rest
+# on reaching "+N more"), the filter tabs' keys, Ctrl+Enter, Enter on a card's
+# body (its notes), Ctrl+Shift+Delete and Enter for the Waiting tab's Clear
+# all, c and m on a card, and Escape are pressed in the nested niri, never on
+# your desktop.
 #
 # What a key does to the panel's state (which tab, which card has the focus,
 # what is armed) is src/panel/state.rs's, and its unit tests check every rule
@@ -209,40 +212,76 @@ read -r base_w base_h < <(frame_size baseline)
 [ "$base_w $base_h" = "$OUT_W $OUT_H" ] ||
     die "the nested screen shoots at ${base_w}x${base_h}, not ${OUT_W}x${OUT_H} — every number below assumes it"
 
-# ─── one task: a peek on the right edge ──────────────────────────────────────
+# ─── the peek: one card, the one herdr's focused pane is on ──────────────────
+# With nothing peeked the edge shows nothing, however many tasks there are.
+# `task peek` is what herdr's task-docs plugin runs as a pane is focused,
+# from that pane's session: HERDR_SESSION names the nested niri's
+# workspace, e2e, as a herdr session opened for it would. It reaches only
+# this command, never the nested niri.
+peek() {  # uuid | --clear
+    "${NENV[@]}" HERDR_SESSION=e2e "$NIRITASKS" task peek "$@" >/dev/null 2>&1
+}
+uuid_of() {  # description
+    task "description.is:$1" _uuids 2>/dev/null | head -n 1
+}
+
 add "ship it"
+settle
+shot unpeeked || { summary; exit 1; }
+if same baseline unpeeked; then
+    ok "a task with nothing peeked leaves the edge empty"
+else
+    read -r x0 x1 y0 y1 < <(measure unpeeked)
+    bad "with nothing peeked the panel drew columns ${x0}-${x1}, rows ${y0}-${y1} —
+      the edge still lists the cards"
+fi
+
+peek "$(uuid_of 'ship it')"
 settle
 shot one || { summary; exit 1; }
 read -r x0 x1 y0 y1 < <(measure one)
-one_h=$((y1 - y0))
 if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ]; then
-    ok "one task pokes out a ${PEEK}px peek and its ${RING}px ring (columns ${x0}-${x1})"
+    ok "the peeked task pokes out a ${PEEK}px peek and its ${RING}px ring (columns ${x0}-${x1})"
 else
-    bad "one task drew columns ${x0}-${x1}, expected ${PEEK_X}-${OUT_W} —
+    bad "the peeked task drew columns ${x0}-${x1}, expected ${PEEK_X}-${OUT_W} —
       0-0 means nothing drew; an earlier start means it is not tucked away.
       NIRITASKS_E2E_KEEP=1 keeps the frames to tell which"
 fi
 
-# ─── three tasks: taller, same peek ──────────────────────────────────────────
+# The keyboard on one card, for the keyboard section's heights: the panel
+# on three cards is taller than this by two unfocused one-line cards and
+# their gaps. Escape puts the peek back as it was.
+if command -v wtype >/dev/null; then
+    "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
+    settle
+    shot key_one || { summary; exit 1; }
+    read -r _ _ y0 y1 < <(measure key_one)
+    key_one_h=$((y1 - y0))
+    "${NENV[@]}" wtype -k Escape
+    settle
+    shot peek_back || { summary; exit 1; }
+    if same one peek_back; then
+        ok "Escape puts the peeked card back as it was before the keyboard took it"
+    else
+        read -r x0 x1 y0 y1 < <(measure peek_back one)
+        bad "after Escape the screen differs from the peek in columns ${x0}-${x1}, rows ${y0}-${y1}"
+    fi
+fi
+
+# ─── more tasks: still one card ──────────────────────────────────────────────
 add "write the glossary"
 add "a much longer description that has to ellipsise rather than wrap onto a second line"
 settle
 shot three || { summary; exit 1; }
-read -r x0 x1 y0 y1 < <(measure three)
-three_h=$((y1 - y0))
-if [ "$one_h" -gt 0 ] && [ "$three_h" -gt $((one_h * 2)) ]; then
-    ok "three tasks stack three cards (${three_h}px tall vs ${one_h}px for one)"
+if same one three; then
+    ok "more tasks on the workspace leave the peek one card"
 else
-    bad "three tasks drew ${three_h}px of panel against ${one_h}px for one —
-      the cards are not stacking, or a long one wrapped"
-fi
-if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ]; then
-    ok "and the peek stays the same width (columns ${x0}-${x1})"
-else
-    bad "the peek moved with the task count: columns ${x0}-${x1}, expected ${PEEK_X}-${OUT_W}"
+    read -r x0 x1 y0 y1 < <(measure three one)
+    bad "adding two tasks changed the peek in columns ${x0}-${x1}, rows ${y0}-${y1} —
+      the edge shows more than the peeked card"
 fi
 
-# ─── a task on another tag stays off this panel ──────────────────────────────
+# ─── another tag's task: nothing here, peeked or not ─────────────────────────
 task rc.verbose=nothing rc.confirmation=no add +niritasks_e2e_elsewhere -- "not here" >/dev/null 2>&1
 settle
 shot elsewhere || { summary; exit 1; }
@@ -251,6 +290,65 @@ if same three elsewhere; then
 else
     read -r x0 x1 y0 y1 < <(measure elsewhere three)
     bad "a task on another tag changed columns ${x0}-${x1}, rows ${y0}-${y1}"
+fi
+peek "$(uuid_of 'not here')"
+settle
+shot peek_elsewhere || { summary; exit 1; }
+if same baseline peek_elsewhere; then
+    ok "peeking at another workspace's task leaves this edge empty"
+else
+    read -r x0 x1 y0 y1 < <(measure peek_elsewhere)
+    bad "peeking at another tag's task drew columns ${x0}-${x1}, rows ${y0}-${y1}"
+fi
+
+# ─── a whole card: its notes, and gone once its task is ──────────────────────
+# A throwaway task, deleted before the keyboard section counts the cards.
+add "peek me"
+me=$(uuid_of 'peek me')
+peek "$me"
+settle
+shot peek_me || { summary; exit 1; }
+read -r _ _ y0 y1 < <(measure peek_me)
+plain_h=$((y1 - y0))
+task rc.verbose=nothing rc.confirmation=no "$me" annotate -- "a note on the peek" >/dev/null 2>&1
+settle
+shot peek_noted || { summary; exit 1; }
+read -r x0 x1 y0 y1 < <(measure peek_noted)
+if [ "$plain_h" -gt 0 ] && [ "$x0" -eq "$PEEK_X" ] && [ "$((y1 - y0))" -gt "$plain_h" ]; then
+    ok "the peeked card shows its notes, growing to fit (${plain_h}px to $((y1 - y0))px)"
+else
+    bad "with a note the peek covers columns ${x0}-${x1} and is $((y1 - y0))px tall, against
+      ${plain_h}px without — its notes are not shown"
+fi
+task rc.verbose=nothing rc.confirmation=no "$me" delete >/dev/null 2>&1
+settle
+shot peek_gone || { summary; exit 1; }
+if same baseline peek_gone; then
+    ok "the peeked task leaving pending leaves the edge empty"
+else
+    read -r x0 x1 y0 y1 < <(measure peek_gone)
+    bad "with the peeked task deleted the edge still draws columns ${x0}-${x1}, rows ${y0}-${y1}"
+fi
+
+# ─── peeking again, and --clear ──────────────────────────────────────────────
+peek "$(uuid_of 'ship it')"
+settle
+shot reshown || { summary; exit 1; }
+if same one reshown; then
+    ok "peeking at a task again shows its card as before"
+else
+    read -r x0 x1 y0 y1 < <(measure reshown one)
+    bad "peeking at 'ship it' again differs from the first time in columns ${x0}-${x1}, rows ${y0}-${y1}"
+fi
+# The keyboard section below works from an empty edge.
+peek --clear
+settle
+shot cleared || { summary; exit 1; }
+if same baseline cleared; then
+    ok "task peek --clear leaves the edge empty"
+else
+    read -r x0 x1 y0 y1 < <(measure cleared)
+    bad "after --clear the edge still draws columns ${x0}-${x1}, rows ${y0}-${y1}"
 fi
 
 # ─── the keyboard: every card wrapped, with its buttons, mid-screen ──────────
@@ -274,6 +372,10 @@ fi
 # row with it: only the focused card has one. So what differs between the two
 # frames is those two cards' columns, and the panel is as tall as it was.
 if command -v wtype >/dev/null; then
+    # Two unfocused one-line cards and their gaps: the keyboard's panel on
+    # three cards less the same panel on one, both with the same tabs, row
+    # and footer.
+    pair_h=$((keyboard_h - key_one_h))
     # None of these tasks is started, planned or waiting, so only All and To
     # refine have a tab. 4 is To refine: the same three cards, so only the
     # tab bar changes, the picked tab's fill moving off All.
@@ -315,10 +417,10 @@ if command -v wtype >/dev/null; then
     # What differs spans card 1's top to card 2's bottom: two one-line cards,
     # a gap, and one action row. With no row on either it would be two cards
     # and a gap, a row's height short of this.
-    if [ "$key_h" -ge $((three_h - one_h + 12)) ]; then
-        ok "and the focused card shows its buttons (${key_h}px for two cards and one row, ${three_h}px for three tucked)"
+    if [ "$key_h" -ge $((pair_h + 12)) ]; then
+        ok "and the focused card shows its buttons (${key_h}px for two cards and one row, ${pair_h}px for two without)"
     else
-        bad "the two cards Down touched are ${key_h}px tall, against $((three_h - one_h))px for
+        bad "the two cards Down touched are ${key_h}px tall, against ${pair_h}px for
       two one-line cards and their gaps — no card shows its action row"
     fi
 
@@ -430,18 +532,19 @@ if command -v wtype >/dev/null; then
         bad "after hiding the long notes the screen differs: $(whereabouts long_notes_hidden long_noted)"
     fi
 
-    # Escape from a tab other than All: the hover panel has no tabs, so it
-    # comes back exactly as before, and the next keyboard opens on All.
+    # Escape from a tab other than All: with nothing peeked the edge comes
+    # back empty, as before the keyboard took it, and the next keyboard
+    # opens on All.
     "${NENV[@]}" wtype 4
     sleep 1
     "${NENV[@]}" wtype -k Escape
     settle
     shot released || { summary; exit 1; }
-    if same three released; then
+    if same baseline released; then
         ok "Escape puts it back exactly as it was before the keyboard took it"
     else
-        read -r x0 x1 y0 y1 < <(measure released three)
-        bad "after Escape the screen differs from the tucked panel in columns
+        read -r x0 x1 y0 y1 < <(measure released)
+        bad "after Escape the screen differs from the empty edge in columns
       ${x0}-${x1}, rows ${y0}-${y1}"
     fi
 
@@ -498,10 +601,10 @@ print(any((w.get('app_id') or '')=='dev.niri-tasks.box' for w in json.load(sys.s
         wait_box False || bad "Escape did not close the box task edit opened"
         settle
         shot outside_closed || { summary; exit 1; }
-        if same three outside_closed; then
+        if same baseline outside_closed; then
             ok "a box opened from outside the panel closes with the panel tucked away"
         else
-            read -r x0 x1 y0 y1 < <(measure outside_closed three)
+            read -r x0 x1 y0 y1 < <(measure outside_closed)
             bad "after a CLI box closed the screen differs from the tucked panel in
       columns ${x0}-${x1}, rows ${y0}-${y1}"
         fi
@@ -529,7 +632,10 @@ print(any((w.get('app_id') or '')=='dev.niri-tasks.box' for w in json.load(sys.s
     fi
 
     # Park one as waiting while the panel is open: All loses it and the
-    # Waiting tab comes up, and 5 shows it there alone.
+    # Waiting tab comes up, and 5 shows it there alone. It is peeked at
+    # first, which draws nothing under the keyboard, for the check after
+    # Escape that a peek follows its task off the list.
+    peek "$(uuid_of 'ship it')"
     task rc.verbose=nothing rc.confirmation=no "+$TAG" "description.is:ship it" \
         modify wait:someday </dev/null >/dev/null 2>&1
     settle
@@ -546,31 +652,29 @@ print(any((w.get('app_id') or '')=='dev.niri-tasks.box' for w in json.load(sys.s
     fi
     # The Waiting tab's one card has its row, as the focused card on All did;
     # All's two other cards have none. So All is taller by exactly two
-    # one-line cards and their gaps, as three tucked cards are than one, less
+    # one-line cards and their gaps (pair_h), less
     # Clear all's strip under the Waiting tab's bar and the card gap over it:
     # the button's 31px and the 8px gap.
     clear_strip_h=39
     waiting_h=$((y1 - y0))
-    extra=$((keyboard_h - waiting_h - (three_h - one_h) + clear_strip_h))
+    extra=$((keyboard_h - waiting_h - pair_h + clear_strip_h))
     if [ "$extra" -ge -2 ] && [ "$extra" -le 2 ]; then
         ok "only the focused card shows its buttons (All ${keyboard_h}px, Waiting ${waiting_h}px)"
     else
         bad "All's three cards are ${keyboard_h}px against ${waiting_h}px for the Waiting
-      tab's one, ${extra}px off two one-line cards ($((three_h - one_h))px) — the unfocused
+      tab's one, ${extra}px off two one-line cards (${pair_h}px) — the unfocused
       cards still show their action rows"
     fi
 
-    # Off the keyboard, the waiting task is off the hover panel too: two
-    # cards tucked away, where there were three.
+    # Off the keyboard, the peeked task, now waiting, is off the edge.
     "${NENV[@]}" wtype -k Escape
     settle
     shot parked || { summary; exit 1; }
-    read -r x0 x1 y0 y1 < <(measure parked)
-    if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ] && [ "$((y1 - y0))" -lt "$three_h" ]; then
-        ok "a waiting task leaves the tucked panel (${three_h}px to $((y1 - y0))px)"
+    if same baseline parked; then
+        ok "a peeked task parked as waiting leaves the edge empty"
     else
-        bad "with one task waiting the tucked panel covers columns ${x0}-${x1}, rows
-      ${y0}-${y1}, against ${three_h}px for three — the waiting task is still on it"
+        read -r x0 x1 y0 y1 < <(measure parked)
+        bad "with the peeked task waiting the edge still draws columns ${x0}-${x1}, rows ${y0}-${y1}"
     fi
 
     # ─── Clear all on the Waiting tab ────────────────────────────────────────
@@ -620,9 +724,11 @@ print(any((w.get('app_id') or '')=='dev.niri-tasks.box' for w in json.load(sys.s
 
     # Armed again, Enter confirms: both waiting tasks deleted, one after the
     # other, each through task status; the task still on All and the other
-    # tag's are left alone.
+    # tag's are left alone. Counted from before, as the peek section already
+    # deleted one.
     "${NENV[@]}" wtype -M ctrl -M shift -k Delete -m shift -m ctrl
     sleep 0.5
+    deleted_before=$(count "+$TAG" status:deleted)
     notified_before=$(grep -c '^Tasks Deleted: ' "$SB/notifications" 2>/dev/null || true)
     notified_before=${notified_before:-0}
     "${NENV[@]}" wtype -k Return
@@ -631,7 +737,7 @@ print(any((w.get('app_id') or '')=='dev.niri-tasks.box' for w in json.load(sys.s
         sleep 0.5
     done
     settle
-    deleted=$(count "+$TAG" status:deleted)
+    deleted=$(($(count "+$TAG" status:deleted) - deleted_before))
     left=$(count "+$TAG" status:pending)
     elsewhere=$(count +niritasks_e2e_elsewhere status:pending)
     if [ "$deleted" = 2 ] && [ "$left" = 1 ] && [ "$elsewhere" = 1 ]; then
@@ -697,6 +803,8 @@ print(any((w.get('app_id') or '')=='dev.niri-tasks.box' for w in json.load(sys.s
     # included. It saves a second after typing stops, and again at once when
     # Escape goes back to the task list, the panel staying up; a second
     # Escape gives the keyboard back.
+    # A peek, for the second Escape to tuck the panel back onto.
+    peek "$(uuid_of 'past the cap 1')"
     "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
     settle
     shot ideas_before || { summary; exit 1; }
@@ -862,11 +970,12 @@ nested_daemon_stop
 sleep 1
 nested_daemon_start "$SB/daemon2.err"
 add "after a cold start"
+peek "$(uuid_of 'after a cold start')"
 settle
 shot cold_start || { summary; exit 1; }
 read -r x0 x1 _ _ < <(measure cold_start)
 if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ]; then
-    ok "a daemon started with nothing to show still shows the next task (columns ${x0}-${x1})"
+    ok "a daemon started with nothing to show still shows the next peek (columns ${x0}-${x1})"
 else
     bad "after a cold start with no tasks the panel drew columns ${x0}-${x1}, expected ${PEEK_X}-${OUT_W}"
 fi
