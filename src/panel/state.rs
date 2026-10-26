@@ -13,6 +13,8 @@
 //! a window, and `surface.rs` only draws what this says and runs what it
 //! asks. Where Edit left the panel, for the task box on that task closing to
 //! take the keyboard back to, lives here too.
+//! So does the peek: which task herdr's focused pane is on, whose card alone
+//! the panel shows tucked away.
 
 use crate::actions::{Action, TaskState};
 use super::actions::{self, Step};
@@ -80,7 +82,7 @@ struct Return {
 }
 
 /// A card as the panel draws it: the card, and the buttons on its action
-/// row, left to right. None off the keyboard, or on "+N more".
+/// row, left to right. None on "+N more".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shown {
     pub card: Card,
@@ -133,11 +135,16 @@ pub enum Effect {
     /// Show or hide each card's notes as [`PanelState::shows_notes`] says,
     /// and fit the panel to the cards' new heights.
     Notes,
+    /// Take the keyboard on this task's card and press this button there:
+    /// Go to… or Move to workspace clicked on the peek, whose lists the
+    /// keyboard drives. The surface asks herdr for the session's live agents
+    /// first, as the daemon does for Mod+Alt+Ctrl+T, and hands them to
+    /// [`PanelState::take_keyboard_for`].
+    TakeKeyboard { uuid: String, action: Action },
 }
 
 /// Which of the screens the panel shows while it has the keyboard.
-/// Without the keyboard it is always on Tasks: the hover and the peek are
-/// the task cards.
+/// Without the keyboard it is always on Tasks: the peek is a task card.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Mode {
     /// The task cards under their filter tabs.
@@ -189,6 +196,11 @@ pub struct PanelState {
     /// closing later than that, or one opened from anywhere else, leaves the
     /// keyboard alone.
     returning: Option<Return>,
+    /// The task herdr's focused pane is on, by uuid, whose card alone the
+    /// panel shows tucked away: the peek. None peeks at nothing. Set by the
+    /// daemon from `niritasks task peek`, and kept while the keyboard is
+    /// taken and given back.
+    peek: Option<String>,
 }
 
 impl PanelState {
@@ -234,10 +246,32 @@ impl PanelState {
         &self.armed
     }
 
-    /// This task's card shows its notes: only ever while the panel has the
-    /// keyboard, the peek's cards being one line.
+    /// This task's card shows its notes: with the keyboard, the card whose
+    /// body was pressed; tucked away, the peeked card, always.
     pub fn shows_notes(&self, uuid: &str) -> bool {
-        self.keyboard && self.notes.as_deref() == Some(uuid)
+        if self.keyboard {
+            self.notes.as_deref() == Some(uuid)
+        } else {
+            self.peeked().is_some_and(|c| c.uuid.as_deref() == Some(uuid))
+        }
+    }
+
+    /// The card whose action row shows: the focused one with the keyboard,
+    /// the peeked one tucked away.
+    pub fn row_card(&self) -> Option<&str> {
+        if self.keyboard {
+            self.focus.as_ref().map(|f| f.uuid.as_str())
+        } else {
+            self.peeked().and_then(|c| c.uuid.as_deref())
+        }
+    }
+
+    /// The peeked task's card, while its task is under All: pending on this
+    /// workspace, neither waiting nor finished. None otherwise, and the
+    /// tucked-away panel then shows nothing.
+    fn peeked(&self) -> Option<&Card> {
+        let uuid = self.peek.as_deref()?;
+        self.all.iter().find(|c| c.uuid.as_deref() == Some(uuid) && Filter::All.matches(c))
     }
 
     /// The project list, while it is up.
@@ -291,17 +325,17 @@ impl PanelState {
         self.projects().map(ProjectList::at).or_else(|| self.goto().map(GoToList::at))
     }
 
-    /// Nothing to show, so the panel hides. The hover and the peek show no
-    /// waiting or finished task, so they hide with nothing else; the
-    /// keyboard's panel still has the Waiting and Finished tabs, and hides
-    /// only with no task at all. On
-    /// Ideas it never hides: the notepad is there with no task too. Nor on
-    /// the project list, which Mod+Alt+W opens with no task.
+    /// Nothing to show, so the panel hides. Tucked away it shows the peeked
+    /// card alone, so it hides with nothing peeked, or with a peeked task
+    /// that is not under All. The keyboard's panel still has the Waiting and
+    /// Finished tabs, and hides only with no task at all. On Ideas it never
+    /// hides: the notepad is there with no task too. Nor on the project
+    /// list, which Mod+Alt+W opens with no task.
     pub fn hidden(&self) -> bool {
         if self.keyboard {
             self.all.is_empty() && self.on_tasks()
         } else {
-            Filter::All.pick(&self.all).is_empty()
+            self.peeked().is_none()
         }
     }
 
@@ -321,24 +355,23 @@ impl PanelState {
         self.keyboard && self.on_tasks() && self.filter == Filter::Waiting
     }
 
-    /// The cards to draw, top to bottom: the picked tab's, or All's off the
-    /// keyboard, filtered before the cap so "+N more" is the rest of this
-    /// tab, and uncapped once expanded. None on Ideas, which is a notepad, not
-    /// cards, nor on the project list, which draws folders.
+    /// The cards to draw, top to bottom. With the keyboard, the picked tab's,
+    /// filtered before the cap so "+N more" is the rest of this tab, and
+    /// uncapped once expanded. Tucked away, the peeked card alone, with its
+    /// buttons: they are clicked while herdr keeps the keyboard, and with no
+    /// agents asked for, its state knows of no live Claude. None on Ideas,
+    /// which is a notepad, not cards, nor on the project list, which draws
+    /// folders.
     pub fn visible(&self) -> Vec<Shown> {
         if !self.on_tasks() {
             return Vec::new();
         }
-        let picked = self.shown_filter().pick(&self.all);
+        if !self.keyboard {
+            return self.peeked().map(|card| shown_card(card.clone(), &[])).into_iter().collect();
+        }
+        let picked = self.filter.pick(&self.all);
         let cards = if self.expanded { picked } else { model::cap(&picked, model::CAP) };
-        cards
-            .into_iter()
-            .map(|card| {
-                let state = if self.keyboard { card.state(&self.agents) } else { None };
-                let actions = state.map(Action::row).unwrap_or_default();
-                Shown { card, actions, state }
-            })
-            .collect()
+        cards.into_iter().map(|card| shown_card(card, &self.agents)).collect()
     }
 
     /// The footer under the list: the keys that act alike on every card, or
@@ -458,6 +491,39 @@ impl PanelState {
         Taken::Card
     }
 
+    /// herdr's focused pane is on this task, or on none: the card the panel
+    /// shows tucked away. Nothing when it is the task already peeked at, so
+    /// the focus events one switch fires draw once. With the keyboard nothing
+    /// redraws: the peek shows once the keyboard is given back. Tucked away
+    /// the card redraws, and a Remove armed on the old one is disarmed.
+    pub fn set_peek(&mut self, uuid: Option<&str>) -> Vec<Effect> {
+        if self.peek.as_deref() == uuid {
+            return Vec::new();
+        }
+        self.peek = uuid.map(String::from);
+        if self.keyboard {
+            return Vec::new();
+        }
+        self.armed = Armed::None;
+        vec![Effect::Render]
+    }
+
+    /// A click on the peek's Go to… or Move to workspace: take the keyboard
+    /// on that card, as herdr's task-docs.panel does, and press the button
+    /// there, its list needing the keyboard. A render of the keyboard's cards
+    /// first, then the press's own effects. Nothing once the peek has moved
+    /// off that card or left All, and nothing with the keyboard already
+    /// taken. `agents` are as `take_keyboard`'s.
+    pub fn take_keyboard_for(&mut self, uuid: &str, action: Action, agents: Vec<String>) -> Vec<Effect> {
+        if self.keyboard || self.peeked().and_then(|c| c.uuid.as_deref()) != Some(uuid) {
+            return Vec::new();
+        }
+        self.take_keyboard_on(uuid, agents);
+        let mut effects = vec![Effect::Render];
+        effects.extend(self.on_press(uuid, Slot::Button(action)));
+        effects
+    }
+
     /// The task box on `uuid` closing takes the keyboard back here: this
     /// panel's Edit opened it, and the keyboard has been neither taken nor
     /// given back since.
@@ -511,13 +577,14 @@ impl PanelState {
         vec![Effect::Render]
     }
 
-    /// The pointer left and the cards slid back: an expanded list folds up.
+    /// The pointer left and the peek slid back: a Remove armed on it is
+    /// disarmed, so the next click starts from Remove again. Its label comes
+    /// back with the sync that follows every effect the surface runs.
     pub fn on_tuck(&mut self) -> Vec<Effect> {
-        if std::mem::take(&mut self.expanded) {
-            vec![Effect::Render]
-        } else {
-            Vec::new()
+        if !self.keyboard {
+            self.armed = Armed::None;
         }
+        Vec::new()
     }
 
     /// "+N more" clicked, or Down onto it: every card in its place, the focus
@@ -666,6 +733,9 @@ impl PanelState {
     /// one. Up next keeps the card and the focus, so a second press undoes
     /// it. Move to workspace disarms and asks for the project list. Go to…
     /// disarms and asks for its list.
+    /// Tucked away, the peek's buttons are clicked while herdr keeps the
+    /// keyboard, and run as they would with it, but for Go to… and Move to
+    /// workspace, which take the keyboard on the card first.
     pub fn on_press(&mut self, uuid: &str, slot: Slot) -> Vec<Effect> {
         if self.on_a_list() {
             return Vec::new();
@@ -674,6 +744,13 @@ impl PanelState {
             Slot::Body => return self.toggle_notes(uuid),
             Slot::Button(action) => action,
         };
+        // Tucked away, Go to… and Move to workspace open lists the keyboard
+        // drives: the surface takes it on this card, then presses the button
+        // again from there.
+        if !self.keyboard && matches!(action, Action::GoTo | Action::Move) {
+            self.armed = Armed::None;
+            return vec![Effect::TakeKeyboard { uuid: uuid.into(), action }];
+        }
         // The rows need a look at the machine, which the surface takes: it
         // answers with show_goto. The keyboard and the focus stay put.
         if action == Action::GoTo {
@@ -688,8 +765,9 @@ impl PanelState {
         }
         if action == Action::Remove && self.armed != Armed::Remove(uuid.into()) {
             // Focus first: the move disarms whatever was armed before, and
-            // this one is armed only after it.
-            let effects = self.focus_on(Focus { uuid: uuid.into(), slot });
+            // this one is armed only after it. Tucked away there is no focus
+            // to move: the peek's buttons are clicked, never focused.
+            let effects = if self.keyboard { self.focus_on(Focus { uuid: uuid.into(), slot }) } else { Vec::new() };
             self.armed = Armed::Remove(uuid.into());
             return effects;
         }
@@ -1136,6 +1214,14 @@ fn first_task(shown: &[Shown]) -> Option<Focus> {
     shown.iter().find_map(|s| s.card.uuid.as_deref()).map(Focus::body)
 }
 
+/// A card as drawn: its buttons and its state, from the session's live
+/// agents. "+N more" has neither.
+fn shown_card(card: Card, agents: &[String]) -> Shown {
+    let state = card.state(agents);
+    let actions = state.map(Action::row).unwrap_or_default();
+    Shown { card, actions, state }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1282,14 +1368,142 @@ mod tests {
 
     // ─── what shows ──────────────────────────────────────────────────────
 
+    /// Tucked away, the panel shows the peeked card alone, its buttons on and
+    /// its notes shown, with no tabs and no focus; nothing peeked shows
+    /// nothing.
     #[test]
-    fn the_hover_shows_alls_cards_with_no_tabs_or_buttons() {
+    fn tucked_away_only_the_peeked_card_shows_with_its_buttons() {
         let mut state = PanelState::default();
-        assert_eq!(state.set_cards(&[card("a", Status::Pending), card("w", Status::Waiting)]), vec![Effect::Render]);
-        assert_eq!(uuids(&state), vec!["a"]);
+        state.set_cards(&[noted("a"), card("b", Status::Pending)]);
+        assert!(state.hidden(), "nothing peeked, nothing on the edge");
+        assert!(state.visible().is_empty());
+        assert_eq!(state.set_peek(Some("b")), vec![Effect::Render]);
+        assert!(!state.hidden());
+        assert_eq!(uuids(&state), vec!["b"]);
+        let shown = &state.visible()[0];
+        assert_eq!(shown.actions, Action::row(shown.state.expect("a task's card has a state")));
+        assert!(!shown.actions.is_empty());
         assert!(state.tabs().is_empty());
-        assert!(state.visible()[0].actions.is_empty());
         assert_eq!(state.focus(), None);
+        assert_eq!(state.row_card(), Some("b"));
+        state.set_peek(Some("a"));
+        assert!(state.shows_notes("a"));
+        assert!(!state.shows_notes("b"));
+    }
+
+    /// The three focus events one herdr switch can fire draw once; a clear
+    /// hides the panel, and a second clear does nothing.
+    #[test]
+    fn the_same_peek_again_changes_nothing() {
+        let mut state = PanelState::default();
+        state.set_cards(&pending(&["a"]));
+        state.set_peek(Some("a"));
+        assert_eq!(state.set_peek(Some("a")), Vec::new());
+        assert_eq!(state.set_peek(None), vec![Effect::Render]);
+        assert!(state.hidden());
+        assert_eq!(state.set_peek(None), Vec::new());
+    }
+
+    /// A peeked task not under All shows nothing: waiting, finished, or on
+    /// another workspace. Back on the list, it shows again.
+    #[test]
+    fn a_peeked_task_off_all_shows_nothing() {
+        let mut state = PanelState::default();
+        state.set_cards(&[card("a", Status::Waiting), card("f", Status::Finished)]);
+        for uuid in ["a", "f", "elsewhere"] {
+            state.set_peek(Some(uuid));
+            assert!(state.hidden(), "{uuid}");
+            assert_eq!(state.row_card(), None, "{uuid}");
+        }
+        state.set_peek(Some("a"));
+        state.set_cards(&pending(&["a"]));
+        assert!(!state.hidden(), "Back to list puts the peek back");
+    }
+
+    /// Mod+Alt+Ctrl+T is as it was: every card, the focus on the first. A
+    /// peek set meanwhile redraws nothing, and shows once the keyboard is
+    /// given back.
+    #[test]
+    fn the_keyboard_shows_every_card_and_keeps_the_peek_for_after() {
+        let mut state = PanelState::default();
+        state.set_cards(&pending(&["a", "b"]));
+        state.set_peek(Some("b"));
+        assert!(state.take_keyboard(Vec::new()));
+        assert_eq!(uuids(&state), vec!["a", "b"]);
+        assert_eq!(state.row_card(), Some("a"), "the focused card's row");
+        assert_eq!(state.set_peek(Some("a")), Vec::new(), "nothing redraws under the keyboard");
+        key(&mut state, KeyAction::Release);
+        assert_eq!(uuids(&state), vec!["a"]);
+        assert_eq!(state.row_card(), Some("a"));
+    }
+
+    /// The peek's buttons run as they do with the keyboard, which stays
+    /// herdr's: Complete and Start working spawn at once, Edit's box will
+    /// not hand the keyboard to the panel as it closes, and Remove arms
+    /// first, with no focus to move.
+    #[test]
+    fn the_peeks_buttons_run_by_click_without_the_keyboard() {
+        let mut state = PanelState::default();
+        state.set_cards(&pending(&["a"]));
+        state.set_peek(Some("a"));
+        for action in [Action::Complete, Action::Start, Action::Edit] {
+            assert_eq!(state.on_press("a", Slot::Button(action)), vec![Effect::Spawn(action.args("a"))], "{action:?}");
+        }
+        assert!(!state.returns_to("a"), "Edit's box closing leaves herdr the keyboard");
+        assert_eq!(state.on_press("a", Slot::Button(Action::Remove)), Vec::new(), "armed, no focus to move");
+        assert_eq!(state.armed(), &Armed::Remove("a".into()));
+        assert_eq!(state.on_press("a", Slot::Button(Action::Remove)), vec![Effect::Spawn(Action::Remove.args("a"))]);
+        assert!(!state.keyboard());
+    }
+
+    /// Go to… and Move to workspace on the peek open lists the keyboard
+    /// drives: the click asks for the keyboard on that card, and taking it
+    /// presses the button there, after a render of the keyboard's cards.
+    #[test]
+    fn the_peeks_go_to_and_move_take_the_keyboard_on_its_card() {
+        let mut state = PanelState::default();
+        state.set_cards(&pending(&["a", "b"]));
+        state.set_peek(Some("b"));
+        for action in [Action::GoTo, Action::Move] {
+            assert_eq!(state.on_press("b", Slot::Button(action)), vec![Effect::TakeKeyboard { uuid: "b".into(), action }]);
+            assert!(!state.keyboard(), "only asked for");
+        }
+        assert_eq!(
+            state.take_keyboard_for("b", Action::GoTo, Vec::new()),
+            vec![Effect::Render, Effect::ListGoTo("b".into())]
+        );
+        assert!(state.keyboard());
+        assert_eq!(state.focus(), focused("b", Slot::Body).as_ref());
+    }
+
+    /// An answer that comes late finds the peek moved on, or the keyboard
+    /// already taken: nothing.
+    #[test]
+    fn taking_the_keyboard_for_a_peek_that_left_does_nothing() {
+        let mut state = PanelState::default();
+        state.set_cards(&pending(&["a", "b"]));
+        state.set_peek(Some("b"));
+        state.set_peek(Some("a"));
+        assert_eq!(state.take_keyboard_for("b", Action::GoTo, Vec::new()), Vec::new());
+        assert!(!state.keyboard());
+        state.set_peek(Some("b"));
+        assert!(state.take_keyboard(Vec::new()));
+        assert_eq!(state.take_keyboard_for("b", Action::Move, Vec::new()), Vec::new());
+    }
+
+    /// The pointer leaving, or the peek moving to another task, disarms a
+    /// Remove armed on the peek.
+    #[test]
+    fn tucking_away_or_a_new_peek_disarms_the_peeks_remove() {
+        let mut state = PanelState::default();
+        state.set_cards(&pending(&["a", "b"]));
+        state.set_peek(Some("a"));
+        state.on_press("a", Slot::Button(Action::Remove));
+        assert_eq!(state.on_tuck(), Vec::new());
+        assert_eq!(state.armed(), &Armed::None);
+        state.on_press("a", Slot::Button(Action::Remove));
+        state.set_peek(Some("b"));
+        assert_eq!(state.armed(), &Armed::None);
     }
 
     #[test]
@@ -1380,17 +1594,6 @@ mod tests {
     }
 
     // ─── the Finished tab ────────────────────────────────────────────────
-
-    /// Finished tasks are off the hover and the peek, as waiting ones are,
-    /// and a workspace with only finished tasks shows nothing on its edge.
-    #[test]
-    fn finished_tasks_are_off_the_hover() {
-        let mut state = PanelState::default();
-        state.set_cards(&[card("a", Status::Pending), card("f", Status::Finished)]);
-        assert_eq!(uuids(&state), vec!["a"]);
-        state.set_cards(&[card("f", Status::Finished)]);
-        assert!(state.hidden());
-    }
 
     /// Only finished tasks: the keyboard's panel opens on All saying it has
     /// none, beside the Finished tab, as with only waiting tasks.
@@ -1489,7 +1692,8 @@ mod tests {
         assert!(state.hidden());
     }
 
-    /// Escape: one line per card again, the hover's All, on the right edge.
+    /// Escape: All for the next time, nothing expanded or focused, and the
+    /// peek back on the right edge.
     #[test]
     fn escape_gives_the_keyboard_back_on_all_folded_up() {
         let mut cards = pending(&["p"]);
@@ -1497,25 +1701,13 @@ mod tests {
         let mut state = keyboard(cards);
         key(&mut state, KeyAction::Filter(Filter::Waiting));
         state.on_more();
+        state.set_peek(Some("p"));
         assert_eq!(key(&mut state, KeyAction::Release), vec![Effect::Render, Effect::Release]);
         assert!(!state.keyboard());
         assert_eq!(state.filter(), Filter::All);
         assert_eq!(state.focus(), None);
         assert_eq!(uuids(&state), vec!["p"]);
         assert_eq!(state.on_action(KeyAction::Release), None, "already given back, not the panel's key");
-    }
-
-    #[test]
-    fn tucking_away_folds_an_expanded_list() {
-        let names: Vec<String> = (0..10).map(|i| format!("t{i}")).collect();
-        let mut state = PanelState::default();
-        state.set_cards(&pending(&names.iter().map(String::as_str).collect::<Vec<_>>()));
-        assert_eq!(state.on_more(), vec![Effect::Render]);
-        assert_eq!(state.visible().len(), 10);
-        assert_eq!(state.focus(), None, "the hover has no focus");
-        assert_eq!(state.on_tuck(), vec![Effect::Render]);
-        assert_eq!(state.visible().len(), model::CAP + 1);
-        assert_eq!(state.on_tuck(), Vec::new());
     }
 
     // ─── the focus ───────────────────────────────────────────────────────
@@ -1810,13 +2002,16 @@ mod tests {
         assert_eq!(state.armed(), &Armed::None);
     }
 
-    /// The peek's cards are one line each: a click on one shows nothing.
+    /// The peeked card always shows its notes: a click on its body neither
+    /// hides them nor takes the keyboard.
     #[test]
-    fn the_peek_shows_no_notes() {
+    fn a_click_on_the_peeks_body_changes_nothing() {
         let mut state = PanelState::default();
         state.set_cards(&[noted("a")]);
+        state.set_peek(Some("a"));
         assert_eq!(state.on_press("a", Slot::Body), Vec::new());
-        assert!(!state.shows_notes("a"));
+        assert!(state.shows_notes("a"));
+        assert!(!state.keyboard());
     }
 
     /// Shown notes are the panel's, not the widgets', so the daemon's tick
@@ -2948,8 +3143,9 @@ mod tests {
     #[test]
     fn a_click_opens_that_row() {
         let mut state = opening(&pending(&["a"]));
+        state.set_peek(Some("a"));
         assert_eq!(state.on_folder(0), vec![Effect::Render, Effect::Release, open("x")]);
-        assert!(!state.hidden(), "the card peeks again");
+        assert!(!state.hidden(), "the peeked card peeks again");
     }
 
     /// A name matching nothing makes a folder of it, normalised as

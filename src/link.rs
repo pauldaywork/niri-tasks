@@ -108,6 +108,14 @@ pub fn live_agent_names(ws: &Workspace) -> Vec<String> {
     Session::named(&ws.session_name()).agent_names()
 }
 
+/// The live herdr agents in the session of the workspace named `name`: one
+/// `herdr agent list`, for every card at once. None for an unnamed
+/// workspace, or a session that is not running, which answers at once with
+/// none.
+pub fn live_agents_named(name: Option<&str>) -> Vec<String> {
+    name.and_then(|n| Workspace::named(n).ok()).map(|w| live_agent_names(&w)).unwrap_or_default()
+}
+
 /// The live agent `which` picks for `uuid` in `ws`'s herdr session, if
 /// there is one.
 pub fn live_agent(ws: &Workspace, uuid: &str, which: Which) -> Option<String> {

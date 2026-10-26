@@ -286,16 +286,6 @@ fn panel_notice(asked: bool, taken: Taken, tag: impl FnOnce() -> anyhow::Result<
     }
 }
 
-/// The live herdr agents in the session of the workspace named `name`, for
-/// a panel taking the keyboard: one `herdr agent list` for every card at
-/// once. None for an unnamed workspace, or a session that is not running,
-/// which answers at once with none.
-fn live_agents(name: Option<&str>) -> Vec<String> {
-    name.and_then(|n| Workspace::named(n).ok())
-        .map(|w| crate::link::live_agent_names(&w))
-        .unwrap_or_default()
-}
-
 /// Serve one request from the CLI: a task box, the panel's keyboard, or the
 /// project list. A task box's taskwarrior work is done here when it is
 /// submitted, because the CLI has already exited by then.
@@ -317,7 +307,7 @@ fn serve_request(app: &Application, req: crate::ipc::Request) {
             // No panel reads as no cards: either way there is nothing to
             // hand the keyboard to, and the tag says why.
             let taken = focused_panel().map_or(Taken::Not, |(panel, focused)| {
-                let agents = live_agents(focused.name.as_deref());
+                let agents = crate::link::live_agents_named(focused.name.as_deref());
                 match uuid.as_deref() {
                     Some(uuid) => panel.take_keyboard_on(uuid, agents),
                     None if panel.take_keyboard(agents) => Taken::First,
@@ -435,7 +425,7 @@ fn return_keyboard(uuid: &str) {
         .unwrap_or_default();
     for (connector, panel) in returning {
         let name = names.get(&connector).cloned().flatten();
-        panel.take_keyboard_back(uuid, live_agents(name.as_deref()));
+        panel.take_keyboard_back(uuid, crate::link::live_agents_named(name.as_deref()));
     }
 }
 
@@ -464,12 +454,10 @@ fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {
     let mut by_name: HashMap<Option<String>, Vec<model::Card>> = HashMap::new();
     for (connector, panel) in panels.borrow().iter() {
         let name = outputs.get(connector).cloned().flatten();
-        // The panel's tag, for the notepad its Ideas tab opens.
-        let t = tag::workspace_tag(name.as_deref().unwrap_or_default());
         let cards = by_name
             .entry(name.clone())
             .or_insert_with(|| cards_for_workspace(name.as_deref()));
-        panel.show(&t, cards);
+        panel.show(name.as_deref(), cards, None);
     }
 
     let mut s = state.borrow_mut();

@@ -28,12 +28,24 @@
 //! the cards move under it, and shrinks only *after* a slide back finishes, so
 //! a pointer returning mid-slide still counts as hovering.
 //!
+//! ## The peek
+//!
+//! Tucked away, the panel shows one card at most: the task herdr's focused
+//! pane is on, which the daemon hands `show` (`PanelState::visible`). It is
+//! drawn whole, as the keyboard draws a card, its id line and notes shown
+//! and its action row on, so sliding it out shows everything at once; only
+//! its left `PEEK_PX` shows until then. Its buttons are clicked while herdr
+//! keeps the keyboard, the surface staying off keyboard focus. Go to… and
+//! Move to workspace open lists the keyboard drives, so a click on either
+//! takes the keyboard on that card first (`Effect::TakeKeyboard`) and
+//! presses the button from there.
+//!
 //! ## The keyboard
 //!
 //! Mod+Alt+Ctrl+T hands the panel the keyboard in the middle of the screen,
-//! and every card lays itself out again: its whole description, wrapped, and,
-//! on the focused card alone, a row of buttons for the task's actions
-//! under it, so the list stays short enough to scan. A card is a box
+//! with every pending card of the workspace, each its whole description,
+//! wrapped, and, on the focused card alone, a row of buttons for the task's
+//! actions under it, so the list stays short enough to scan. A card is a box
 //! holding a body button and that row; every card has its row, shown and
 //! hidden as the focus moves rather than built again, since a render would
 //! lose the focused button. Up and Down move between cards, Down onto "+N
@@ -49,8 +61,8 @@
 //! ahead of GTK's own focus chain, which would otherwise walk every button on
 //! the panel. The focused card is darkened. Enter, Space or a click on its
 //! body shows the task's id and uuid and its notes, or hides them.
-//! Escape, or anything that runs, hands the keyboard back, folds the cards to
-//! one line again, and puts the panel back on the right edge as a peek. The
+//! Escape, or anything that runs, hands the keyboard back and puts the panel
+//! back on the right edge, on the peek. The
 //! task box Edit opened takes it again as it closes, on the card Edit was
 //! pressed on.
 //!
@@ -240,6 +252,10 @@ pub struct Panel {
     notepad: Rc<Notepad>,
     /// The workspace tag this panel shows, whose notepad Ideas opens.
     tag: RefCell<String>,
+    /// The name of the workspace this panel shows, for the herdr session
+    /// whose agents a click on the peek's Go to… or Move to workspace asks
+    /// for.
+    name: RefCell<Option<String>>,
 }
 
 /// One card on screen: the widgets a focus or an arming is drawn on, found
@@ -249,10 +265,10 @@ struct CardWidgets {
     uuid: Option<String>,
     root: gtk4::Box,
     body: gtk4::Button,
-    /// None on "+N more", and on every card off the keyboard.
+    /// None on "+N more", and on a card with no buttons: a processing one.
     row: Option<ActionRow>,
     /// The task's id line and notes under the description, shown while the
-    /// state says. None on "+N more" and on every card off the keyboard.
+    /// state says. None on "+N more".
     notes: Option<gtk4::ScrolledWindow>,
     /// The age at the right end, and the stamp it counts from, for the
     /// minute timer. None on "+N more".
@@ -368,6 +384,7 @@ impl Panel {
             blur: RefCell::new(None),
             notepad: Notepad::new(),
             tag: RefCell::new(String::new()),
+            name: RefCell::new(None),
         });
 
         {
@@ -567,23 +584,29 @@ impl Panel {
         });
     }
 
-    /// Show the cards of the workspace this tag is for, capped, or hide the
-    /// panel when there are none. A new tag moves the notepad: what was typed
-    /// is saved to the tag it was typed for, and, with the keyboard still
-    /// held, the new tag's ideas load at once; without it they load when the
-    /// panel next takes it.
-    pub fn show(self: &Rc<Self>, tag: &str, cards: &[Card]) {
+    /// Show the cards of the workspace named `name`, and `peek`, the task
+    /// herdr's focused pane is on, as the tucked-away panel's one card; or
+    /// hide the panel when there is nothing to show. A new workspace moves
+    /// the notepad: what was typed is saved to the tag it was typed for,
+    /// and, with the keyboard still held, the new tag's ideas load at once;
+    /// without it they load when the panel next takes it.
+    pub fn show(self: &Rc<Self>, name: Option<&str>, cards: &[Card], peek: Option<&str>) {
+        let tag = crate::tag::workspace_tag(name.unwrap_or_default());
+        *self.name.borrow_mut() = name.map(String::from);
         if self.tag.borrow().as_str() != tag {
-            *self.tag.borrow_mut() = tag.to_string();
+            *self.tag.borrow_mut() = tag.clone();
             // Edit's box was for the old workspace's card.
             self.state.borrow_mut().forget_return();
             if self.state.borrow().keyboard() {
-                self.notepad.load(tag);
+                self.notepad.load(&tag);
             } else {
                 self.notepad.flush();
             }
         }
-        let effects = self.state.borrow_mut().set_cards(cards);
+        let mut effects = self.state.borrow_mut().set_peek(peek);
+        effects.extend(self.state.borrow_mut().set_cards(cards));
+        // Both may ask for a render; one does.
+        effects.dedup();
         self.apply(effects);
     }
 
@@ -719,6 +742,15 @@ impl Panel {
                 Effect::Notes => {
                     self.show_notes();
                     self.follow_focus();
+                }
+                Effect::TakeKeyboard { uuid, action } => {
+                    // As the daemon does for Mod+Alt+Ctrl+T: the session's
+                    // live agents, for the Go to list's sessions.
+                    let agents = crate::link::live_agents_named(self.name.borrow().as_deref());
+                    let effects = self.state.borrow_mut().take_keyboard_for(&uuid, action, agents);
+                    if !effects.is_empty() {
+                        self.centre(effects);
+                    }
                 }
             }
         }
@@ -909,7 +941,7 @@ impl Panel {
             Mode::Ideas => self.draw_ideas(),
             Mode::Projects { list, .. } => self.draw_projects(list, hint.as_deref()),
             Mode::GoTo(list) => self.draw_goto(list),
-            Mode::Tasks => self.draw_tasks(&shown, keyboard, empty),
+            Mode::Tasks => self.draw_tasks(&shown, empty),
         });
         // On the project list the bar holds its text field instead of the
         // tabs, which filter task cards. The Go to list has neither, so the
@@ -1001,9 +1033,9 @@ impl Panel {
     }
 
     /// The task cards in the column, or the line that says the tab has none.
-    fn draw_tasks(self: &Rc<Self>, shown: &[Shown], keyboard: bool, empty: Option<&str>) {
+    fn draw_tasks(self: &Rc<Self>, shown: &[Shown], empty: Option<&str>) {
         self.clear_column();
-        let cards: Vec<CardWidgets> = shown.iter().map(|s| self.card_widget(s, keyboard)).collect();
+        let cards: Vec<CardWidgets> = shown.iter().map(|s| self.card_widget(s)).collect();
         for card in &cards {
             self.column.append(&card.root);
         }
@@ -1024,11 +1056,12 @@ impl Panel {
     }
 
     /// One card: a box holding the body, a button so the keyboard can focus
-    /// and press it, and, while the panel has the keyboard, its action row
-    /// along the bottom, hidden until the card has focus. The body shows or
-    /// hides the task's notes on a task's card, and shows the rest in place
-    /// of "+N more".
-    fn card_widget(self: &Rc<Self>, shown: &Shown, keyboard: bool) -> CardWidgets {
+    /// and press it, and its action row along the bottom, shown on the card
+    /// `PanelState::row_card` names: the focused one with the keyboard, the
+    /// peek tucked away. The body shows or hides the task's notes on a
+    /// task's card while the panel has the keyboard, and shows the rest in
+    /// place of "+N more".
+    fn card_widget(self: &Rc<Self>, shown: &Shown) -> CardWidgets {
         let card = &shown.card;
         let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         root.add_css_class("task-card");
@@ -1051,13 +1084,13 @@ impl Panel {
         // Clips the action row to the card's rounded bottom corners.
         root.set_overflow(gtk4::Overflow::Hidden);
 
-        let (label, age) = card_label(card, keyboard);
+        let (label, age) = card_label(card);
         // The notes go inside the body, under the description, so a click
         // on them hides them as a click on the description does. Every task
         // card has the box, a card with no notes for its id line alone.
         let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         content.append(&label);
-        let notes = card.uuid.as_deref().zip(card.id_line()).filter(|_| keyboard).map(|(uuid, id_line)| {
+        let notes = card.uuid.as_deref().zip(card.id_line()).map(|(uuid, id_line)| {
             let fits = notes_fit(&id_line, &card.notes);
             let notes = notes_scroller(&notes_box(&id_line, &card.notes), fits);
             notes.set_visible(self.state.borrow().shows_notes(uuid));
@@ -1228,9 +1261,9 @@ impl Panel {
     /// whether Clear all, reads as armed, and which card shows its action row
     /// and its hint for the focused slot.
     fn sync(&self) {
-        let (focus, armed) = {
+        let (row, armed) = {
             let state = self.state.borrow();
-            (state.focus().cloned(), state.armed().clone())
+            (state.row_card().map(String::from), state.armed().clone())
         };
         let picked = self.state.borrow().row_at();
         for (at, (root, _)) in self.folders.borrow().iter().enumerate() {
@@ -1255,7 +1288,7 @@ impl Panel {
                 row.hint.set_label(&hint);
             }
         }
-        self.show_row(focus.as_ref().map(|f| f.uuid.as_str()));
+        self.show_row(row.as_deref());
         if relabelled && self.clear_strip.is_visible() {
             self.refit();
         }
@@ -1490,14 +1523,13 @@ fn notes_scroller(column: &gtk4::Box, fits: bool) -> gtk4::ScrolledWindow {
     scroller
 }
 
-/// The card's icon, description and age: one line cut off with "…" for the
-/// peek and the hover, or all of it, wrapped, while the panel has the
-/// keyboard. The age label comes back too, for the minute timer to update.
+/// The card's icon, its whole description, wrapped, and its age. The age
+/// label comes back too, for the minute timer to update.
 ///
 /// The icon is a label of its own beside the text, so wrapped lines start
 /// under the first line's text rather than back under the icon. The age is
-/// one too, at the right end, so the text's "…" stops short of it.
-fn card_label(card: &Card, wrap: bool) -> (gtk4::Box, Option<gtk4::Label>) {
+/// one too, at the right end, level with the first line.
+fn card_label(card: &Card) -> (gtk4::Box, Option<gtk4::Label>) {
     let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     if let Some(icon) = Some(card.icon()).filter(|i| !i.is_empty()) {
         // The two spaces are the gap the one-label card had after its icon.
@@ -1508,14 +1540,9 @@ fn card_label(card: &Card, wrap: bool) -> (gtk4::Box, Option<gtk4::Label>) {
     let text = gtk4::Label::new(Some(&card.text));
     text.set_xalign(0.0);
     text.set_hexpand(true);
-    if wrap {
-        text.set_wrap(true);
-        // WordChar: a long path or URL with no spaces still breaks.
-        text.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-    } else {
-        text.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-        text.set_single_line_mode(true);
-    }
+    text.set_wrap(true);
+    // WordChar: a long path or URL with no spaces still breaks.
+    text.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
     row.append(&text);
     let age = card.age(crate::task::now_secs()).map(|a| {
         let age = gtk4::Label::new(Some(&a));
@@ -1527,6 +1554,7 @@ fn card_label(card: &Card, wrap: bool) -> (gtk4::Box, Option<gtk4::Label>) {
     });
     (row, age)
 }
+
 /// The column's scroller, for cards that run taller than the screen. A
 /// viewport made by hand, to turn off its own scroll-to-focus. That would
 /// show only the focused button, leaving the rest of its card off screen;
