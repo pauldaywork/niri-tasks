@@ -360,12 +360,15 @@ The plugin also hooks herdr's `pane.focused`, `tab.focused` and
 `workspace.focused` events; no key to bind. Selecting a pane, a tab or a
 workspace finds the now-focused pane's task, as Task docs does, and that
 task's card becomes the peek on its workspace's task panel: the one card the
-edge shows. A pane with no task empties the edge, and so does the task
-leaving the list (completed, waiting or removed). Selecting the same pane
-again changes nothing on the panel. It runs `niritasks task peek --focused`,
-and needs herdr 0.9.3. It sends no notification; if the peek
-does not follow the focus, `herdr plugin log list --plugin task-docs` says
-why.
+edge shows. Going to a niri workspace does the same without touching herdr:
+the daemon asks that workspace's herdr session for its focused pane each time
+a monitor switches to it, and when the daemon starts, so the peek is right
+after a restart too. A pane with no task, or a session that is not running,
+empties the edge, and so does the task leaving the list (completed, waiting
+or removed). Selecting the same pane again changes nothing on the panel. The
+hooks run `niritasks task peek --focused` and need herdr 0.9.3. They send no
+notification; if the peek does not follow the focus inside herdr,
+`herdr plugin log list --plugin task-docs` says why.
 
 ## Commands
 
@@ -755,7 +758,8 @@ replaced was invisible for whole sessions that way, past every unit test. So it
 screenshots a nested niri of its own and measures the panel against a frame taken
 with no tasks: nothing on the edge until a task is peeked, the peek's width and
 its notes, an empty edge for another tag's task, a task leaving pending and
-`--clear`, the
+`--clear`, a restarted daemon and a workspace switch peeking at a stub herdr's
+focused pane, and `--focused`, the
 keyboard's cards in the middle of the screen and the focused one's buttons, a
 filter tab's fill, a waiting task on the Waiting tab and off the tucked panel,
 Clear all taking the focus off the cards on its first Ctrl+Shift+Delete and Enter then

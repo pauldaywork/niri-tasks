@@ -43,8 +43,9 @@ thread_local! {
     /// the GTK main thread, which is the one thread they may be.
     static PANELS: Panels = Panels::default();
     /// The task each workspace tag peeks at, by uuid: herdr's focused pane's,
-    /// from `niritasks task peek`. Kept per tag rather than per panel, so a
-    /// workspace on no monitor yet peeks at it once a monitor shows it.
+    /// from `niritasks task peek` and from each workspace switch. Kept per
+    /// tag rather than per panel, so a workspace on no monitor yet peeks at
+    /// it once a monitor shows it.
     static PEEKS: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
 }
 
@@ -324,16 +325,7 @@ fn serve_request(app: &Application, req: crate::ipc::Request) {
             }
         }
 
-        Request::Peek { tag, uuid } => {
-            PEEKS.with(|p| remember_peek(&mut p.borrow_mut(), &tag, uuid.as_deref()));
-            // Every monitor showing that workspace; none until one does, and
-            // the tick hands it over then.
-            let showing: Vec<Rc<Panel>> =
-                PANELS.with(|p| p.borrow().values().filter(|panel| panel.shows(&tag)).cloned().collect());
-            for panel in showing {
-                panel.peek(uuid.as_deref());
-            }
-        }
+        Request::Peek { tag, uuid } => set_peek(&tag, uuid.as_deref()),
 
         Request::Add { refine } => {
             let tag = match Workspace::focused().map(|w| w.tag().to_string()) {
@@ -433,6 +425,45 @@ fn remember_peek(peeks: &mut HashMap<String, String>, tag: &str, uuid: Option<&s
     }
 }
 
+/// Peek at `uuid` on the workspace with this tag, or at nothing: kept for
+/// the tag, and shown at once on every monitor showing it. A monitor that
+/// shows it later is handed it by the tick. What a `peek` request and a
+/// workspace switch both end in.
+fn set_peek(tag: &str, uuid: Option<&str>) {
+    PEEKS.with(|p| remember_peek(&mut p.borrow_mut(), tag, uuid));
+    let showing: Vec<Rc<Panel>> =
+        PANELS.with(|p| p.borrow().values().filter(|panel| panel.shows(tag)).cloned().collect());
+    for panel in showing {
+        panel.peek(uuid);
+    }
+}
+
+/// The named workspaces the monitors show, each once, in name order.
+fn workspaces_shown(outputs: &BTreeMap<String, Option<String>>) -> Vec<String> {
+    let names: std::collections::BTreeSet<&String> = outputs.values().flatten().collect();
+    names.into_iter().cloned().collect()
+}
+
+/// Ask each shown workspace's herdr session which task its focused pane is
+/// on, and peek at that, or at nothing. herdr's focus hooks fire only on a
+/// focus change inside herdr, so without this a restarted daemon, a session
+/// never re-focused, or a pane that became a task's after it got the focus
+/// would peek at nothing; and asked every time, a stale peek never lingers.
+/// herdr, git and Taskwarrior are subprocesses, so each workspace is asked
+/// on a thread of its own and the answer set back on the main thread.
+fn refresh_peeks(outputs: &BTreeMap<String, Option<String>>) {
+    for name in workspaces_shown(outputs) {
+        // A workspace with no usable tag has no session of ours to ask.
+        let Ok(ws) = Workspace::named(&name) else { continue };
+        std::thread::spawn(move || {
+            let uuid = crate::link::focused_task(&crate::session::Session::named(&ws.session_name()));
+            let tag = ws.tag().to_string();
+            debug(&format!("focused pane of +{tag}: {uuid:?}"));
+            gtk4::glib::idle_add_once(move || set_peek(&tag, uuid.as_deref()));
+        });
+    }
+}
+
 /// A task box on `uuid` closed, however it closed: the panel whose Edit
 /// opened it takes the keyboard back, asking the session of the workspace
 /// its monitor shows for its agents. A box from the CLI or a keybind finds
@@ -470,11 +501,11 @@ fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {
         .map(db_mtimes)
         .unwrap_or_default();
 
-    {
-        let s = state.borrow();
-        if s.outputs.as_ref() == Some(&outputs) && s.task_mtimes == mtimes {
-            return; // nothing moved; skip the subprocess
-        }
+    // A workspace switch, the first tick, or a hotplug (which forgets the
+    // outputs): what herdr's focused panes say is asked again.
+    let switched = state.borrow().outputs.as_ref() != Some(&outputs);
+    if !switched && state.borrow().task_mtimes == mtimes {
+        return; // nothing moved; skip the subprocess
     }
     debug(&format!("changed: outputs={outputs:?} panels={}", panels.borrow().len()));
 
@@ -488,6 +519,10 @@ fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {
             .entry(name.clone())
             .or_insert_with(|| cards_for_workspace(name.as_deref()));
         panel.show(name.as_deref(), cards, peek.as_deref());
+    }
+
+    if switched {
+        refresh_peeks(&outputs);
     }
 
     let mut s = state.borrow_mut();
@@ -557,6 +592,22 @@ mod tests {
         remember_peek(&mut peeks, "web", None);
         assert_eq!(peeks.get("web"), None);
         assert_eq!(peeks.get("api").map(String::as_str), Some("b"));
+    }
+
+    /// A switch re-asks each workspace on a monitor once: two monitors on
+    /// one workspace share the lookup, and a monitor on an unnamed one has
+    /// no session to ask.
+    #[test]
+    fn a_switch_asks_each_shown_workspace_once() {
+        let outputs: BTreeMap<String, Option<String>> = [
+            ("DP-1".to_string(), Some("web".to_string())),
+            ("DP-2".to_string(), Some("web".to_string())),
+            ("eDP-1".to_string(), Some("api".to_string())),
+            ("HDMI-A-1".to_string(), None),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(workspaces_shown(&outputs), vec!["api", "web"]);
     }
 
     /// A bare panel request says nothing once it has the keyboard; one for a

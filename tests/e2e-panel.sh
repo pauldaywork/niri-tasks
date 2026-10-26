@@ -32,7 +32,8 @@
 # What it cannot check is the hover: nothing can move the pointer, so the slide
 # out, the slide back, clicks on the peek's buttons and clicks passing beside
 # it are checked by hand (README, "Testing"). The peek itself it sets with
-# `task peek`, as herdr's task-docs plugin does from a focused pane.
+# `task peek`, as herdr's task-docs plugin does from a focused pane, and,
+# against a herdr stub, by restarting the daemon and switching workspaces.
 #
 # The keyboard it can check: `task panel` moves the panel to the middle of the
 # screen, and with wtype, Down (which moves the action row, and shows the rest
@@ -360,6 +361,97 @@ else
     read -r x0 x1 y0 y1 < <(measure cleared)
     bad "after --clear the edge still draws columns ${x0}-${x1}, rows ${y0}-${y1}"
 fi
+
+# ─── a workspace switch peeks at herdr's focused pane ────────────────────────
+# herdr's focus hooks fire only on a focus change inside herdr, so the daemon
+# asks each shown workspace's session itself, on its first tick and on every
+# switch. A herdr stub, on this daemon's PATH alone, plays the e2e session:
+# one focused pane, whose agent is named in $SB/herdr-focus, no agent when
+# that file is empty, and no running server when it is missing. The nested
+# niri's spawns never see it, and nothing reaches your real herdr.
+mkdir -p "$SB/herdr-stub"
+cat > "$SB/herdr-stub/herdr" <<STUB
+#!/bin/sh
+echo "\$*" >> "$SB/herdr-stub.log"
+focus=\$(cat "$SB/herdr-focus" 2>/dev/null) || {
+    echo '{"error":{"code":"server_not_running","message":"server not running"}}' >&2; exit 1; }
+[ "\$1" = --session ] && shift 2
+case "\$1 \$2" in
+    "pane list") echo '{"result":{"panes":[{"pane_id":"w1:p1","focused":true,"cwd":"/","foreground_cwd":"/"}]}}' ;;
+    "agent get")
+        if [ -n "\$focus" ] && [ "\$3" = w1:p1 ]; then
+            echo "{\"result\":{\"agent\":{\"name\":\"\$focus\",\"pane_id\":\"w1:p1\"}}}"
+        else
+            echo '{"error":{"code":"agent_not_found","message":"agent target not found"}}' >&2; exit 1
+        fi ;;
+    "agent list") echo '{"result":{"agents":[]}}' ;;
+    *) echo '{"error":{"code":"unknown","message":"not in the stub"}}' >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$SB/herdr-stub/herdr"
+STUB_PATH="$SB/herdr-stub:$("${NENV[@]}" printenv PATH)"
+ship=$(uuid_of 'ship it')
+focus() { printf '%s' "$1" > "$SB/herdr-focus"; }  # agent name, or '' for none
+switch() {  # away to the empty workspace below, and back
+    "${NENV[@]}" niri msg action focus-workspace-down >/dev/null 2>&1
+    settle
+    "${NENV[@]}" niri msg action focus-workspace e2e >/dev/null 2>&1
+    settle
+}
+check() {  # label frame-to-match message
+    shot "$1" || { summary; exit 1; }
+    if same "$2" "$1"; then
+        ok "$3"
+    else
+        read -r x0 x1 y0 y1 < <(measure "$1" "$2")
+        bad "$3 — not so: columns ${x0}-${x1}, rows ${y0}-${y1} differ from $2"
+    fi
+}
+
+focus "work-${ship:0:8}"
+nested_daemon_stop
+"${NENV[@]}" PATH="$STUB_PATH" "$NIRITASKS" daemon >"$SB/daemon-herdr.err" 2>&1 &
+DAEMON=$!
+sleep 3
+kill -0 "$DAEMON" 2>/dev/null || die "the daemon with the herdr stub exited at once:
+$(tail -n 20 "$SB/daemon-herdr.err")"
+settle
+check restarted one "a restarted daemon peeks at the task of herdr's focused pane"
+if grep -qx -- "--session e2e pane list" "$SB/herdr-stub.log"; then
+    ok "the daemon asks the workspace's own herdr session for its focused pane"
+else
+    bad "the daemon never ran herdr --session e2e pane list: $(tr '\n' ';' < "$SB/herdr-stub.log")"
+fi
+
+focus ""
+switch
+check switched_none baseline "after a switch, a focused pane on no task leaves the edge empty"
+
+focus "work-${ship:0:8}"
+switch
+check switched_back one "a switch peeks again at the focused pane's task"
+
+rm -f "$SB/herdr-focus"
+switch
+check switched_dead baseline "a herdr session that is not running leaves the edge empty"
+
+# --focused is what herdr's focus hooks run: the same lookup, from the pane.
+focus "work-${ship:0:8}"
+"${NENV[@]}" PATH="$STUB_PATH" HERDR_SESSION=e2e "$NIRITASKS" task peek --focused >/dev/null 2>&1 ||
+    bad "task peek --focused failed"
+settle
+check focused_cli one "task peek --focused peeks at the focused pane's task"
+focus ""
+"${NENV[@]}" PATH="$STUB_PATH" HERDR_SESSION=e2e "$NIRITASKS" task peek --focused >/dev/null 2>&1 ||
+    bad "task peek --focused on no task failed"
+settle
+check focused_none baseline "task peek --focused on a pane with no task leaves the edge empty"
+
+# Back to a daemon with no herdr at all, its edge empty, for the sections
+# below.
+nested_daemon_stop
+nested_daemon_start "$SB/daemon-back.err"
+settle
 
 # ─── the keyboard: every card wrapped, with its buttons, mid-screen ──────────
 # `task panel` is the keybind's command: it asks this sandbox's daemon to hand

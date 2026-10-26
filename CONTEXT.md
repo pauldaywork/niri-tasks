@@ -194,11 +194,12 @@ What the task panel shows on its monitor's edge while tucked away: the one
 card of the task herdr's focused pane runs, found by the pane's agent name or
 its branch as herdr's task-docs plugin finds it, drawn whole (its id line,
 notes and action row), with only its left 30px showing until the pointer
-slides it out. herdr's task-docs plugin sets it with `niritasks task peek` as
-a pane, a tab or a workspace is selected, and the daemon keeps it per
-workspace tag. Nothing shows when that pane runs no task, the task is not
-pending on that workspace, or nothing has been peeked. It never takes the
-keyboard itself.
+slides it out. herdr's task-docs plugin sets it with `niritasks task peek
+--focused` as a pane, a tab or a workspace is selected, and the daemon asks
+the same of each shown workspace's herdr session itself whenever a monitor
+switches workspace, and when it starts; it keeps it per workspace tag.
+Nothing shows when that pane runs no task, the session is not running, or the
+task is not pending on that workspace. It never takes the keyboard itself.
 _Avoid_: sliver, handle, tab, hover card
 
 **Project list**:
