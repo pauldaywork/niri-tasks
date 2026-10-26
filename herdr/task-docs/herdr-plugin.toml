@@ -28,11 +28,12 @@ title = "Task panel: open it on this task's card"
 contexts = ["pane"]
 command = ["python3", "task_docs.py", "panel"]
 
-# Run as a pane, a tab or a workspace is selected: finds the now-focused
-# pane's task as `open` does and runs `niritasks task peek <uuid8>`, or
-# `--clear` for a pane on no task, so only that task's card peeks out of its
-# workspace's task panel. A pane already peeked for is skipped; failures go
-# to `herdr plugin log list --plugin task-docs`, never a notification.
+# Run as a pane, a tab or a workspace is selected: runs `niritasks task peek
+# --focused`, which finds the now-focused pane's task as `open` does and peeks
+# at it, or at nothing for a pane on no task, so only that task's card peeks
+# out of its workspace's task panel. The daemon does the same on a niri
+# workspace switch. Failures go to `herdr plugin log list --plugin task-docs`,
+# never a notification.
 [[events]]
 on = "pane.focused"
 command = ["python3", "task_docs.py", "focused"]

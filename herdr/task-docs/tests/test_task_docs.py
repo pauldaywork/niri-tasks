@@ -14,9 +14,8 @@ sys.path.insert(0, str(ROOT))
 
 import task_docs  # noqa: E402
 
-# herdr: logs each call as a JSON list, answers `agent get <target>` from the
-# FAKE_AGENTS map, exiting 1 for a target it does not hold, as herdr does, and
-# `pane list` with the FAKE_PANES list.
+# herdr: logs each call as a JSON list, and answers `agent get <target>` from
+# the FAKE_AGENTS map, exiting 1 for a target it does not hold, as herdr does.
 FAKE_HERDR = """#!/usr/bin/env python3
 import json, os, sys
 with open(os.environ["FAKE_HERDR_LOG"], "a") as log:
@@ -27,8 +26,6 @@ if sys.argv[1:3] == ["agent", "get"]:
         print('{"error":{"code":"agent_not_found"}}', file=sys.stderr)
         sys.exit(1)
     print(json.dumps({"result": {"agent": agent}}))
-if sys.argv[1:3] == ["pane", "list"]:
-    print(json.dumps({"result": {"panes": json.load(open(os.environ["FAKE_PANES"]))}}))
 """
 
 # A command that writes its arguments, one per line, to the file named by $LOG_VAR.
@@ -54,18 +51,13 @@ if [ -n "$FAKE_NIRITASKS_EXIT" ]; then
 fi
 """
 
-# niritasks: appends its arguments as one line per call; `task peek <uuid8>`
-# exits $FAKE_UUID_EXIT, as niritasks does for an unknown task, and every call
-# exits $FAKE_PEEK_EXIT, as with no daemon.
+# niritasks: appends its arguments as one line per call, and exits
+# $FAKE_PEEK_EXIT with an error, as with no daemon.
 FAKE_NIRITASKS_PEEK = """#!/bin/sh
 echo "$*" >> "$FAKE_NIRITASKS_LOG"
 if [ -n "$FAKE_PEEK_EXIT" ]; then
     echo "Error: The niri-tasks daemon is not running" >&2
     exit "$FAKE_PEEK_EXIT"
-fi
-if [ -n "$FAKE_UUID_EXIT" ] && [ "$3" != "--clear" ]; then
-    echo "Error: task not found" >&2
-    exit "$FAKE_UUID_EXIT"
 fi
 """
 
@@ -88,8 +80,6 @@ class PluginTest(unittest.TestCase):
         self.open_log = self.tmp / "xdg-open.log"
         self.agents = self.tmp / "agents.json"
         self.with_agents({})
-        self.panes = self.tmp / "panes.json"
-        self.with_panes([])
         fake(self.bin, "herdr", FAKE_HERDR)
         fake(self.bin, "notify-send", FAKE_LOGGER.replace("LOG_VAR", "FAKE_NOTIFY_LOG"))
         fake(self.bin, "xdg-open", FAKE_LOGGER.replace("LOG_VAR", "FAKE_OPEN_LOG"))
@@ -100,7 +90,6 @@ class PluginTest(unittest.TestCase):
             "HERDR_BIN_PATH": str(self.bin / "herdr"),
             "FAKE_HERDR_LOG": str(self.herdr_log),
             "FAKE_AGENTS": str(self.agents),
-            "FAKE_PANES": str(self.panes),
             "HERDR_SESSION": "web",
             "FAKE_NOTIFY_LOG": str(self.notify_log),
             "FAKE_OPEN_LOG": str(self.open_log),
@@ -118,9 +107,6 @@ class PluginTest(unittest.TestCase):
 
     def with_agents(self, agents):
         self.agents.write_text(json.dumps(agents))
-
-    def with_panes(self, panes):
-        self.panes.write_text(json.dumps(panes))
 
     def with_reviewer(self):
         fake(self.bin, "plannotator-tui", "#!/bin/sh\n")
@@ -289,6 +275,10 @@ class ThePanelAction(PluginTest):
 
 
 class TheFocusHook(PluginTest):
+    """The hook hands the lookup to niritasks, which finds the focused pane's
+    task as the daemon does on a workspace switch: the lookup's cases are
+    src/link.rs's tests."""
+
     def setUp(self):
         super().setUp()
         fake(self.bin, "niritasks", FAKE_NIRITASKS_PEEK)
@@ -300,75 +290,25 @@ class TheFocusHook(PluginTest):
     def asked(self):
         return self.niritasks_log.read_text().splitlines() if self.niritasks_log.exists() else []
 
-    def focus(self, pane, cwd=None):
-        """herdr's panes with `pane` the focused one, in `cwd`, the work folder by default."""
-        self.with_panes([
-            {"pane_id": "w1:p9", "focused": False, "cwd": "/elsewhere", "foreground_cwd": "/elsewhere"},
-            {"pane_id": pane, "focused": True, "cwd": "/launched", "foreground_cwd": str(cwd or self.folder)},
-        ])
-
-    def test_a_focused_tasks_pane_peeks_at_its_task(self):
-        self.with_agents({"w1:p2": {"name": "work-1234abcd", "pane_id": "w1:p2"}})
-        self.focus("w1:p2")
+    def test_it_peeks_at_the_focused_panes_task_through_niritasks(self):
         task_docs.focused_action()
-        self.assertEqual(self.asked(), ["task peek 1234abcd"])
+        self.assertEqual(self.asked(), ["task peek --focused"])
+        self.assertEqual(self.calls(), [], "niritasks asks herdr itself")
         self.assertEqual(self.notified(), "")
 
-    def test_a_focused_shell_on_the_tasks_branch_peeks_at_it(self):
-        self.on_branch("task/fix-1234abcd")
-        self.focus("w1:p2")
-        task_docs.focused_action()
-        self.assertEqual(self.asked(), ["task peek 1234abcd"])
-
-    def test_a_pane_on_no_task_clears_the_peek(self):
-        self.focus("w1:p2")
-        task_docs.focused_action()
-        self.assertEqual(self.asked(), ["task peek --clear"])
-
-    def test_the_same_pane_again_peeks_again_and_the_daemon_ignores_it(self):
-        self.on_branch("task/fix-1234abcd")
-        self.focus("w1:p2")
+    def test_every_focus_event_peeks_again(self):
         task_docs.focused_action()
         task_docs.focused_action()
-        self.assertEqual(self.asked(), ["task peek 1234abcd"] * 2)
+        self.assertEqual(self.asked(), ["task peek --focused"] * 2)
 
-    def test_without_herdr_it_does_nothing(self):
-        with mock.patch.object(task_docs, "herdr", side_effect=FileNotFoundError):
-            task_docs.focused_action()
-        self.assertEqual(self.asked(), [])
-
-    def test_another_pane_peeks_again(self):
-        self.on_branch("task/fix-1234abcd")
-        self.focus("w1:p2")
-        task_docs.focused_action()
-        self.focus("w1:p3")
-        task_docs.focused_action()
-        self.assertEqual(self.asked(), ["task peek 1234abcd", "task peek 1234abcd"])
-
-    def test_with_no_pane_focused_it_does_nothing(self):
-        self.with_panes([{"pane_id": "w1:p2", "focused": False, "cwd": str(self.folder)}])
-        task_docs.focused_action()
-        self.assertEqual(self.asked(), [])
-
-    def test_a_task_niritasks_does_not_know_clears_the_peek(self):
-        self.on_branch("task/fix-1234abcd")
-        self.focus("w1:p2")
-        with mock.patch.dict(os.environ, {"FAKE_UUID_EXIT": "1"}):
-            task_docs.focused_action()
-        self.assertEqual(self.asked(), ["task peek 1234abcd", "task peek --clear"])
-
-    def test_a_failing_niritasks_notifies_nothing_and_tries_again_next_time(self):
-        self.on_branch("task/fix-1234abcd")
-        self.focus("w1:p2")
+    def test_a_failing_niritasks_notifies_nothing(self):
         with mock.patch.dict(os.environ, {"FAKE_PEEK_EXIT": "1"}):
             task_docs.focused_action()
-            task_docs.focused_action()
         self.assertEqual(self.notified(), "")
-        self.assertEqual(self.asked(), ["task peek 1234abcd", "task peek --clear"] * 2)
+        self.assertEqual(self.asked(), ["task peek --focused"])
 
     def test_without_niritasks_it_notifies_nothing(self):
         (self.bin / "niritasks").unlink()
-        self.focus("w1:p2")
         task_docs.focused_action()
         self.assertEqual(self.notified(), "")
 

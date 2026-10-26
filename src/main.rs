@@ -91,21 +91,26 @@ enum TaskCommand {
     },
     /// Peek at a task's card on the edge of its workspace's task panel, as herdr's focused pane does
     ///
-    /// What herdr's task-docs plugin runs as a pane, tab or workspace is
-    /// selected, so only from a pane of a named herdr session: the peek is
-    /// that session's workspace's. Tucked away, the panel shows that card
-    /// alone, whole, with its notes and buttons, sliding out under the
-    /// pointer without taking the keyboard. A task not pending on that
+    /// What herdr's task-docs plugin runs, as --focused, when a pane, tab or
+    /// workspace is selected, so only from a pane of a named herdr session:
+    /// the peek is that session's workspace's. Tucked away, the panel shows
+    /// that card alone, whole, with its notes and buttons, sliding out under
+    /// the pointer without taking the keyboard. A task not pending on that
     /// workspace shows nothing, as --clear does. Exit 1 with no daemon, an
     /// unknown task, or outside a named herdr session.
     Peek {
         /// The task's uuid, or its first 8 characters, as in a
         /// `task/<slug>-<uuid8>` branch
-        #[arg(required_unless_present = "clear", conflicts_with = "clear")]
+        #[arg(required_unless_present_any = ["clear", "focused"], conflicts_with_all = ["clear", "focused"])]
         uuid: Option<String>,
         /// Peek at nothing: the focused pane runs no task
-        #[arg(long)]
+        #[arg(long, conflicts_with = "focused")]
         clear: bool,
+        /// Peek at the task of the session's focused pane, found from its
+        /// agent's name or its folder's branch, as the daemon does on a
+        /// workspace switch; at nothing when it is on no task
+        #[arg(long)]
+        focused: bool,
     },
     /// Move a task to a state, as a card's Stop, Waiting, Complete and Remove do
     ///
@@ -435,16 +440,20 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
         // The session's workspace, never the focused one or the folder's:
         // herdr runs the hook in its server, in the plugin's folder, and the
         // user may be looking anywhere. A uuid8 is resolved here, as for the
-        // panel.
-        TaskCommand::Peek { uuid, clear: _ } => {
-            anyhow::ensure!(
-                session::current_pane().is_some(),
-                "task peek is for a pane of a named herdr session, whose workspace it peeks on; this is not one."
-            );
+        // panel; --focused asks the session for its focused pane's task,
+        // the same lookup the daemon makes on a workspace switch.
+        TaskCommand::Peek { uuid, clear: _, focused } => {
+            let pane = session::current_pane().context(
+                "task peek is for a pane of a named herdr session, whose workspace it peeks on; this is not one.",
+            )?;
             let tag = Workspace::of_session()?.tag().to_string();
-            let uuid = match uuid {
-                Some(u) => Some(task::get(&u)?.context("task not found")?.uuid),
-                None => None,
+            let uuid = if focused {
+                link::focused_task(&session::Session::named(&pane.session))
+            } else {
+                match uuid {
+                    Some(u) => Some(task::get(&u)?.context("task not found")?.uuid),
+                    None => None,
+                }
             };
             ipc::send(&ipc::Request::Peek { tag, uuid })?
         }
@@ -755,14 +764,17 @@ mod tests {
         assert!(Cli::try_parse_from(["niritasks", "task", "active"]).is_err());
     }
 
-    /// herdr's focus hooks run `task peek <uuid8>`, or `task peek --clear`
-    /// for a pane on no task: one or the other, never both or neither.
+    /// herdr's focus hooks run `task peek --focused`; a task or `--clear`
+    /// peeks by hand. Exactly one of the three.
     #[test]
-    fn peeking_takes_a_task_or_clear() {
+    fn peeking_takes_a_task_clear_or_focused() {
         assert!(Cli::try_parse_from(["niritasks", "task", "peek", "c53b6e3d"]).is_ok());
         assert!(Cli::try_parse_from(["niritasks", "task", "peek", "--clear"]).is_ok());
+        assert!(Cli::try_parse_from(["niritasks", "task", "peek", "--focused"]).is_ok());
         assert!(Cli::try_parse_from(["niritasks", "task", "peek"]).is_err());
         assert!(Cli::try_parse_from(["niritasks", "task", "peek", "c53b6e3d", "--clear"]).is_err());
+        assert!(Cli::try_parse_from(["niritasks", "task", "peek", "c53b6e3d", "--focused"]).is_err());
+        assert!(Cli::try_parse_from(["niritasks", "task", "peek", "--clear", "--focused"]).is_err());
     }
 
     /// The old picker and menu are gone: the task panel does what they did.

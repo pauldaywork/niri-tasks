@@ -14,9 +14,10 @@ made before reports had a Markdown twin opens in the browser instead.
 way and runs `niritasks task panel <uuid8>`, which slides out the task panel
 with the keyboard on that task's card.
 `task_docs.py focused` is the focus hook herdr runs as a pane, a tab or a
-workspace is selected: it finds the session's focused pane's task the same
-way and runs `niritasks task peek <uuid8>`, or `--clear` for a pane on no
-task, so that task's card alone peeks out of its workspace's task panel. Every
+workspace is selected: it runs `niritasks task peek --focused`, which finds
+the session's focused pane's task the same way and peeks at it, or at
+nothing, so that task's card alone peeks out of its workspace's task panel.
+The daemon makes the same lookup itself on a niri workspace switch. Every
 focus event peeks: the daemon ignores a peek it already shows. A failure goes
 to stderr, herdr's plugin log, never to a notification.
 """
@@ -191,27 +192,6 @@ def panel_action():
         notify(f"Task panel: could not open the panel. {result.stderr.strip()[-300:]}")
 
 
-def focused_pane():
-    """The session's focused pane, as (pane id, its live folder), or None when
-    herdr cannot say or no pane is focused. The focus events carry only ids, a
-    tab's or a workspace's, so every one is resolved here the same way."""
-    try:
-        result = herdr("pane", "list")
-    except OSError:
-        print("task-docs focused: herdr not found", file=sys.stderr)
-        return None
-    if result.returncode != 0:
-        return None
-    try:
-        panes = json.loads(result.stdout)["result"]["panes"]
-    except (ValueError, KeyError, TypeError):
-        return None
-    for pane in panes:
-        if pane.get("focused") and pane.get("pane_id"):
-            return pane["pane_id"], pane.get("foreground_cwd") or pane.get("cwd")
-    return None
-
-
 def peek(*args):
     """`niritasks task peek` with these arguments; whether it worked. A failure
     goes to stderr, which herdr keeps in the plugin's log: a notification on
@@ -228,19 +208,13 @@ def peek(*args):
 
 
 def focused_action():
-    """The pane, tab and workspace focus hooks: peek at the focused pane's task,
-    or at nothing when it runs none. The three events one switch can fire find
-    the same pane and peek the same way; nothing is remembered here, because
-    the daemon's peek lives in its memory and ignores a peek it already shows.
-    A task niritasks does not know, one whose branch outlived it, peeks at
-    nothing."""
-    found = focused_pane()
-    if not found:
-        return
-    pane, cwd = found
-    uuid8 = find_task(pane, cwd)
-    if not (uuid8 and peek(uuid8)):
-        peek("--clear")
+    """The pane, tab and workspace focus hooks: peek at the session's focused
+    pane's task, or at nothing when it runs none. niritasks finds it, from
+    the pane's agent name or its folder's branch as `find_task` does, with
+    the very lookup the daemon makes on a niri workspace switch, so the two
+    cannot disagree. Nothing is remembered here: the daemon ignores a peek
+    it already shows."""
+    peek("--focused")
 
 
 def parse_docs(stdout):

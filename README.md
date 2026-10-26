@@ -362,8 +362,8 @@ workspace finds the now-focused pane's task, as Task docs does, and that
 task's card becomes the peek on its workspace's task panel: the one card the
 edge shows. A pane with no task empties the edge, and so does the task
 leaving the list (completed, waiting or removed). Selecting the same pane
-again changes nothing on the panel. It runs `niritasks task peek <uuid8>`,
-or `niritasks task peek --clear`, and needs herdr 0.9.3. It sends no notification; if the peek
+again changes nothing on the panel. It runs `niritasks task peek --focused`,
+and needs herdr 0.9.3. It sends no notification; if the peek
 does not follow the focus, `herdr plugin log list --plugin task-docs` says
 why.
 
@@ -380,8 +380,10 @@ niritasks tag --session            # the tag of the workspace this terminal was 
 niritasks task panel [<uuid>]      # hand the task panel the keyboard (Mod+Alt+Ctrl+T); with a uuid or
                                    #   uuid8, focused on that task's card (herdr's task-docs.panel)
 niritasks task peek <uuid>         # peek at that task's card on its workspace's panel edge, from a
-                                   #   named herdr session's pane (herdr's focus hooks run it)
+                                   #   named herdr session's pane
 niritasks task peek --clear        # peek at nothing: the edge shows no card
+niritasks task peek --focused      # peek at the task of the session's focused pane, or at nothing
+                                   #   (herdr's focus hooks run it)
 niritasks task status <uuid> <state>  # what a card's Stop, Waiting, Complete and Remove run: active|stopped|waiting|completed|deleted
                                    #   (stopped also brings back a waiting task, and reopens a completed one)
 niritasks task status <uuid> deleted --yes  # deleted needs --yes, Remove's confirmation
