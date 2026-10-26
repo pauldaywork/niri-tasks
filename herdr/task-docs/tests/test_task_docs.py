@@ -325,12 +325,17 @@ class TheFocusHook(PluginTest):
         task_docs.focused_action()
         self.assertEqual(self.asked(), ["task peek --clear"])
 
-    def test_the_same_pane_again_is_ignored(self):
+    def test_the_same_pane_again_peeks_again_and_the_daemon_ignores_it(self):
         self.on_branch("task/fix-1234abcd")
         self.focus("w1:p2")
         task_docs.focused_action()
         task_docs.focused_action()
-        self.assertEqual(self.asked(), ["task peek 1234abcd"])
+        self.assertEqual(self.asked(), ["task peek 1234abcd"] * 2)
+
+    def test_without_herdr_it_does_nothing(self):
+        with mock.patch.object(task_docs, "herdr", side_effect=FileNotFoundError):
+            task_docs.focused_action()
+        self.assertEqual(self.asked(), [])
 
     def test_another_pane_peeks_again(self):
         self.on_branch("task/fix-1234abcd")
@@ -366,14 +371,6 @@ class TheFocusHook(PluginTest):
         self.focus("w1:p2")
         task_docs.focused_action()
         self.assertEqual(self.notified(), "")
-
-    def test_each_session_remembers_its_own_pane(self):
-        self.on_branch("task/fix-1234abcd")
-        self.focus("w1:p2")
-        task_docs.focused_action()
-        with mock.patch.dict(os.environ, {"HERDR_SESSION": "api"}):
-            task_docs.focused_action()
-        self.assertEqual(self.asked(), ["task peek 1234abcd", "task peek 1234abcd"])
 
 
 class TheManifest(unittest.TestCase):

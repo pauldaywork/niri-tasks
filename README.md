@@ -362,7 +362,7 @@ workspace finds the now-focused pane's task, as Task docs does, and that
 task's card becomes the peek on its workspace's task panel: the one card the
 edge shows. A pane with no task empties the edge, and so does the task
 leaving the list (completed, waiting or removed). Selecting the same pane
-again does nothing. It runs `niritasks task peek <uuid8>`, or `niritasks task
+again changes nothing on the panel. It runs `niritasks task peek <uuid8>`, or `niritasks task
 peek --clear`, and needs herdr 0.9.3. It sends no notification; if the peek
 does not follow the focus, `herdr plugin log list --plugin task-docs` says
 why.
