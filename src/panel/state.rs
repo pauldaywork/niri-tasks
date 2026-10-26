@@ -608,7 +608,7 @@ impl PanelState {
     /// [`Effect::Focus`] asked for, which is no change. Moving off an armed
     /// Remove disarms it, and moving at all disarms Clear all. Without the
     /// keyboard it is ignored: GTK moves focus in a window that is only being
-    /// shown, and the hover has none. On either list too: a row is no
+    /// shown, and the peek has none. On either list too: a row is no
     /// task's, and the task's focus is kept for Escape.
     pub fn on_focus(&mut self, focus: Option<Focus>) {
         if !self.keyboard || self.on_a_list() || self.focus == focus {
@@ -955,9 +955,9 @@ impl PanelState {
         }
     }
 
-    /// Give the keyboard back: every card to one line again, its notes
-    /// hidden, All for the next time, and nothing expanded, armed or
-    /// focused.
+    /// Give the keyboard back: the keyboard's cards go (the peek shows
+    /// again), its notes hidden, All for the next time, and nothing
+    /// expanded, armed or focused.
     fn release(&mut self) -> Vec<Effect> {
         if !self.keyboard {
             return Vec::new();
@@ -1474,6 +1474,14 @@ mod tests {
         );
         assert!(state.keyboard());
         assert_eq!(state.focus(), focused("b", Slot::Body).as_ref());
+
+        let mut fresh = PanelState::default();
+        fresh.set_cards(&pending(&["a", "b"]));
+        fresh.set_peek(Some("b"));
+        assert_eq!(
+            fresh.take_keyboard_for("b", Action::Move, Vec::new()),
+            vec![Effect::Render, Effect::ListProjects("b".into())]
+        );
     }
 
     /// An answer that comes late finds the peek moved on, or the keyboard
@@ -2042,8 +2050,7 @@ mod tests {
         assert!(!state.shows_notes("b"));
     }
 
-    /// Giving the keyboard back folds every card to one line again, notes
-    /// and all, and the next time the keyboard is taken they start hidden.
+    /// Giving the keyboard back hides the notes it showed, and the next time the keyboard is taken they start hidden.
     #[test]
     fn giving_the_keyboard_back_hides_the_notes() {
         let mut state = keyboard(vec![noted("a")]);

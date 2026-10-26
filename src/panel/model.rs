@@ -20,7 +20,7 @@ pub enum Status {
     /// Being planned in the background by `task refine --unattended`:
     /// tagged `+processing` until its two Claude runs end.
     Processing,
-    /// Parked with the Waiting button. Off the hover panel and the peek, and
+    /// Parked with the Waiting button. Off the peek, and
     /// on the keyboard's Waiting tab only.
     Waiting,
     /// Completed, on the keyboard's Finished tab only, as a waiting task is
@@ -153,7 +153,7 @@ impl Card {
 /// under Active and neither Planned nor To refine, which are for picking what
 /// to start or refine next. A waiting task is under Waiting and no other tab,
 /// and a finished one under Finished: it is parked or done, and All is what
-/// the hover shows.
+/// the peek shows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Filter {
     #[default]
@@ -785,7 +785,7 @@ mod tests {
     }
 
     /// Finished is finished: under the Finished tab and no other, so All
-    /// stays what the hover shows.
+    /// stays what the peek shows.
     #[test]
     fn a_finished_task_is_only_under_finished() {
         let mut planned_done = finished("planned-done", 3);
@@ -863,7 +863,7 @@ mod tests {
     }
 
     /// Parked is parked: a waiting task is under Waiting and nowhere else,
-    /// planned or not, so All stays what the hover shows.
+    /// planned or not, so All stays what the peek shows.
     #[test]
     fn a_waiting_task_is_only_under_waiting() {
         let mut planned_parked = waiting("planned-parked");

@@ -770,7 +770,7 @@ impl Panel {
         self.sync();
     }
 
-    /// Slide back, folding an expanded list up again.
+    /// Slide back to the edge, where the peek is all that shows.
     fn tuck(self: &Rc<Self>) {
         self.slide_to(TUCKED_X, 0);
         let effects = self.state.borrow_mut().on_tuck();

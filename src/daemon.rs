@@ -112,8 +112,8 @@ fn cards_for_workspace(name: Option<&str>) -> Vec<model::Card> {
     }
     // One export of every status on the tag, split here in Rust: pending
     // for the list, waiting for the Waiting tab, the last few finished for
-    // the Finished tab. The panel keeps the last two off the hover and the
-    // peek.
+    // the Finished tab. The panel keeps the last two off the peek and the
+    // tucked-away panel.
     let Ok(listing) = task::listing(&t) else {
         return Vec::new();
     };
