@@ -217,12 +217,22 @@ read -r base_w base_h < <(frame_size baseline)
 # `task peek` is what herdr's task-docs plugin runs as a pane is focused,
 # from that pane's session: HERDR_SESSION names the nested niri's
 # workspace, e2e, as a herdr session opened for it would. It reaches only
-# this command, never the nested niri.
+# this command, never the nested niri. A peek that fails, or has no task
+# to name, fails here: the checks that the edge stays empty would pass on
+# a peek that never happened.
 peek() {  # uuid | --clear
-    "${NENV[@]}" HERDR_SESSION=e2e "$NIRITASKS" task peek "$@" >/dev/null 2>&1
+    local err
+    if [ -z "${1:-}" ]; then
+        bad "task peek was given no task: uuid_of found no pending task by that description"
+        return 1
+    fi
+    if ! err=$("${NENV[@]}" HERDR_SESSION=e2e "$NIRITASKS" task peek "$@" 2>&1 >/dev/null); then
+        bad "task peek $* failed: ${err}"
+        return 1
+    fi
 }
-uuid_of() {  # description
-    task "description.is:$1" _uuids 2>/dev/null | head -n 1
+uuid_of() {  # description; nothing, and false, when no pending task has it
+    task status:pending "description.is:$1" _uuids 2>/dev/null | head -n 1 | grep .
 }
 
 add "ship it"
@@ -612,6 +622,18 @@ print(any((w.get('app_id') or '')=='dev.niri-tasks.box' for w in json.load(sys.s
         bad "task edit opened no task box"
     fi
 
+    # Peeked at while tucked, for the check after parking it as waiting
+    # that the peek follows its task off the edge: first, that it draws.
+    peek "$(uuid_of 'ship it')"
+    settle
+    shot park_peek || { summary; exit 1; }
+    read -r x0 x1 _ _ < <(measure park_peek)
+    if [ "$x0" -eq "$PEEK_X" ] && [ "$x1" -eq "$OUT_W" ]; then
+        ok "a peek set after the keyboard has been and gone draws (columns ${x0}-${x1})"
+    else
+        bad "peeking at 'ship it' after the keyboard drew columns ${x0}-${x1}, expected ${PEEK_X}-${OUT_W}"
+    fi
+
     "${NENV[@]}" "$NIRITASKS" task panel >/dev/null 2>&1
     settle
 
@@ -632,10 +654,9 @@ print(any((w.get('app_id') or '')=='dev.niri-tasks.box' for w in json.load(sys.s
     fi
 
     # Park one as waiting while the panel is open: All loses it and the
-    # Waiting tab comes up, and 5 shows it there alone. It is peeked at
-    # first, which draws nothing under the keyboard, for the check after
-    # Escape that a peek follows its task off the list.
-    peek "$(uuid_of 'ship it')"
+    # Waiting tab comes up, and 5 shows it there alone. It is the task
+    # peeked at above, for the check after Escape that a peek follows its
+    # task off the edge.
     task rc.verbose=nothing rc.confirmation=no "+$TAG" "description.is:ship it" \
         modify wait:someday </dev/null >/dev/null 2>&1
     settle
