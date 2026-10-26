@@ -950,6 +950,12 @@ impl Panel {
             _ => None,
         };
 
+        // Tucked away, the panel has no keyboard, so no widget may take the
+        // focus. GTK would otherwise hand it to the peeked card's first
+        // button once the cards are drawn afresh, and after the keyboard has
+        // been and gone that draws the card with the focused card's darker
+        // fill.
+        self.window.set_can_focus(keyboard);
         self.while_drawing(|| match &mode {
             Mode::Ideas => self.draw_ideas(),
             Mode::Projects { list, .. } => self.draw_projects(list, hint.as_deref()),
