@@ -76,9 +76,9 @@ its own keys: the focused button's letter and name (`o: Go to…`,
 or `Space: hide notes`, and what Ctrl+Enter would do to this task. A line under the list
 names the keys that act the same on every card: Enter or Space, and Ctrl+Delete (not on
 Ideas, where the notepad takes those keys as typing). Enter or a click on the card's description shows, dimmed under it, the task's id and uuid (`#48 · <uuid>`, the uuid alone on a finished task) and then its notes, one per note, scrolling once they pass about twelve lines, and a second press hides them; opening another card's notes hides the first's, and giving the keyboard back hides them all. Every button that opens something gives the keyboard back as it runs; Go to…, Up next, Complete, Move to workspace, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
-right edge, tucked away with the cards folded back to one line. A list taller
-than the screen scrolls, keeping the focused card in view. Hovering never shows
-the buttons — only the keyboard does.
+right edge, tucked away to the peeked card, if there is one. A list taller
+than the screen scrolls, keeping the focused card in view. Hovering shows the
+buttons only on the peeked card; on the others only the keyboard does.
 
 **Move to workspace** swaps the cards for a list of your `~/Projects`
 folders, drawn like cards under a line naming the task: every folder but
@@ -143,7 +143,7 @@ doing nothing while it is hidden, and each tab's label ends in its key, as **To
 refine (4)**; `[` and `]` step to the shown tab either side; a click picks one
 too. The arrows and Tab still move only between cards and buttons. A started
 task is under Active alone, not Planned or To refine. Waiting tasks are on the
-Waiting tab only: not on All, the hover or the peek. Finished tasks are on the
+Waiting tab only: not on All, and never the peek. Finished tasks are on the
 Finished tab only, the same way, and Back to list on one reopens it, back on
 All. The panel opens on All every time, and goes back to All when the tab it is
 on runs out of tasks. On the Waiting tab alone, **Clear all** sits under the
@@ -639,8 +639,8 @@ slide is smooth, its notes and buttons show, a click just left of the peek lands
 on the window beneath, a click on its description does nothing, Complete
 completes it and empties the edge without taking the keyboard from herdr,
 Remove asks once and the pointer leaving puts it back, and Go to… slides the
-panel to the middle with the keyboard, on that card's Go to list. And the keyboard, past what the
-script measures: `Mod+Alt+Ctrl+T` slides the panel from the right edge to the
+panel to the middle with the keyboard, on that card's Go to list. And the
+keyboard, past what the script measures: `Mod+Alt+Ctrl+T` slides the panel from the right edge to the
 middle of the screen, smoothly, with every card wrapped and the first
 darkened. The pointer passing over it does not move it. Check also active tasks with Stop and no
 Start working; Up and Down move the darkening between cards, Left, Right and
@@ -648,7 +648,7 @@ Tab along the buttons; `s` starts working,
 `e` opens the box, `t` stops; Delete arms Remove and only a second
 Delete deletes, while moving away disarms it; Enter on a card's description shows its notes, dimmed under it, with the panel and its blur grown to fit, and a second Enter hides them; a card with more notes than fit stops at about twelve lines and scrolls the rest by wheel and by dragging the scrollbar, neither of which hides them, while a click on the notes does, `c` completes the task, `m` shows the project list and Escape comes back from it while Enter on a folder moves the task there, `project open` on a workspace with no tasks shows the project list and Escape closes it,
 Down reaching "+N more" shows the rest, focused on the first card it hid, and a
-list taller than the screen scrolls with the focus; a click on a filter tab switches the cards and does not take the focus (the focus still falls back to the first card when the focused one is not under the new tab), a started planned task shows under Active but not Planned, and Back to list on a waiting task brings it back to All; a click on Clear all arms it, darkening no card, a second click deletes the waiting tasks, and Up or Down in between puts it back with the focus on the card it was on; arming Clear all puts an armed Remove back, and arming Remove puts Clear all back; Escape tucks it away to the one-line peek.
+list taller than the screen scrolls with the focus; a click on a filter tab switches the cards and does not take the focus (the focus still falls back to the first card when the focused one is not under the new tab), a started planned task shows under Active but not Planned, and Back to list on a waiting task brings it back to All; a click on Clear all arms it, darkening no card, a second click deletes the waiting tasks, and Up or Down in between puts it back with the focus on the card it was on; arming Clear all puts an armed Remove back, and arming Remove puts Clear all back; Escape tucks it away, to the peeked card if there is one.
 
 `e2e-box.sh` runs in the same kind of nested niri (`tests/lib/nested-niri.sh`
 starts it for both). Its keys are pressed with `wtype` pointed at that nested
