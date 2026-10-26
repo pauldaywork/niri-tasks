@@ -610,6 +610,19 @@ impl Panel {
         self.apply(effects);
     }
 
+    /// herdr's focused pane is on this task now, or on none: the card the
+    /// panel shows tucked away. The daemon asks only the panel whose
+    /// workspace the peek is for (see `shows`).
+    pub fn peek(self: &Rc<Self>, uuid: Option<&str>) {
+        let effects = self.state.borrow_mut().set_peek(uuid);
+        self.apply(effects);
+    }
+
+    /// This panel shows the workspace with this tag.
+    pub fn shows(&self, tag: &str) -> bool {
+        *self.tag.borrow() == tag
+    }
+
     /// Take the keyboard in the middle of the monitor, every card wrapped with
     /// its buttons, focusing the first. `agents` are the session's live agent
     /// names, for the Go to list's sessions and Ctrl+Enter's. False when

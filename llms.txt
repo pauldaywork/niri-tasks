@@ -24,6 +24,7 @@
 | `niritasks tag` | Print the focused workspace's tag; exit 1 if it has none | scriptable, follows focus |
 | `niritasks tag --session` | Print the tag of the workspace this terminal belongs to | scriptable |
 | `niritasks task panel [<uuid>]` | Hand the task panel the keyboard (Mod+Alt+Ctrl+T), on All. With a uuid or uuid8, the focus starts on that task's card body, notes hidden; a task with no card under All on the focused workspace's panel opens it on the first card with a notification. A notification instead on a workspace with no tasks or no name; exit 1 with no daemon or an unknown task | GUI |
+| `niritasks task peek <uuid>` / `niritasks task peek --clear` | Peek at a task's card on the edge of the tucked-away task panel, or at nothing, as herdr's focused pane does. Only from a pane of a named herdr session, whose workspace it peeks on, never the focused one. The uuid may be the first 8 characters. Exit 1 with no daemon, an unknown task, or outside a named herdr session | GUI |
 | `niritasks task status <uuid> <state>` | Move it to `active`, `stopped` (also reopens a completed task), `waiting` or `completed` | scriptable |
 | `niritasks task status <uuid> deleted --yes` | Delete it | scriptable |
 | `niritasks task move <uuid> <folder>` | Move it to another `~/Projects` folder's workspace: it trades this workspace's tag for the folder's. Refused for a folder not in `~/Projects`, this workspace's own, or a task not on this workspace | scriptable, follows the herdr session, else focus |

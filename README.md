@@ -360,6 +360,8 @@ niritasks tag --session            # the tag of the workspace this terminal was 
                                    #   (its herdr session, else its ~/Projects folder)
 niritasks task panel [<uuid>]      # hand the task panel the keyboard (Mod+Alt+Ctrl+T); with a uuid or
                                    #   uuid8, focused on that task's card (herdr's task-docs.panel)
+niritasks task peek <uuid>|--clear   # peek at a task's card on the tucked-away panel, as herdr's focused pane does;
+                                   #   only from a pane of a named herdr session, whose workspace it is
 niritasks task status <uuid> <state>  # what a card's Stop, Waiting, Complete and Remove run: active|stopped|waiting|completed|deleted
                                    #   (stopped also brings back a waiting task, and reopens a completed one)
 niritasks task status <uuid> deleted --yes  # deleted needs --yes, Remove's confirmation

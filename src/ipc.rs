@@ -1,5 +1,5 @@
 //! Asking the running daemon to open the task box, to hand the task panel
-//! the keyboard, or to show its project list.
+//! the keyboard, to show its project list, or to peek at a task.
 //!
 //! The box once cost 0.6s to 2.6s to appear when each `niritasks task add`
 //! built it in a process of its own; the daemon's warm GTK process puts it
@@ -11,7 +11,7 @@
 //! would mean a second copy of what the box does on submit.
 //!
 //! The protocol is one line per request, because it only ever carries a mode,
-//! a uuid and the add box's refine flag:
+//! a workspace tag, a uuid and the add box's refine flag:
 //!
 //! ```text
 //! add
@@ -21,6 +21,8 @@
 //! panel
 //! panel <uuid>
 //! projects
+//! peek <tag> <uuid>
+//! peek <tag>
 //! ```
 
 use anyhow::{Context, Result};
@@ -41,6 +43,11 @@ pub enum Request {
     /// Show the focused monitor's project list, for opening a project, with
     /// the keyboard: Mod+Alt+W.
     Projects,
+    /// Peek at this task's card on the edge of the panel showing this
+    /// workspace tag, while it is tucked away, or at nothing: herdr's focused
+    /// pane, from task-docs' focus hooks. Kept per tag, so a workspace on no
+    /// monitor yet shows it once a monitor shows that workspace.
+    Peek { tag: String, uuid: Option<String> },
 }
 
 impl Request {
@@ -53,6 +60,8 @@ impl Request {
             Request::Panel(None) => "panel".into(),
             Request::Panel(Some(uuid)) => format!("panel {uuid}"),
             Request::Projects => "projects".into(),
+            Request::Peek { tag, uuid: None } => format!("peek {tag}"),
+            Request::Peek { tag, uuid: Some(uuid) } => format!("peek {tag} {uuid}"),
         }
     }
 
@@ -64,6 +73,11 @@ impl Request {
             ("projects", _) => Some(Request::Projects),
             ("edit", Some(uuid)) if !uuid.is_empty() => Some(Request::Edit(uuid.to_string())),
             ("note", Some(uuid)) if !uuid.is_empty() => Some(Request::Note(uuid.to_string())),
+            ("peek", Some(rest)) => {
+                let mut words = rest.split_whitespace();
+                let tag = words.next()?.to_string();
+                Some(Request::Peek { tag, uuid: words.next().map(String::from) })
+            }
             _ => None,
         }
     }
@@ -143,6 +157,19 @@ mod tests {
         assert_eq!(Request::decode("panel abc\n"), Some(Request::Panel(Some("abc".into()))));
     }
 
+    /// A peek names the workspace tag it is for, then the task, or none to
+    /// peek at nothing; with no tag it is no request.
+    #[test]
+    fn peek_carries_a_tag_and_an_optional_uuid() {
+        let peek = |uuid: Option<&str>| Request::Peek { tag: "e2e".into(), uuid: uuid.map(String::from) };
+        assert_eq!(peek(Some("abc")).encode(), "peek e2e abc");
+        assert_eq!(peek(None).encode(), "peek e2e");
+        assert_eq!(Request::decode("peek e2e abc\n"), Some(peek(Some("abc"))));
+        assert_eq!(Request::decode("peek e2e\n"), Some(peek(None)));
+        assert_eq!(Request::decode("peek\n"), None);
+        assert_eq!(Request::decode("peek \n"), None);
+    }
+
     #[test]
     fn round_trips_every_request() {
         for req in [
@@ -153,6 +180,8 @@ mod tests {
             Request::Panel(None),
             Request::Panel(Some("9e400fbc-d371-4da6-afe1-6320df840239".into())),
             Request::Projects,
+            Request::Peek { tag: "web".into(), uuid: Some("9e400fbc-d371-4da6-afe1-6320df840239".into()) },
+            Request::Peek { tag: "web".into(), uuid: None },
         ] {
             assert_eq!(Request::decode(&req.encode()), Some(req));
         }

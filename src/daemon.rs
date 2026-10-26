@@ -42,6 +42,10 @@ thread_local! {
     /// The panels, where an IPC request can reach them. Only ever touched on
     /// the GTK main thread, which is the one thread they may be.
     static PANELS: Panels = Panels::default();
+    /// The task each workspace tag peeks at, by uuid: herdr's focused pane's,
+    /// from `niritasks task peek`. Kept per tag rather than per panel, so a
+    /// workspace on no monitor yet peeks at it once a monitor shows it.
+    static PEEKS: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
 }
 
 /// What the last tick saw, so a tick that changes nothing does nothing.
@@ -213,7 +217,7 @@ fn build(app: &Application) {
         });
     }) {
         eprintln!(
-            "IPC unavailable ({e}); task add, edit, note, panel and project open will report no daemon"
+            "IPC unavailable ({e}); task add, edit, note, panel, peek and project open will report no daemon"
         );
     }
 }
@@ -286,8 +290,8 @@ fn panel_notice(asked: bool, taken: Taken, tag: impl FnOnce() -> anyhow::Result<
     }
 }
 
-/// Serve one request from the CLI: a task box, the panel's keyboard, or the
-/// project list. A task box's taskwarrior work is done here when it is
+/// Serve one request from the CLI: a task box, the panel's keyboard, the
+/// project list, or a peek. A task box's taskwarrior work is done here when it is
 /// submitted, because the CLI has already exited by then.
 fn serve_request(app: &Application, req: crate::ipc::Request) {
     use crate::{ipc::Request, notify, task, taskbox, text};
@@ -317,6 +321,17 @@ fn serve_request(app: &Application, req: crate::ipc::Request) {
             let tag = || Workspace::focused().map(|w| w.tag().to_string());
             if let Some(text) = panel_notice(uuid.is_some(), taken, tag) {
                 notify::tasks(&text);
+            }
+        }
+
+        Request::Peek { tag, uuid } => {
+            PEEKS.with(|p| remember_peek(&mut p.borrow_mut(), &tag, uuid.as_deref()));
+            // Every monitor showing that workspace; none until one does, and
+            // the tick hands it over then.
+            let showing: Vec<Rc<Panel>> =
+                PANELS.with(|p| p.borrow().values().filter(|panel| panel.shows(&tag)).cloned().collect());
+            for panel in showing {
+                panel.peek(uuid.as_deref());
             }
         }
 
@@ -405,6 +420,19 @@ fn forget_returns(uuid: &str) {
     }
 }
 
+/// Note `uuid` as the task the workspace with this tag peeks at, or that it
+/// peeks at nothing.
+fn remember_peek(peeks: &mut HashMap<String, String>, tag: &str, uuid: Option<&str>) {
+    match uuid {
+        Some(uuid) => {
+            peeks.insert(tag.to_string(), uuid.to_string());
+        }
+        None => {
+            peeks.remove(tag);
+        }
+    }
+}
+
 /// A task box on `uuid` closed, however it closed: the panel whose Edit
 /// opened it takes the keyboard back, asking the session of the workspace
 /// its monitor shows for its agents. A box from the CLI or a keybind finds
@@ -454,10 +482,12 @@ fn tick(panels: &Panels, state: &Rc<RefCell<State>>) {
     let mut by_name: HashMap<Option<String>, Vec<model::Card>> = HashMap::new();
     for (connector, panel) in panels.borrow().iter() {
         let name = outputs.get(connector).cloned().flatten();
+        let t = tag::workspace_tag(name.as_deref().unwrap_or_default());
+        let peek = PEEKS.with(|p| p.borrow().get(&t).cloned());
         let cards = by_name
             .entry(name.clone())
             .or_insert_with(|| cards_for_workspace(name.as_deref()));
-        panel.show(name.as_deref(), cards, None);
+        panel.show(name.as_deref(), cards, peek.as_deref());
     }
 
     let mut s = state.borrow_mut();
@@ -514,6 +544,20 @@ fn sync_monitors(app: &Application, display: &gdk::Display, panels: &Panels, sta
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A peek is kept per workspace tag, replaced by the next for that tag
+    /// and dropped by a clear, leaving other tags' alone.
+    #[test]
+    fn a_peek_is_kept_per_workspace_tag() {
+        let mut peeks = HashMap::new();
+        remember_peek(&mut peeks, "web", Some("a"));
+        remember_peek(&mut peeks, "api", Some("b"));
+        remember_peek(&mut peeks, "web", Some("c"));
+        assert_eq!(peeks.get("web").map(String::as_str), Some("c"));
+        remember_peek(&mut peeks, "web", None);
+        assert_eq!(peeks.get("web"), None);
+        assert_eq!(peeks.get("api").map(String::as_str), Some("b"));
+    }
 
     /// A bare panel request says nothing once it has the keyboard; one for a
     /// task whose card is not here says so; no cards says why, either way.
