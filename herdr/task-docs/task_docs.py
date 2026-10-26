@@ -13,6 +13,12 @@ made before reports had a Markdown twin opens in the browser instead.
 `task_docs.py panel` is the panel action: it finds the pane's task the same
 way and runs `niritasks task panel <uuid8>`, which slides out the task panel
 with the keyboard on that task's card.
+`task_docs.py focused` is the focus hook herdr runs as a pane, a tab or a
+workspace is selected: it finds the session's focused pane's task the same
+way and runs `niritasks task peek <uuid8>`, or `--clear` for a pane on no
+task, so that task's card alone peeks out of its workspace's task panel. A
+pane already peeked for is skipped, and a failure goes to stderr, herdr's
+plugin log, never to a notification.
 """
 
 import glob
@@ -185,6 +191,70 @@ def panel_action():
         notify(f"Task panel: could not open the panel. {result.stderr.strip()[-300:]}")
 
 
+def focused_pane():
+    """The session's focused pane, as (pane id, its live folder), or None when
+    herdr cannot say or no pane is focused. The focus events carry only ids, a
+    tab's or a workspace's, so every one is resolved here the same way."""
+    result = herdr("pane", "list")
+    if result.returncode != 0:
+        return None
+    try:
+        panes = json.loads(result.stdout)["result"]["panes"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    for pane in panes:
+        if pane.get("focused") and pane.get("pane_id"):
+            return pane["pane_id"], pane.get("foreground_cwd") or pane.get("cwd")
+    return None
+
+
+def last_focused():
+    """Where the pane last peeked for is noted: one file per herdr session,
+    since each session has its own focused pane."""
+    return state_dir() / f"focused-{os.environ.get('HERDR_SESSION') or 'default'}"
+
+
+def peek(*args):
+    """`niritasks task peek` with these arguments; whether it worked. A failure
+    goes to stderr, which herdr keeps in the plugin's log: a notification on
+    every pane switch would be noise."""
+    try:
+        result = subprocess.run(["niritasks", "task", "peek", *args],
+                                capture_output=True, text=True, check=False)
+    except OSError:
+        print("task-docs focused: niritasks not found on PATH", file=sys.stderr)
+        return False
+    if result.returncode != 0:
+        print(f"task-docs focused: {result.stderr.strip()[-300:]}", file=sys.stderr)
+    return result.returncode == 0
+
+
+def focused_action():
+    """The pane, tab and workspace focus hooks: peek at the focused pane's task,
+    or at nothing when it runs none. The three events one switch can fire find
+    the same pane, and a pane already peeked for is skipped. A task niritasks
+    does not know, one whose branch outlived it, peeks at nothing. The pane is
+    noted only once a peek went through, so a missing daemon is tried again on
+    the next switch."""
+    found = focused_pane()
+    if not found:
+        return
+    pane, cwd = found
+    seen = last_focused()
+    try:
+        if seen.read_text() == pane:
+            return
+    except OSError:
+        pass
+    uuid8 = find_task(pane, cwd)
+    if (uuid8 and peek(uuid8)) or peek("--clear"):
+        try:
+            seen.parent.mkdir(parents=True, exist_ok=True)
+            seen.write_text(pane)
+        except OSError:
+            pass
+
+
 def parse_docs(stdout):
     """`niritasks task docs` lines as (label, path) pairs; a line with no tab is skipped."""
     return [tuple(line.split("\t", 1)) for line in stdout.splitlines() if "\t" in line]
@@ -270,9 +340,10 @@ def review():
 
 
 def main(argv):
-    commands = {"open": open_action, "panel": panel_action, "pick": pick, "review": review}
+    commands = {"open": open_action, "panel": panel_action, "focused": focused_action,
+                "pick": pick, "review": review}
     if len(argv) != 2 or argv[1] not in commands:
-        print("usage: task_docs.py open|panel|pick|review", file=sys.stderr)
+        print("usage: task_docs.py open|panel|focused|pick|review", file=sys.stderr)
         return 2
     commands[argv[1]]()
     return 0
