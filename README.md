@@ -362,8 +362,8 @@ workspace finds the now-focused pane's task, as Task docs does, and that
 task's card becomes the peek on its workspace's task panel: the one card the
 edge shows. A pane with no task empties the edge, and so does the task
 leaving the list (completed, waiting or removed). Selecting the same pane
-again changes nothing on the panel. It runs `niritasks task peek <uuid8>`, or `niritasks task
-peek --clear`, and needs herdr 0.9.3. It sends no notification; if the peek
+again changes nothing on the panel. It runs `niritasks task peek <uuid8>`,
+or `niritasks task peek --clear`, and needs herdr 0.9.3. It sends no notification; if the peek
 does not follow the focus, `herdr plugin log list --plugin task-docs` says
 why.
 
@@ -765,7 +765,7 @@ leads to, and what it arms, are `src/panel/state.rs`'s unit tests, which need no
 display.
 
 The nested screen is a flat colour at a fixed size, so its numbers are exact:
-the peek starts at column 1566 of 1600, the keyboard's cards span 420-1180, and
+the peek, with a task peeked, starts at column 1566 of 1600, the keyboard's cards span 420-1180, and
 a frame that should not have changed — another tag's task, Escape, an empty
 panel — is compared pixel for pixel. A nested niri parked out of sight draws
 only when asked, so each frame is shot until two in a row agree. It counts
