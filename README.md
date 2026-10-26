@@ -23,8 +23,8 @@ the only way a workspace gets a name, bar workspace 1, which starts as `general`
 
 ## Task panel
 
-Each monitor shows the pending tasks of the workspace it is displaying, as a
-stack of cards on the right edge — the active tasks first (there can be
+Each monitor's task panel holds the pending tasks of the workspace it is
+displaying, as a stack of cards — the active tasks first (there can be
 several, one per worktree being worked), each ▶ and text in green, then any
 up next, then the rest by priority (H, M, L, none) and newest first, the
 blocked ones last: ○, a dimmed lock for one blocked on
@@ -34,13 +34,19 @@ planned one whose notes link a refine report, which its Go to list's **Open repo
 opens. Up to eight, then a "+N more" card. Each card ends in how long ago
 its task was added: 5m, 3h, 2d, 4w.
 
-The panel sits tucked away with only a 30px peek of each card showing. Move the
-pointer onto it and the cards slide out to full width; move away and they slide
-back. The space around the cards is click-through, so the panel never gets in
-the way of the windows beneath, and a fullscreen window covers it. An unnamed
-workspace, or one with nothing pending, shows no panel at all.
+Tucked away on the right edge, the panel shows one card at most: the task of
+the herdr pane you have selected, on that workspace's monitor (see [Peeking at
+the focused pane's task](#peeking-at-the-focused-panes-task)). Only 30px of it
+shows. Move the pointer onto it and it slides out to full width, whole: its
+description, its id and notes, and its buttons, which work by click while
+herdr keeps the keyboard; move away and it slides back. Go to… and Move to
+workspace open lists the keyboard drives, so a click on either hands the panel
+the keyboard on that card first. The space around the card is click-through,
+so the panel never gets in the way of the windows beneath, and a fullscreen
+window covers it. With no task's pane selected, nothing shows at all.
 
-Clicking a card does nothing: its actions are the buttons the keyboard shows (below). The "+N more" card shows the rest of the tasks in the panel.
+The rest of the workspace's tasks are on the keyboard's panel (below), whose
+"+N more" card shows any past the first eight.
 
 `Mod+Alt+Ctrl+T` hands the panel the keyboard and moves it to the middle of the
 screen, leaving no peek on the right edge while it is there. Every card opens up
@@ -348,6 +354,19 @@ another workspace or not pending (waiting or finished, say), opens the panel on 
 with a notification saying why. A pane with no task gets a notification and
 nothing opens. It runs `niritasks task panel <uuid8>`.
 
+### Peeking at the focused pane's task
+
+The plugin also hooks herdr's `pane.focused`, `tab.focused` and
+`workspace.focused` events; no key to bind. Selecting a pane, a tab or a
+workspace finds the now-focused pane's task, as Task docs does, and that
+task's card becomes the peek on its workspace's task panel: the one card the
+edge shows. A pane with no task empties the edge, and so does the task
+leaving the list (completed, waiting or removed). Selecting the same pane
+again does nothing. It runs `niritasks task peek <uuid8>`, or `niritasks task
+peek --clear`, and needs herdr 0.9.3. It sends no notification; if the peek
+does not follow the focus, `herdr plugin log list --plugin task-docs` says
+why.
+
 ## Commands
 
 `niritasks` is usable directly, not just from keybinds. [`llms.txt`](llms.txt)
@@ -360,8 +379,9 @@ niritasks tag --session            # the tag of the workspace this terminal was 
                                    #   (its herdr session, else its ~/Projects folder)
 niritasks task panel [<uuid>]      # hand the task panel the keyboard (Mod+Alt+Ctrl+T); with a uuid or
                                    #   uuid8, focused on that task's card (herdr's task-docs.panel)
-niritasks task peek <uuid>|--clear   # peek at a task's card on the tucked-away panel, as herdr's focused pane does;
-                                   #   only from a pane of a named herdr session, whose workspace it is
+niritasks task peek <uuid>         # peek at that task's card on its workspace's panel edge, from a
+                                   #   named herdr session's pane (herdr's focus hooks run it)
+niritasks task peek --clear        # peek at nothing: the edge shows no card
 niritasks task status <uuid> <state>  # what a card's Stop, Waiting, Complete and Remove run: active|stopped|waiting|completed|deleted
                                    #   (stopped also brings back a waiting task, and reopens a completed one)
 niritasks task status <uuid> deleted --yes  # deleted needs --yes, Remove's confirmation
@@ -612,10 +632,14 @@ installed `niritasks`, which may be an older build.
 failure actually looked like.
 
 It cannot move the pointer, so the hover is checked by hand after a change to
-`src/panel/surface.rs`: the peek slides out when the pointer reaches it and back
-about 0.4s after it leaves, the slide is smooth, and a click just left of the
-peek, or between two cards, lands on the window beneath, while a click on a card does nothing, and a click on "+N more" shows the
-rest. And the keyboard, past what the
+`src/panel/surface.rs`, with a task peeked (select its herdr pane, or run
+`niritasks task peek <uuid8>` from a pane of its workspace's session): the peek
+slides out when the pointer reaches it and back about 0.4s after it leaves, the
+slide is smooth, its notes and buttons show, a click just left of the peek lands
+on the window beneath, a click on its description does nothing, Complete
+completes it and empties the edge without taking the keyboard from herdr,
+Remove asks once and the pointer leaving puts it back, and Go to… slides the
+panel to the middle with the keyboard, on that card's Go to list. And the keyboard, past what the
 script measures: `Mod+Alt+Ctrl+T` slides the panel from the right edge to the
 middle of the screen, smoothly, with every card wrapped and the first
 darkened. The pointer passing over it does not move it. Check also active tasks with Stop and no
@@ -727,7 +751,9 @@ window can only report the size it *asked* for, and a surface that was never
 mapped reports nothing wrong while showing nothing — the overlay the panel
 replaced was invisible for whole sessions that way, past every unit test. So it
 screenshots a nested niri of its own and measures the panel against a frame taken
-with no tasks: the peek's width, the stack's height as tasks are added, the
+with no tasks: nothing on the edge until a task is peeked, the peek's width and
+its notes, an empty edge for another tag's task, a task leaving pending and
+`--clear`, the
 keyboard's cards in the middle of the screen and the focused one's buttons, a
 filter tab's fill, a waiting task on the Waiting tab and off the tucked panel,
 Clear all taking the focus off the cards on its first Ctrl+Shift+Delete and Enter then

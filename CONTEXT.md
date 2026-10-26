@@ -99,17 +99,18 @@ _Avoid_: busy, locked, running (an active task is the one being worked)
 ### On screen
 
 **Task panel**:
-The list of task cards on a monitor's right edge, showing the pending tasks of
-that monitor's active workspace. It is tucked away to a peek until hovered,
-or until Mod+Alt+Ctrl+T hands it the keyboard, which moves it to the middle of the
-screen until the keyboard is given back.
+The task cards on a monitor's right edge, for that monitor's active
+workspace. Tucked away it shows one card at most, the peek, which slides out
+when hovered; Mod+Alt+Ctrl+T hands it the keyboard, which moves it to the
+middle of the screen with every pending task of the workspace under its filter
+tabs, until the keyboard is given back.
 _Avoid_: pill, overlay, widget, sidebar, drawer
 
 **Task card**:
-One task in the task panel, drawn like a notification: a status icon, a
-one-line description and, at its right end, how long ago the task was added
-(5m, 3h, 2d, 4w) — or, while the task panel has the keyboard, the whole
-description wrapped, above its action row while it has focus. The cards run
+One task in the task panel, drawn like a notification: a status icon, its
+whole description wrapped and, at its right end, how long ago the task was
+added (5m, 3h, 2d, 4w), above its action row while it has focus, or always
+on the peek. The cards run
 active, then up next, then by Taskwarrior priority, newest first, with blocked
 tasks under the rest. A finished task's card, on the Finished tab alone, is
 dimmed, carries a check, and counts its age from when the task was finished.
@@ -124,6 +125,8 @@ Showing them moves the focus to that card's body, its action row and hint
 with it; hiding them leaves the focus where it is. The id line and notes
 together grow to about twelve lines (`NOTES_MAX_PX`), past which they scroll
 inside that height by wheel, touchpad or scrollbar.
+The peek's card shows its id line and notes all the time, and a click on its
+body changes nothing.
 _Avoid_: row (the action row is part of a card), item, block
 
 **Task action**:
@@ -141,13 +144,16 @@ _Avoid_: command (the CLI's word), button, verb
 
 **Action row**:
 The buttons along the focused task card's bottom edge while the task panel has
-the keyboard; the other cards hide theirs — Go to… first, then Start working,
+the keyboard, and along the peek's card always; the other cards hide theirs —
+Go to… first, then Start working,
 Edit, Up next, Complete, Move to workspace, Stop, Waiting and Remove,
 an active task getting Stop in place of Start working, a waiting task getting
 just Go to…, Back to list, Edit, Complete, Move to workspace and Remove, and a
 finished one just Go to…, Back to list, Edit and Remove, and a card being
 planned in the background (a processing one) getting no row at all — each
 running its task action's `niritasks` command, Go to… opening the Go to list.
+On the peek they are clicked while herdr keeps the keyboard; Go to… and Move
+to workspace, whose lists the keyboard drives, take it on that card first.
 Enter or a click on the card's body shows or hides the task's id, uuid and
 notes instead (see Task card).
 After the buttons, dimmed, the hint names the keys that change from card to
@@ -184,8 +190,16 @@ giving the keyboard back.
 _Avoid_: notes (a note row is a task's), scratchpad, memo
 
 **Peek**:
-The strip of each task card left showing when the task panel is tucked away.
-_Avoid_: sliver, handle, tab
+What the task panel shows on its monitor's edge while tucked away: the one
+card of the task herdr's focused pane runs, found by the pane's agent name or
+its branch as herdr's task-docs plugin finds it, drawn whole (its id line,
+notes and action row), with only its left 30px showing until the pointer
+slides it out. herdr's task-docs plugin sets it with `niritasks task peek` as
+a pane, a tab or a workspace is selected, and the daemon keeps it per
+workspace tag. Nothing shows when that pane runs no task, the task is not
+pending on that workspace, or nothing has been peeked. It never takes the
+keyboard itself.
+_Avoid_: sliver, handle, tab, hover card
 
 **Project list**:
 What the task panel shows in place of the task cards for picking a
