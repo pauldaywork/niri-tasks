@@ -68,6 +68,19 @@ icon, its Go to list's Open report opens it, and
 `niritasks task report <uuid> --fresh` builds another.
 _Avoid_: plan report, explainer
 
+**Branch report**:
+An HTML deck, with its Markdown twin, of what a task's worktree branch has
+changed so far, how it works and how it is tested, built by an Explain
+branch session (the `report-branch` skill) from the branch's commits and diff
+against its merge-base with the default branch, and the test suite as that
+session ran it. It shares the refine report's renderer and styles, in its own
+slide order: hot spots, the commit story, a changes map, the test suite, the
+new tests and plan vs done. Linked from the task's notes as
+`Branch report: <path>`, never `Report:`, so the plan's report stays the
+task's report; the Go to list's Branch report opens it, and
+`niritasks task report <uuid> --branch --fresh` builds another.
+_Avoid_: diff report, review report
+
 **Plan note**:
 A `Plan: docs/superpowers/plans/<file>.md` note on a task worked through Start
 working, linking the implementation plan the `writing-plans` skill saved, the
@@ -222,11 +235,11 @@ _Avoid_: picker, menu, folder list
 What the task panel shows in place of the task cards when a card's Go to… is
 pressed: what else can be done with that task and where it can be gone to,
 drawn like task cards under a line naming it — Refine or Redo refine, Grill
-me, Get started or Back to worktree, Generate or Regenerate report, Open
-report, Planning doc, Design spec, Go to refine session, Go to work session,
+me, Get started or Back to worktree, Generate or Regenerate report, Explain
+branch, Open report, Branch report, Planning doc, Design spec, Go to refine session, Go to work session,
 Open worktree folder, Open in VS Code, and Read aloud or Stop reading aloud
 — each row only when it applies: refining, starting, reports built and
-sessions on a task on the list (Back to worktree giving way to Go to work
+sessions on a task on the list, Explain branch whenever the task has a worktree (Back to worktree giving way to Go to work
 session while that Claude runs), the documents when its notes link them
 (`Report:`, `Plan:`, `Spec:`), the worktree when it has one, VS Code when
 installed, reading aloud always. Each document's row shows how old it is at

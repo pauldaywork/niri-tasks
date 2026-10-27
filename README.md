@@ -55,7 +55,7 @@ under it:
 
 | Button | Key | Does |
 |---|---|---|
-| **Go to…** (blue) | `o` | A list in the panel of what else can be done with the task and where it can be gone to — Refine (Redo refine), Grill me, Get started (Back to worktree), Generate report (Regenerate report), Open report, Planning doc, Design spec, Go to refine session, Go to work session, Open worktree folder, Open in VS Code and Read aloud (Stop reading aloud), each only when it applies (see below) — first on every card |
+| **Go to…** (blue) | `o` | A list in the panel of what else can be done with the task and where it can be gone to — Refine (Redo refine), Grill me, Get started (Back to worktree), Generate report (Regenerate report), Explain branch, Open report, Branch report, Planning doc, Design spec, Go to refine session, Go to work session, Open worktree folder, Open in VS Code and Read aloud (Stop reading aloud), each only when it applies (see below) — first on every card |
 | **Start working** (green) | `s` | The task's own worktree, herdr tab and Claude, which plans the task first and links the plan it saves as a `Plan: docs/superpowers/plans/<file>.md` note — not on an active task, which is already being worked |
 | **Edit** (yellow) | `e` | Open it in the task box. Closing the box, saved or not, hands the keyboard back to the panel on the same tab, on this card |
 | **Up next** (yellow) | | Mark it as the one to do next: its card turns yellow and moves up under the active tasks. On a task already up next it reads **Not up next**, and clears it — not on a waiting or finished task |
@@ -100,6 +100,8 @@ applies:
 | **Get started**, **Back to worktree** once started | on a task on the list, unless its work Claude is running: Go to work session then goes there |
 | **Generate report**, **Regenerate report** once one exists | on a planned task on the list |
 | **Open report** | its notes link a report (`Report: <path>`, the path absolute, `~/...`, or a name in `~/.local/share/niri-tasks/reviews`): an HTML one in a new browser window on this workspace, a Markdown one in a VS Code of its own, as the plan and spec are |
+| **Explain branch** | the task has a worktree: Claude, in a tab of its own in the worktree, explains what its branch has changed since it left the default branch, runs the tests, and links the deck as `Branch report: <path>` |
+| **Branch report** | its notes link a branch report: opened as Open report opens a report |
 | **Planning doc**, **Design spec** | its notes link a plan (`Plan: <path>`) or a spec (`Spec: <path>`): opened in a VS Code of its own, apart from your VS Code windows, sharing your extensions, settings and keybindings |
 | **Go to refine session**, **Go to work session** | on a task on the list, that Claude (`task-<uuid8>`, `work-<uuid8>`) is running, checked as the panel slides out |
 | **Open worktree folder** | the task has a worktree: a terminal in it |
@@ -213,7 +215,7 @@ and says so once.
 
 [herdr](https://herdr.dev) is optional. With it on `$PATH`, `niritasks project
 open` runs the workspace's herdr session in the project terminal; without it the
-terminal is a plain shell in the project folder. A card's Go to list's **Refine**, **Grill me** and **Generate report** need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod), and the box's **Add & all** Claude Code alone, on `$PATH` — they open
+terminal is a plain shell in the project folder. A card's Go to list's **Refine**, **Grill me**, **Generate report** and **Explain branch** need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod), and the box's **Add & all** Claude Code alone, on `$PATH` — they open
 Claude inside that session — plus `bubblewrap` and `socat` for the Bash
 sandbox that keeps that Claude to reading anything but secrets, reaching
 only a fixed list of source and docs hosts, and writing only the task and
