@@ -75,14 +75,21 @@ that runs headless, with its build outputs under `$TMPDIR`:
 
 - Rust: `CARGO_TARGET_DIR="$TMPDIR/target" cargo test --locked`
 - Python: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s <dir>`
-- Bun or a Claude Code mod: `bun test` or `claude plugin test <dir>`, with any
-  cache pointed under `$TMPDIR`
+- A Claude Code mod (a folder with `.claude-plugin/plugin.json`, or tests that
+  import `claude-code/testing`): `claude plugin test <dir>`, never plain
+  `bun test`, which cannot load `claude-code/testing` and fails every file;
+  point any cache under `$TMPDIR`
+- Other Bun code: `bun test`
 
 Never run a suite that needs a display, a nested compositor, a real
 workspace or a network host outside the fence: an e2e script is named, not
 run. A suite the sandbox stops (a write outside `$TMPDIR`, a refused host)
-is not run either, with the reason; never count it as failed. For each suite
-run, take the passed and failed counts from its own summary, and name each
+is not run either, with the reason; never count it as failed. The same holds
+for a single test in a suite that does run: one failing with `Read-only file
+system`, `Operation not permitted`, `EACCES`, or a socket or bind error under
+`/tmp` or `/run` was stopped by the fence, not broken by the branch. Leave it
+out of `failed` and `failing`, and list it under `not_run` with "stopped by
+the sandbox" and the test's name as the why. For each suite run, take the passed and failed counts from its own summary, and name each
 failing test.
 
 Then find the tests the branch adds or changes (`git diff "$mb" HEAD` on the
@@ -119,6 +126,10 @@ says what happened:
   longer exists**: stop and tell the user.
 - **show_task_report: nothing written: git … failed**: stop and tell the
   user the tool's answer.
+- Any other **nothing written:** answer that is not about a field (the
+  task's own description or notes need making one line, the report has no
+  branch fields): relay it to the user and stop; editing fields cannot fix
+  it.
 - **show_task_report: this session's branch report is made and linked**:
   the report is done already; go to step 6.
 - Any other **show_task_report: …** answer lists every field over its limit,

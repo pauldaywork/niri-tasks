@@ -455,6 +455,8 @@ describe('a branch report', () => {
     expect(branchPage(branched(), PLAN)).toContain('nothing broke</span> 3 tests passed across 1 suite.')
     const failing = branched({ ...BRANCH_MIN, suite: { runs: [{ suite: 'cargo test', command: 'cargo test', passed: 1200, failed: 2 }] } })
     expect(branchPage(failing, PLAN)).toContain('2 failing</span> 1,200 passed, 2 failed across 1 suite.')
+    const one = branched({ ...BRANCH_MIN, suite: { runs: [{ suite: 'cargo test', command: 'cargo test', passed: 1, failed: 0 }] } })
+    expect(branchPage(one, PLAN)).toContain('nothing broke</span> 1 test passed across 1 suite.')
   })
 
   test('a suite not run is shown dashed, with why', () => {

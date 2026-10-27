@@ -72,7 +72,7 @@ const suite = (s: Suite): string => {
   const across = `across ${count(s.runs.length, 'suite')}.`
   const verdict =
     failed === 0
-      ? `<p class="verdict"><span class="badge pass">nothing broke</span> ${number(passed)} tests passed ${across}</p>`
+      ? `<p class="verdict"><span class="badge pass">nothing broke</span> ${number(passed)} ${passed === 1 ? 'test' : 'tests'} passed ${across}</p>`
       : `<p class="verdict"><span class="badge fail">${number(failed)} failing</span> ${number(passed)} passed, ${number(failed)} failed ${across}</p>`
   const runs = s.runs.map(
     r =>
