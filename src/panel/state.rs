@@ -914,7 +914,7 @@ impl PanelState {
             return Vec::new();
         }
         let Some(card) = self.all.iter().find(|c| c.uuid.as_deref() == Some(uuid)) else { return Vec::new() };
-        let since = Since::of(card.report.as_ref(), card.plan.as_ref(), card.spec.as_ref(), modified);
+        let since = Since::of(card.report.as_ref(), card.branch_report.as_ref(), card.plan.as_ref(), card.spec.as_ref(), modified);
         let Some(list) = card.state(&self.agents).and_then(|state| GoToList::new(uuid, &card.text, state, found, since))
         else {
             return Vec::new();

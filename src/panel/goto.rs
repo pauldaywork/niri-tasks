@@ -15,7 +15,7 @@ use crate::task::{self, Link};
 /// The button's words, and the start of the list's title.
 pub const LABEL: &str = "Go to…";
 
-/// The footer while the Go to list shows. No text field: there are twelve
+/// The footer while the Go to list shows. No text field: there are fourteen
 /// rows at most.
 pub const GOTO_KEYS: &str = "Up, Down: pick · Enter: do it · Esc: back to the card";
 
@@ -39,16 +39,18 @@ pub struct Found {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Since {
     pub report: Option<String>,
+    pub branch_report: Option<String>,
     pub plan: Option<String>,
     pub spec: Option<String>,
 }
 
 impl Since {
-    /// The stamps of the `report`, `plan` and `spec` a card links, asking
+    /// The stamps of the `report`, `branch_report`, `plan` and `spec` a card links, asking
     /// `modified` for the Unix seconds a linked path last changed whenever
     /// a note's date is not taskwarrior's shape.
     pub fn of(
         report: Option<&Link>,
+        branch_report: Option<&Link>,
         plan: Option<&Link>,
         spec: Option<&Link>,
         modified: &dyn Fn(&str) -> Option<i64>,
@@ -60,7 +62,7 @@ impl Since {
                 None => modified(&link.path).map(task::stamp),
             }
         };
-        Since { report: since(report), plan: since(plan), spec: since(spec) }
+        Since { report: since(report), branch_report: since(branch_report), plan: since(plan), spec: since(spec) }
     }
 }
 
@@ -75,8 +77,13 @@ pub enum Item {
     Start,
     /// Claude builds the report of its plan, a fresh one if it has one.
     Report,
+    /// Claude explains what its worktree branch has changed, a fresh report
+    /// each time.
+    Explain,
     /// The report its notes link, `Report: <path>`, in the browser.
     OpenReport,
+    /// The branch report its notes link, `Branch report: <path>`.
+    BranchReport,
     /// The plan its notes link, `Plan: <path>`.
     Plan,
     /// The design spec its notes link, `Spec: <path>`.
@@ -147,8 +154,9 @@ impl Group {
 
 impl Item {
     /// Every row, in the order the list shows the ones that apply.
-    pub const ALL: [Item; 12] =
-        [Refine, Grill, Start, Report, OpenReport, Plan, Spec, RefineSession, WorkSession, Worktree, Editor, ReadAloud];
+    pub const ALL: [Item; 14] = [
+        Refine, Grill, Start, Report, Explain, OpenReport, BranchReport, Plan, Spec, RefineSession, WorkSession, Worktree, Editor, ReadAloud,
+    ];
 
     /// Whether the row shows for a task in `state`, with what was `found`.
     /// Refining, starting and the herdr sessions are for a task on the
@@ -156,7 +164,8 @@ impl Item {
     /// while the work Claude is live, and Refine and Grill me to Go to
     /// refine session while the refine Claude is, since each would only
     /// focus it; generating
-    /// a report for a planned one;
+    /// a report for a planned one, explaining the branch whenever there is
+    /// a worktree, on or off the list;
     /// the documents whenever the notes link them, the worktree whenever
     /// there is one, VS Code whenever it is installed, and reading aloud
     /// always. Nothing on a processing task: a Claude is writing it.
@@ -169,7 +178,9 @@ impl Item {
             Refine | Grill => on_list && !state.has_refine,
             Start => on_list && !state.has_work,
             Report => on_list && state.planned,
+            Explain => found.worktree,
             OpenReport => state.has_report,
+            BranchReport => state.has_branch_report,
             Plan => state.has_plan,
             Spec => state.has_spec,
             RefineSession => on_list && state.has_refine,
@@ -197,7 +208,9 @@ impl Item {
             Start => "Get started",
             Report if state.has_report => "Regenerate report",
             Report => "Generate report",
+            Explain => "Explain branch",
             OpenReport => "Open report",
+            BranchReport => "Branch report",
             Plan => "Planning doc",
             Spec => "Design spec",
             RefineSession => "Go to refine session",
@@ -212,10 +225,10 @@ impl Item {
     /// The kind of step the row is, which gives it its colour.
     pub fn group(self) -> Group {
         match self {
-            Refine | Grill | Report => Group::Plan,
+            Refine | Grill | Report | Explain => Group::Plan,
             Start => Group::Work,
             RefineSession | WorkSession => Group::Session,
-            OpenReport | Plan | Spec => Group::Document,
+            OpenReport | BranchReport | Plan | Spec => Group::Document,
             Worktree | Editor => Group::Folder,
             ReadAloud => Group::Aloud,
         }
@@ -224,7 +237,8 @@ impl Item {
     /// The row's glyph, from the Nerd Font the cards use; no two alike.
     /// Font Awesome's: magic wand (Refine's own), comments (Grill me's),
     /// play (Start's), file-text outline, file-text, numbered list,
-    /// lightbulb, comments outline, terminal, open folder outline and code;
+    /// lightbulb, comments outline, terminal, open folder outline and code,
+    /// plus code-fork (Explain branch) and file (Branch report);
     /// Read aloud's speaker is Material Design's, Speak's old one.
     pub fn icon(self) -> &'static str {
         match self {
@@ -232,7 +246,9 @@ impl Item {
             Grill => "\u{f086}",
             Start => "\u{f04b}",
             Report => "\u{f0f6}",
+            Explain => "\u{f126}",
             OpenReport => "\u{f15c}",
+            BranchReport => "\u{f15b}",
             Plan => "\u{f0cb}",
             Spec => "\u{f0eb}",
             RefineSession => "\u{f0e6}",
@@ -252,7 +268,9 @@ impl Item {
             Grill => &["task", "refine", uuid, "--grill"],
             Start => return Action::Start.args(uuid),
             Report => &["task", "report", uuid, "--fresh"],
+            Explain => &["task", "report", uuid, "--branch", "--fresh"],
             OpenReport => &["task", "report", uuid],
+            BranchReport => &["task", "report", uuid, "--branch"],
             Plan => &["task", "open", uuid, "plan"],
             Spec => &["task", "open", uuid, "spec"],
             RefineSession => &["task", "session", uuid, "--refine"],
@@ -335,12 +353,13 @@ impl GoToList {
     }
 
     /// How long ago a document row's document was made, as a task card
-    /// shows its age, `now` in Unix seconds: Open report, Planning doc and
-    /// Design spec alone. None on every other row, and on a document with
+    /// shows its age, `now` in Unix seconds: Open report, Branch report,
+    /// Planning doc and Design spec alone. None on every other row, and on a document with
     /// no date.
     pub fn row_age(&self, item: Item, now: i64) -> Option<String> {
         let since = match item {
             OpenReport => &self.since.report,
+            BranchReport => &self.since.branch_report,
             Plan => &self.since.plan,
             Spec => &self.since.spec,
             _ => return None,
@@ -368,6 +387,7 @@ mod tests {
             has_work: true,
             has_refine: true,
             has_report: true,
+            has_branch_report: true,
             has_spec: true,
             has_plan: true,
             ..TaskState::default()
@@ -438,13 +458,13 @@ mod tests {
         assert!(!Item::of(work, Found::default()).contains(&RefineSession));
     }
 
-    /// Off the list, only what works on any task: the documents, the
-    /// worktree, VS Code and reading aloud. Never refining, starting, a
+    /// Off the list, only what works on any task: explaining the branch,
+    /// the documents, the worktree, VS Code and reading aloud. Never refining, starting, a
     /// report built or a session.
     #[test]
     fn off_the_list_only_what_works_on_any_task() {
         for off in [TaskState { waiting: true, ..everything() }, TaskState { finished: true, ..everything() }] {
-            assert_eq!(Item::of(off, all_found()), vec![OpenReport, Plan, Spec, Worktree, Editor, ReadAloud], "{off:?}");
+            assert_eq!(Item::of(off, all_found()), vec![Explain, OpenReport, BranchReport, Plan, Spec, Worktree, Editor, ReadAloud], "{off:?}");
         }
     }
 
@@ -453,6 +473,38 @@ mod tests {
         let processing = TaskState { processing: true, ..everything() };
         assert_eq!(Item::of(processing, all_found()), Vec::new());
         assert_eq!(GoToList::new("a", "task a", processing, all_found(), Since::default()), None);
+    }
+
+    /// Explain branch shows on any task with a worktree, planned or not,
+    /// finished or not; Branch report once its notes link one.
+    #[test]
+    fn a_worktree_can_have_its_branch_explained_and_opened() {
+        let worktree = Found { worktree: true, ..Found::default() };
+        assert_eq!(Item::of(on_list(), worktree), vec![Refine, Grill, Start, Explain, Worktree, ReadAloud]);
+        assert!(!Item::of(on_list(), Found::default()).contains(&Explain), "no worktree, no branch");
+        let finished = TaskState { finished: true, ..TaskState::default() };
+        assert!(Item::of(finished, worktree).contains(&Explain));
+        let explained = TaskState { has_branch_report: true, ..on_list() };
+        assert!(Item::of(explained, Found::default()).contains(&BranchReport));
+        assert_eq!(Explain.label(on_list(), worktree), "Explain branch");
+        assert_eq!(BranchReport.label(explained, worktree), "Branch report");
+        assert_eq!(Explain.args("u"), ["task", "report", "u", "--branch", "--fresh"]);
+        assert_eq!(BranchReport.args("u"), ["task", "report", "u", "--branch"]);
+        assert_eq!(Explain.group(), Group::Plan);
+        assert_eq!(BranchReport.group(), Group::Document);
+        let processing = TaskState { processing: true, ..on_list() };
+        assert!(Item::of(processing, worktree).is_empty());
+    }
+
+    /// The branch report's row shows its age, from its note.
+    #[test]
+    fn the_branch_report_row_shows_its_age() {
+        let l = link("/r/b.html", "20261006T010000Z");
+        let since = Since::of(None, Some(&l), None, None, &|_| None);
+        assert_eq!(since.branch_report.as_deref(), Some("20261006T010000Z"));
+        let state = TaskState { has_branch_report: true, ..on_list() };
+        let list = GoToList::new("u", "t", state, Found::default(), since).unwrap();
+        assert!(list.row_age(BranchReport, crate::task::stamp_secs("20261008T010000Z").unwrap()).is_some());
     }
 
     /// The worktree and VS Code rows follow what was found.
@@ -482,7 +534,9 @@ mod tests {
         assert_eq!(run(Grill), vec!["task", "refine", u, "--grill"]);
         assert_eq!(run(Start), vec!["task", "start", u]);
         assert_eq!(run(Report), vec!["task", "report", u, "--fresh"]);
+        assert_eq!(run(Explain), vec!["task", "report", u, "--branch", "--fresh"]);
         assert_eq!(run(OpenReport), vec!["task", "report", u]);
+        assert_eq!(run(BranchReport), vec!["task", "report", u, "--branch"]);
         assert_eq!(run(Plan), vec!["task", "open", u, "plan"]);
         assert_eq!(run(Spec), vec!["task", "open", u, "spec"]);
         assert_eq!(run(RefineSession), vec!["task", "session", u, "--refine"]);
@@ -569,6 +623,7 @@ mod tests {
         assert_eq!(crate::task::stamp_secs("20261008T000000Z"), Some(NOW));
         let since = Since::of(
             Some(&link("/r/a.html", "20261004T000000Z")),
+            None,
             Some(&link("docs/p.md", "20261007T000000Z")),
             None,
             &|_| panic!("every note's date reads"),
@@ -592,7 +647,7 @@ mod tests {
             ]}"#,
         )
         .unwrap();
-        let since = Since::of(t.report_link().as_ref(), None, None, &|_| None);
+        let since = Since::of(t.report_link().as_ref(), None, None, None, &|_| None);
         let list = GoToList::new("a", "d", everything(), all_found(), since).unwrap();
         assert_eq!(list.row_age(OpenReport, NOW).as_deref(), Some("12h"));
     }
@@ -602,8 +657,8 @@ mod tests {
     #[test]
     fn an_unreadable_note_date_falls_back_to_the_files() {
         let modified = |path: &str| (path == "docs/p.md").then_some(NOW - 3 * 3600);
-        let since = Since::of(Some(&link("/r/gone.html", "someday")), Some(&link("docs/p.md", "")), None, &modified);
-        assert_eq!(since, Since { report: None, plan: Some("20261007T210000Z".into()), spec: None });
+        let since = Since::of(Some(&link("/r/gone.html", "someday")), None, Some(&link("docs/p.md", "")), None, &modified);
+        assert_eq!(since, Since { report: None, branch_report: None, plan: Some("20261007T210000Z".into()), spec: None });
         let list = GoToList::new("a", "d", everything(), all_found(), since).unwrap();
         assert_eq!(list.row_age(Plan, NOW).as_deref(), Some("3h"));
         assert_eq!(list.row_age(OpenReport, NOW), None);
