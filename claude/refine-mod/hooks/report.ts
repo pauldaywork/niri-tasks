@@ -60,7 +60,89 @@ export type Report = {
   sections: Section[]
   files: FileChange[]
   checks: Check[]
+  // A branch report's own parts; absent from a plan report.
+  branch?: Branch
 }
+
+// Which report a session makes: of the task's plan, or of what its branch
+// has changed so far.
+export type ReportKind = 'plan' | 'branch'
+
+// A branch report's parts each look through a named lens: it has no plain
+// part, so its slides keep one order.
+export const BRANCH_LENSES: readonly Lens[] = LENSES.filter(lens => lens !== 'part')
+
+export type Layer = 'unit' | 'integration' | 'e2e'
+export const LAYERS: readonly string[] = ['unit', 'integration', 'e2e']
+export type Result = 'pass' | 'fail' | 'not run'
+export const RESULTS: readonly string[] = ['pass', 'fail', 'not run']
+export type PlanKind = 'step' | 'done when'
+export const PLAN_KINDS: readonly string[] = ['step', 'done when']
+export type Progress = 'done' | 'partial' | 'not yet'
+export const PROGRESS: readonly string[] = ['done', 'partial', 'not yet']
+
+// Where a reviewer should look hardest, and the files it is in.
+export type HotSpot = { spot: string; why: string; files: string[] }
+// A commit as the deck shows it: its short sha and its subject, from git.
+export type Commit = { sha: string; subject: string }
+// A step of the commit story: its commits, by sha as the model names them,
+// or as commits once git has named them.
+export type Step<C> = { step: string; commits: C[]; points: string[] }
+export type MapItem = { name: string; does: string }
+// A changed file, and what each function or part of it the branch changes
+// now does.
+export type MapEntry = { path: string; change: Change; items: MapItem[] }
+export type SuiteRun = { suite: string; command: string; passed: number; failed: number }
+export type NotRun = { suite: string; why: string }
+export type Failing = { test: string; file: string; why: string }
+// The whole test suite as the session ran it.
+export type Suite = { runs: SuiteRun[]; not_run: NotRun[]; failing: Failing[] }
+// A test the branch adds or changes.
+export type NewTest = { test: string; file: string; layer: Layer; pins: string; result: Result }
+export type Untested = { code: string; file: string; why: string }
+// One of the task's Steps or Done when notes, and how far the branch has
+// got with it.
+export type PlanItem = { item: string; kind: PlanKind; progress: Progress; shown_by: string }
+// What git says of the branch: read by the mod, never given by the model.
+export type Facts = {
+  branch: string
+  base: string
+  merge_base: string
+  commits: number
+  files: number
+  added: number
+  removed: number
+  uncommitted: number
+}
+
+// A branch report's own fields, as the model gives them.
+export type BranchInput = {
+  hot_spots: HotSpot[]
+  story: Step<string>[]
+  map: MapEntry[]
+  suite: Suite
+  new_tests: NewTest[]
+  untested: Untested[]
+  plan_vs_done: PlanItem[]
+}
+
+// As a report holds them: each commit with its subject, and the branch's
+// facts, both from git (branch.ts).
+export type Branch = Omit<BranchInput, 'story'> & { facts: Facts; story: Step<Commit>[] }
+
+// The branch fields' names, refused in a plan report.
+const BRANCH_FIELDS = ['hot_spots', 'story', 'map', 'suite', 'new_tests', 'untested', 'plan_vs_done'] as const
+
+// The branch slides' headings, the same in the page and its twin.
+export const BRANCH_HEADINGS = {
+  hotSpots: 'Where to look hardest',
+  story: 'How the branch got here',
+  map: 'What each file now does',
+  suite: 'Did anything break?',
+  newTests: 'The tests this branch adds',
+  untested: 'Changed code with no test',
+  planVsDone: 'Plan vs done',
+} as const
 
 // What keeps a report easy to take in: about four things held in mind at
 // once, one idea per line, short plain sentences. A report over them is
@@ -83,6 +165,22 @@ export const LIMITS = {
   detailChars: 20_000,
   files: { min: 0, max: 40, pathChars: 200, whyWords: 20 },
   checks: { min: 1, max: 6, words: 20 },
+} as const
+
+// What keeps a branch report's own slides easy to take in. A test list may
+// run long: the reader asked for every test the branch adds.
+export const BRANCH_LIMITS = {
+  hotSpots: { min: 1, max: 4, spotWords: 10, whyWords: 30, files: { min: 1, max: 4 } },
+  story: { min: 1, max: 8, stepWords: 10, shaChars: 40, commits: { min: 1, max: 60 }, points: { min: 1, max: 3, words: 25 } },
+  map: { min: 1, max: 20, items: { min: 1, max: 6, nameChars: 80, words: 20 } },
+  suite: {
+    runs: { min: 1, max: 8, suiteWords: 6, commandChars: 200 },
+    notRun: { min: 0, max: 6, words: 25 },
+    failing: { min: 0, max: 10, testChars: 200, words: 25 },
+  },
+  newTests: { min: 0, max: 30, testChars: 200, pinsWords: 25 },
+  untested: { min: 0, max: 8, codeWords: 8, whyWords: 20 },
+  planVsDone: { min: 0, max: 20, itemWords: 30, shownByWords: 25 },
 } as const
 
 // How many words a line may run over its word limit and still be taken.
@@ -259,17 +357,19 @@ const tool = (errors: Errors, at: string, value: unknown): Tool => {
   }
 }
 
-const section = (errors: Errors, at: string, value: unknown): Section => {
+const section = (errors: Errors, at: string, value: unknown, kind: ReportKind): Section => {
   if (!isObject(value)) {
     errors.push(`${at} must be an object`)
     return { heading: '', points: [] }
   }
-  const kind = value.kind
-  if (kind !== undefined && (typeof kind !== 'string' || !(LENSES as readonly string[]).includes(kind))) {
+  const lens = value.kind
+  if (kind === 'branch' && (lens === undefined || lens === 'part')) {
+    errors.push(`${at}.kind is needed in a branch report: one of ${BRANCH_LENSES.join(', ')}`)
+  } else if (lens !== undefined && (typeof lens !== 'string' || !(LENSES as readonly string[]).includes(lens))) {
     errors.push(`${at}.kind must be one of ${LENSES.join(', ')}`)
   }
   const part: Section = {
-    ...(kind !== undefined ? { kind: kind as Lens } : {}),
+    ...(lens !== undefined ? { kind: lens as Lens } : {}),
     heading: text(errors, `${at}.heading`, value.heading, { words: LIMITS.sections.headingWords }),
     points: list(errors, `${at}.points`, value.points, LIMITS.points, (v, i) =>
       text(errors, i, v, { words: LIMITS.points.words }),
@@ -332,26 +432,167 @@ const check = (errors: Errors, at: string, value: unknown): Check => {
   }
 }
 
-// A report the tool takes, and the lines in it over their word limits.
-export type Parsed = { report: Report; warnings: string[] }
+// A whole number, 0 or more.
+const whole = (errors: Errors, at: string, value: unknown): number => {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    errors.push(`${at} must be a whole number, 0 or more`)
+    return 0
+  }
+  return value
+}
 
-// Answers the report, or every problem with it, joined.
-export const parseReport = (e: Record<string, unknown>): Parsed | string => {
+// One of a few words, `said` naming them for the refusal.
+const oneOf = <T extends string>(errors: Errors, at: string, value: unknown, allowed: readonly string[], said: string): T => {
+  if (typeof value !== 'string' || !allowed.includes(value)) errors.push(`${at} must be ${said}`)
+  return value as T
+}
+
+// An object's fields, or none when it is not one.
+const fieldsOf = (errors: Errors, at: string, value: unknown): Record<string, unknown> => {
+  if (isObject(value)) return value
+  errors.push(`${at} must be an object`)
+  return {}
+}
+
+const pathText = (errors: Errors, at: string, value: unknown): string =>
+  text(errors, at, value, { chars: LIMITS.files.pathChars })
+
+// A branch report's own fields, every problem noted.
+const branchInput = (errors: Errors, e: Record<string, unknown>): BranchInput => {
+  const B = BRANCH_LIMITS
+  const suite = fieldsOf(errors, 'suite', e.suite)
+  return {
+    hot_spots: list(errors, 'hot_spots', e.hot_spots, B.hotSpots, (v, at) => {
+      const o = fieldsOf(errors, at, v)
+      return {
+        spot: text(errors, `${at}.spot`, o.spot, { words: B.hotSpots.spotWords }),
+        why: text(errors, `${at}.why`, o.why, { words: B.hotSpots.whyWords }),
+        files: list(errors, `${at}.files`, o.files, B.hotSpots.files, (f, i) => pathText(errors, i, f)),
+      }
+    }),
+    story: list(errors, 'story', e.story, B.story, (v, at) => {
+      const o = fieldsOf(errors, at, v)
+      return {
+        step: text(errors, `${at}.step`, o.step, { words: B.story.stepWords }),
+        commits: list(errors, `${at}.commits`, o.commits, B.story.commits, (c, i) =>
+          text(errors, i, c, { chars: B.story.shaChars }),
+        ),
+        points: list(errors, `${at}.points`, o.points, B.story.points, (p, i) =>
+          text(errors, i, p, { words: B.story.points.words }),
+        ),
+      }
+    }),
+    map: list(errors, 'map', e.map, B.map, (v, at) => {
+      const o = fieldsOf(errors, at, v)
+      return {
+        path: pathText(errors, `${at}.path`, o.path),
+        change: oneOf<Change>(errors, `${at}.change`, o.change, CHANGES, 'new, change or remove'),
+        items: list(errors, `${at}.items`, o.items, B.map.items, (it, i) => {
+          const m = fieldsOf(errors, i, it)
+          return {
+            name: text(errors, `${i}.name`, m.name, { chars: B.map.items.nameChars }),
+            does: text(errors, `${i}.does`, m.does, { words: B.map.items.words }),
+          }
+        }),
+      }
+    }),
+    suite: {
+      runs: list(errors, 'suite.runs', suite.runs, B.suite.runs, (v, at) => {
+        const o = fieldsOf(errors, at, v)
+        return {
+          suite: text(errors, `${at}.suite`, o.suite, { words: B.suite.runs.suiteWords }),
+          command: text(errors, `${at}.command`, o.command, { chars: B.suite.runs.commandChars }),
+          passed: whole(errors, `${at}.passed`, o.passed),
+          failed: whole(errors, `${at}.failed`, o.failed),
+        }
+      }),
+      not_run: list(errors, 'suite.not_run', suite.not_run, B.suite.notRun, (v, at) => {
+        const o = fieldsOf(errors, at, v)
+        return {
+          suite: text(errors, `${at}.suite`, o.suite, { words: B.suite.runs.suiteWords }),
+          why: text(errors, `${at}.why`, o.why, { words: B.suite.notRun.words }),
+        }
+      }),
+      failing: list(errors, 'suite.failing', suite.failing, B.suite.failing, (v, at) => {
+        const o = fieldsOf(errors, at, v)
+        return {
+          test: text(errors, `${at}.test`, o.test, { chars: B.suite.failing.testChars }),
+          file: pathText(errors, `${at}.file`, o.file),
+          why: text(errors, `${at}.why`, o.why, { words: B.suite.failing.words }),
+        }
+      }),
+    },
+    new_tests: list(errors, 'new_tests', e.new_tests, B.newTests, (v, at) => {
+      const o = fieldsOf(errors, at, v)
+      return {
+        test: text(errors, `${at}.test`, o.test, { chars: B.newTests.testChars }),
+        file: pathText(errors, `${at}.file`, o.file),
+        layer: oneOf<Layer>(errors, `${at}.layer`, o.layer, LAYERS, 'unit, integration or e2e'),
+        pins: text(errors, `${at}.pins`, o.pins, { words: B.newTests.pinsWords }),
+        result: oneOf<Result>(errors, `${at}.result`, o.result, RESULTS, 'pass, fail or not run'),
+      }
+    }),
+    untested: list(errors, 'untested', e.untested, B.untested, (v, at) => {
+      const o = fieldsOf(errors, at, v)
+      return {
+        code: text(errors, `${at}.code`, o.code, { words: B.untested.codeWords }),
+        file: pathText(errors, `${at}.file`, o.file),
+        why: text(errors, `${at}.why`, o.why, { words: B.untested.whyWords }),
+      }
+    }),
+    plan_vs_done: list(errors, 'plan_vs_done', e.plan_vs_done, B.planVsDone, (v, at) => {
+      const o = fieldsOf(errors, at, v)
+      return {
+        item: text(errors, `${at}.item`, o.item, { words: B.planVsDone.itemWords }),
+        kind: oneOf<PlanKind>(errors, `${at}.kind`, o.kind, PLAN_KINDS, 'step or done when'),
+        progress: oneOf<Progress>(errors, `${at}.progress`, o.progress, PROGRESS, 'done, partial or not yet'),
+        shown_by: text(errors, `${at}.shown_by`, o.shown_by, { words: B.planVsDone.shownByWords }),
+      }
+    }),
+  }
+}
+
+// A report the tool takes, the lines in it over their word limits, and, for
+// a branch report, its own fields as the model gave them.
+export type Parsed = { report: Report; warnings: string[]; branch?: BranchInput }
+
+// Answers the report, or every problem with it, joined. A branch report has
+// no needs_your_eye or checks: its hot spots and its plan vs done take their
+// places.
+export const parseReport = (e: Record<string, unknown>, kind: ReportKind = 'plan'): Parsed | string => {
   const errors = findings()
   const lines = (at: string, value: unknown, count: Count & { readonly words: number }): string[] =>
     list(errors, at, value, count, (v, i) => text(errors, i, v, { words: count.words }))
+  const branch = kind === 'branch'
+  // A plan report's field a branch report leaves out, refused if given.
+  const none = (at: string, value: unknown, instead: string): [] => {
+    if (value !== undefined && !(Array.isArray(value) && value.length === 0)) {
+      errors.push(`${at} is not used in a branch report: ${instead} takes its place`)
+    }
+    return []
+  }
   const report: Report = {
     title: text(errors, 'title', e.title, { chars: LIMITS.titleChars }),
     summary: text(errors, 'summary', e.summary, { words: LIMITS.summaryWords }),
     changes: lines('changes', e.changes, LIMITS.changes),
     unchanged: lines('unchanged', e.unchanged, LIMITS.unchanged),
-    needs_your_eye: lines('needs_your_eye', e.needs_your_eye, LIMITS.needsYourEye),
+    needs_your_eye: branch
+      ? none('needs_your_eye', e.needs_your_eye, 'hot_spots')
+      : lines('needs_your_eye', e.needs_your_eye, LIMITS.needsYourEye),
     terms: list(errors, 'terms', e.terms, LIMITS.terms, (v, at) => term(errors, at, v)),
-    sections: list(errors, 'sections', e.sections, LIMITS.sections, (v, at) => section(errors, at, v)),
+    sections: list(errors, 'sections', e.sections, LIMITS.sections, (v, at) => section(errors, at, v, kind)),
     files: list(errors, 'files', e.files, LIMITS.files, (v, at) => file(errors, at, v)),
-    checks: list(errors, 'checks', e.checks, LIMITS.checks, (v, at) => check(errors, at, v)),
+    checks: branch
+      ? none('checks', e.checks, 'plan_vs_done')
+      : list(errors, 'checks', e.checks, LIMITS.checks, (v, at) => check(errors, at, v)),
   }
-  if (errors.length === 0) return { report, warnings: errors.warnings }
+  const input = branch ? branchInput(errors, e) : undefined
+  if (!branch) {
+    for (const field of BRANCH_FIELDS) if (e[field] !== undefined) errors.push(`${field} is only for a branch report`)
+  }
+  if (errors.length === 0) {
+    return input === undefined ? { report, warnings: errors.warnings } : { report, warnings: errors.warnings, branch: input }
+  }
   const more = errors.length > MAX_ERRORS ? `; and ${errors.length - MAX_ERRORS} more` : ''
   return errors.slice(0, MAX_ERRORS).join('; ') + more
 }

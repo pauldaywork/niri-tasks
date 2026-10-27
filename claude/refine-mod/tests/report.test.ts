@@ -2,6 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { LIMITS, WORD_GRACE, homeDir, madeAlready, notePath, openArgv, overLimits, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from '../hooks/report'
 import type { Task } from '../hooks/plan'
 import { EXAMPLE } from './example-report'
+import { BRANCH_MIN } from './branch-fixtures'
 
 const UUID = '0b8f6a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b'
 
@@ -470,5 +471,85 @@ describe('report mode', () => {
       "show_task_report: this session's report is made and linked from the task: /r/x.html. " +
         'Close this tab and press Report on the card again for another.',
     )
+  })
+})
+
+describe('parseReport for a branch', () => {
+  test('takes the smallest branch report, its optional lists empty', () => {
+    expect(parseReport(BRANCH_MIN, 'branch')).toEqual({
+      report: {
+        title: BRANCH_MIN.title,
+        summary: BRANCH_MIN.summary,
+        changes: BRANCH_MIN.changes,
+        unchanged: [],
+        needs_your_eye: [],
+        terms: [],
+        sections: BRANCH_MIN.sections,
+        files: BRANCH_MIN.files,
+        checks: [],
+      },
+      warnings: [],
+      branch: {
+        hot_spots: BRANCH_MIN.hot_spots,
+        story: BRANCH_MIN.story,
+        map: BRANCH_MIN.map,
+        suite: { ...BRANCH_MIN.suite, not_run: [], failing: [] },
+        new_tests: BRANCH_MIN.new_tests,
+        untested: [],
+        plan_vs_done: [],
+      },
+    })
+  })
+
+  test('refuses needs_your_eye and checks, naming what takes their place', () => {
+    expect(parseReport({ ...BRANCH_MIN, needs_your_eye: ['x'], checks: [{ check: 'a', how: 'b' }] }, 'branch')).toBe(
+      'needs_your_eye is not used in a branch report: hot_spots takes its place; ' +
+        'checks is not used in a branch report: plan_vs_done takes its place',
+    )
+  })
+
+  test('needs a lens on every part', () => {
+    expect(parseReport({ ...BRANCH_MIN, sections: [{ heading: 'h', points: ['p'] }] }, 'branch')).toBe(
+      'sections[0].kind is needed in a branch report: one of before-after, structure, data-flow, outside-tools, styling, code, newcomer',
+    )
+    expect(parseReport({ ...BRANCH_MIN, sections: [{ kind: 'part', heading: 'h', points: ['p'] }] }, 'branch')).toBe(
+      'sections[0].kind is needed in a branch report: one of before-after, structure, data-flow, outside-tools, styling, code, newcomer',
+    )
+  })
+
+  test('refuses a branch field in a plan report', () => {
+    expect(parseReport({ ...MINIMAL, story: [] })).toBe('story is only for a branch report')
+  })
+
+  test('checks counts, layers, results, kinds and progress', () => {
+    const [newTest] = BRANCH_MIN.new_tests
+    expect(
+      parseReport(
+        {
+          ...BRANCH_MIN,
+          suite: { runs: [{ suite: 'cargo test', command: 'cargo test', passed: -1, failed: 1.5 }] },
+          new_tests: [{ ...newTest, layer: 'system', result: 'skipped' }],
+          plan_vs_done: [{ item: 'a', kind: 'goal', progress: 'half', shown_by: 'b' }],
+        },
+        'branch',
+      ),
+    ).toBe(
+      'suite.runs[0].passed must be a whole number, 0 or more; ' +
+        'suite.runs[0].failed must be a whole number, 0 or more; ' +
+        'new_tests[0].layer must be unit, integration or e2e; ' +
+        'new_tests[0].result must be pass, fail or not run; ' +
+        'plan_vs_done[0].kind must be step or done when; ' +
+        'plan_vs_done[0].progress must be done, partial or not yet',
+    )
+  })
+
+  test('names a missing suite', () => {
+    const { suite: _, ...rest } = BRANCH_MIN
+    expect(parseReport(rest, 'branch')).toBe('suite must be an object; suite.runs must be an array')
+  })
+
+  test('holds the branch lists to their counts', () => {
+    expect(parseReport({ ...BRANCH_MIN, hot_spots: [] }, 'branch')).toBe('hot_spots must have 1 to 4 items, not 0')
+    expect(parseReport({ ...BRANCH_MIN, story: [] }, 'branch')).toBe('story must have 1 to 8 items, not 0')
   })
 })
