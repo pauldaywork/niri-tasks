@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { LIMITS, WORD_GRACE, homeDir, madeAlready, notePath, openArgv, overLimits, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from '../hooks/report'
+import { LIMITS, WORD_GRACE, homeDir, madeAlready, notePath, openArgv, overLimits, parseReport, reportPath, reportsDir, unexplainable, unreportable, withReportNote, withReportNotes } from '../hooks/report'
 import type { Task } from '../hooks/plan'
 import { EXAMPLE } from './example-report'
 import { BRANCH_MIN } from './branch-fixtures'
@@ -551,5 +551,35 @@ describe('parseReport for a branch', () => {
   test('holds the branch lists to their counts', () => {
     expect(parseReport({ ...BRANCH_MIN, hot_spots: [] }, 'branch')).toBe('hot_spots must have 1 to 4 items, not 0')
     expect(parseReport({ ...BRANCH_MIN, story: [] }, 'branch')).toBe('story must have 1 to 8 items, not 0')
+  })
+})
+
+describe('a branch report on disk and in the notes', () => {
+  test('is named branch-<uuid8>-<stamp>.html', () => {
+    expect(reportPath('/r', UUID, Date.UTC(2026, 9, 6, 1, 2, 3), 'branch')).toBe('/r/branch-0b8f6a52-20261006-010203.html')
+    expect(reportPath('/r', UUID, Date.UTC(2026, 9, 6, 1, 2, 3))).toBe('/r/refine-0b8f6a52-20261006-010203.html')
+  })
+
+  test('is linked as a Branch report: note, never a Report: one', () => {
+    const task: Task = { uuid: UUID, status: 'pending', description: 'd', annotations: [{ entry: '20261006T010203Z', description: 'Report: /r/plan.html' }] }
+    expect(withReportNote(task, '/r/b.html', Date.UTC(2026, 9, 6, 1, 2, 3), 'branch').annotations).toEqual([
+      { entry: '20261006T010203Z', description: 'Report: /r/plan.html' },
+      { entry: '20261006T010204Z', description: 'Branch report: /r/b.html' },
+    ])
+  })
+
+  test('one a session, the second naming Explain branch', () => {
+    expect(madeAlready('/r/b.html', 'branch')).toBe(
+      "show_task_report: this session's branch report is made and linked from the task: /r/b.html. " +
+        "Close this tab and choose Explain branch in the card's Go to list again for another.",
+    )
+  })
+
+  test('any task but a deleted or gone one may have its branch explained', () => {
+    const task: Task = { uuid: UUID, status: 'pending', description: 'd' }
+    expect(unexplainable(task)).toBeUndefined()
+    expect(unexplainable({ ...task, status: 'completed' })).toBeUndefined()
+    expect(unexplainable({ ...task, status: 'deleted' })).toBe('the task is deleted')
+    expect(unexplainable(undefined)).toBe('the task no longer exists')
   })
 })

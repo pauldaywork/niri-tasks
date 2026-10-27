@@ -1,7 +1,7 @@
 {
   "name": "niri-tasks-refine",
   "version": "0.1.0",
-  "description": "Gives a refine session two tools: write_task_plan, which rewrites one Taskwarrior task's description and notes, and show_task_report, which writes and opens an HTML report of the plan, with a Markdown twin beside it, when the person asks for one. With `report` set, a Report session gets show_task_report alone, on the task's own plan, and the mod links the report from the task. With `unattended` set, for a `claude -p` run with no one at the keyboard, write_task_plan writes without asking and show_task_report does not open the browser.",
+  "description": "Gives a refine session two tools: write_task_plan, which rewrites one Taskwarrior task's description and notes, and show_task_report, which writes and opens an HTML report of the plan, with a Markdown twin beside it, when the person asks for one. With `report` set, a Report session gets show_task_report alone, on the task's own plan, and the mod links the report from the task. With `unattended` set, for a `claude -p` run with no one at the keyboard, write_task_plan writes without asking and show_task_report does not open the browser. With `branch` set too, an Explain branch session: show_task_report reports on what the task's worktree branch has changed, read from git, and links it as a Branch report: note.",
   "author": {
     "name": "Paul Day"
   },
@@ -40,6 +40,27 @@
       "description": "The session is a `claude -p` run with no one at the keyboard (`niritasks task refine --unattended`): write_task_plan writes without asking, its plan lines still logged and its stale-read check still made, and show_task_report does not open the browser. Unset, the session asks and opens as usual.",
       "required": false,
       "default": false
+    },
+    "branch": {
+      "type": "boolean",
+      "title": "Branch report",
+      "description": "With report set: the session is an Explain branch on the task's worktree branch, not a report of its plan. show_task_report takes the branch report's fields, reads the branch's facts and commits from git in worktree, measured against base, and links the report as a Branch report: <path> note. Unset, a report session reports on the plan.",
+      "required": false,
+      "default": false
+    },
+    "worktree": {
+      "type": "string",
+      "title": "Worktree",
+      "description": "With branch set: the absolute folder of the task's worktree, which the mod reads with git. Unset, no report tool is offered in a branch session.",
+      "required": false,
+      "default": ""
+    },
+    "base": {
+      "type": "string",
+      "title": "Base branch",
+      "description": "With branch set: the branch the task's branch is measured against, the repository's default branch. Unset, no report tool is offered in a branch session.",
+      "required": false,
+      "default": ""
     }
   }
 }

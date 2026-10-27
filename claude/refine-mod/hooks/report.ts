@@ -626,11 +626,11 @@ export const homeDir = absoluteDir
 export const notePath = (path: string, home: string | undefined): string =>
   home !== undefined && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path
 
-// <dir>/refine-<uuid8>-<YYYYMMDD-HHMMSS>.html in UTC: a second report on the
-// same task, after a revision, does not overwrite the first.
-export const reportPath = (dir: string, uuid: string, nowMs: number): string => {
+// <dir>/<refine|branch>-<uuid8>-<YYYYMMDD-HHMMSS>.html in UTC: a second
+// report on the same task, after a revision, does not overwrite the first.
+export const reportPath = (dir: string, uuid: string, nowMs: number, kind: ReportKind = 'plan'): string => {
   const stamp = new Date(nowMs).toISOString().slice(0, 19).replace(/-|:/g, '').replace('T', '-')
-  return `${dir}/refine-${uuid.slice(0, 8).toLowerCase()}-${stamp}.html`
+  return `${dir}/${kind === 'branch' ? 'branch' : 'refine'}-${uuid.slice(0, 8).toLowerCase()}-${stamp}.html`
 }
 
 // `niritasks task open-report`, which opens a new browser window and moves
@@ -656,8 +656,12 @@ const samePlan = (a: Plan, b: Plan): boolean =>
 // What a note linking a report starts with, as the tool writes it: the
 // report of the plan, or one of a plan since changed. The card opens only
 // the first.
-const REPORT_NOTE = 'Report: '
+export const REPORT_NOTE = 'Report: '
 const EARLIER_DRAFT_NOTE = 'Report (earlier draft): '
+
+// What a note linking a branch report starts with. Never `Report: `, so a
+// branch report never makes the plan's report an earlier draft.
+export const BRANCH_REPORT_NOTE = 'Branch report: '
 
 const isReportNote = (note: string): boolean => note.startsWith(REPORT_NOTE) || note.startsWith(EARLIER_DRAFT_NOTE)
 
@@ -704,20 +708,35 @@ export const unreportable = (task: Task | undefined): string | undefined => {
   return undefined
 }
 
+// Explain branch: why the task's branch may not be reported on, or
+// undefined. Any task but a deleted one: a branch needs no plan, and a
+// finished task's branch can still be read. Rust checks it has a worktree.
+export const unexplainable = (task: Task | undefined): string | undefined => {
+  if (task === undefined) return 'the task no longer exists'
+  if (task.status === 'deleted') return 'the task is deleted'
+  return undefined
+}
+
 // The task with one more note, linking the report, after the others: at
 // `nowMs`, or the first later second no note has yet, since Taskwarrior keys
 // a note by its entry time and two at one second would collapse into one.
-// Everything else about the task is kept.
-export const withReportNote = (task: Task, path: string, nowMs: number): Task => {
+// Everything else about the task is kept. A branch report's note is a
+// `Branch report: `, never the plan's `Report: `.
+export const withReportNote = (task: Task, path: string, nowMs: number, kind: ReportKind = 'plan'): Task => {
   const notes = task.annotations ?? []
   const taken = new Set(notes.map(note => note.entry))
   let at = Math.floor(nowMs / 1000) * 1000
   while (taken.has(taskDate(at))) at += 1000
-  return { ...task, annotations: [...notes, { entry: taskDate(at), description: `Report: ${path}` }] }
+  const prefix = kind === 'branch' ? BRANCH_REPORT_NOTE : REPORT_NOTE
+  return { ...task, annotations: [...notes, { entry: taskDate(at), description: `${prefix}${path}` }] }
 }
 
 // What the model reads when it calls show_task_report a second time in a
-// report session: one report per press of the button.
-export const madeAlready = (path: string): string =>
-  `show_task_report: this session's report is made and linked from the task: ${path}. ` +
-  'Close this tab and press Report on the card again for another.'
+// report session: one report per press of the button, or per Explain
+// branch.
+export const madeAlready = (path: string, kind: ReportKind = 'plan'): string =>
+  kind === 'branch'
+    ? `show_task_report: this session's branch report is made and linked from the task: ${path}. ` +
+      "Close this tab and choose Explain branch in the card's Go to list again for another."
+    : `show_task_report: this session's report is made and linked from the task: ${path}. ` +
+      'Close this tab and press Report on the card again for another.'

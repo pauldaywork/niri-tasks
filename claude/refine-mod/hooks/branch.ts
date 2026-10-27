@@ -24,13 +24,15 @@ export const branchTarget = (worktree: unknown, base: unknown): Target | undefin
 
 // Read only, with nothing in the repository's config run for it: no
 // fsmonitor hook, and no optional lock taken. Diffs ask for no external
-// diff and no textconv (numstatArgv).
+// diff and no textconv (numstatArgv). Paths come back as they are, not
+// quoted with octal escapes, so a file named outside ASCII matches the
+// map's path for it.
 export const gitArgv = (worktree: string, ...args: string[]): string[] => [
-  'git', '--no-optional-locks', '-C', worktree, '-c', 'core.fsmonitor=false', ...args,
+  'git', '--no-optional-locks', '-C', worktree, '-c', 'core.fsmonitor=false', '-c', 'core.quotePath=false', ...args,
 ]
 
 // The words gitArgv puts before the command's own.
-const PREFIX = 6
+const PREFIX = 8
 
 export const branchArgv = (worktree: string): string[] => gitArgv(worktree, 'rev-parse', '--abbrev-ref', 'HEAD')
 export const mergeBaseArgv = (worktree: string, base: string): string[] => gitArgv(worktree, 'merge-base', 'HEAD', base)

@@ -22,11 +22,42 @@ import {
 import type { Plan, Task } from './plan'
 import { RENDERER, drawArgv, drawSources, drawnSvgs, runtimePath, whichArgv } from './draw'
 import { reportPage } from './page'
+import { branchPage } from './branch-page'
+import {
+  branchArgv,
+  branchTarget,
+  countStatus,
+  gitCommand,
+  logArgv,
+  mergeBaseArgv,
+  numstatArgv,
+  parseLog,
+  parseNumstat,
+  statusArgv,
+  withGit,
+} from './branch'
+import type { Git, Target } from './branch'
 import { FONT_FILES } from './style'
 import type { Fonts } from './style'
 import { markdownPath, twinOf } from './markdown'
-import { homeDir, madeAlready, notePath, openArgv, overLimits, parseReport, reportPath, reportsDir, unreportable, withReportNote, withReportNotes } from './report'
-import type { MadeReport, Report } from './report'
+import {
+  BRANCH_LENSES,
+  BRANCH_REPORT_NOTE,
+  REPORT_NOTE,
+  homeDir,
+  madeAlready,
+  notePath,
+  openArgv,
+  overLimits,
+  parseReport,
+  reportPath,
+  reportsDir,
+  unexplainable,
+  unreportable,
+  withReportNote,
+  withReportNotes,
+} from './report'
+import type { MadeReport, Parsed, Report, ReportKind } from './report'
 
 // The tool's listed name: mcp__<plugin>__<name>, hyphens kept.
 export const TOOL = 'mcp__niri-tasks-refine__write_task_plan'
@@ -152,6 +183,105 @@ const reportSpec = (reportOnly: boolean) => ({
   },
 })
 
+const ITEMS = (properties: Record<string, unknown>, required: string[]) => ({
+  type: 'array',
+  items: { type: 'object', properties, required },
+})
+const COUNT = { type: 'integer', minimum: 0 }
+
+// A branch report's schema: the plan report's, bar needs_your_eye and
+// checks, with no plain part, and the branch's own fields.
+const branchSpec = () => {
+  const { checks: _checks, needs_your_eye: _eye, sections, title, ...shared } = reportSpec(true).inputSchema.properties
+  return {
+    name: 'show_task_report',
+    description:
+      "Writes an HTML report of what this task's worktree branch has changed so far, how it works and how it is " +
+      'tested, in one fixed, easy-to-read layout, opens it in the browser and links it from the task as a ' +
+      "Branch report: <path> note. Fill the fields as the report-branch skill's branch-catalogue.md says. Name " +
+      'commits by sha alone: the tool reads each subject, and the branch, its base and its numbers, from git. ' +
+      'Every text field is one line of plain text; a report over the limits is refused with every reason at once. ' +
+      'One report a session.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...shared,
+        title: { ...TEXT, description: "The task's description." },
+        sections: {
+          ...sections,
+          description:
+            '1-9 parts, each looking at the branch through one lens (kind, always given): before-after, structure, ' +
+            'data-flow, outside-tools, styling, code, newcomer.',
+          items: {
+            ...sections.items,
+            properties: { ...sections.items.properties, kind: { type: 'string', enum: [...BRANCH_LENSES] } },
+            required: ['kind', 'heading', 'points'],
+          },
+        },
+        hot_spots: {
+          ...ITEMS({ spot: TEXT, why: TEXT, files: TEXTS }, ['spot', 'why', 'files']),
+          description: '1-4 places a reviewer should look hardest: what, why it is risky, and its files.',
+        },
+        story: {
+          ...ITEMS({ step: TEXT, commits: TEXTS, points: TEXTS }, ['step', 'commits', 'points']),
+          description: '1-8 steps the commits fall into, oldest first; every commit on the branch in exactly one step, named by sha.',
+        },
+        map: {
+          ...ITEMS(
+            {
+              path: TEXT,
+              change: { type: 'string', enum: ['new', 'change', 'remove'] },
+              items: ITEMS({ name: TEXT, does: TEXT }, ['name', 'does']),
+            },
+            ['path', 'change', 'items'],
+          ),
+          description: 'Each changed file worth naming, and each function or part of it the branch changes, with what it now does.',
+        },
+        suite: {
+          type: 'object',
+          description: 'The whole test suite as you ran it: each suite with its counts, each not run and why, each failing test.',
+          properties: {
+            runs: ITEMS({ suite: TEXT, command: TEXT, passed: COUNT, failed: COUNT }, ['suite', 'command', 'passed', 'failed']),
+            not_run: ITEMS({ suite: TEXT, why: TEXT }, ['suite', 'why']),
+            failing: ITEMS({ test: TEXT, file: TEXT, why: TEXT }, ['test', 'file', 'why']),
+          },
+          required: ['runs'],
+        },
+        new_tests: {
+          ...ITEMS(
+            {
+              test: TEXT,
+              file: TEXT,
+              layer: { type: 'string', enum: ['unit', 'integration', 'e2e'] },
+              pins: TEXT,
+              result: { type: 'string', enum: ['pass', 'fail', 'not run'] },
+            },
+            ['test', 'file', 'layer', 'pins', 'result'],
+          ),
+          description: "The tests this branch adds or changes: each one's layer, the behaviour it pins, and its result.",
+        },
+        untested: {
+          ...ITEMS({ code: TEXT, file: TEXT, why: TEXT }, ['code', 'file', 'why']),
+          description: 'Changed code no test covers, and why that matters.',
+        },
+        plan_vs_done: {
+          ...ITEMS(
+            {
+              item: TEXT,
+              kind: { type: 'string', enum: ['step', 'done when'] },
+              progress: { type: 'string', enum: ['done', 'partial', 'not yet'] },
+              shown_by: TEXT,
+            },
+            ['item', 'kind', 'progress', 'shown_by'],
+          ),
+          description: "Each of the task's Steps and Done when notes: done, partial or not yet, and the commit or test that shows it.",
+        },
+      },
+      required: ['title', 'summary', 'changes', 'sections', 'files', 'hot_spots', 'story', 'map', 'suite', 'new_tests'],
+    },
+  }
+}
+
 // The task this session may write, or undefined when the tool must not be
 // offered: no valid uuid, or the sandbox is not on and enforced. Asked again
 // at every call, so a reload or a settings change between the two counts.
@@ -248,6 +378,40 @@ const drawDiagrams = async ($: EngineInterface, report: Report): Promise<(string
   return svgs
 }
 
+// The branch's facts, read from the worktree with git, outside the
+// sandbox: read-only commands (branch.ts). The refusal names the command
+// that failed and git's own error.
+const readGit = async ($: EngineInterface, target: Target): Promise<Git | string> => {
+  const run = async (argv: string[]): Promise<string> => {
+    const answer = await $.process.run(argv)
+    if (answer.exitCode !== 0) {
+      throw new Error(`${gitCommand(argv)} failed (${answer.exitCode}): ${answer.stderr.trim()}`)
+    }
+    return answer.stdout
+  }
+  try {
+    const branch = (await run(branchArgv(target.worktree))).trim()
+    const mergeBase = (await run(mergeBaseArgv(target.worktree, target.base))).trim()
+    const log = parseLog(await run(logArgv(target.worktree, mergeBase)))
+    const stat = parseNumstat(await run(numstatArgv(target.worktree, mergeBase)))
+    const uncommitted = countStatus(await run(statusArgv(target.worktree)))
+    return { branch, base: target.base, merge_base: mergeBase, log, ...stat, uncommitted }
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+// A branch report's fields, each commit named by git and the branch's facts
+// read from it; or the refusal to answer the call with.
+const withBranch = async ($: EngineInterface, parsed: Parsed, target: Target): Promise<Report | { deny: string }> => {
+  if (parsed.branch === undefined) return { deny: 'show_task_report: nothing written: the report has no branch fields.' }
+  const git = await readGit($, target)
+  if (typeof git === 'string') return { deny: `show_task_report: nothing written: ${git}.` }
+  const branch = withGit(parsed.branch, git)
+  if (typeof branch === 'string') return { deny: `show_task_report: ${branch}` }
+  return { ...parsed.report, branch }
+}
+
 // The person's answer to "Write this to the task?", or the refusal to answer
 // the call with when they could not be asked. Unattended, there is no one to
 // ask and the command was the ask: WRITE, with nothing shown but the lines
@@ -263,6 +427,104 @@ const approval = async (
     return await $.ui.ask(QUESTION, { options: choices, header: HEADER })
   } catch (error) {
     return { deny: notAsked(error instanceof Error ? error.message : String(error)) }
+  }
+}
+
+// A report session's settings, and the report it has made: one a session,
+// as a refine makes one per ask. Module state, like `askedFor`.
+type ReportSession = {
+  kind: ReportKind
+  // The worktree and base a branch report reads; undefined in a plan's.
+  target: Target | undefined
+  home: string | undefined
+  unattended: boolean
+  fonts: { read?: Fonts }
+  linked?: string
+}
+
+// A report session's one report, of the task's plan or of its branch: the
+// task read as it is now, the fields checked, for a branch git read for
+// its facts and its commits' subjects, the deck built from its twin,
+// opened, and linked from the task: a plan's as a Report: note, a
+// branch's as a Branch report: note, which leaves the plan's alone.
+const reportSession = async (
+  $: EngineInterface,
+  at: ReportSession,
+  e: Record<string, unknown>,
+  uuid: string,
+  folder: string,
+): Promise<{ deny: string } | { result: string }> => {
+  const { kind, target, home, unattended, fonts } = at
+  if (at.linked !== undefined) return { deny: madeAlready(at.linked, kind) }
+  // The plan is the task as it is now: read here, not at session start,
+  // so an edit made since the button was pressed is what is reported.
+  const exported = await $.process.run([...TASK, 'rc.json.array=on', uuid, 'export'])
+  if (exported.exitCode !== 0) {
+    return { deny: `task export failed (${exported.exitCode}): ${exported.stderr.trim()}` }
+  }
+  const task = parseExport(exported.stdout)
+  const why = kind === 'branch' ? unexplainable(task) : unreportable(task)
+  if (why !== undefined || task === undefined) return { deny: `show_task_report: nothing written: ${why}.` }
+
+  const parsed = parseReport(e, kind)
+  if (typeof parsed === 'string') return { deny: `show_task_report: ${parsed}` }
+  let report = parsed.report
+  if (kind === 'branch') {
+    if (target === undefined) return { deny: 'show_task_report is not armed in this session.' }
+    const branched = await withBranch($, parsed, target)
+    if ('deny' in branched) return branched
+    report = branched
+  }
+
+  const shown = { description: task.description, notes: notesOf(task) }
+  // The page is built from the report's Markdown twin as it reads back,
+  // never from the fields beside it, so the two cannot disagree.
+  const twin = twinOf(report, shown)
+  if (typeof twin === 'string') {
+    return {
+      deny:
+        `show_task_report: nothing written: ${twin}. The task's own description and notes are reported ` +
+        'as they are; one on several lines must be made one line first.',
+    }
+  }
+  const path = reportPath(folder, uuid, await $.clock.now(), kind)
+  // What the note and the answers name; the files are written and
+  // opened by `path`.
+  const note = notePath(path, home)
+  const draw = kind === 'branch' ? branchPage : reportPage
+  const page = draw(twin.report, twin.plan, await readFonts($, fonts), await drawDiagrams($, twin.report))
+  await $.fs.write(path, page)
+  // The twin itself, which herdr's task-docs plugin opens in
+  // plannotator-tui so comments on it reach the task's Claude.
+  await $.fs.write(markdownPath(path), twin.markdown)
+  const label = kind === 'branch' ? BRANCH_REPORT_NOTE : REPORT_NOTE
+  const named = kind === 'branch' ? 'branch report' : 'report'
+  $.ui.log(`${label}${note}`)
+  for (const warning of parsed.warnings) $.ui.log(`Over its word limit: ${warning}`)
+  // Unattended, nothing opens: no one is at the screen, and the task's
+  // note is how the report is found later.
+  if (!unattended) await $.process.run(openArgv(path))
+  const opened = unattended ? '' : ' and opened it'
+
+  // The session's one write to the task, and the mod's, not the model's:
+  // the note's path is the one just written.
+  const imported = await $.process.run([...TASK, 'rc.verbose=nothing', 'import'], {
+    stdin: JSON.stringify([withReportNote(task, note, await $.clock.now(), kind)]),
+  })
+  if (imported.exitCode !== 0) {
+    return {
+      deny:
+        `Wrote the ${named} to ${note}${opened}, but task import failed (${imported.exitCode}): ` +
+        `${imported.stderr.trim()} The task does not link it.`,
+    }
+  }
+  at.linked = note
+  return {
+    result:
+      (unattended
+        ? `Wrote the ${named} to ${note} and linked it from the task as the note "${label}${note}".`
+        : `Wrote the ${named} to ${note}, opened it in the browser, and linked it from the task ` +
+          `as the note "${label}${note}".`) + overLimits(parsed.warnings),
   }
 }
 
@@ -286,7 +548,11 @@ export const register: Register = (on, options) => {
   // a -p run anyway; this is what makes the run do its job rather than fail
   // at the question.
   const unattended = options.unattended === true
-  let linked: string | undefined
+  // Explain branch: a report session on what the task's worktree branch has
+  // changed, not on its plan. Rust names the worktree and the branch it is
+  // measured against; without both, no report tool is offered.
+  const kind: ReportKind = reportOnly && options.branch === true ? 'branch' : 'plan'
+  const target = kind === 'branch' ? branchTarget(options.worktree, options.base) : undefined
   // The plan the person was shown when they chose REPORT in answer to the
   // latest question, spent by the first well-formed report. Module state: a
   // reload forgets it, and the model is told to ask again.
@@ -298,11 +564,15 @@ export const register: Register = (on, options) => {
   const made: MadeReport[] = []
   // The report's two typefaces, read on the first report and kept.
   const fonts: { read?: Fonts } = {}
+  // A report session's state: its kind, and the report it has linked.
+  const session: ReportSession = { kind, target, home, unattended, fonts }
 
   on('session.start', async ($, e, next) => {
     if ((await armedUuid($, options.uuid)) !== undefined) {
       if (!reportOnly) await $.tool.register(SPEC)
-      if (reports !== undefined) await $.tool.register(reportSpec(reportOnly))
+      if (reports !== undefined && (kind === 'plan' || target !== undefined)) {
+        await $.tool.register(kind === 'branch' ? branchSpec() : reportSpec(reportOnly))
+      }
     }
     return next(e)
   })
@@ -366,69 +636,7 @@ export const register: Register = (on, options) => {
     if (uuid === undefined || reports === undefined) {
       return { deny: 'show_task_report is not armed in this session.' }
     }
-    if (reportOnly) {
-      if (linked !== undefined) return { deny: madeAlready(linked) }
-      // The plan is the task as it is now: read here, not at session start,
-      // so an edit made since the button was pressed is what is reported.
-      const exported = await $.process.run([...TASK, 'rc.json.array=on', uuid, 'export'])
-      if (exported.exitCode !== 0) {
-        return { deny: `task export failed (${exported.exitCode}): ${exported.stderr.trim()}` }
-      }
-      const task = parseExport(exported.stdout)
-      const why = unreportable(task)
-      if (why !== undefined || task === undefined) return { deny: `show_task_report: nothing written: ${why}.` }
-
-      const parsed = parseReport(e)
-      if (typeof parsed === 'string') return { deny: `show_task_report: ${parsed}` }
-
-      const shown = { description: task.description, notes: notesOf(task) }
-      // The page is built from the report's Markdown twin as it reads back,
-      // never from the fields beside it, so the two cannot disagree.
-      const twin = twinOf(parsed.report, shown)
-      if (typeof twin === 'string') {
-        return {
-          deny:
-            `show_task_report: nothing written: ${twin}. The task's own description and notes are reported ` +
-            'as they are; one on several lines must be made one line first.',
-        }
-      }
-      const path = reportPath(reports, uuid, await $.clock.now())
-      // What the note and the answers name; the files are written and
-      // opened by `path`.
-      const note = notePath(path, home)
-      const page = reportPage(twin.report, twin.plan, await readFonts($, fonts), await drawDiagrams($, twin.report))
-      await $.fs.write(path, page)
-      // The twin itself, which herdr's task-docs plugin opens in
-      // plannotator-tui so comments on it reach the task's Claude.
-      await $.fs.write(markdownPath(path), twin.markdown)
-      $.ui.log(`Report: ${note}`)
-      for (const warning of parsed.warnings) $.ui.log(`Over its word limit: ${warning}`)
-      // Unattended, nothing opens: no one is at the screen, and the task's
-      // Report: note is how the report is found later.
-      if (!unattended) await $.process.run(openArgv(path))
-      const opened = unattended ? '' : ' and opened it'
-
-      // The session's one write to the task, and the mod's, not the model's:
-      // the note's path is the one just written.
-      const imported = await $.process.run([...TASK, 'rc.verbose=nothing', 'import'], {
-        stdin: JSON.stringify([withReportNote(task, note, await $.clock.now())]),
-      })
-      if (imported.exitCode !== 0) {
-        return {
-          deny:
-            `Wrote the report to ${note}${opened}, but task import failed (${imported.exitCode}): ` +
-            `${imported.stderr.trim()} The task does not link it.`,
-        }
-      }
-      linked = note
-      return {
-        result:
-          (unattended
-            ? `Wrote the report to ${note} and linked it from the task as the note "Report: ${note}".`
-            : `Wrote the report to ${note}, opened it in the browser, and linked it from the task ` +
-              `as the note "Report: ${note}".`) + overLimits(parsed.warnings),
-      }
-    }
+    if (reportOnly) return reportSession($, session, e, uuid, reports)
     if (askedFor === undefined) return { deny: NOT_ASKED_FOR }
 
     const parsed = parseReport(e)

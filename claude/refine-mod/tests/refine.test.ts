@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On, ProcessRunInit } from 'claude-code'
+import { BRANCH_MIN, SHA_A, SHA_B } from './branch-fixtures'
 
 const UUID = '0b8f6a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b'
 const TOOL = 'mcp__niri-tasks-refine__write_task_plan'
@@ -927,4 +928,150 @@ test('attended sessions are unchanged by the option being false', { options: { .
   expect(seen.at(-1)).toBe(`ask: Write this to the task? [${WRITE} | ${REPORT} | Change something] (Task plan)`)
   await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
   expect(runs.at(-1)?.argv[0]).toBe('sh')
+})
+
+// An Explain branch session: Rust sets report and branch, and names the
+// worktree and the branch it is measured against.
+const BRANCH_MODE = { uuid: UUID, reports: '/r', report: true, branch: true, worktree: '/w', base: 'main' }
+const BRANCH_PATH = '/r/branch-0b8f6a52-20261006-010203.html'
+const BRANCH_MD = '/r/branch-0b8f6a52-20261006-010203.md'
+const MERGE_BASE = `f00dfee${'2'.repeat(33)}`
+const GIT_PREFIX = ['git', '--no-optional-locks', '-C', '/w', '-c', 'core.fsmonitor=false', '-c', 'core.quotePath=false']
+
+// What git answers for BRANCH_MIN's branch, by the command's first word; a
+// command in `fails` exits 128 with git's error.
+const gitAnswer = (argv: readonly string[], fails?: string) => {
+  const command = argv[GIT_PREFIX.length]
+  if (command === fails) return { value: { exitCode: 128, stdout: '', stderr: `fatal: ${command} broke\n`, isStdoutTruncated: false, isStderrTruncated: false } }
+  if (command === 'rev-parse') return ran('task/feat-new-words-0b8f6a52\n')
+  if (command === 'merge-base') return ran(`${MERGE_BASE}\n`)
+  if (command === 'log') return ran(`${SHA_A}\tfeat: add the words\n${SHA_B}\ttest: pin the words\n`)
+  if (command === 'diff') return ran('10\t2\tsrc/words.rs\n2\t1\tREADME.md\n')
+  if (command === 'status') return ran(' M README.md\n')
+  return ran('')
+}
+
+// The world, with git answering for the worktree.
+const branchWorld = (on: On, exports: readonly object[] = [TASK], fails?: string) => {
+  const { registered, seen, writes } = engine(on, SANDBOX, { deny: 'nobody should be asked' })
+  const runs: Run[] = []
+  let exported = 0
+  on('process.run', ($, e) => {
+    runs.push(e)
+    if (e.argv[0] === 'git') return gitAnswer(e.argv, fails)
+    if (e.argv[0] === 'bwrap' || e.argv[2]?.includes('command -v')) return ran('', 1)
+    if (!e.argv.includes('export')) return ran('')
+    const task = exports[Math.min(exported++, exports.length - 1)]
+    return ran(JSON.stringify([task]))
+  })
+  return { registered, runs, seen, writes }
+}
+
+test('branch mode: only the report tool', { options: BRANCH_MODE }, async ($, on) => {
+  const { registered } = branchWorld(on)
+  await $.session.start(START)
+  expect(registered).toEqual([REPORT_TOOL])
+})
+
+test('branch mode without a worktree or base: no tool at all', { options: { ...BRANCH_MODE, worktree: '' } }, async ($, on) => {
+  const { registered } = branchWorld(on)
+  await $.session.start(START)
+  expect(registered).toEqual([])
+})
+
+test('branch mode: reads git, writes the deck, opens it, and links it as a Branch report', { options: BRANCH_MODE }, async ($, on) => {
+  // An unplanned task: a branch needs no plan.
+  const { runs, seen, writes } = branchWorld(on)
+  await $.session.start(START)
+
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN })
+
+  expect(shown.deny).toBeUndefined()
+  expect(shown.result).toBe(
+    `Wrote the branch report to ${BRANCH_PATH}, opened it in the browser, and linked it from the task ` +
+      `as the note "Branch report: ${BRANCH_PATH}".`,
+  )
+  expect(writes.map(w => w.path)).toEqual([BRANCH_PATH, BRANCH_MD])
+  const page = writes[0]?.text ?? ''
+  expect(page).toContain('<span class="pill">Branch report</span>')
+  expect(page).toContain('<li><code>abc1234</code>feat: add the words</li>')
+  expect(writes[1]?.text).toContain('_Branch `task/feat-new-words-0b8f6a52` from `main` at `f00dfee`: 2 commits, 2 files, +12 -3, 1 uncommitted._')
+  expect(seen).toEqual([`log: Branch report: ${BRANCH_PATH}`])
+  expect(runs.map(run => run.argv)).toEqual([
+    ['task', 'rc.hooks=off', 'rc.json.array=on', UUID, 'export'],
+    [...GIT_PREFIX, 'rev-parse', '--abbrev-ref', 'HEAD'],
+    [...GIT_PREFIX, 'merge-base', 'HEAD', 'main'],
+    [...GIT_PREFIX, 'log', '--reverse', '--format=%H%x09%s', `${MERGE_BASE}..HEAD`],
+    [...GIT_PREFIX, 'diff', '--numstat', '--no-renames', '--no-ext-diff', '--no-textconv', MERGE_BASE, 'HEAD'],
+    [...GIT_PREFIX, 'status', '--porcelain', '--untracked-files=normal'],
+    ['sh', '-c', '{ niritasks task open-report "$1" || xdg-open "$1"; } >/dev/null 2>&1 </dev/null &', 'sh', BRANCH_PATH],
+    ['task', 'rc.hooks=off', 'rc.verbose=nothing', 'import'],
+  ])
+  expect(JSON.parse(runs[7]?.init?.stdin ?? 'null')).toEqual([
+    {
+      ...TASK,
+      annotations: [
+        { entry: '20260101T000001Z', description: 'first note' },
+        { entry: '20261006T010203Z', description: `Branch report: ${BRANCH_PATH}` },
+      ],
+    },
+  ])
+})
+
+test("branch mode: a plan's Report: note is left as it is", { options: BRANCH_MODE }, async ($, on) => {
+  const reported = { ...PLANNED, annotations: [...PLANNED.annotations, { entry: '20260101T000002Z', description: 'Report: /r/plan.html' }] }
+  const { runs } = branchWorld(on, [reported])
+  await $.session.start(START)
+  await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN })
+  const imported = JSON.parse(runs.at(-1)?.init?.stdin ?? 'null')
+  expect(imported[0].annotations.map((a: { description: string }) => a.description)).toEqual([
+    'first note',
+    'Report: /r/plan.html',
+    `Branch report: ${BRANCH_PATH}`,
+  ])
+  expect(imported[0].tags).toEqual(['planned', 'zeta'])
+})
+
+test('branch mode: a story that leaves out a commit is refused, and nothing written', { options: BRANCH_MODE }, async ($, on) => {
+  const { writes, runs } = branchWorld(on)
+  await $.session.start(START)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN, story: [{ step: 's', commits: ['abc1234'], points: ['p'] }] })
+  expect(shown.deny).toBe('show_task_report: the story leaves out 1 commit(s): abd5678; every commit goes in one step')
+  expect(writes).toEqual([])
+  expect(verbs(runs)).not.toContain('import')
+})
+
+test('branch mode: a git command that fails is named, and nothing written', { options: BRANCH_MODE }, async ($, on) => {
+  const { writes } = branchWorld(on, [TASK], 'merge-base')
+  await $.session.start(START)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN })
+  expect(shown.deny).toBe('show_task_report: nothing written: git merge-base HEAD main failed (128): fatal: merge-base broke.')
+  expect(writes).toEqual([])
+})
+
+test('branch mode: a deleted task is refused before git is read', { options: BRANCH_MODE }, async ($, on) => {
+  const { runs } = branchWorld(on, [{ ...TASK, status: 'deleted' }])
+  await $.session.start(START)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN })
+  expect(shown.deny).toBe('show_task_report: nothing written: the task is deleted.')
+  expect(runs.some(r => r.argv[0] === 'git')).toBe(false)
+})
+
+test("branch mode: a plan report's fields are refused", { options: BRANCH_MODE }, async ($, on) => {
+  branchWorld(on)
+  await $.session.start(START)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...MINIMAL })
+  expect(shown.deny).toContain('checks is not used in a branch report: plan_vs_done takes its place')
+})
+
+test('branch mode: one report a session', { options: BRANCH_MODE }, async ($, on) => {
+  const { writes } = branchWorld(on)
+  await $.session.start(START)
+  await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN })
+  const again = await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN })
+  expect(again.deny).toBe(
+    `show_task_report: this session's branch report is made and linked from the task: ${BRANCH_PATH}. ` +
+      "Close this tab and choose Explain branch in the card's Go to list again for another.",
+  )
+  expect(writes.map(w => w.path)).toEqual([BRANCH_PATH, BRANCH_MD])
 })

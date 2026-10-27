@@ -39,15 +39,17 @@ describe('the target', () => {
 })
 
 describe('the git commands', () => {
-  test('read the worktree with nothing in its config run', () => {
-    expect(gitArgv('/w', 'status')).toEqual(['git', '--no-optional-locks', '-C', '/w', '-c', 'core.fsmonitor=false', 'status'])
-    expect(branchArgv('/w').slice(6)).toEqual(['rev-parse', '--abbrev-ref', 'HEAD'])
-    expect(mergeBaseArgv('/w', 'main').slice(6)).toEqual(['merge-base', 'HEAD', 'main'])
-    expect(logArgv('/w', 'mb').slice(6)).toEqual(['log', '--reverse', '--format=%H%x09%s', 'mb..HEAD'])
-    expect(numstatArgv('/w', 'mb').slice(6)).toEqual([
+  test('read the worktree with nothing in its config run, and paths unquoted', () => {
+    expect(gitArgv('/w', 'status')).toEqual([
+      'git', '--no-optional-locks', '-C', '/w', '-c', 'core.fsmonitor=false', '-c', 'core.quotePath=false', 'status',
+    ])
+    expect(branchArgv('/w').slice(8)).toEqual(['rev-parse', '--abbrev-ref', 'HEAD'])
+    expect(mergeBaseArgv('/w', 'main').slice(8)).toEqual(['merge-base', 'HEAD', 'main'])
+    expect(logArgv('/w', 'mb').slice(8)).toEqual(['log', '--reverse', '--format=%H%x09%s', 'mb..HEAD'])
+    expect(numstatArgv('/w', 'mb').slice(8)).toEqual([
       'diff', '--numstat', '--no-renames', '--no-ext-diff', '--no-textconv', 'mb', 'HEAD',
     ])
-    expect(statusArgv('/w').slice(6)).toEqual(['status', '--porcelain', '--untracked-files=normal'])
+    expect(statusArgv('/w').slice(8)).toEqual(['status', '--porcelain', '--untracked-files=normal'])
   })
 
   test('a command is named by its own words in a refusal', () => {
@@ -70,6 +72,10 @@ describe('reading what git answers', () => {
       added: 13,
       removed: 1,
     })
+  })
+
+  test('numstat keeps a path outside ASCII as it is, which git prints unquoted', () => {
+    expect(parseNumstat('4\t0\tdocs/café.md\n')).toEqual({ paths: ['docs/café.md'], added: 4, removed: 0 })
   })
 
   test('status counts each file with changes not committed', () => {
@@ -132,6 +138,13 @@ describe('withGit', () => {
   test('refuses a map file the branch does not change', () => {
     const map = [{ path: 'src/other.rs', change: 'change' as const, items: [{ name: 'f', does: 'd' }] }]
     expect(withGit({ ...input(), map }, GIT)).toBe('map[0].path: src/other.rs is not a file the branch changes')
+  })
+
+  test('takes a map file outside ASCII, as numstat reads it', () => {
+    const map = [{ path: 'docs/café.md', change: 'new' as const, items: [{ name: 'f', does: 'd' }] }]
+    const stat = parseNumstat('4\t0\tdocs/café.md\n10\t2\tsrc/words.rs\n')
+    const branch = withGit({ ...input(), map }, { ...GIT, ...stat })
+    expect(typeof branch === 'string' ? branch : branch.map).toEqual(map)
   })
 
   test('refuses a branch with no commits', () => {
