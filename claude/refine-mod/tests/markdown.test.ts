@@ -4,6 +4,7 @@ import { markdownPath, reportFromMarkdown, reportMarkdown, twinOf } from '../hoo
 import { reportPage } from '../hooks/page'
 import { parseReport } from '../hooks/report'
 import type { Report } from '../hooks/report'
+import { BRANCH_MIN, branched } from './branch-fixtures'
 import { EXAMPLE, EXAMPLE_PLAN } from './example-report'
 
 // The report parseReport takes, failing the test where it is refused.
@@ -263,5 +264,83 @@ describe('twinOf', () => {
   test('refuses a term the twin reads back as another', () => {
     const input = { ...MINIMAL, terms: [{ term: 'a**: b', meaning: 'c' }] }
     expect(twinOf(parsed(input), PLAN)).toBe('its Markdown twin reads back as a different report')
+  })
+})
+
+describe('a branch report', () => {
+  const full = branched({
+    ...BRANCH_MIN,
+    unchanged: ['The panel.'],
+    terms: [{ term: 'twin', meaning: 'The .md copy.' }],
+    hot_spots: [
+      { spot: 'Pipes | in cells', why: 'A | b stays one cell.', files: ['src/words.rs', 'README.md'] },
+      { spot: 'Second spot', why: 'Why two.', files: ['README.md'] },
+    ],
+    story: [
+      { step: 'Wrote the words', commits: ['abc1234'], points: ['One.', 'Two.'] },
+      { step: 'Pinned them', commits: ['abd5678'], points: ['Three.'] },
+    ],
+    map: [
+      { path: 'src/words.rs', change: 'change', items: [{ name: 'words()', does: 'Answers.' }, { name: 'WORDS', does: 'Holds.' }] },
+      { path: 'README.md', change: 'new', items: [{ name: 'Words', does: 'Says so.' }] },
+    ],
+    suite: {
+      runs: [
+        { suite: 'cargo test', command: 'CARGO_TARGET_DIR=$TMPDIR/t cargo test', passed: 777, failed: 1 },
+        { suite: 'plugin tests', command: 'python3 -m unittest', passed: 40, failed: 0 },
+      ],
+      not_run: [{ suite: 'e2e-panel.sh', why: 'Nests a niri on your screen.' }],
+      failing: [{ test: 'words_are_new', file: 'src/words.rs', why: 'It expects old words.' }],
+    },
+    untested: [{ code: 'WORDS', file: 'src/words.rs', why: 'A constant.' }],
+    plan_vs_done: [{ item: 'Add the words', kind: 'step', progress: 'partial', shown_by: 'abc1234' }],
+  })
+  const PLAN = { description: 'feat: New words', notes: ['Steps: Add the words'] }
+
+  test('reads back as the report it was written from', () => {
+    expect(reportFromMarkdown(reportMarkdown(full, PLAN))).toEqual({ report: full, plan: PLAN })
+    expect(typeof twinOf(full, PLAN)).toBe('object')
+  })
+
+  test('the smallest branch report reads back too, its optional slides left out', () => {
+    const min = branched()
+    const md = reportMarkdown(min, PLAN)
+    expect(reportFromMarkdown(md)).toEqual({ report: min, plan: PLAN })
+    expect(md).not.toContain('## Plan vs done')
+    expect(md).not.toContain('## Done when')
+    expect(md).not.toContain('### Changed code with no test')
+  })
+
+  test('opens with the branch facts git gave, then the summary', () => {
+    const lines = reportMarkdown(branched(), PLAN).split('\n')
+    expect(lines.slice(0, 5)).toEqual([
+      '# feat: New words',
+      '',
+      '_Branch `task/feat-new-words-0b8f6a52` from `main` at `f00dfee`: 2 commits, 2 files, +12 -3, 1 uncommitted._',
+      '',
+      'The branch adds new words.',
+    ])
+  })
+
+  test('names each commit with its subject from git', () => {
+    expect(reportMarkdown(branched(), PLAN)).toContain(
+      '## How the branch got here\n\n### Wrote the words\n\n- `abc1234` feat: add the words\n- `abd5678` test: pin the words\n\n- The words went in.',
+    )
+  })
+
+  test('says so when the branch adds no test', () => {
+    const md = reportMarkdown(branched({ ...BRANCH_MIN, new_tests: [] }), PLAN)
+    expect(md).toContain('## The tests this branch adds\n\n_None._')
+    expect(reportFromMarkdown(md).report.branch?.new_tests).toEqual([])
+  })
+
+  test('a plan report keeps its twin as it was', () => {
+    expect(reportMarkdown(MINIMAL, PLAN)).not.toContain('_Branch `')
+    expect(reportFromMarkdown(reportMarkdown(MINIMAL, PLAN)).report.branch).toBeUndefined()
+  })
+
+  test('refuses a branch whose name would not read back', () => {
+    const odd = { ...full, branch: { ...full.branch!, facts: { ...full.branch!.facts, branch: 'a`b' } } }
+    expect(typeof twinOf(odd, PLAN)).toBe('string')
   })
 })

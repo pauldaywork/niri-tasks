@@ -6,8 +6,11 @@
 // report.ts, so the unit tests reach it directly.
 
 import type { Plan } from './plan'
-import { CHANGES, LENSES, SWAPS } from './report'
-import type { Change, CodePair, Diagram, FileChange, Lens, Report, Section, Swap, Tool } from './report'
+import { BRANCH_HEADINGS as H, CHANGES, LAYERS, LENSES, PLAN_KINDS, PROGRESS, RESULTS, SWAPS } from './report'
+import type {
+  Branch, Change, CodePair, Commit, Diagram, Facts, FileChange, HotSpot, Layer, Lens, MapEntry, PlanKind,
+  Progress, Report, Result, Section, Step, Suite, Swap, Tool,
+} from './report'
 
 // The twin's path: the report's, with .md for .html.
 export const markdownPath = (htmlPath: string): string => `${htmlPath.replace(/\.html$/, '')}.md`
@@ -76,22 +79,89 @@ const part = (s: Section): string => {
   return out.join('\n\n')
 }
 
-// The report as Markdown, in the slides' order, ending with the plan the
-// person was shown, as the HTML's last slide does.
+// A branch report's facts, from git, under its title.
+const FACTS =
+  /^_Branch `([^`]+)` from `([^`]+)` at `([^`]+)`: (\d+) commits, (\d+) files, \+(\d+) -(\d+), (\d+) uncommitted\._$/
+const factsLine = (f: Facts): string =>
+  `_Branch \`${f.branch}\` from \`${f.base}\` at \`${f.merge_base}\`: ${f.commits} commits, ${f.files} files, ` +
+  `+${f.added} -${f.removed}, ${f.uncommitted} uncommitted._`
+
+const SUITE_HEAD = ['Suite', 'Command', 'Passed', 'Failed']
+const NOT_RUN_HEAD = ['Not run', 'Why']
+const FAILING_HEAD = ['Failing test', 'File', 'Why']
+const TESTS_HEAD = ['Test', 'File', 'Layer', 'What it pins', 'Result']
+const UNTESTED_HEAD = ['Code', 'File', 'Why']
+const PLAN_HEAD = ['From the plan', 'Kind', 'Progress', 'Shown by']
+const NO_TESTS = '_None._'
+
+const ticked = (text: string): string => `\`${text}\``
+
+const hotSpots = (list: readonly HotSpot[]): string =>
+  list.map(h => [`### ${h.spot}`, h.why, `Files: ${h.files.map(ticked).join(', ')}`].join('\n\n')).join('\n\n')
+
+const story = (steps: readonly Step<Commit>[]): string =>
+  steps
+    .map(s =>
+      [`### ${s.step}`, bullets(s.commits.map(c => `${ticked(c.sha)} ${c.subject}`)), bullets(s.points)].join('\n\n'),
+    )
+    .join('\n\n')
+
+const changesMap = (entries: readonly MapEntry[]): string =>
+  entries
+    .map(m => [`### ${m.change} ${ticked(m.path)}`, bullets(m.items.map(i => `**${i.name}**: ${i.does}`))].join('\n\n'))
+    .join('\n\n')
+
+const suite = (s: Suite): string =>
+  [
+    table(SUITE_HEAD, s.runs.map(r => [r.suite, r.command, String(r.passed), String(r.failed)])),
+    s.not_run.length > 0 ? table(NOT_RUN_HEAD, s.not_run.map(n => [n.suite, n.why])) : '',
+    s.failing.length > 0 ? table(FAILING_HEAD, s.failing.map(f => [f.test, ticked(f.file), f.why])) : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+
+const newTests = (b: Branch): string =>
+  [
+    b.new_tests.length === 0
+      ? NO_TESTS
+      : table(TESTS_HEAD, b.new_tests.map(t => [t.test, ticked(t.file), t.layer, t.pins, t.result])),
+    b.untested.length > 0
+      ? `### ${H.untested}\n\n${table(UNTESTED_HEAD, b.untested.map(u => [u.code, ticked(u.file), u.why]))}`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+
+// The report as Markdown, ending with the plan the person was shown, as the
+// HTML's last slide does. A branch report's own blocks sit where its slides
+// do; its parts stay in the model's order, as a plan report's do.
 export const reportMarkdown = (report: Report, plan: Plan): string => {
-  const out = [`# ${report.title}`, report.summary, `## What changes\n\n${bullets(report.changes)}`]
+  const b = report.branch
+  const out = [`# ${report.title}`]
+  if (b !== undefined) out.push(factsLine(b.facts))
+  out.push(report.summary, `## What changes\n\n${bullets(report.changes)}`)
   if (report.unchanged.length > 0) out.push(`## What stays the same\n\n${bullets(report.unchanged)}`)
+  if (b !== undefined) out.push(`## ${H.hotSpots}\n\n${hotSpots(b.hot_spots)}`)
   if (report.needs_your_eye.length > 0) {
     out.push(`## Where your judgement is needed\n\n${bullets(report.needs_your_eye)}`)
   }
   if (report.terms.length > 0) {
     out.push(`## Words used here\n\n${bullets(report.terms.map(t => `**${t.term}**: ${t.meaning}`))}`)
   }
+  if (b !== undefined) out.push(`## ${H.story}\n\n${story(b.story)}`)
   out.push(...report.sections.map(part))
+  if (b !== undefined) {
+    out.push(`## ${H.map}\n\n${changesMap(b.map)}`, `## ${H.suite}\n\n${suite(b.suite)}`, `## ${H.newTests}\n\n${newTests(b)}`)
+    if (b.plan_vs_done.length > 0) {
+      out.push(
+        `## ${H.planVsDone}\n\n${table(PLAN_HEAD, b.plan_vs_done.map(p => [p.item, p.kind, p.progress, p.shown_by]))}`,
+      )
+    }
+  }
   if (report.files.length > 0) {
     out.push(`## Files\n\n${table(FILE_HEAD, report.files.map(f => [f.change, `\`${f.path}\``, f.why]))}`)
   }
-  out.push(`## Done when\n\n${table(CHECK_HEAD, report.checks.map(c => [c.check, c.how]))}`)
+  if (b === undefined) out.push(`## Done when\n\n${table(CHECK_HEAD, report.checks.map(c => [c.check, c.how]))}`)
   const notes = plan.notes.length === 0 ? 'No notes.' : plan.notes.map((n, i) => `${i + 1}. ${n}`).join('\n')
   out.push(`## The plan\n\n**Description:** ${plan.description}\n\n${notes}`)
   return `${out.join('\n\n')}\n`
@@ -247,24 +317,148 @@ export const reportFromMarkdown = (markdown: string): ReadBack => {
     gap()
     return list()
   }
+  // A fixed slide that must come next: its heading, then its body.
+  const heading = (text: string): void => {
+    gap()
+    line(`## ${text}`)
+    gap()
+  }
+  // `### ` blocks, one after another, each read by `read`.
+  const blocks = <T>(read: () => T): T[] => {
+    const out = [read()]
+    while (next()?.startsWith('### ')) {
+      gap()
+      out.push(read())
+    }
+    return out
+  }
+  const quoted = (cell: string): string => (/^`.*`$/.test(cell) ? cell.slice(1, -1) : fail('a `path`'))
+  const count = (cell: string): number => (/^\d+$/.test(cell) ? Number(cell) : fail('a whole number'))
+  const hotSpot = (): HotSpot => {
+    const spot = match(/^### (.+)$/, 'a "### <spot>" heading')[1] ?? ''
+    gap()
+    const why = take()
+    gap()
+    const files = (match(/^Files: (.+)$/, 'a "Files: " line')[1] ?? '').split(', ').map(quoted)
+    return { spot, why, files }
+  }
+  const step = (): Step<Commit> => {
+    const name = match(/^### (.+)$/, 'a "### <step>" heading')[1] ?? ''
+    gap()
+    const commits = list().map(c => {
+      const found = /^`([^`]+)` (.*)$/.exec(c) ?? fail('a "`<sha>` <subject>" line')
+      return { sha: found[1] ?? '', subject: found[2] ?? '' }
+    })
+    gap()
+    return { step: name, commits, points: list() }
+  }
+  const mapEntry = (): MapEntry => {
+    const found = match(/^### (\S+) `(.+)`$/, 'a "### <change> `<path>`" heading')
+    gap()
+    const items = list().map(i => {
+      const m = /^\*\*(.+?)\*\*: (.+)$/.exec(i) ?? fail('a "**<name>**: <does>" line')
+      return { name: m[1] ?? '', does: m[2] ?? '' }
+    })
+    return { path: found[2] ?? '', change: oneOf<Change>(found[1] ?? '', CHANGES, 'new, change or remove'), items }
+  }
+  // A table that may follow, by its head, or none.
+  const maybeRows = (head: readonly string[]): string[][] => {
+    if (next() !== headRow(head)) return []
+    gap()
+    return rows(head)
+  }
 
   const title = match(/^# (.+)$/, 'the "# <title>" line')[1] ?? ''
   gap()
+  const f = FACTS.exec(lines[at] ?? '')
+  let facts: Facts | undefined
+  if (f !== null) {
+    at += 1
+    facts = {
+      branch: f[1] ?? '',
+      base: f[2] ?? '',
+      merge_base: f[3] ?? '',
+      commits: Number(f[4]),
+      files: Number(f[5]),
+      added: Number(f[6]),
+      removed: Number(f[7]),
+      uncommitted: Number(f[8]),
+    }
+    gap()
+  }
   const summary = take()
   gap()
   line('## What changes')
   gap()
   const changes = list()
   const unchanged = optional('What stays the same')
+  let hot_spots: HotSpot[] = []
+  if (facts !== undefined) {
+    heading(H.hotSpots)
+    hot_spots = blocks(hotSpot)
+  }
   const needs_your_eye = optional('Where your judgement is needed')
   const terms = optional('Words used here').map(entry => {
     const t = /^\*\*(.+?)\*\*: (.+)$/.exec(entry) ?? fail('a "**<term>**: <meaning>" line')
     return { term: t[1] ?? '', meaning: t[2] ?? '' }
   })
+  let steps: Step<Commit>[] = []
+  if (facts !== undefined) {
+    heading(H.story)
+    steps = blocks(step)
+  }
   const sections: Section[] = []
   while (lines[at] === '' && partAt(at + 1)) {
     gap()
     sections.push(part())
+  }
+  let branch: Branch | undefined
+  if (facts !== undefined) {
+    heading(H.map)
+    const map = blocks(mapEntry)
+    heading(H.suite)
+    const runs = rows(SUITE_HEAD).map(([suite = '', command = '', passed = '', failed = '']) => ({
+      suite,
+      command,
+      passed: count(passed),
+      failed: count(failed),
+    }))
+    const not_run = maybeRows(NOT_RUN_HEAD).map(([suite = '', why = '']) => ({ suite, why }))
+    const failing = maybeRows(FAILING_HEAD).map(([test = '', file = '', why = '']) => ({
+      test,
+      file: quoted(file),
+      why,
+    }))
+    heading(H.newTests)
+    let new_tests: Branch['new_tests'] = []
+    if (lines[at] === NO_TESTS) at += 1
+    else {
+      new_tests = rows(TESTS_HEAD).map(([test = '', file = '', layer = '', pins = '', result = '']) => ({
+        test,
+        file: quoted(file),
+        layer: oneOf<Layer>(layer, LAYERS, 'unit, integration or e2e'),
+        pins,
+        result: oneOf<Result>(result, RESULTS, 'pass, fail or not run'),
+      }))
+    }
+    let untested: Branch['untested'] = []
+    if (next() === `### ${H.untested}`) {
+      gap()
+      line(`### ${H.untested}`)
+      gap()
+      untested = rows(UNTESTED_HEAD).map(([c = '', file = '', why = '']) => ({ code: c, file: quoted(file), why }))
+    }
+    let plan_vs_done: Branch['plan_vs_done'] = []
+    if (slide(H.planVsDone)) {
+      heading(H.planVsDone)
+      plan_vs_done = rows(PLAN_HEAD).map(([item = '', kind = '', progress = '', shown_by = '']) => ({
+        item,
+        kind: oneOf<PlanKind>(kind, PLAN_KINDS, 'step or done when'),
+        progress: oneOf<Progress>(progress, PROGRESS, 'done, partial or not yet'),
+        shown_by,
+      }))
+    }
+    branch = { facts, hot_spots, story: steps, map, suite: { runs, not_run, failing }, new_tests, untested, plan_vs_done }
   }
   let files: FileChange[] = []
   if (slide('Files')) {
@@ -273,14 +467,17 @@ export const reportFromMarkdown = (markdown: string): ReadBack => {
     gap()
     files = rows(FILE_HEAD).map(([change = '', path = '', why = '']) => ({
       change: oneOf<Change>(change, CHANGES, 'new, change or remove'),
-      path: /^`.*`$/.test(path) ? path.slice(1, -1) : fail('a `path`'),
+      path: quoted(path),
       why,
     }))
   }
-  gap()
-  line('## Done when')
-  gap()
-  const checks = rows(CHECK_HEAD).map(([check = '', how = '']) => ({ check, how }))
+  let checks: { check: string; how: string }[] = []
+  if (branch === undefined) {
+    gap()
+    line('## Done when')
+    gap()
+    checks = rows(CHECK_HEAD).map(([check = '', how = '']) => ({ check, how }))
+  }
   gap()
   line('## The plan')
   gap()
@@ -295,7 +492,10 @@ export const reportFromMarkdown = (markdown: string): ReadBack => {
   gap()
   if (at !== lines.length) fail('the end')
   return {
-    report: { title, summary, changes, unchanged, needs_your_eye, terms, sections, files, checks },
+    report: {
+      title, summary, changes, unchanged, needs_your_eye, terms, sections, files, checks,
+      ...(branch === undefined ? {} : { branch }),
+    },
     plan: { description, notes },
   }
 }
