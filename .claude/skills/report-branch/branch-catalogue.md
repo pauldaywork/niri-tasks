@@ -363,7 +363,7 @@ tests render it, so keep the two in step:
     "runs": [
       {
         "suite": "cargo test",
-        "command": "CARGO_TARGET_DIR=$TMPDIR/target cargo test --locked",
+        "command": "CARGO_TARGET_DIR=$TMPDIR/target cargo test --locked --no-fail-fast",
         "passed": 777,
         "failed": 0
       },

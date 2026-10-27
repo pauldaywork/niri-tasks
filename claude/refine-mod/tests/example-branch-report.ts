@@ -152,7 +152,7 @@ export const EXAMPLE_BRANCH = {
   ],
   "suite": {
     "runs": [
-      { "suite": "cargo test", "command": "CARGO_TARGET_DIR=$TMPDIR/target cargo test --locked", "passed": 777, "failed": 0 },
+      { "suite": "cargo test", "command": "CARGO_TARGET_DIR=$TMPDIR/target cargo test --locked --no-fail-fast", "passed": 777, "failed": 0 },
       { "suite": "Refine mod", "command": "claude plugin test claude/refine-mod", "passed": 202, "failed": 0 },
       { "suite": "task-docs plugin", "command": "python3 -m unittest discover -s herdr/task-docs/tests", "passed": 40, "failed": 0 }
     ],

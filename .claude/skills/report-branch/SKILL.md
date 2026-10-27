@@ -73,7 +73,9 @@ Find the project's suites: the README's testing section, `AGENTS.md` or
 manifests (`Cargo.toml`, `package.json`, `pyproject.toml`). Run every suite
 that runs headless, with its build outputs under `$TMPDIR`:
 
-- Rust: `CARGO_TARGET_DIR="$TMPDIR/target" cargo test --locked`
+- Rust: `CARGO_TARGET_DIR="$TMPDIR/target" cargo test --locked --no-fail-fast`
+  (without `--no-fail-fast`, one test binary the fence stops hides every
+  binary after it)
 - Python: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s <dir>`
 - A Claude Code mod (a folder with `.claude-plugin/plugin.json`, or tests that
   import `claude-code/testing`): `claude plugin test <dir>`, never plain
@@ -81,16 +83,22 @@ that runs headless, with its build outputs under `$TMPDIR`:
   point any cache under `$TMPDIR`
 - Other Bun code: `bun test`
 
+Run them all in one background command, each suite's output to its own log
+under `$TMPDIR`, and read the diff while they run. A first cargo build takes
+minutes: wait for the command's completion notice, never `sleep`, which the
+harness refuses.
+
 Never run a suite that needs a display, a nested compositor, a real
 workspace or a network host outside the fence: an e2e script is named, not
 run. A suite the sandbox stops (a write outside `$TMPDIR`, a refused host)
 is not run either, with the reason; never count it as failed. The same holds
 for a single test in a suite that does run: one failing with `Read-only file
-system`, `Operation not permitted`, `EACCES`, or a socket or bind error under
-`/tmp` or `/run` was stopped by the fence, not broken by the branch. Leave it
-out of `failed` and `failing`, and list it under `not_run` with "stopped by
-the sandbox" and the test's name as the why. For each suite run, take the passed and failed counts from its own summary, and name each
-failing test.
+system`, `Operation not permitted`, `EACCES`, a socket or bind error under
+`/tmp` or `/run`, or its own message that it could not make a path outside
+`$TMPDIR`, was stopped by the fence, not broken by the branch. Leave it out
+of `failed` and `failing`, and list it under `not_run` with "stopped by the
+sandbox" and the test's name as the why. For each suite run, take the passed
+and failed counts from its own summary, and name each failing test.
 
 Then find the tests the branch adds or changes (`git diff "$mb" HEAD` on the
 test files and the `#[test]`, `def test_` or `test(` lines it adds), and for
