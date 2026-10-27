@@ -236,19 +236,21 @@ What the task panel shows in place of the task cards when a card's Go to… is
 pressed: what else can be done with that task and where it can be gone to,
 drawn like task cards under a line naming it — Refine or Redo refine, Grill
 me, Get started or Back to worktree, Generate or Regenerate report, Explain
-branch, Open report, Branch report, Planning doc, Design spec, Go to refine session, Go to work session,
-Open worktree folder, Open in VS Code, and Read aloud or Stop reading aloud
-— each row only when it applies: refining, starting, reports built and
-sessions on a task on the list, Explain branch whenever the task has a worktree (Back to worktree giving way to Go to work
+branch, Open report, Branch report, Planning doc, Design spec, Go to refine
+session, Go to work session, Open worktree folder, Open in VS Code, and Read
+aloud or Stop reading aloud — each row only when it applies: refining,
+starting, reports built and sessions on a task on the list, Explain branch
+whenever the task has a worktree (Back to worktree giving way to Go to work
 session while that Claude runs), the documents when its notes link them
 (`Report:`, `Plan:`, `Spec:`), the worktree when it has one, VS Code when
 installed, reading aloud always. Each document's row shows how old it is at
 its right end, dimmed as a card's age is: from the note linking it, else the
 file's last change; worked out as the list is drawn, never saved. Rows of a
-kind share a colour: a Claude on the plan mauve, Get started green, a
-running Claude blue, the documents yellow, the worktree and VS Code
-sapphire, Read aloud pink. No text field: Up and Down move the highlight,
-Enter or a click runs the row's `niritasks` command and gives the keyboard
+kind share a colour: a Claude on the plan (Refine, Grill me, Generate
+report, Explain branch) mauve, Get started green, a running Claude blue, the
+documents (Open report, Branch report, Planning doc, Design spec) yellow,
+the worktree and VS Code sapphire, Read aloud pink. No text field: Up and
+Down move the highlight, Enter or a click runs the row's `niritasks` command and gives the keyboard
 back (Read aloud keeps it), and Escape goes back to the card. A `Spec:` or
 `Plan:` path is the repository's, read in the task's worktree while it has
 one, else the workspace's `~/Projects` folder. Every Markdown document a

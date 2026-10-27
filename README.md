@@ -109,8 +109,9 @@ applies:
 | **Read aloud**, **Stop reading aloud** while a speech plays | always: its description and notes, rewritten by Claude for listening |
 
 Rows of a kind share a colour: mauve for a Claude working on the plan
-(Refine, Grill me, Generate report), green for Get started, blue for going
-to a running Claude, yellow for the documents, sapphire for the worktree
+(Refine, Grill me, Generate report, Explain branch), green for Get started,
+blue for going to a running Claude, yellow for the documents (Open report,
+Branch report, Planning doc, Design spec), sapphire for the worktree
 and VS Code, and pink for Read aloud.
 
 There is no field to type in: Up and Down move the highlight, Enter or a
