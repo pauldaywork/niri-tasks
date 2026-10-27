@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'claude-code/testing'
+import { withGit } from '../hooks/branch'
 import { drawSources } from '../hooks/draw'
 import { markdownPath, reportFromMarkdown, reportMarkdown, twinOf } from '../hooks/markdown'
 import { reportPage } from '../hooks/page'
 import { parseReport } from '../hooks/report'
 import type { Report } from '../hooks/report'
 import { BRANCH_MIN, branched } from './branch-fixtures'
+import { EXAMPLE_BRANCH, EXAMPLE_BRANCH_GIT, EXAMPLE_BRANCH_PLAN } from './example-branch-report'
 import { EXAMPLE, EXAMPLE_PLAN } from './example-report'
 
 // The report parseReport takes, failing the test where it is refused.
@@ -343,4 +345,12 @@ describe('a branch report', () => {
     const odd = { ...full, branch: { ...full.branch!, facts: { ...full.branch!.facts, branch: 'a`b' } } }
     expect(typeof twinOf(odd, PLAN)).toBe('string')
   })
+})
+
+test('the branch worked example reads back from its twin', () => {
+  const parsed = parseReport(EXAMPLE_BRANCH, 'branch')
+  if (typeof parsed === 'string' || parsed.branch === undefined) throw new Error(String(parsed))
+  const branch = withGit(parsed.branch, EXAMPLE_BRANCH_GIT)
+  if (typeof branch === 'string') throw new Error(branch)
+  expect(typeof twinOf({ ...parsed.report, branch }, EXAMPLE_BRANCH_PLAN)).toBe('object')
 })

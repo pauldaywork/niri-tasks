@@ -25,4 +25,4 @@ repository: `niritasks task note <uuid> Plan: docs/superpowers/plans/<file>.md`
 once the plan is saved, and `Spec: docs/superpowers/specs/<file>.md` for a
 design spec. The task card's Go to… lists and opens them, reading the path
 in the task's worktree while it has one. When you rewrite a task's notes,
-keep its `Spec:`, `Plan:` and `Report:` notes.
+keep its `Spec:`, `Plan:`, `Report:` and `Branch report:` notes.

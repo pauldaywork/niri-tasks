@@ -92,6 +92,11 @@ link "$REPO/.claude/skills/refine-task/report-catalogue.md" "$CLAUDE_SKILLS/refi
 # reads refine-task's report catalogue, linked above, beside it.
 link "$REPO/.claude/skills/report-task/SKILL.md" "$CLAUDE_SKILLS/report-task/SKILL.md"
 
+# report-branch: what a card's Explain branch opens Claude with, in the
+# task's worktree. Its catalogue sits beside it.
+link "$REPO/.claude/skills/report-branch/SKILL.md" "$CLAUDE_SKILLS/report-branch/SKILL.md"
+link "$REPO/.claude/skills/report-branch/branch-catalogue.md" "$CLAUDE_SKILLS/report-branch/branch-catalogue.md"
+
 # finish-worktree: the other end of Start working — lands a task's worktree
 # branch on main, pushes, and marks the task completed through niritasks.
 link "$REPO/.claude/skills/finish-worktree/SKILL.md" "$CLAUDE_SKILLS/finish-worktree/SKILL.md"

@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'claude-code/testing'
+import { withGit } from '../hooks/branch'
 import { branchPage } from '../hooks/branch-page'
 import { CSP, CSP_STATIC, MERMAID_SRI, MERMAID_URL, inline, readingMinutes, reportPage } from '../hooks/page'
 import { parseReport } from '../hooks/report'
 import type { Report } from '../hooks/report'
 import { BRANCH_MIN, branched } from './branch-fixtures'
+import { EXAMPLE_BRANCH, EXAMPLE_BRANCH_GIT, EXAMPLE_BRANCH_PLAN } from './example-branch-report'
 import { EXAMPLE, EXAMPLE_PLAN } from './example-report'
 
 const report = (over: Partial<Report> = {}): Report => ({
@@ -502,4 +504,15 @@ describe('a branch report', () => {
       '0da9031267a070208f18673fb53b75c8c08f2df2f679324baece424447a93a5e',
     )
   })
+})
+
+test('the branch worked example renders every branch slide', () => {
+  const parsed = parseReport(EXAMPLE_BRANCH, 'branch')
+  if (typeof parsed === 'string' || parsed.branch === undefined) throw new Error(String(parsed))
+  const branch = withGit(parsed.branch, EXAMPLE_BRANCH_GIT)
+  if (typeof branch === 'string') throw new Error(branch)
+  expect(slides(branchPage({ ...parsed.report, branch }, EXAMPLE_BRANCH_PLAN))).toEqual([
+    'cover', 'glance', 'hot-spots', 'terms', 'story', 'before-after', 'map', 'data-flow', 'outside-tools', 'code',
+    'suite', 'new-tests', 'newcomer', 'plan-vs-done', 'files', 'decision',
+  ])
 })

@@ -128,9 +128,9 @@ what it will write and asks them. The proposal contains:
    where they apply: `Goal: …`, `Context: …`, `Decided: …` (one per decision),
    `Steps: …`, `Done when: …`, `Out of scope: …`. They **replace** the existing
    notes, so fold in everything the old notes said that still holds. Keep any
-   `Report: …`, `Report (earlier draft): …`, `Spec: …` or `Plan: …` notes as
-   they are: they link earlier reports and the task's design spec and plan,
-   which its card's Go to… opens.
+   `Report: …`, `Report (earlier draft): …`, `Branch report: …`, `Spec: …` or
+   `Plan: …` notes as they are: they link earlier reports, the branch report,
+   and the task's design spec and plan, which its card's Go to… opens.
 3. **Before** — the current description and notes, so the user can see nothing
    was dropped.
 

@@ -3,6 +3,7 @@ import { LIMITS, WORD_GRACE, homeDir, madeAlready, notePath, openArgv, overLimit
 import type { Task } from '../hooks/plan'
 import { EXAMPLE } from './example-report'
 import { BRANCH_MIN } from './branch-fixtures'
+import { EXAMPLE_BRANCH } from './example-branch-report'
 
 const UUID = '0b8f6a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b'
 
@@ -582,4 +583,10 @@ describe('a branch report on disk and in the notes', () => {
     expect(unexplainable({ ...task, status: 'deleted' })).toBe('the task is deleted')
     expect(unexplainable(undefined)).toBe('the task no longer exists')
   })
+})
+
+test('takes the branch catalogue\'s worked example, within every limit', () => {
+  const parsed = parseReport(EXAMPLE_BRANCH, 'branch')
+  expect(typeof parsed).toBe('object')
+  expect(typeof parsed === 'object' && parsed.warnings).toEqual([])
 })
