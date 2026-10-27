@@ -419,6 +419,8 @@ niritasks task report <uuid>       # open the report of its plan linked from its
                                    #   (beside any refine tab), opened in the browser and linked from the task's
                                    #   notes (a planned task only)
 niritasks task report <uuid> --fresh  #   build a new report even when its notes link one
+niritasks task report <uuid> --branch  # open the branch report linked from its notes; without one, Claude explains what its worktree branch has changed, runs the tests, opens the report and links it
+niritasks task report <uuid> --branch --fresh  #   explain the branch afresh even when its notes link a branch report
 niritasks task docs <uuid> --project <dir> --notes-dir <dir>
                                    # list its documents, label<TAB>path: its reports (the Markdown twin, else
                                    #   the HTML), Markdown its notes name by path, its notes written to

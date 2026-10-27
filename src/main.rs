@@ -258,12 +258,22 @@ enum TaskCommand {
     /// notification says so. The workspace is this herdr session's in a
     /// herdr pane, else the focused one. Refused while the task is being
     /// planned in the background (+processing).
+    ///
+    /// With --branch, the same for the task's branch report, `Branch
+    /// report: <path>`: opened if linked, else Claude explains what the
+    /// task's worktree branch has changed since it left the default branch,
+    /// runs the tests, opens the report and links it; refused for a task
+    /// with no worktree or a deleted one. Any status but deleted; no plan
+    /// needed.
     Report {
         /// The task's uuid, or its first 8 characters
         uuid: String,
         /// Build a new report even when the task's notes link one
         #[arg(long)]
         fresh: bool,
+        /// The report of what the task's worktree branch has changed, not of its plan
+        #[arg(long)]
+        branch: bool,
     },
     /// List a task's documents, one per line: a label, a tab, the path
     ///
@@ -423,6 +433,33 @@ fn backup_import(archive: &Path, force: bool) -> Result<()> {
         done.tasks, done.reports, done.kept
     );
     Ok(())
+}
+
+/// `task report <uuid> --branch`: open the task's branch report if linked
+/// and there, else have Claude explain its worktree branch.
+fn explain_branch(t: &task::Task, fresh: bool) -> Result<()> {
+    let dirs = dirs::Dirs::from_env()?;
+    let mut gone = None;
+    if !fresh {
+        if let Some(path) = t.branch_report_path() {
+            let file = refine::report_file(path, &dirs);
+            if file.is_file() {
+                open::open_document(&file, Workspace::of_caller()?.name())?;
+                notify::tasks(&format!("Opened the branch report: {}", t.description));
+                return Ok(());
+            }
+            gone = Some(path.to_string());
+        }
+    }
+    let workspace = Workspace::of_caller()?;
+    anyhow::ensure!(t.status != "deleted", "A deleted task has no branch to explain.");
+    let worktree = work::worktree_path(&workspace, &t.uuid)
+        .context("This task has no worktree, so no branch to explain. Get started on it first.")?;
+    let base = work::default_branch(&workspace.folder(&dirs))?;
+    if gone.is_some() {
+        notify::tasks(&format!("Branch report file gone, building a fresh one: {}", t.description));
+    }
+    refine::launch_branch(&workspace, t, &refine::Branch { worktree, base })
 }
 
 fn task_command(cmd: TaskCommand) -> Result<()> {
@@ -598,11 +635,14 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             refine::launch(&workspace, &t, mode)?;
         }
 
-        TaskCommand::Report { uuid, fresh } => {
+        TaskCommand::Report { uuid, fresh, branch } => {
             let t = task::get(&uuid)?.context("task not found")?;
             // Its plan is still being written, and the second run will link
             // a report itself.
             anyhow::ensure!(!t.is_processing(), "{}", task::PROCESSING_REFUSAL);
+            if branch {
+                return explain_branch(&t, fresh);
+            }
             // Opening what is already written needs no session and no
             // pending or planned check: the report is a file, and reading it
             // is harmless on any task. Building one needs both.
@@ -851,6 +891,12 @@ mod tests {
     fn a_fresh_report_is_a_flag_on_task_report() {
         assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d"]).is_ok());
         assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d", "--fresh"]).is_ok());
+    }
+
+    #[test]
+    fn a_report_can_be_of_the_branch() {
+        assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d", "--branch"]).is_ok());
+        assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d", "--branch", "--fresh"]).is_ok());
     }
 
     /// herdr's task-docs plugin runs this to list a task's documents.

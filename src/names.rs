@@ -35,6 +35,13 @@ pub fn report_agent(uuid: &str) -> String {
     format!("report-{}", uuid8(uuid))
 }
 
+/// The herdr agent name for a task's Explain branch session. Its own
+/// `branch-`, so Explain branch never lands in a plan report's tab, and a
+/// second press finds the first.
+pub fn branch_agent(uuid: &str) -> String {
+    format!("branch-{}", uuid8(uuid))
+}
+
 /// Both of `uuid`'s agent names, its working Claude (`work-`) first and its
 /// refine (`task-`) second: the working Claude is the one you most likely
 /// want back, and a refine still open beside it is second.
@@ -42,11 +49,11 @@ pub fn both_agents(uuid: &str) -> [String; 2] {
     [work_agent(uuid), refine_agent(uuid)]
 }
 
-/// Whether `name` is a `task-`, `work-` or `report-` agent: one named by
-/// Refine, Start working or Generate report, or linked already, and so named
-/// for a task.
+/// Whether `name` is a `task-`, `work-`, `report-` or `branch-` agent: one
+/// named by Refine, Start working, Generate report or Explain branch, or
+/// linked already, and so named for a task.
 pub fn is_task_agent(name: &str) -> bool {
-    ["task-", "work-", "report-"].iter().any(|p| name.starts_with(p))
+    ["task-", "work-", "report-", "branch-"].iter().any(|p| name.starts_with(p))
 }
 
 /// Whether `s` is a uuid8 as [`uuid8`] spells one: eight lowercase hex
@@ -98,11 +105,13 @@ pub const PANE_LABEL_MAX: usize = 80;
 
 /// Which of a task's Claudes a pane holds, as its border label says. Every
 /// refine mode is `Refine`: they share one agent, `task-<uuid8>`. A report
-/// runs its own, `report-<uuid8>`.
+/// runs its own, `report-<uuid8>`, and Explain branch its own,
+/// `branch-<uuid8>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     Refine,
     Report,
+    Branch,
     Work,
 }
 
@@ -117,13 +126,14 @@ pub struct PaneName {
 }
 
 impl PaneName {
-    /// `Refine #61 · <description>`, `Report #61 · …` or `Work #61 · …`, cut to what herdr
+    /// `Refine #61 · <description>`, `Report #61 · …`, `Branch #61 · …` or `Work #61 · …`, cut to what herdr
     /// keeps. A task with no number, as a finished one has after gc, shows
     /// none rather than `#0`.
     pub fn for_task(role: Role, id: u64, uuid: &str, description: &str) -> PaneName {
         let verb = match role {
             Role::Refine => "Refine",
             Role::Report => "Report",
+            Role::Branch => "Branch",
             Role::Work => "Work",
         };
         let head = if id == 0 { verb.to_string() } else { format!("{verb} #{id}") };
@@ -246,5 +256,13 @@ mod tests {
         for branch in ["main", "task/1234abcd", "task/-1234abcd", "feature/fix-1234abcd", "task/fix-1234abc", "task/fix-1234abcz"] {
             assert_eq!(uuid8_of_branch(branch), None, "{branch}");
         }
+    }
+
+    #[test]
+    fn a_branch_report_has_its_own_agent_and_label() {
+        assert_eq!(branch_agent("7CD9FD3A-d27b-4387-8249-aaf0d6785f90"), "branch-7cd9fd3a");
+        assert!(is_task_agent("branch-7cd9fd3a"));
+        let n = PaneName::for_task(Role::Branch, 61, "7b4f4c5c-185a", "fix the peek");
+        assert!(n.label.starts_with("Branch #61 · fix the peek"), "{}", n.label);
     }
 }

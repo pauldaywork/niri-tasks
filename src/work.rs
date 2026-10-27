@@ -136,6 +136,36 @@ pub fn worktree_path(ws: &Workspace, uuid: &str) -> Option<PathBuf> {
     worktree_in_porcelain(&String::from_utf8_lossy(&out.stdout), uuid)
 }
 
+/// The branch a task's branch is measured against: the repository's
+/// default branch, origin's HEAD when it has one (`origin/main` is `main`),
+/// else the branch its main checkout, the workspace's folder, is on.
+pub fn default_branch(repo: &Path) -> Result<String> {
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    };
+    let origin = git(&["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
+    let current = git(&["branch", "--show-current"]);
+    base_branch(origin.as_deref(), current.as_deref()).with_context(|| {
+        format!("Could not tell {}'s default branch: it has no origin/HEAD and its checkout is on no branch.", repo.display())
+    })
+}
+
+/// [`default_branch`]'s choice, from what git answered.
+fn base_branch(origin_head: Option<&str>, current: Option<&str>) -> Option<String> {
+    origin_head
+        .and_then(|h| h.strip_prefix("origin/"))
+        .filter(|b| !b.is_empty())
+        .or(current.filter(|b| !b.is_empty()))
+        .map(String::from)
+}
+
 /// The branch and worktree a `wt switch --format=json` landed on.
 pub fn switch_result(result: &Value) -> Option<TaskWorktree> {
     Some(TaskWorktree {
@@ -595,5 +625,16 @@ mod tests {
         let log = fake.log();
         assert_eq!(log.last().map(String::as_str), Some("release alpha"), "{log:?}");
         assert!(at(&log, "pane_run alpha") < at(&log, "release alpha"), "{log:?}");
+    }
+
+    /// origin's HEAD names the default branch; without a remote, the main
+    /// checkout's own branch does.
+    #[test]
+    fn the_base_is_origins_head_else_the_checkouts_branch() {
+        assert_eq!(base_branch(Some("origin/main"), Some("feature")), Some("main".into()));
+        assert_eq!(base_branch(None, Some("main")), Some("main".into()));
+        assert_eq!(base_branch(Some("origin/"), Some("trunk")), Some("trunk".into()));
+        assert_eq!(base_branch(None, Some("")), None);
+        assert_eq!(base_branch(None, None), None);
     }
 }

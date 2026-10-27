@@ -20,8 +20,10 @@ use std::process::{Command, Stdio};
 /// report opened Claude. They differ in the prompt [`prompt`] sends, and so
 /// in the skill on the other end: the two refines share `refine-task`, which
 /// reads the mode to decide whether to interview before drafting, while a
-/// report runs `report-task` on the plan the task already holds. A report
-/// session also tells the mod so, through [`session_settings`].
+/// report runs `report-task` on the plan the task already holds, and Explain
+/// branch runs `report-branch` on what the task's worktree branch has
+/// changed. A report session also tells the mod so, through
+/// [`session_settings`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     /// Draft straight away; ask only what the code cannot answer.
@@ -31,17 +33,37 @@ pub enum Mode {
     /// No refine: the report of a planned task's plan, opened in the browser
     /// and linked from the task.
     Report,
+    /// No refine: the report of what the task's worktree branch has
+    /// changed, run in that worktree, opened in the browser and linked from
+    /// the task as `Branch report:`.
+    Branch,
+}
+
+/// A branch to explain: the task's worktree, and the branch it is
+/// measured against ([`crate::work::default_branch`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Branch {
+    pub worktree: PathBuf,
+    pub base: String,
 }
 
 /// Only the uuid crosses to the skill — the description and everything else
 /// about the task is read by the skill itself, so nothing here needs quoting
-/// through two CLIs (this one, then herdr's `agent prompt`).
+/// through two CLIs (this one, then herdr's `agent prompt`). Explain
+/// branch's base follows, from [`branch_prompt`].
 pub fn prompt(uuid: &str, mode: Mode) -> String {
     match mode {
         Mode::Quick => format!("/refine-task {uuid}"),
         Mode::Grill => format!("/refine-task {uuid} grill"),
         Mode::Report => format!("/report-task {uuid}"),
+        Mode::Branch => format!("/report-branch {uuid}"),
     }
+}
+
+/// Explain branch's prompt: [`prompt`]'s, then the base, which the skill
+/// measures the branch against, as the mod does.
+pub fn branch_prompt(uuid: &str, base: &str) -> String {
+    format!("{} {base}", prompt(uuid, Mode::Branch))
 }
 
 /// The verb says which mode the tab is in; the description is cut short
@@ -51,6 +73,7 @@ pub fn tab_label(mode: Mode, description: &str) -> String {
         Mode::Quick => "Refine",
         Mode::Grill => "Grill",
         Mode::Report => "Report",
+        Mode::Branch => "Branch",
     };
     format!("{verb}: {}", names::elide(description))
 }
@@ -222,12 +245,15 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// `report`: true in a Report session, where it offers only the report tool
 /// and links the report from the task itself, and `unattended`: true in an
 /// unattended run, where the write tool writes with no question and the
-/// report tool opens nothing (see [`run_unattended`]).
+/// report tool opens nothing (see [`run_unattended`]). `branch`, `worktree`
+/// and `base` in an Explain branch session, which reads that worktree's
+/// branch against that base; `project` is then the worktree, so the session
+/// cannot write it.
 /// `status_line`, when given, is the command for the task's status line
 /// (`status_line::command`); a tab's refine shows it, an unattended run has
 /// no screen to.
 #[allow(clippy::too_many_arguments)]
-pub fn session_settings(project: &Path, task_data: &Path, fence: &Fence, uuid: &str, reports: &Path, mode: Mode, unattended: bool, status_line: Option<&str>) -> String {
+pub fn session_settings(project: &Path, task_data: &Path, fence: &Fence, uuid: &str, reports: &Path, mode: Mode, branch: Option<&Branch>, unattended: bool, status_line: Option<&str>) -> String {
     let mut deny: Vec<String> = CREDENTIALS.iter().map(|c| format!("Read({c})")).collect();
     deny.extend(fence.hidden.iter().map(|p| format!("Read(//{}/**)", p.display().to_string().trim_start_matches('/'))));
     deny.extend(SECRET_GLOBS.iter().map(|g| format!("Read({g})")));
@@ -253,7 +279,14 @@ pub fn session_settings(project: &Path, task_data: &Path, fence: &Fence, uuid: &
             },
         },
         "pluginConfigs": {
-            (REFINE_MOD): { "options": { "uuid": uuid, "reports": reports, "home": fence.home, "report": (mode == Mode::Report), "unattended": unattended } },
+            (REFINE_MOD): { "options": {
+                "uuid": uuid, "reports": reports, "home": fence.home,
+                "report": matches!(mode, Mode::Report | Mode::Branch),
+                "branch": mode == Mode::Branch,
+                "worktree": branch.map(|b| b.worktree.display().to_string()).unwrap_or_default(),
+                "base": branch.map(|b| b.base.clone()).unwrap_or_default(),
+                "unattended": unattended,
+            } },
         },
     });
     if let Some(command) = status_line {
@@ -433,6 +466,19 @@ fn ensure_no_exposed_sockets(hidden: &[PathBuf], ignored: &[PathBuf]) -> Result<
 /// The task as found, not a uuid as typed: the session is found again by the
 /// uuid's first eight characters, and a typed task number has none of them.
 pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
+    start(ws, t, mode, None)
+}
+
+/// Explain branch: Claude in the task's worktree, in a tab of the
+/// workspace's herdr session, on what its branch has changed since it left
+/// `branch.base`. Fenced as a refine is, the worktree read-only to it.
+pub fn launch_branch(ws: &Workspace, t: &task::Task, branch: &Branch) -> Result<()> {
+    start(ws, t, Mode::Branch, Some(branch))
+}
+
+/// [`launch`]'s body, for a branch too: the project is the worktree, and
+/// the prompt names the base.
+fn start(ws: &Workspace, t: &task::Task, mode: Mode, branch: Option<&Branch>) -> Result<()> {
     let dirs = Dirs::from_env()?;
 
     // Before anything opens, so a refused refine opens no tab. It may
@@ -449,19 +495,25 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
     );
     let session = ws.session()?;
     let exe = std::env::current_exe().context("could not find the niritasks binary")?;
+    let project = branch.map_or(session.dir(), |b| b.worktree.as_path());
     let settings = session_settings(
-        session.dir(),
+        project,
         &task_data,
         &fence,
         &t.uuid,
         &reports_dir(&dirs),
         mode,
+        branch,
         false,
         Some(&crate::status_line::command(&exe, &t.uuid)),
     );
 
     let claude = Claude::Refiner { settings, mod_dir, tmp: fence.tmp.clone() };
-    open_in(&session, t, ws.name(), &claude, mode)
+    let text = match branch {
+        Some(b) => branch_prompt(&t.uuid, &b.base),
+        None => prompt(&t.uuid, mode),
+    };
+    open_in(&session, t, ws.name(), &claude, mode, project, &text)
 }
 
 /// The herdr agent `mode`'s session runs under: Refine and Grill me share
@@ -471,6 +523,7 @@ fn agent_name(mode: Mode, uuid: &str) -> String {
     match mode {
         Mode::Quick | Mode::Grill => names::refine_agent(uuid),
         Mode::Report => names::report_agent(uuid),
+        Mode::Branch => names::branch_agent(uuid),
     }
 }
 
@@ -479,6 +532,7 @@ fn already_open(mode: Mode) -> &'static str {
     match mode {
         Mode::Quick | Mode::Grill => "Already refining this task — switched to its tab.",
         Mode::Report => "Already reporting on this task — switched to its tab.",
+        Mode::Branch => "Already explaining this task's branch — switched to its tab.",
     }
 }
 
@@ -486,15 +540,16 @@ fn already_open(mode: Mode) -> &'static str {
 /// pane name and prompt for `mode` on `t`, handed to [`launch_in`], and a
 /// notice when its session was open already. Kept apart from what reads the
 /// machine so the fake can check that each mode lands in its own tab.
-fn open_in(session: &Session, t: &task::Task, workspace_label: &str, claude: &Claude, mode: Mode) -> Result<()> {
+fn open_in(session: &Session, t: &task::Task, workspace_label: &str, claude: &Claude, mode: Mode, dir: &Path, text: &str) -> Result<()> {
     let name = agent_name(mode, &t.uuid);
     let label = tab_label(mode, &t.description);
     let role = match mode {
         Mode::Quick | Mode::Grill => names::Role::Refine,
         Mode::Report => names::Role::Report,
+        Mode::Branch => names::Role::Branch,
     };
     let pane = names::PaneName::for_task(role, t.id, &t.uuid, &t.description);
-    if launch_in(session, &name, &label, workspace_label, claude, &pane, &prompt(&t.uuid, mode))? == Launched::AlreadyRunning {
+    if launch_in(session, &name, &label, workspace_label, claude, &pane, dir, text)? == Launched::AlreadyRunning {
         session.notify(already_open(mode));
     }
     Ok(())
@@ -523,14 +578,15 @@ enum Launched {
 ///
 /// Once Claude has started, its pane is labelled with the task (`pane_name`);
 /// a Claude found running is left as it is.
-fn launch_in(session: &Session, name: &str, label: &str, workspace_label: &str, claude: &Claude, pane_name: &names::PaneName, text: &str) -> Result<Launched> {
+#[allow(clippy::too_many_arguments)]
+fn launch_in(session: &Session, name: &str, label: &str, workspace_label: &str, claude: &Claude, pane_name: &names::PaneName, dir: &Path, text: &str) -> Result<Launched> {
     let claim = session.claim()?;
     let workspaces = session.open()?;
     if session.focus_agent(name)? {
         return Ok(Launched::AlreadyRunning);
     }
 
-    let tab = session.new_tab(&workspaces, session.dir(), label, workspace_label)?;
+    let tab = session.new_tab(&workspaces, dir, label, workspace_label)?;
     // The claim goes inside, once herdr has the agent under its name.
     if let Err(e) = session.start_claude(claim, name, &tab.pane, claude) {
         // A retry should not find a pile of bare-shell tabs from every
@@ -745,12 +801,12 @@ fn unattended_steps(ws: &Workspace, t: &task::Task, dirs: &Dirs, log: &Path, den
     let notes_before = note_texts(&before);
     let report_before = before.report_path().map(String::from);
 
-    let settings = session_settings(project, &task_data, &fence, &t.uuid, &reports, Mode::Quick, true, None);
+    let settings = session_settings(project, &task_data, &fence, &t.uuid, &reports, Mode::Quick, None, true, None);
     run_claude(project, log, Step::Refine, &claude_unattended_argv(&refine_prompt, &settings, &mod_dir), &fence.tmp, denials)?;
     let planned = task::get(&t.uuid)?.context("The task is gone after the refine step.")?;
     refine_wrote(was_planned, &notes_before, planned.is_planned(), &note_texts(&planned))?;
 
-    let settings = session_settings(project, &task_data, &fence, &t.uuid, &reports, Mode::Report, true, None);
+    let settings = session_settings(project, &task_data, &fence, &t.uuid, &reports, Mode::Report, None, true, None);
     run_claude(project, log, Step::Report, &claude_unattended_argv(&report_prompt, &settings, &mod_dir), &fence.tmp, denials)?;
     let reported = task::get(&t.uuid)?.context("The task is gone after the report step.")?;
     let path = report_wrote(report_before.as_deref(), reported.report_path())?;
@@ -1005,11 +1061,11 @@ mod tests {
     /// has no screen to show it on.
     #[test]
     fn the_status_line_rides_in_the_settings_only_when_given() {
-        let with = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, false, Some("niritasks task status-line u"));
+        let with = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, None, false, Some("niritasks task status-line u"));
         let v: Value = serde_json::from_str(&with).unwrap();
         assert_eq!(v["statusLine"]["command"], "niritasks task status-line u");
         assert_eq!(v["sandbox"]["enabled"], true, "the fence is still there");
-        let without = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, true, None);
+        let without = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, None, true, None);
         let v: Value = serde_json::from_str(&without).unwrap();
         assert!(v.get("statusLine").is_none(), "{v}");
     }
@@ -1058,7 +1114,7 @@ mod tests {
     #[test]
     fn the_sandbox_fences_the_session_to_the_task_database() {
         let hidden = [PathBuf::from("/run/user/1000"), PathBuf::from("/run/docker.sock")];
-        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &fence(&hidden), "u", Path::new("/r"), Mode::Quick, false, None);
+        let json = session_settings(Path::new("/home/x/Projects/alpha"), Path::new("/home/x/.task"), &fence(&hidden), "u", Path::new("/r"), Mode::Quick, None, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let sb = &v["sandbox"];
         assert_eq!(sb["enabled"], true);
@@ -1084,7 +1140,7 @@ mod tests {
     /// the sandbox's local-address guard does not cover.
     #[test]
     fn bash_reaches_only_the_listed_hosts_on_443() {
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, false, None);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, None, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let net = &v["sandbox"]["network"];
         assert_eq!(net["strictAllowlist"], true);
@@ -1112,7 +1168,7 @@ mod tests {
     #[test]
     fn the_session_may_run_any_sandboxed_command_but_not_read_secrets() {
         let hidden = [PathBuf::from("/run"), PathBuf::from("/home/x/.config/herdr")];
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&hidden), "u", Path::new("/r"), Mode::Quick, false, None);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&hidden), "u", Path::new("/r"), Mode::Quick, None, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let allow = v["permissions"]["allow"].as_array().unwrap();
         for tool in ["WebSearch", "WebFetch", "Bash", "Read(//**)"] {
@@ -1150,7 +1206,7 @@ mod tests {
             assert!(CREDENTIALS.contains(&c), "{c}");
         }
         assert_eq!(SECRET_GLOBS, ["~/Projects/**/.env*", "~/.worktrees/**/.env*"]);
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, false, None);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Quick, None, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let deny = v["permissions"]["deny"].as_array().unwrap();
         let deny_read = v["sandbox"]["filesystem"]["denyRead"].as_array().unwrap();
@@ -1165,7 +1221,7 @@ mod tests {
     #[test]
     fn the_mod_is_told_which_task_it_may_write_and_where_reports_go() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/home/x/.local/share/niri-tasks/reviews"), Mode::Quick, false, None);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/home/x/.local/share/niri-tasks/reviews"), Mode::Quick, None, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let options = &v["pluginConfigs"][REFINE_MOD]["options"];
         assert_eq!(options["uuid"], u);
@@ -1178,7 +1234,7 @@ mod tests {
     /// under it as `~/...`, which survives a username or home folder change.
     #[test]
     fn the_mod_is_told_the_home_folder() {
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/home/x/.local/share/niri-tasks/reviews"), Mode::Quick, false, None);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/home/x/.local/share/niri-tasks/reviews"), Mode::Quick, None, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["home"], "/home/x");
     }
@@ -1188,14 +1244,14 @@ mod tests {
     #[test]
     fn a_report_session_tells_the_mod_so() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
-        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/r"), Mode::Report, false, None);
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/r"), Mode::Report, None, false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let options = &v["pluginConfigs"][REFINE_MOD]["options"];
         assert_eq!(options["report"], true);
         assert_eq!(options["uuid"], u, "the same fence and task as a refine");
         assert_eq!(options["reports"], "/r");
         for mode in [Mode::Quick, Mode::Grill] {
-            let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/r"), mode, false, None);
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/r"), mode, None, false, None);
             let v: Value = serde_json::from_str(&json).unwrap();
             assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["report"], false, "{mode:?}");
         }
@@ -1208,7 +1264,7 @@ mod tests {
     fn an_unattended_run_tells_the_mod_so() {
         let u = "d9f76b94-e0ff-44df-85b4-060be4219169";
         for mode in [Mode::Quick, Mode::Report] {
-            let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/r"), mode, true, None);
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/r"), mode, None, true, None);
             let v: Value = serde_json::from_str(&json).unwrap();
             let options = &v["pluginConfigs"][REFINE_MOD]["options"];
             assert_eq!(options["unattended"], true, "{mode:?}");
@@ -1216,7 +1272,7 @@ mod tests {
             assert_eq!(options["uuid"], u, "the same fence and task");
         }
         for mode in [Mode::Quick, Mode::Grill, Mode::Report] {
-            let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/r"), mode, false, None);
+            let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), u, Path::new("/r"), mode, None, false, None);
             let v: Value = serde_json::from_str(&json).unwrap();
             assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["unattended"], false, "{mode:?}");
         }
@@ -1531,7 +1587,7 @@ Num       RefCount Protocol Flags    Type St Inode Path
     fn refine(fake: &Fake) -> Result<Launched> {
         let session = Session::with_port("alpha", PathBuf::from("/p/alpha"), Box::new(fake.clone()));
         let pane = crate::names::PaneName::for_task(crate::names::Role::Refine, 61, "abc", "x");
-        launch_in(&session, "task-abc", "Refine: x", "alpha", &refiner(), &pane, "/refine-task abc")
+        launch_in(&session, "task-abc", "Refine: x", "alpha", &refiner(), &pane, Path::new("/p/alpha"), "/refine-task abc")
     }
 
     /// Where `line` first appears in the log, failing the test when it is
@@ -1635,7 +1691,7 @@ Num       RefCount Protocol Flags    Type St Inode Path
     /// `launch`'s session steps for `mode` on [`tk`] over `fake`.
     fn open(fake: &Fake, mode: Mode) -> Result<()> {
         let session = Session::with_port("alpha", PathBuf::from("/p/alpha"), Box::new(fake.clone()));
-        open_in(&session, &tk(), "alpha", &refiner(), mode)
+        open_in(&session, &tk(), "alpha", &refiner(), mode, Path::new("/p/alpha"), &prompt(&tk().uuid, mode))
     }
 
     #[test]
@@ -1683,5 +1739,48 @@ Num       RefCount Protocol Flags    Type St Inode Path
         assert!(log.iter().any(|l| *l == format!("notify {}", already_open(Mode::Grill))), "{log:?}");
         assert_ne!(already_open(Mode::Report), already_open(Mode::Quick));
         assert_eq!(fake.agents().len(), 2);
+    }
+
+    #[test]
+    fn a_branch_session_prompts_report_branch_with_its_base() {
+        assert_eq!(branch_prompt("u-1", "main"), "/report-branch u-1 main");
+        assert_eq!(agent_name(Mode::Branch, "7CD9FD3A-d27b"), "branch-7cd9fd3a");
+        assert_eq!(tab_label(Mode::Branch, "fix: a thing"), "Branch: fix: a thing");
+    }
+
+    /// An Explain branch session tells the mod it is a report session on a
+    /// branch, which worktree and which base; a plan report's says no branch.
+    #[test]
+    fn a_branch_session_tells_the_mod_its_worktree_and_base() {
+        let b = Branch { worktree: PathBuf::from("/w/t"), base: "main".into() };
+        let json = session_settings(Path::new("/w/t"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Branch, Some(&b), false, None);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        let options = &v["pluginConfigs"][REFINE_MOD]["options"];
+        assert_eq!(options["report"], true);
+        assert_eq!(options["branch"], true);
+        assert_eq!(options["worktree"], "/w/t");
+        assert_eq!(options["base"], "main");
+        assert_eq!(v["sandbox"]["filesystem"]["denyWrite"][0], "/w/t", "the worktree is read-only to it");
+        let json = session_settings(Path::new("/p"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Report, None, false, None);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["branch"], false);
+        assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["worktree"], "");
+    }
+
+    /// Explain branch opens its own tab, in the task's worktree, beside a
+    /// plan report's, prompted with its base.
+    #[test]
+    fn a_branch_session_opens_in_the_worktree_beside_a_report() {
+        let fake = Fake::running(&[("w1", "alpha")]);
+        open(&fake, Mode::Report).unwrap();
+        let session = Session::with_port("alpha", PathBuf::from("/p/alpha"), Box::new(fake.clone()));
+        open_in(&session, &tk(), "alpha", &refiner(), Mode::Branch, Path::new("/w/t"), &branch_prompt(&tk().uuid, "main")).unwrap();
+        let log = fake.log();
+        assert!(log.iter().any(|l| l == "tab_create alpha w1 /w/t Branch: fix: a thing"), "{log:?}");
+        assert!(log.iter().any(|l| l.starts_with("agent_start alpha branch-7cd9fd3a ")), "{log:?}");
+        assert!(
+            log.iter().any(|l| l.starts_with("agent_prompt alpha branch-7cd9fd3a") && l.contains("/report-branch 7cd9fd3a-d27b-4387-8249-aaf0d6785f90 main")),
+            "{log:?}"
+        );
     }
 }
