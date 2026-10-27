@@ -7,7 +7,7 @@
 
 import type { Plan } from './plan'
 import { LENSES, SLOTS } from './report'
-import type { Change, Check, CodePair, Diagram, FileChange, Lens, Report, Section, Swap, Term, Tool } from './report'
+import type { Branch, Change, Check, CodePair, Diagram, FileChange, Lens, Report, Section, Swap, Term, Tool } from './report'
 import { slideCss } from './style'
 import type { Fonts } from './style'
 
@@ -46,11 +46,11 @@ const MARKS = [
 
 const LABELS: Record<Change, string> = { new: 'new', change: 'changed', remove: 'removed' }
 
-const escapeHtml = (text: string): string =>
+export const escapeHtml = (text: string): string =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 // The model's text as HTML: escaped, with `backticks` shown as code.
-const plain = (text: string): string => escapeHtml(text).replace(/`([^`]+)`/g, '<code>$1</code>')
+export const plain = (text: string): string => escapeHtml(text).replace(/`([^`]+)`/g, '<code>$1</code>')
 
 // A line the reader scans: as `plain`, with a short "Label: " at its start
 // in bold, so the first words say what the line is about.
@@ -58,6 +58,18 @@ export const inline = (text: string): string => {
   const label = /^([^:`]{1,40}): (.+)$/.exec(text)
   return label === null ? plain(text) : `<strong>${plain(label[1] ?? '')}:</strong> ${plain(label[2] ?? '')}`
 }
+
+// A branch report's own words, read as the rest are.
+const branchProse = (b?: Branch): string[] =>
+  b === undefined
+    ? []
+    : [
+        ...b.hot_spots.flatMap(h => [h.spot, h.why]),
+        ...b.story.flatMap(s => [s.step, ...s.points]),
+        ...b.map.flatMap(m => m.items.map(i => i.does)),
+        ...b.new_tests.map(t => t.pins),
+        ...b.plan_vs_done.flatMap(p => [p.item, p.shown_by]),
+      ]
 
 // Minutes to read what is shown, at 200 words a minute, plus half a minute a
 // diagram; at least one. Detail, shown collapsed, is not counted. Shown
@@ -72,17 +84,21 @@ export const readingMinutes = (report: Report): number => {
     ...report.sections.flatMap(s => [s.heading, s.look_at ?? '', ...s.points]),
     ...report.files.map(f => f.why),
     ...report.checks.flatMap(c => [c.check, c.how]),
+    ...branchProse(report.branch),
   ].join(' ')
   const words = prose.split(/\s+/).filter(Boolean).length
   const diagrams = report.sections.filter(s => s.diagram !== undefined).length
   return Math.max(1, Math.ceil(words / 200 + diagrams / 2))
 }
 
-const count = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`
+export const count = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`
 
-const badge = (change: Change): string => `<span class="badge ${change}">${LABELS[change]}</span>`
+export const badge = (change: Change): string => `<span class="badge ${change}">${LABELS[change]}</span>`
 
-const bullets = (lines: readonly string[]): string => `<ul>${lines.map(l => `<li>${inline(l)}</li>`).join('')}</ul>`
+export const bullets = (lines: readonly string[]): string => `<ul>${lines.map(l => `<li>${inline(l)}</li>`).join('')}</ul>`
+
+// A file's path, breakable at each slash so a long one wraps.
+export const path = (p: string): string => `<code class="path">${escapeHtml(p).replace(/\//g, '/<wbr>')}</code>`
 
 const pad = (n: number): string => String(n).padStart(2, '0')
 
@@ -180,7 +196,7 @@ const codePanes = (pairs: readonly CodePair[]): string =>
     .map(c =>
       [
         '<div class="code-pair">',
-        `<p class="code-file"><code class="path">${escapeHtml(c.file).replace(/\//g, '/<wbr>')}</code></p>`,
+        `<p class="code-file">${path(c.file)}</p>`,
         '<div class="pair">',
         `<div class="pane"><p class="pane-label">Before</p><pre class="before">${c.before === '' ? '<span class="muted">(new file)</span>' : escapeHtml(c.before)}</pre></div>`,
         `<div class="pane"><p class="pane-label">After</p><pre class="after">${c.after === '' ? '<span class="muted">(removed)</span>' : escapeHtml(c.after)}</pre></div>`,
@@ -211,11 +227,11 @@ const toolTable = (list: readonly Tool[]): string => {
 }
 
 // A ground colour per kind of slide, so each chunk is told apart at a glance.
-type Ground = 'cream' | 'yellow' | 'pink' | 'blue' | 'green' | 'paper' | 'ink'
+export type Ground = 'cream' | 'yellow' | 'pink' | 'blue' | 'green' | 'paper' | 'ink'
 
 // A slide: its id, the kind its pill names, the name the slide before links
 // to it by, its ground, and its card's content.
-type Slide = { id: string; pill: string; name: string; ground: Ground; body: string }
+export type Slide = { id: string; pill: string; name: string; ground: Ground; body: string }
 
 const cover = (report: Report, meta: string): string =>
   [
@@ -224,7 +240,7 @@ const cover = (report: Report, meta: string): string =>
     '<p class="hint">Scroll, or press Page Down, to go through it one slide at a time.</p>',
   ].join('\n')
 
-const glance = (report: Report): string =>
+export const glance = (report: Report): string =>
   [
     `<p class="lede">${plain(report.summary)}</p>`,
     '<div class="cols">',
@@ -237,10 +253,10 @@ const glance = (report: Report): string =>
 
 const eye = (lines: readonly string[]): string => `<h2>Where your judgement is needed</h2>\n${bullets(lines)}`
 
-const terms = (list: readonly Term[]): string =>
+export const terms = (list: readonly Term[]): string =>
   `<h2>Words used here</h2>\n<dl>${list.map(t => `<dt>${plain(t.term)}</dt><dd>${inline(t.meaning)}</dd>`).join('')}</dl>`
 
-const part = (s: Section, svgs: readonly (string | undefined)[]): string => {
+export const part = (s: Section, svgs: readonly (string | undefined)[]): string => {
   const points = bullets(s.points)
   const extras = [
     s.code !== undefined ? codePanes(s.code) : '',
@@ -277,11 +293,11 @@ const LENS_SLIDES: Record<Lens, { pill: string; ground: Ground }> = {
   newcomer: { pill: 'For a newcomer', ground: 'green' },
 }
 
-const files = (list: readonly FileChange[]): string => {
+export const files = (list: readonly FileChange[]): string => {
   const rows = list
     .map(
       f =>
-        `<tr><td>${badge(f.change)}</td><td><code class="path">${escapeHtml(f.path).replace(/\//g, '/<wbr>')}</code></td>` +
+        `<tr><td>${badge(f.change)}</td><td>${path(f.path)}</td>` +
         `<td>${inline(f.why)}</td></tr>`,
     )
     .join('')
@@ -307,7 +323,7 @@ const checks = (list: readonly Check[]): string => {
 
 // The plan itself, description and notes, from the plan the person was
 // shown, never from the report's fields.
-const decision = (plan: Plan): string => {
+export const decision = (plan: Plan): string => {
   const notes =
     plan.notes.length === 0
       ? '<p>No notes.</p>'
@@ -347,11 +363,9 @@ const rail = (all: readonly Slide[]): string => {
   return `<nav class="rail" aria-label="Slides"><ol>${items}</ol></nav>`
 }
 
-// The whole page: the policy before anything it governs, then the title, the
-// stylesheet and Mermaid, then the slides in their fixed order.
 // The parts as slides, in lens order (the model's order within a lens): plain
 // parts numbered among themselves, every other lens under its own name.
-const lensSlides = (parts: readonly Section[], drawn: readonly (string | undefined)[]): Slide[] => {
+export const lensSlides = (parts: readonly Section[], drawn: readonly (string | undefined)[]): Slide[] => {
   const order = parts
     .map((s, i) => ({ s, i }))
     .sort((a, b) => LENSES.indexOf(a.s.kind ?? 'part') - LENSES.indexOf(b.s.kind ?? 'part') || a.i - b.i)
@@ -374,6 +388,39 @@ const lensSlides = (parts: readonly Section[], drawn: readonly (string | undefin
       : { id: n === 1 ? kind : `${kind}-${n}`, pill: lens.pill, name: s.heading, ground: lens.ground, body: part(s, svgs) }
   })
 }
+
+// Whether any diagram is left to Mermaid in the browser: one the renderer
+// did not draw.
+export const needsBrowser = (parts: readonly Section[], drawn: readonly (string | undefined)[]): boolean =>
+  parts.some((s, i) =>
+    [s.diagram, s.before, s.after].some((d, slot) => d !== undefined && drawn[i * SLOTS + slot] === undefined),
+  )
+
+// The whole page: the policy before anything it governs, then the title,
+// the stylesheet (with a deck's own styles after the shared ones) and
+// Mermaid when a diagram needs it, then the slides.
+export const deck = (title: string, all: readonly Slide[], browser: boolean, fonts?: Fonts, css = ''): string =>
+  [
+    '<!doctype html>',
+    '<html lang="en">',
+    '<head>',
+    `<meta http-equiv="Content-Security-Policy" content="${browser ? CSP : CSP_STATIC}">`,
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<title>${escapeHtml(title)}</title>`,
+    `<style>${slideCss(fonts)}${css}</style>`,
+    browser ? `<script src="${MERMAID_URL}" integrity="${MERMAID_SRI}" crossorigin="anonymous"></script>` : '',
+    '</head>',
+    '<body>',
+    rail(all),
+    '<main class="deck">',
+    ...all.map((s, i) => frame(s, i, all)),
+    '</main>',
+    '</body>',
+    '</html>',
+  ]
+    .filter(Boolean)
+    .join('\n') + '\n'
 
 export const reportPage = (
   report: Report,
@@ -400,30 +447,6 @@ export const reportPage = (
   const meta =
     `About ${readingMinutes(report)} min to read · ${count(total, 'slide')}` +
     (touched ? ` · ${count(report.files.length, 'file')}` : '')
-  // Mermaid in the browser only for a diagram the renderer did not draw.
-  const browser = parts.some((s, i) =>
-    [s.diagram, s.before, s.after].some((d, slot) => d !== undefined && drawn[i * SLOTS + slot] === undefined),
-  )
   const all: Slide[] = [{ id: 'cover', pill: 'Refine report', name: 'Start', ground: 'cream', body: cover(report, meta) }, ...rest]
-  return [
-    '<!doctype html>',
-    '<html lang="en">',
-    '<head>',
-    `<meta http-equiv="Content-Security-Policy" content="${browser ? CSP : CSP_STATIC}">`,
-    '<meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<title>${escapeHtml(report.title)}</title>`,
-    `<style>${slideCss(fonts)}</style>`,
-    browser ? `<script src="${MERMAID_URL}" integrity="${MERMAID_SRI}" crossorigin="anonymous"></script>` : '',
-    '</head>',
-    '<body>',
-    rail(all),
-    '<main class="deck">',
-    ...all.map((s, i) => frame(s, i, all)),
-    '</main>',
-    '</body>',
-    '</html>',
-  ]
-    .filter(Boolean)
-    .join('\n') + '\n'
+  return deck(report.title, all, needsBrowser(parts, drawn), fonts)
 }

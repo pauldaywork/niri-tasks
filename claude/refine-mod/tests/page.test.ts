@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
+import { branchPage } from '../hooks/branch-page'
 import { CSP, CSP_STATIC, MERMAID_SRI, MERMAID_URL, inline, readingMinutes, reportPage } from '../hooks/page'
 import { parseReport } from '../hooks/report'
 import type { Report } from '../hooks/report'
+import { BRANCH_MIN, branched } from './branch-fixtures'
 import { EXAMPLE, EXAMPLE_PLAN } from './example-report'
 
 const report = (over: Partial<Report> = {}): Report => ({
@@ -403,6 +405,101 @@ describe('lens slides', () => {
     expect(page).toContain(
       '<tr><td><strong>herdr</strong></td><td>Runs the sessions.</td>' +
         '<td><span class="badge medium">some work to swap</span></td><td>Behind <code>src/session.rs</code>.</td></tr>',
+    )
+  })
+})
+
+describe('a branch report', () => {
+  const PLAN = { description: 'feat: New words', notes: ['Steps: Add the words'] }
+  const every = branched({
+    ...BRANCH_MIN,
+    terms: [{ term: 'twin', meaning: 'The .md copy.' }],
+    sections: ['newcomer', 'code', 'before-after', 'data-flow', 'structure', 'outside-tools', 'styling'].map(kind => ({
+      kind,
+      heading: `The ${kind}`,
+      points: ['p'],
+    })),
+    plan_vs_done: [{ item: 'Add the words', kind: 'step', progress: 'partial', shown_by: 'abc1234' }],
+  })
+
+  test('keeps the branch order, whatever order the parts came in', () => {
+    expect(slides(branchPage(every, PLAN))).toEqual([
+      'cover', 'glance', 'hot-spots', 'terms', 'story', 'before-after', 'map', 'structure', 'data-flow',
+      'outside-tools', 'styling', 'code', 'suite', 'new-tests', 'newcomer', 'plan-vs-done', 'files', 'decision',
+    ])
+  })
+
+  test('leaves out Words, Plan vs done and Files when there are none', () => {
+    const page = branchPage(branched({ ...BRANCH_MIN, files: [] }), PLAN)
+    expect(slides(page)).toEqual(['cover', 'glance', 'hot-spots', 'story', 'map', 'code', 'suite', 'new-tests', 'decision'])
+  })
+
+  test('the cover gives the branch, its base and its numbers from git', () => {
+    const page = branchPage(branched(), PLAN)
+    const cover = page.slice(page.indexOf('id="cover"'), page.indexOf('id="glance"'))
+    expect(cover).toContain('<span class="pill">Branch report</span>')
+    expect(cover).toContain('task/feat-new-words-0b8f6a52 ← main at f00dfee')
+    expect(cover).toContain('<b>2</b><span>commits</span>')
+    expect(cover).toContain('<b class="plus">+12</b>')
+    expect(cover).toContain('<b class="minus">−3</b>')
+    expect(cover).toContain('1 file has changes not yet committed; this report leaves them out.')
+  })
+
+  test('the commit story shows each commit with its subject', () => {
+    expect(branchPage(branched(), PLAN)).toContain('<li><code>abc1234</code>feat: add the words</li>')
+  })
+
+  test('the suite says nothing broke, or how many failed', () => {
+    expect(branchPage(branched(), PLAN)).toContain('nothing broke</span> 3 tests passed across 1 suite.')
+    const failing = branched({ ...BRANCH_MIN, suite: { runs: [{ suite: 'cargo test', command: 'cargo test', passed: 1200, failed: 2 }] } })
+    expect(branchPage(failing, PLAN)).toContain('2 failing</span> 1,200 passed, 2 failed across 1 suite.')
+  })
+
+  test('a suite not run is shown dashed, with why', () => {
+    const page = branchPage(
+      branched({ ...BRANCH_MIN, suite: { ...BRANCH_MIN.suite, not_run: [{ suite: 'e2e-panel.sh', why: 'Nests a niri.' }] } }),
+      PLAN,
+    )
+    expect(page).toContain('<div class="run skipped"><p class="head"><span class="badge notrun">not run</span> <strong>e2e-panel.sh</strong></p>')
+  })
+
+  test('the new tests name their layer and result', () => {
+    const page = branchPage(branched(), PLAN)
+    expect(page).toContain('<code>words_are_new</code>')
+    expect(page).toContain('<span class="badge unit">unit</span>')
+    expect(page).toContain('<span class="badge pass">pass</span>')
+  })
+
+  test('escapes what git and the model give', () => {
+    const report = branched()
+    const odd = { ...report, branch: { ...report.branch!, story: [{ step: '<b>', commits: [{ sha: 'abc1234', subject: '<script>' }], points: ['p'] }] } }
+    const page = branchPage(odd, PLAN)
+    expect(page).not.toContain('<script>')
+    expect(page).toContain('&lt;script&gt;')
+  })
+
+  test('only a branch deck carries the branch styles', () => {
+    expect(branchPage(branched(), PLAN)).toContain('.timeline {')
+    expect(reportPage(report(), PLAN)).not.toContain('.timeline {')
+  })
+
+  // The worked example's page, hashed with the renderer as it stood before
+  // the branch deck (35afdf7): once with Mermaid left to the browser, once
+  // with fonts and every diagram drawn. A plan report's page must not change
+  // by one character.
+  test('a plan report renders as it did', async () => {
+    const parsed = parseReport(EXAMPLE)
+    if (typeof parsed === 'string') throw new Error(parsed)
+    const sha = async (page: string): Promise<string> =>
+      [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(page)))]
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('')
+    expect(await sha(reportPage(parsed.report, EXAMPLE_PLAN))).toBe(
+      '679b53d383003545db873778c7c9983889f28c33183991827d6f46bb8313b8f9',
+    )
+    const drawn = Array(30).fill('<svg viewBox="0 0 900 100"></svg>')
+    expect(await sha(reportPage(parsed.report, EXAMPLE_PLAN, { display: 'D', body: 'B' }, drawn))).toBe(
+      '0da9031267a070208f18673fb53b75c8c08f2df2f679324baece424447a93a5e',
     )
   })
 })

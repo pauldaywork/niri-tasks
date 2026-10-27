@@ -163,3 +163,57 @@ a:focus-visible { outline: 4px solid var(--blue); outline-offset: 3px; }
 // The stylesheet, with the typefaces when the mod could read them; without,
 // the page falls back to the system's fonts.
 export const slideCss = (fonts?: Fonts): string => (fonts === undefined ? '' : fontFaces(fonts)) + CSS
+
+// A branch deck's own styles, after the shared ones and only on a branch
+// deck, so a plan report's page stays as it was: the cover's facts, the hot
+// spots, the commit story as a timeline, the changes map, the suite's runs,
+// and the badges for a result, a layer and progress.
+export const BRANCH_CSS = `
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 1rem; max-width: 62rem; margin: 0 0 1.25rem; }
+.fact { background: var(--white); border: 3px solid var(--black); box-shadow: 4px 4px 0 var(--black); padding: 0.7rem 0.9rem; }
+.fact b { display: block; font: 700 clamp(1.5rem, 1rem + 1.5vw, 2.4rem)/1.1 var(--display); }
+.fact span { font: 700 0.75rem/1.2 var(--display); letter-spacing: 0.08em; text-transform: uppercase; }
+.fact .plus { color: #1F7A12; } .fact .minus { color: #B0127F; }
+.branchline { font: 600 0.95rem/1.5 var(--mono); margin: 0 0 1rem; }
+.spots { display: grid; gap: 1rem; max-width: none; }
+.spot { border: 3px solid var(--black); background: var(--white); padding: 0.8rem 1rem; box-shadow: 4px 4px 0 var(--black); }
+.spot h3 { margin: 0 0 0.35rem; }
+.spot p { margin: 0 0 0.5rem; }
+.spot .where code { margin-right: 0.4rem; font-size: 0.8em; }
+.timeline { list-style: none; padding: 0 0 0 2.2rem; margin: 0; position: relative; max-width: none; counter-reset: step; }
+.timeline::before { content: ""; position: absolute; left: 0.7rem; top: 0.3rem; bottom: 0.3rem; width: 4px; background: var(--black); }
+.timeline > li { position: relative; padding: 0 0 0.9rem 0; counter-increment: step; }
+.timeline > li::before { content: counter(step); position: absolute; left: -2.2rem; top: 0; width: 1.8rem; height: 1.8rem;
+  background: var(--yellow); border: 3px solid var(--black); font: 700 0.95rem/1.3rem var(--display); text-align: center; box-sizing: border-box; }
+.timeline h3 { margin: 0 0 0.4rem; font-size: 1.15rem; }
+.commits { list-style: none; padding: 0; margin: 0 0 0.5rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.commits li { margin: 0; padding: 0.1rem 0.45rem; background: var(--white); border: 2px solid var(--black); font-size: 0.72em; }
+.commits li::before { display: none; }
+.commits code { background: none; border: 0; padding: 0 0.35rem 0 0; font-weight: 700; }
+.timeline .points ul { columns: 2 22rem; column-gap: 2.5rem; font-size: 0.9em; margin: 0; }
+.map { display: grid; grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr)); gap: 1rem; max-width: none; }
+.mapfile { border: 3px solid var(--black); background: var(--white); padding: 0.7rem 0.9rem; }
+.mapfile .head { display: flex; gap: 0.5rem; align-items: baseline; margin: 0 0 0.5rem; flex-wrap: wrap; }
+.mapfile dl { margin: 0; font-size: 0.9em; }
+.mapfile dt { font: 600 0.85em/1.3 var(--mono); }
+.mapfile dd { margin: 0 0 0.5em; }
+.verdict { font: 700 clamp(1.3rem, 1rem + 1vw, 1.9rem)/1.3 var(--display); max-width: none; }
+.verdict .badge { font-size: 0.6em; vertical-align: middle; margin-right: 0.4rem; }
+.suites { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: 1rem; max-width: none; }
+.run { border: 3px solid var(--black); box-shadow: 4px 4px 0 var(--black); padding: 0.6rem 0.9rem; background: var(--white); margin: 0; }
+.run p { margin: 0 0 0.4rem; }
+.run code { font-size: 0.75em; }
+.run .nums b { font: 700 1.6rem/1 var(--display); }
+.run.skipped { background: var(--paper); border-style: dashed; box-shadow: none; }
+.badge.pass, .badge.done { background: var(--green); }
+.badge.fail { background: var(--pink); }
+.badge.notrun, .badge.notyet { background: var(--white); border-style: dashed; }
+.badge.partial { background: var(--yellow); }
+.badge.unit { background: var(--blue); } .badge.integration { background: var(--cream); } .badge.e2e { background: var(--pink); }
+table.tests { font-size: 0.85em; }
+table.tests td:first-child { width: 34%; }
+table.tests td:first-child code { background: none; border: 0; padding: 0; font-size: 0.8em; font-weight: 700; overflow-wrap: anywhere; }
+table.tests td:nth-child(2), table.tests td:nth-child(4) { white-space: nowrap; }
+table.tests .muted { font-size: 0.85em; }
+.gaps { margin-top: 1.25rem; }
+`
