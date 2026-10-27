@@ -76,6 +76,9 @@ pub struct TaskState {
     /// Its notes link a refine report, `Report: <path>`: the Go to list
     /// offers Open report and Regenerate report.
     pub has_report: bool,
+    /// Its notes link a branch report, `Branch report: <path>`: Explain
+    /// branch's, which the Go to list's Branch report opens.
+    pub has_branch_report: bool,
     /// Its notes link a design spec, `Spec: <path>`.
     pub has_spec: bool,
     /// Its notes link an implementation plan, `Plan: <path>`.
@@ -104,6 +107,7 @@ impl TaskState {
             planned: task.is_planned(),
             up_next: task.is_up_next(),
             has_report: task.report_path().is_some(),
+            has_branch_report: task.branch_report_path().is_some(),
             has_spec: task.spec_path().is_some(),
             has_plan: task.plan_path().is_some(),
             processing: task.is_processing(),
@@ -316,7 +320,7 @@ mod tests {
         let processing = TaskState { processing: true, ..TaskState::default() };
         assert_eq!(offered(processing), Vec::<Action>::new());
         let every_way = TaskState {
-            processing: true, active: true, planned: true, up_next: true, has_work: true, has_refine: true, has_report: true, has_spec: true, has_plan: true,
+            processing: true, active: true, planned: true, up_next: true, has_work: true, has_refine: true, has_report: true, has_branch_report: true, has_spec: true, has_plan: true,
             ..TaskState::default()
         };
         assert_eq!(offered(every_way), Vec::<Action>::new());
@@ -434,6 +438,16 @@ mod tests {
 
     /// A task's state reads whether its notes link a report off the task
     /// itself, as it reads planned and up next.
+    #[test]
+    fn of_reads_has_branch_report_from_the_tasks_notes() {
+        let with: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","status":"pending",
+                "annotations":[{"entry":"20261006T010000Z","description":"Branch report: /r/b.html"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(TaskState::of(&with, false, &[]), TaskState { has_branch_report: true, ..TaskState::default() });
+    }
+
     #[test]
     fn of_reads_has_report_from_the_tasks_notes() {
         let with: Task = serde_json::from_str(

@@ -63,6 +63,10 @@ pub struct Card {
     /// its Go to list offers Open report, with its age, and Regenerate
     /// report. None on "+N more".
     pub report: Option<Link>,
+    /// The branch report the task's notes link, `Branch report: <path>`,
+    /// and when: its Go to list offers Branch report, with its age. None on
+    /// "+N more".
+    pub branch_report: Option<Link>,
     /// The design spec the task's notes link, `Spec: <path>`, and when, for
     /// its Go to list. None on "+N more".
     pub spec: Option<Link>,
@@ -137,6 +141,7 @@ impl Card {
             planned: self.planned,
             up_next: self.up_next,
             has_report: self.report.is_some(),
+            has_branch_report: self.branch_report.is_some(),
             has_spec: self.spec.is_some(),
             has_plan: self.plan.is_some(),
             processing: self.processing,
@@ -349,6 +354,7 @@ pub fn cards(listing: &Listing, blocked: &[String]) -> Vec<Card> {
             since: if finished(part) { t.end.clone() } else { t.entry.clone() },
             notes: t.annotations.iter().map(|a| a.description.clone()).collect(),
             report: t.report_link(),
+            branch_report: t.branch_report_link(),
             spec: t.spec_link(),
             plan: t.plan_link(),
             processing: t.is_processing(),
@@ -381,6 +387,7 @@ pub fn cap(cards: &[Card], n: usize) -> Vec<Card> {
             since: String::new(),
             notes: Vec::new(),
             report: None,
+            branch_report: None,
             spec: None,
             plan: None,
             processing: false,
@@ -1025,6 +1032,7 @@ mod tests {
             since: String::new(),
             notes: Vec::new(),
             report: reported.then(|| crate::task::Link { path: "/r/a.html".into(), entry: "20261006T020000Z".into() }),
+            branch_report: None,
             spec: None,
             plan: None,
             processing: false,

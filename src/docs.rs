@@ -38,7 +38,13 @@ pub fn reports(t: &Task, dirs: &Dirs) -> Vec<Doc> {
     t.report_notes()
         .into_iter()
         .filter_map(|n| {
-            let kind = if n.draft { "Report, earlier draft" } else { "Report" };
+            let kind = if n.branch {
+                "Branch report"
+            } else if n.draft {
+                "Report, earlier draft"
+            } else {
+                "Report"
+            };
             let html = refine::report_file(&n.path, dirs);
             let md = twin(&html);
             if md.is_file() {
@@ -248,6 +254,23 @@ mod tests {
                     path: dir.join("old.html"),
                 },
             ]
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A branch report is listed as one, by its twin as a plan report is.
+    #[test]
+    fn a_branch_report_is_listed_as_one() {
+        let dir = scratch("branch-reports");
+        file_at(&dir.join("b.md"), "# b", 1);
+        let t = task(&format!(
+            r#"{{"uuid":"u","description":"d","annotations":[
+                {{"entry":"20261008T010000Z","description":"Branch report: {d}/b.html"}}]}}"#,
+            d = dir.display()
+        ));
+        assert_eq!(
+            reports(&t, &Dirs::at(&dir)),
+            vec![Doc { label: "Branch report · 2026-10-08".into(), path: dir.join("b.md") }]
         );
         std::fs::remove_dir_all(&dir).ok();
     }

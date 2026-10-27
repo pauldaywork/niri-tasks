@@ -41,6 +41,8 @@ pub struct ReportNote {
     pub path: String,
     /// Linked as `Report (earlier draft):`.
     pub draft: bool,
+    /// Linked as `Branch report:`: what the task's branch has changed.
+    pub branch: bool,
     /// The note's date, as [`Annotation::date`] writes it.
     pub date: String,
 }
@@ -53,6 +55,12 @@ pub const SPEC_NOTE: &str = "Spec: ";
 /// What a note linking the task's implementation plan starts with:
 /// `Plan: <path>`, relative to the repository as a spec's is.
 pub const PLAN_NOTE: &str = "Plan: ";
+
+/// What a note linking a branch report starts with, as the refine mod
+/// writes it after Explain branch: `Branch report: <path>`. Never
+/// `Report: `, so a branch report never makes the plan's report an earlier
+/// draft. The card's Go to list opens the newest.
+pub const BRANCH_REPORT_NOTE: &str = "Branch report: ";
 
 /// The tag `niritasks task refine --unattended` puts on a task while its
 /// two Claude runs last, and takes off when they end, however they end. A
@@ -206,25 +214,41 @@ impl Task {
         })
     }
 
+    /// The branch report linked from the task's notes: the newest
+    /// `Branch report: <path>` note's path. None on a task with no such note.
+    pub fn branch_report_path(&self) -> Option<&str> {
+        self.linked(BRANCH_REPORT_NOTE).map(|(path, _)| path)
+    }
+
+    /// [`Task::branch_report_path`] with the date its note was added.
+    pub fn branch_report_link(&self) -> Option<Link> {
+        self.link(BRANCH_REPORT_NOTE)
+    }
+
     /// [`Task::linked`] as an owned [`Link`].
     fn link(&self, prefix: &str) -> Option<Link> {
         self.linked(prefix).map(|(path, a)| Link { path: path.into(), entry: a.entry.clone() })
     }
 
     /// Every report the task's notes link, the newest first: `Report:` and
-    /// `Report (earlier draft):` notes alike, the second marked. A note with
+    /// `Report (earlier draft):` and `Branch report:` notes alike, the second
+    /// and third marked. A note with
     /// nothing after its prefix is skipped, as [`Task::report_path`] skips it.
     pub fn report_notes(&self) -> Vec<ReportNote> {
         self.annotations
             .iter()
             .rev()
             .filter_map(|a| {
-                let (rest, draft) = match a.description.strip_prefix(REPORT_NOTE) {
-                    Some(rest) => (rest, false),
-                    None => (a.description.strip_prefix(EARLIER_DRAFT_NOTE)?, true),
+                let d = &a.description;
+                let (rest, draft, branch) = if let Some(rest) = d.strip_prefix(REPORT_NOTE) {
+                    (rest, false, false)
+                } else if let Some(rest) = d.strip_prefix(EARLIER_DRAFT_NOTE) {
+                    (rest, true, false)
+                } else {
+                    (d.strip_prefix(BRANCH_REPORT_NOTE)?, false, true)
                 };
                 let path = rest.trim();
-                (!path.is_empty()).then(|| ReportNote { path: path.to_string(), draft, date: a.date() })
+                (!path.is_empty()).then(|| ReportNote { path: path.to_string(), draft, branch, date: a.date() })
             })
             .collect()
     }
@@ -1328,6 +1352,28 @@ mod tests {
         assert_eq!(t.report_path(), Some("/r/a b.html"));
     }
 
+    /// A branch report is linked by its own note: it never stands for the
+    /// plan's report, and the plan's never stands for it.
+    #[test]
+    fn a_branch_report_note_is_its_own_link() {
+        let t: Task = serde_json::from_str(
+            r#"{"uuid":"u","description":"d","annotations":[
+                {"entry":"20261006T010000Z","description":"Report: /r/plan.html"},
+                {"entry":"20261007T010000Z","description":"Branch report: /r/branch.html"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(t.report_path(), Some("/r/plan.html"));
+        assert_eq!(t.branch_report_path(), Some("/r/branch.html"));
+        assert_eq!(
+            t.branch_report_link(),
+            Some(Link { path: "/r/branch.html".into(), entry: "20261007T010000Z".into() })
+        );
+        let notes = t.report_notes();
+        let listed: Vec<(&str, bool, bool)> =
+            notes.iter().map(|n| (n.path.as_str(), n.draft, n.branch)).collect();
+        assert_eq!(listed, vec![("/r/branch.html", false, true), ("/r/plan.html", false, false)]);
+    }
+
     /// Every report the task links, newest first, earlier drafts marked, for
     /// `task docs`. A mention, a missing space or a blank path is no report.
     #[test]
@@ -1344,8 +1390,8 @@ mod tests {
         assert_eq!(
             t.report_notes(),
             vec![
-                ReportNote { path: "/r/new.html".into(), draft: false, date: "2026-10-07".into() },
-                ReportNote { path: "/r/old.html".into(), draft: true, date: "2026-10-06".into() },
+                ReportNote { path: "/r/new.html".into(), draft: false, branch: false, date: "2026-10-07".into() },
+                ReportNote { path: "/r/old.html".into(), draft: true, branch: false, date: "2026-10-06".into() },
             ]
         );
     }
