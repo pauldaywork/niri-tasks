@@ -100,7 +100,7 @@ applies:
 | **Get started**, **Back to worktree** once started | on a task on the list, unless its work Claude is running: Go to work session then goes there |
 | **Generate report**, **Regenerate report** once one exists | on a planned task on the list |
 | **Open report** | its notes link a report (`Report: <path>`, the path absolute, `~/...`, or a name in `~/.local/share/niri-tasks/reviews`): an HTML one in a new browser window on this workspace, a Markdown one in a VS Code of its own, as the plan and spec are |
-| **Explain branch** | the task has a worktree: its tests run first in a `Tests:` tab, outside Claude's sandbox, when it has a test command; then Claude, in a tab of its own in the worktree, explains what its branch has changed since it left the default branch, reports on that test run (or runs what tests it can itself), and links the deck as `Branch report: <path>` |
+| **Explain branch** | the task has a worktree: its tests run first in a `Tests:` tab, outside Claude's sandbox, when it has a test command (`git config niri-tasks.test '<command>'`, else this repo's `tests/all.sh` headless); then Claude, in a tab of its own in the worktree, explains what its branch has changed since it left the default branch, reads that test run into its report (or, with no test command, runs what tests it can itself), and links the deck as `Branch report: <path>` |
 | **Branch report** | its notes link a branch report: opened as Open report opens a report |
 | **Planning doc**, **Design spec** | its notes link a plan (`Plan: <path>`) or a spec (`Spec: <path>`): opened in a VS Code of its own, apart from your VS Code windows, sharing your extensions, settings and keybindings |
 | **Go to refine session**, **Go to work session** | on a task on the list, that Claude (`task-<uuid8>`, `work-<uuid8>`) is running, checked as the panel slides out |
@@ -603,6 +603,7 @@ bash tests/all.sh           # everything this machine can run       ~100s
 
 cargo test                  # unit and write-path                   ~2s
 python3 -m unittest discover -s herdr/task-docs/tests -t herdr/task-docs  # the herdr plugin  ~1s
+claude plugin test claude/refine-mod  # the refine mod (needs claude)
 bash tests/e2e-tag.sh       # the session's tag, against real niri    ~1s
 bash tests/e2e-panel.sh     # the task panel, in a nested niri       ~30s
 bash tests/e2e-box.sh       # the task box, in a nested niri         ~35s
@@ -610,13 +611,14 @@ bash tests/e2e-box.sh       # the task box, in a nested niri         ~35s
 
 Each exits non-zero on failure, so any of them can go in a loop or a hook.
 
-`tests/all.sh` is the six in one command, run cheapest-and-quietest first. It
+`tests/all.sh` is the lot in one command, run cheapest-and-quietest first. It
 checks each suite's prerequisites itself and reports one it cannot run as a
 **skip, with the reason** — no niri, no Pillow, no Wayland display — rather than
 letting it fail. A skip is not a failure: it exits non-zero only when a suite
 that actually ran said no, which is what makes it safe on a machine that can
-only run half of it. Neither e2e suite takes the machine over: both run in a
-nested niri parked on a spare workspace, and it tells you which one to keep off.
+only run half of it. None of the three e2e suites takes the machine over: the panel and box tests
+run in a nested niri parked on a spare workspace, and `e2e-tag.sh` at most names
+a spare workspace for a moment; `all.sh` tells you which one to keep off.
 `NIRITASKS_HEADLESS=1 bash tests/all.sh` skips the three e2e suites and runs the
 rest, including the refine mod's tests (`claude plugin test claude/refine-mod`).
 
@@ -625,6 +627,7 @@ rest, including the refine mod's tests (`claude plugin test claude/refine-mod`).
 | `tests/all.sh` | Nothing of its own — whatever is missing is skipped and named | Whatever the suites it ends up running touch |
 | `cargo test` | `taskwarrior` on `$PATH` | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
 | `herdr/task-docs` tests | `python3`, `git` | Nothing. A fake `herdr`, `notify-send` and `xdg-open` stand in, in a scratch folder |
+| `claude plugin test claude/refine-mod` | `claude` on `$PATH` | Nothing of yours. The mod's tests run against a fake session |
 | `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the name of that spare workspace, taken off again. No herdr session (a fake `herdr` stands in), and only a scratch task database of its own |
 | `tests/e2e-panel.sh` | niri, a Wayland session, `python3-pil`, taskwarrior; `wtype` for its keyboard checks, which are skipped without it | A nested niri window for the run, parked on the spare workspace at the end of your monitor; keep off that workspace until it finishes. Not your clipboard, your screenshots or the `niri-tasks` daemon |
 | `tests/e2e-box.sh` | `wtype`, niri, a Wayland session, taskwarrior | A nested niri window for the run, parked like the panel test's; keep off that workspace until it finishes. Its keys go only to that nested niri. Not your keyboard or the `niri-tasks` daemon |

@@ -3,17 +3,20 @@ name: report-branch
 description: >
   Explain what a Taskwarrior task's worktree branch has changed so far, how
   it works and how it is tested, as an HTML deck opened in the browser and
-  linked from the task as a Branch report: note, after running the project's
-  test suite. Invoked by the Explain branch row of niri-tasks' task card's Go
-  to list as `/report-branch <uuid> <base>`.
+  linked from the task as a Branch report: note, reporting on the project's
+  test suite as already run, or running it. Invoked by the Explain branch row
+  of niri-tasks' task card's Go to list as
+  `/report-branch <uuid> <base> [<tests.json>]`.
 disable-model-invocation: true
-argument-hint: <uuid> <base>
+argument-hint: <uuid> <base> [<tests.json>]
 ---
 
 # report-branch: explain what a task's branch has changed
 
 Arguments: `$ARGUMENTS`: a task uuid, then the base branch the task's
-branch is measured against (the repository's default branch).
+branch is measured against (the repository's default branch), then
+optionally the path of a tests file: the result of a test run made for you
+before this session started. Step 3 says what to do with it.
 
 This session runs in the task's worktree. Your job is to explain its branch
 to someone who has not read the diff: what it changes, how the new code
@@ -66,7 +69,49 @@ Read what the diff touches until you could explain it: `CONTEXT.md`,
 the task's notes link (`Plan:`, `Spec:`). Facts you can look up are yours to
 find; never ask the user for one.
 
-## 3. Run the tests
+## 3. The tests
+
+**With a tests file (the third argument).** The tests were run for you,
+outside your sandbox, before this session began. Do not run any suite, not
+even one that looks quick or one the log says was skipped. Read the file (a
+JSON object with `command`, `exit_code`, `log`, `started` and `finished`),
+then read the log it names in `log`: the reviews folder is readable to you.
+Everything below comes from that log and nothing else. Work through it
+suite by suite; a suite starts at a `── name ──` header line (some
+terminals show colour codes around it) and runs to the next header.
+
+- `suite.runs`: one entry for each suite whose header is not followed by
+  `SKIP:`. `suite` is the header's name, short. `command` is the
+  command as the log shows it: take it from the suite's own output if it
+  prints one, else from the `command` in the tests file, with the
+  suite's name after it if the command runs several. `passed` and `failed`
+  are the counts in that suite's own summary lines, never the sum over the
+  log and never a count you made by tallying lines: `test result: ok. 12
+  passed; 0 failed` lines for cargo (a cargo suite prints one per test
+  binary, so add up that suite's lines, and only that suite's), `Ran N
+  tests` and `OK` or `FAILED (failures=N)` for Python unittest, `N pass` and
+  `N fail` for Bun and `claude plugin test`. If a suite prints no summary
+  you can read, say so in the report and use the counts you can see in its
+  lines; do not guess.
+- `suite.not_run`: one entry for each header followed by `SKIP: <reason>`, with
+  that reason as `why`, shortened to fit. The sandbox stopped none of
+  them, so give no sandbox reason. The e2e suites are named here too, as
+  the log names them.
+- `suite.failing`: each failing test the log names, with its file and what
+  it says went wrong. Look in a failed suite for `FAILED`, `FAIL`,
+  `panicked at` and `Traceback` lines.
+- The tests file's `exit_code` is checked against your counts: `0` means
+  nothing failed anywhere, so every `failed` is 0 and `failing` is empty;
+  anything else means at least one failed suite, so at least one `failed`
+  is above 0 and `failing` names it. A count that disagrees is wrong:
+  read the log again, do not adjust it to fit. A `FAIL` line at the foot
+  of the log's own summary names a suite that failed.
+- A test a run lists as failing is a failure of the branch. It is not
+  "stopped by the sandbox", because no sandbox was involved.
+- Say in the report that the suites ran before the session, at the
+  `started` time, as that command.
+
+**Without one.** Nothing was run for you.
 
 Find the project's suites: the README's testing section, `AGENTS.md` or
 `CLAUDE.md`, a `tests/all.sh` or `Makefile` target, CI config, and the
@@ -100,7 +145,7 @@ of `failed` and `failing`, and list it under `not_run` with "stopped by the
 sandbox" and the test's name as the why. For each suite run, take the passed
 and failed counts from its own summary, and name each failing test.
 
-Then find the tests the branch adds or changes (`git diff "$mb" HEAD` on the
+With or without a tests file, find the tests the branch adds or changes (`git diff "$mb" HEAD` on the
 test files and the `#[test]`, `def test_` or `test(` lines it adds), and for
 each: its layer (unit, integration, e2e), the behaviour it pins, and its
 result from the runs. Note any changed code that no test covers.

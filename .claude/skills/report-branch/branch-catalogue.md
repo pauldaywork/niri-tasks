@@ -46,8 +46,8 @@ fields:
 | `hot_spots` | Where a reviewer should look hardest: a risky change, a subtle rule, something only checked by hand. | 1–4; spot 10 words, why 30, 1–4 `files` |
 | `story` | The commits as steps, oldest first: what each step achieved. Every commit on the branch goes in exactly one step, named by sha (at least 7 characters). | 1–8 steps; step 10 words; 1–3 `points`, 25 words each |
 | `map` | Each changed file worth naming, and each function, type or part of it the branch changes, with what it now does. Only files the branch changes. | 1–20 files; 1–6 `items`; name 80 characters, does 20 words |
-| `suite.runs` | Each suite you ran: a short name, the command, and the passed and failed counts from its own summary. | 1–8; suite 6 words, command 200 characters |
-| `suite.not_run` | Each suite you did not run, and why: an e2e that needs a display, or one the sandbox stopped. | 0–6; why 25 words |
+| `suite.runs` | Each suite that ran: a short name, the command, and the passed and failed counts from its own summary (in the test log, when you were given one). | 1–8; suite 6 words, command 200 characters |
+| `suite.not_run` | Each suite that did not run, and why: an e2e that needs a display, one the log marks `SKIP:`, or one the sandbox stopped. | 0–6; why 25 words |
 | `suite.failing` | Each failing test, its file, and what it says went wrong. | 0–10; why 25 words |
 | `new_tests` | Each test the branch adds or changes: its name, file, `layer` (`unit`, `integration`, `e2e`), the behaviour it pins, and its `result` (`pass`, `fail`, `not run`). | 0–30; pins 25 words |
 | `untested` | Changed code no test covers, and why that matters. | 0–8; code 8 words, why 20 |
@@ -68,7 +68,7 @@ names a file the branch does not change, are refused too.
   most.
 - **Changes map**: name what a reader would search for: the function, the
   type, the command. Say what it does now, not how it changed.
-- **Test suite**: the suites as you ran them. A suite you could not run is
+- **Test suite**: the suites as they ran. A suite you could not run is
   not a failure; say why it was not run.
 - **New tests**: say what each test pins as a behaviour ("A repeat focus
   redraws nothing"), not what it calls.

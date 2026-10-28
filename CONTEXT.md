@@ -72,14 +72,26 @@ _Avoid_: plan report, explainer
 An HTML deck, with its Markdown twin, of what a task's worktree branch has
 changed so far, how it works and how it is tested, built by an Explain
 branch session (the `report-branch` skill) from the branch's commits and diff
-against its merge-base with the default branch, and the test suite as that
-session ran it. It shares the refine report's renderer and styles, in its own
+against its merge-base with the default branch, and the test suite as it
+ran before that session (see Tests before the report). It shares the refine report's renderer and styles, in its own
 slide order: hot spots, the commit story, a changes map, the test suite, the
 new tests and plan vs done. Linked from the task's notes as
 `Branch report: <path>`, never `Report:`, so the plan's report stays the
 task's report; the Go to list's Branch report opens it, and
 `niritasks task report <uuid> --branch --fresh` builds another.
 _Avoid_: diff report, review report
+
+**Tests before the report**:
+The run Explain branch makes first, in a `Tests:` tab in the task's worktree,
+so the branch session's sandbox never has to stop a suite. The command is the
+project's `git config niri-tasks.test '<command>'`, run with `sh -c`; without
+one, `tests/all.sh` with `NIRITASKS_HEADLESS=1` (this repo's, which skips the
+e2e suites), else nothing runs and the session runs what it can itself. It runs
+as you, outside the sandbox, and its log and a results file
+(`branch-<uuid8>-<stamp>-tests.{log,json}`, in the reviews folder) are passed
+to `report-branch` as its third argument, which reads them and runs no suite.
+A failing run does not stop the report; it is what the report describes.
+_Avoid_: pre-flight, CI run
 
 **Plan note**:
 A `Plan: docs/superpowers/plans/<file>.md` note on a task worked through Start
