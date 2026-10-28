@@ -626,7 +626,7 @@ rest, including the refine mod's tests (`claude plugin test claude/refine-mod`).
 | | Needs | Touches |
 |---|---|---|
 | `tests/all.sh` | Nothing of its own — whatever is missing is skipped and named | Whatever the suites it ends up running touch |
-| `tests/container.sh` | Docker, and the user in the `docker` group. The first run builds the image (several minutes, and again after a `Cargo.lock` change) and needs the network; runs do not | Nothing of yours. Docker's own images and volumes (`niritasks-tests*`, pruned as they go stale), and its logs in `target/container-tests/` |
+| `tests/container.sh` | Docker, and the user in the `docker` group. The first run builds the image (several minutes, and again when one of its inputs changes) and needs the network; runs do not | Nothing of yours. Docker's own images and volumes (`niritasks-tests*`, pruned as they go stale), and its logs in `target/container-tests/` |
 | `cargo test` | `taskwarrior` on `$PATH` | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
 | `herdr/task-docs` tests | `python3`, `git` | Nothing. A fake `herdr`, `notify-send` and `xdg-open` stand in, in a scratch folder |
 | `claude plugin test claude/refine-mod` | `claude` on `$PATH` | Nothing of yours. The mod's tests run against a fake session |
@@ -721,8 +721,10 @@ nest their niri in the outer one as they would in yours. GTK gets its settings
 from a `settings.ini` that `inside.sh` writes from the image's gsettings, since
 GTK on Wayland reads no GSettings without a desktop portal.
 
-The image is built on the first run, and again only when the Dockerfile,
-`Cargo.toml` or `Cargo.lock` changes (`tests/container/image.sh`). It holds
+The image is built on the first run, and again only when one of its four
+inputs changes: the Dockerfile, its GTK settings keyfile
+(`tests/container/dconf/00-machine`), `Cargo.toml` or `Cargo.lock`
+(`tests/container/image.sh`). It holds
 the crate's dependencies already compiled, and each checkout's build directory
 is a Docker volume filled from them, so a checkout's first run compiles only
 niri-tasks and later runs only what changed. Each run starts by saying
@@ -734,7 +736,7 @@ build directory. Every run is logged in `target/container-tests/`,
 `latest.log` the newest; a failed run's logs and the e2e suites' frames are
 kept beside it in `<stamp>-artifacts/`. It exits as `tests/all.sh` does.
 Volumes of removed worktrees and superseded images are removed by the next
-run, and only the three newest images are kept. To reclaim everything:
+run; after a build, only the three newest images are kept. To reclaim everything:
 
 ```bash
 docker volume rm $(docker volume ls -q --filter label=niritasks.tests=1)
