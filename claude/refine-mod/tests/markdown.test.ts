@@ -354,6 +354,21 @@ describe('a branch report', () => {
     expect(typeof twinOf(withRun, PLAN)).toBe('object')
   })
 
+  test('a run whose command or log holds backticks reads back as it was', () => {
+    for (const run of [
+      { ...RUN, command: 'echo `date` && make ``check``' },
+      { ...RUN, command: '`cmd`', log: '/r/odd`name`' },
+      { ...RUN, command: ' padded ', log: '/r/log`' },
+      { ...RUN, command: 'a`, exit 2, log `b', log: '/r/x`._' },
+      { ...RUN, command: 'c', log: '/r/p`, exit 3, log `q' },
+    ]) {
+      const withRun = { ...full, branch: { ...full.branch!, run } }
+      expect(reportFromMarkdown(reportMarkdown(withRun, PLAN))).toEqual({ report: withRun, plan: PLAN })
+    }
+    const odd = { ...full, branch: { ...full.branch!, run: { ...RUN, command: 'echo `date` && make ``check``' } } }
+    expect(reportMarkdown(odd, PLAN)).toContain('_Run before this session: ``` echo `date` && make ``check`` ```, exit 1')
+  })
+
   test('with no run, the suite has no run line', () => {
     expect(reportMarkdown(full, PLAN)).not.toContain('_Run before this session')
     expect(reportFromMarkdown(reportMarkdown(full, PLAN)).report.branch?.run).toBeUndefined()

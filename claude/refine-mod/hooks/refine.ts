@@ -405,9 +405,9 @@ const readGit = async ($: EngineInterface, target: Target): Promise<Git | string
   }
 }
 
-// The project's tests as Rust ran them before the session, read from the
-// results file it wrote, outside the sandbox, which cannot read the
-// reports folder; or why it cannot be read.
+// The project's tests as Rust ran them before the session, outside the
+// sandbox, read from the results file it wrote to the reports folder,
+// which the sandbox can read but not write; or why it cannot be read.
 const readTestRun = async ($: EngineInterface, path: string): Promise<TestRun | string> => {
   let text: string
   try {

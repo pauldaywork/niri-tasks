@@ -73,11 +73,12 @@ An HTML deck, with its Markdown twin, of what a task's worktree branch has
 changed so far, how it works and how it is tested, built by an Explain
 branch session (the `report-branch` skill) from the branch's commits and diff
 against its merge-base with the default branch, and the test suite as it
-ran before that session (see Tests before the report). It shares the refine report's renderer and styles, in its own
-slide order: hot spots, the commit story, a changes map, the test suite, the
-new tests and plan vs done. Linked from the task's notes as
-`Branch report: <path>`, never `Report:`, so the plan's report stays the
-task's report; the Go to list's Branch report opens it, and
+ran before that session (see Tests before the report). It shares the
+refine report's renderer and styles, in its own slide order: hot spots,
+the commit story, a changes map, the test suite, the new tests and plan
+vs done. Linked from the task's notes as `Branch report: <path>`, never
+`Report:`, so the plan's report stays the task's report; the Go to
+list's Branch report opens it, and
 `niritasks task report <uuid> --branch --fresh` builds another.
 _Avoid_: diff report, review report
 

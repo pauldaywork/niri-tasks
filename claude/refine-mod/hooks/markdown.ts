@@ -86,11 +86,26 @@ const factsLine = (f: Facts): string =>
   `_Branch \`${f.branch}\` from \`${f.base}\` at \`${f.merge_base}\`: ${f.commits} commits, ${f.files} files, ` +
   `+${f.added} -${f.removed}, ${f.uncommitted} uncommitted._`
 
+// A code span no text can break, as CommonMark reads one: a fence of
+// backticks longer than any run of them in the text, and a space inside
+// each end when the text starts or ends with a backtick, or with spaces on
+// both ends, which a reader strips one of.
+const span = (text: string): string => {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map(run => run.length))
+  const bar = '`'.repeat(longest + 1)
+  const pad = /^`|`$/.test(text) || (/^ .* $/.test(text) && text.trim() !== '') ? ' ' : ''
+  return `${bar}${pad}${text}${pad}${bar}`
+}
+// A span's text back from its fence's inside.
+const unspan = (inside: string): string =>
+  /^ .* $/.test(inside) && inside.trim() !== '' ? inside.slice(1, -1) : inside
+
 // The test run before the session, when there was one, under the suite's
-// heading.
-const RUN = /^_Run before this session: `(.+)`, exit (-?\d+), log `(.+)`\._$/
+// heading. Each span closes on a fence as long as the one that opened it,
+// which no run of backticks inside can be.
+const RUN = /^_Run before this session: (`+)(?!`)(.+?)(?<!`)\1(?!`), exit (-?\d+), log (`+)(?!`)(.+?)(?<!`)\4\._$/
 const runLine = (r: RunLine): string =>
-  `_Run before this session: \`${r.command}\`, exit ${r.exit_code}, log \`${r.log}\`._`
+  `_Run before this session: ${span(r.command)}, exit ${r.exit_code}, log ${span(r.log)}._`
 
 const SUITE_HEAD = ['Suite', 'Command', 'Passed', 'Failed']
 const NOT_RUN_HEAD = ['Not run', 'Why']
@@ -428,7 +443,7 @@ export const reportFromMarkdown = (markdown: string): ReadBack => {
     let run: RunLine | undefined
     if (r !== null) {
       at += 1
-      run = { command: r[1] ?? '', exit_code: Number(r[2]), log: r[3] ?? '' }
+      run = { command: unspan(r[2] ?? ''), exit_code: Number(r[3]), log: unspan(r[5] ?? '') }
       gap()
     }
     const runs = rows(SUITE_HEAD).map(([suite = '', command = '', passed = '', failed = '']) => ({
