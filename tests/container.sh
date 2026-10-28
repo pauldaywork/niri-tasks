@@ -33,7 +33,9 @@
 # when not. Everything the run prints is saved in target/container-tests/,
 # latest.log the newest; a failed run's logs and the e2e suites' frames go
 # beside it, in <stamp>-artifacts/. It exits as tests/all.sh does: non-zero
-# only when a suite that ran said no.
+# only when a suite that ran said no; and non-zero when the run cannot get
+# that far (no Docker, a failed image build, a refused run, the container's
+# desktop or build failing).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 1
@@ -83,7 +85,7 @@ finish() {
     exit "$status"
 }
 trap finish EXIT
-trap 'exit 130' INT TERM
+trap 'exit 130' INT TERM HUP
 
 echo "repo  $ROOT"
 echo "log   $LOG"

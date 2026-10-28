@@ -15,6 +15,9 @@
 # Docker's cache, so apt brings it up to what the machine has now: what to do
 # when tests/container/parity.sh says the machine has moved on.
 #
+# A rebuild leaves the image it replaces untagged; that one is removed after
+# the build (unless a container still uses it).
+#
 # After a build, the three newest test images are kept — a worktree on
 # another Cargo.lock needs its own — and older ones go, unless a container
 # still uses one.
@@ -28,9 +31,14 @@ IMAGE="niritasks-tests:$(sha256sum "${INPUTS[@]}" | sha256sum | cut -c1-12)"
 if [ -n "${NIRITASKS_CONTAINER_REBUILD:-}" ] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
     fresh=()
     [ -n "${NIRITASKS_CONTAINER_REBUILD:-}" ] && fresh=(--no-cache)
+    old=$(docker image inspect -f '{{.Id}}' "$IMAGE" 2>/dev/null || true)
     echo "building $IMAGE: once, and again only when one of ${INPUTS[*]} changes" >&2
     tar -cf - "${INPUTS[@]}" |
         docker build "${fresh[@]}" -t "$IMAGE" -f tests/container/Dockerfile - >&2
+    new=$(docker image inspect -f '{{.Id}}' "$IMAGE" 2>/dev/null || true)
+    if [ -n "$old" ] && [ "$old" != "$new" ]; then
+        docker image rm "$old" >/dev/null 2>&1 || true
+    fi
     # Newest first, as docker lists them; past the third image, every tag goes.
     docker image ls niritasks-tests --format '{{.ID}} {{.Repository}}:{{.Tag}}' |
         awk '!($1 in seen) { seen[$1]; n++ } n > 3 { print $2 }' |

@@ -22,6 +22,19 @@ set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 
+# On any exit with a failing status, die included: the run's logs and the e2e
+# sandboxes it kept, regular files only (the sandboxes also hold sockets,
+# which do not copy), for tests/container.sh to copy out.
+collect() {
+    local status=$?
+    if [ "$status" -ne 0 ]; then
+        (cd /tmp && find sway.log niri.log tmp.* -type f 2>/dev/null) > /tmp/artifacts.list
+        tar -C /tmp -cf /tmp/artifacts.tar -T /tmp/artifacts.list 2>/dev/null
+    fi
+    exit "$status"
+}
+trap collect EXIT
+
 die() { echo "container: $*" >&2; exit 1; }
 
 build=1
@@ -163,10 +176,4 @@ fi
 
 [ $# -gt 0 ] || set -- bash tests/all.sh
 "$@"
-status=$?
-if [ "$status" -ne 0 ]; then
-    # Regular files only: the sandboxes also hold sockets, which do not copy.
-    (cd /tmp && find sway.log niri.log tmp.* -type f 2>/dev/null) > /tmp/artifacts.list
-    tar -C /tmp -cf /tmp/artifacts.tar -T /tmp/artifacts.list 2>/dev/null
-fi
-exit "$status"
+exit $?
