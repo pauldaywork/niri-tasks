@@ -49,11 +49,15 @@ pub fn both_agents(uuid: &str) -> [String; 2] {
     [work_agent(uuid), refine_agent(uuid)]
 }
 
-/// Whether `name` is a `task-`, `work-`, `report-` or `branch-` agent: one
-/// named by Refine, Start working, Generate report or Explain branch, or
-/// linked already, and so named for a task.
+/// What the name of an agent named for a task starts with: one named by
+/// Refine, Start working, Generate report or Explain branch, or linked
+/// already.
+const TASK_AGENT_PREFIXES: [&str; 4] = ["task-", "work-", "report-", "branch-"];
+
+/// Whether `name` is a `task-`, `work-`, `report-` or `branch-` agent, and
+/// so named for a task.
 pub fn is_task_agent(name: &str) -> bool {
-    ["task-", "work-", "report-", "branch-"].iter().any(|p| name.starts_with(p))
+    TASK_AGENT_PREFIXES.iter().any(|p| name.starts_with(p))
 }
 
 /// Whether `s` is a uuid8 as [`uuid8`] spells one: eight lowercase hex
@@ -62,11 +66,11 @@ fn is_uuid8(s: &str) -> bool {
     s.len() == 8 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// The uuid8 of the task a `task-`, `work-` or `report-<uuid8>` agent is
-/// named for, or None for any other name: how the focused pane's task is
-/// found from its Claude.
+/// The uuid8 of the task a `task-`, `work-`, `report-` or `branch-<uuid8>`
+/// agent is named for, or None for any other name: how the focused pane's
+/// task is found from its Claude.
 pub fn uuid8_of_agent(name: &str) -> Option<String> {
-    let rest = ["task-", "work-", "report-"].iter().find_map(|p| name.strip_prefix(p))?;
+    let rest = TASK_AGENT_PREFIXES.iter().find_map(|p| name.strip_prefix(p))?;
     is_uuid8(rest).then(|| rest.to_string())
 }
 
@@ -240,13 +244,14 @@ mod tests {
         assert_eq!(elide("x".repeat(31).as_str()).chars().count(), 30, "elide keeps the tab label's 30");
     }
 
-    /// The three agent names a task's Claude can carry give its uuid8;
+    /// The four agent names a task's Claude can carry give its uuid8;
     /// anything else, or a prefix with no uuid8 after it, gives none.
     #[test]
     fn an_agent_named_for_a_task_gives_its_uuid8() {
         assert_eq!(uuid8_of_agent("work-1234abcd").as_deref(), Some("1234abcd"));
         assert_eq!(uuid8_of_agent("task-1234abcd").as_deref(), Some("1234abcd"));
         assert_eq!(uuid8_of_agent("report-1234abcd").as_deref(), Some("1234abcd"));
+        assert_eq!(uuid8_of_agent("branch-1234abcd").as_deref(), Some("1234abcd"));
         assert_eq!(uuid8_of_agent(&work_agent("1234ABCD-5678")).as_deref(), Some("1234abcd"), "the builder's own");
         for name in ["reviewer", "work-1234abc", "work-1234abcde", "work-1234ABCD", "work-", "xwork-1234abcd"] {
             assert_eq!(uuid8_of_agent(name), None, "{name}");

@@ -118,9 +118,9 @@ pub fn live_agents_named(name: Option<&str>) -> Vec<String> {
 }
 
 /// The uuid8 of the task `session`'s focused pane is on: its agent's name
-/// when that is named for a task (`work-`, `task-` or `report-<uuid8>`),
-/// else the branch checked out in its folder (`task/<slug>-<uuid8>`), read
-/// with `branch_in`. None when the session is not running, no pane has the
+/// when that is named for a task (`work-`, `task-`, `report-` or
+/// `branch-<uuid8>`), else the branch checked out in its folder
+/// (`task/<slug>-<uuid8>`), read with `branch_in`. None when the session is not running, no pane has the
 /// focus, or the pane is on no task. The daemon and `task peek --focused`
 /// both ask this, so herdr's focus hooks and a workspace switch cannot
 /// disagree on a pane's task.
