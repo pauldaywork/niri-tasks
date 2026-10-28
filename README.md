@@ -600,6 +600,7 @@ the cards alone instead, and niri takes noise and saturation from the rule.
 
 ```bash
 bash tests/all.sh           # everything this machine can run       ~100s
+bash tests/container.sh     # everything, in a Docker container     ~460s
 
 cargo test                  # unit and write-path                   ~2s
 python3 -m unittest discover -s herdr/task-docs/tests -t herdr/task-docs  # the herdr plugin  ~1s
@@ -625,6 +626,7 @@ rest, including the refine mod's tests (`claude plugin test claude/refine-mod`).
 | | Needs | Touches |
 |---|---|---|
 | `tests/all.sh` | Nothing of its own — whatever is missing is skipped and named | Whatever the suites it ends up running touch |
+| `tests/container.sh` | Docker, and the user in the `docker` group. The first run builds the image (several minutes, and again after a `Cargo.lock` change) and needs the network; runs do not | Nothing of yours. Docker's own images and volumes (`niritasks-tests*`, pruned as they go stale), and its logs in `target/container-tests/` |
 | `cargo test` | `taskwarrior` on `$PATH` | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
 | `herdr/task-docs` tests | `python3`, `git` | Nothing. A fake `herdr`, `notify-send` and `xdg-open` stand in, in a scratch folder |
 | `claude plugin test claude/refine-mod` | `claude` on `$PATH` | Nothing of yours. The mod's tests run against a fake session |
@@ -684,6 +686,60 @@ It cannot click, so after a change to the task box (`src/taskbox.rs` or `src/tas
 hand: × deletes its row, "+ Add note" appends an empty row with the cursor in
 it, and a long note list scrolls, keeping a row made by Enter at the bottom in
 view.
+
+### Running the tests in a container
+
+`tests/container.sh` runs `tests/all.sh` in a Docker container, against this
+checkout as it stands, uncommitted edits included. Nothing of your desktop is
+in reach: the container gets no mount, socket or display of yours and no
+network, only a copy of the files git would see, so your niri, workspaces,
+task database and installed `niritasks` are never touched, and there is no
+workspace to keep off. Run it from any worktree, beside other worktrees' runs,
+in the foreground or in the background:
+
+```bash
+bash tests/container.sh                          # tests/all.sh
+bash tests/container.sh bash tests/e2e-box.sh    # one suite
+bash tests/container.sh >/dev/null 2>&1 &        # in the background
+tail -f target/container-tests/latest.log
+```
+
+The image (`tests/container/Dockerfile`) reproduces what the suites use here,
+at this machine's versions and in the same folders: niri and ghostty from the
+same PPA, Taskwarrior 3.5.0 compiled from its tarball, rustc 1.95.0, herdr,
+worktrunk and Claude Code in `~/.local/bin`, Iosevka Term (in
+`~/.local/share/fonts`, as here, because the panel test's own
+`XDG_DATA_HOME` hides that folder and its results depend on the font), the GTK
+theme and font settings, `en_US.UTF-8`, your timezone and a uid-1000 user. Each
+run makes the links `install.sh` makes, from the copy. VS Code and gh are left
+out, and Claude Code is never logged in.
+`docker run --rm -i "$(bash tests/container/image.sh)" bash -s < tests/container/check-image.sh`
+lists what the image holds. Inside, `tests/container/inside.sh` starts a
+headless sway, an outer niri in it with two named workspaces, builds the copy
+and runs `tests/all.sh` with `NIRITASKS` set to that build; the e2e suites
+nest their niri in the outer one as they would in yours. GTK gets its settings
+from a `settings.ini` that `inside.sh` writes from the image's gsettings, since
+GTK on Wayland reads no GSettings without a desktop portal.
+
+The image is built on the first run, and again only when the Dockerfile,
+`Cargo.toml` or `Cargo.lock` changes (`tests/container/image.sh`). It holds
+the crate's dependencies already compiled, and each checkout's build directory
+is a Docker volume filled from them, so a checkout's first run compiles only
+niri-tasks and later runs only what changed. Each run starts by saying
+whether the image still matches this machine — package versions, programs,
+font, GTK settings (`tests/container/parity.sh`); when it does not, rebuild
+with `NIRITASKS_CONTAINER_REBUILD=1 bash tests/container.sh`. A second run of
+the same checkout while one is going refuses, since the two would share a
+build directory. Every run is logged in `target/container-tests/`,
+`latest.log` the newest; a failed run's logs and the e2e suites' frames are
+kept beside it in `<stamp>-artifacts/`. It exits as `tests/all.sh` does.
+Volumes of removed worktrees and superseded images are removed by the next
+run, and only the three newest images are kept. To reclaim everything:
+
+```bash
+docker volume rm $(docker volume ls -q --filter label=niritasks.tests=1)
+docker image rm $(docker image ls -q niritasks-tests)
+```
 
 > [!IMPORTANT]
 > All three scripts run `niritasks` **from `$PATH`** — the installed binary, not the one you
