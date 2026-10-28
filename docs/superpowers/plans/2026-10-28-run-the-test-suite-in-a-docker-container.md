@@ -4,7 +4,7 @@
 
 **Goal:** `bash tests/container.sh` runs all five suites against the current checkout, uncommitted edits included, inside a Docker container, in the foreground or the background, and touches nothing on the machine: not its niri, workspaces, task database or installed `niritasks`.
 
-**Architecture:** An image built from `ubuntu:26.04` (`tests/container/Dockerfile`) reproduces, piece by piece, what this machine gives the suites — every program they run, the same niri, Taskwarrior, compiler, fonts, GTK theme and font settings, locale, timezone and a uid-1000 user — and `tests/container/check-image.sh` proves each piece is there before anything is run. Inside a container, `tests/container/inside.sh` starts a headless sway, an outer niri as its one window with two named workspaces, builds the snapshot, and runs `tests/all.sh` unchanged. The wrapper `tests/container.sh` builds the image when its Dockerfile changes, streams a tar snapshot of the working tree in on stdin (no bind mounts), and tees everything to a log under `target/container-tests/`.
+**Architecture:** An image built from `ubuntu:26.04` (`tests/container/Dockerfile`) reproduces, piece by piece, what this machine gives the suites — every program they run, the same niri, Taskwarrior, compiler, fonts, GTK theme and font settings, locale, timezone and a uid-1000 user — and `tests/container/check-image.sh` proves each piece is there before anything is run. Inside a container, `tests/container/inside.sh` starts a headless sway, an outer niri as its one window with two named workspaces, builds the snapshot, and runs `tests/all.sh` unchanged. The image also holds this crate's dependencies already compiled, at the path and profile the container builds with; Docker seeds each checkout's new build-directory volume from them, so a new worktree's first run compiles only niri-tasks. `tests/container/image.sh` names the image after what it is built from (Dockerfile, dconf keyfile, `Cargo.toml`, `Cargo.lock`) and builds it when that changes. The wrapper `tests/container.sh` gets the image from it, streams a tar snapshot of the working tree in on stdin (no bind mounts), and tees everything to a log under `target/container-tests/`.
 
 **Tech Stack:** Bash; Docker 29.1 (on the machine, user in the `docker` group); Ubuntu 26.04 with niri 26.04 from the `avengemedia/danklinux` PPA, sway 1.11 (wlroots headless + pixman), Mesa 26.0 (llvmpipe GL, lavapipe Vulkan), Rust 1.95.0 via rustup-init 1.29.2, Taskwarrior 3.5.0 compiled from its release tarball, Iosevka Term 34.8.1, Yaru GTK theme, dconf.
 
@@ -18,6 +18,7 @@
 - **VS Code is excluded** (user's decision, 2026-10-28): no `code`, no stub. Everything else the machine has on the suites' PATH is in the image, at the version the machine runs.
 - **Programs sit where they sit on the machine**, because the suites' behaviour depends on the directory: `herdr`, `wt`, `claude` and `task` in `~/.local/bin` (`task` a link into `~/.local/opt/taskwarrior-3.5.0`, `claude` a link into `~/.local/share/claude/versions`), ghostty and the apt programs in `/usr/bin`, and `~/.local/bin` on `PATH` before `/usr/local/bin` and `/usr/bin`. Nothing named `herdr` may be in `/usr/bin` or `/bin`: that is the e2e spawn PATH, and a herdr there makes e2e-panel and e2e-box skip their refine checks.
 - Code goes in as a snapshot of the current working tree, uncommitted edits included, copied in at start; it builds there with `NIRITASKS` set to that build; the cargo cache lives in a Docker volume.
+- niri-tasks is compiled **inside** the container, never on the host and copied in: `cargo test` must compile there anyway, the host's `target/` cannot be reused at another path, and a binary built in the image links the image's libraries. Its dependencies are prebuilt in the image (Task 1), so only the crate itself compiles on a run.
 - Inside, a headless compositor runs an outer niri with two named workspaces, and `tests/all.sh` runs as it does now. `tests/all.sh`, `tests/e2e-*.sh`, `tests/lib/*` and `src/` are **not** changed to suit the container. If a check can only pass by changing one of them, stop and tell the user.
 - Nothing on the host is touched: no bind mount of any host path, no host `XDG_RUNTIME_DIR`, Wayland, niri or D-Bus socket, no `--network host`, no `--privileged`. The only host writes are the log under the checkout's own `target/` and Docker's own image and volumes.
 - The wrapper is `bash tests/container.sh`: builds the image if needed, copies the tree in, runs `tests/all.sh`, saves the log, and can run in the background.
@@ -85,7 +86,8 @@ This is the heart of the plan: what the suites reach for on this machine, where 
 
 ## File Structure
 
-- Create `tests/container/Dockerfile` — the image: the inventory above, pinned, with build-time guards on Taskwarrior.
+- Create `tests/container/Dockerfile` — the image: the inventory above, pinned, with build-time guards on Taskwarrior, and the crate's dependencies prebuilt in `/work/target`.
+- Create `tests/container/image.sh` — the image's name from the hash of its inputs, building it first if missing; the build sees only those inputs, as a tar on stdin.
 - Create `tests/container/dconf/00-machine` — the machine's GTK-relevant gsettings, as a dconf keyfile.
 - Create `tests/container/check-image.sh` — proves the image holds the inventory; run against an image on stdin.
 - Create `tests/container/gtk-settings.py` — prints what GTK sees (settings and renderer); run on the host and in the container, and diffed.
@@ -104,10 +106,11 @@ Nothing is run in the image until this check passes: a missing piece shows up he
 - Create: `tests/container/check-image.sh`
 - Create: `tests/container/dconf/00-machine`
 - Create: `tests/container/Dockerfile`
+- Create: `tests/container/image.sh`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: an image buildable with `docker build -t <tag> tests/container`, whose default user is `tester` (uid 1000, `HOME=/home/tester`), workdir `/work` (owned by `tester`, with `/work/target` existing and owned by `tester`), `CARGO_HOME=/opt/rust/cargo` (with `/opt/rust/cargo/registry` owned by `tester`), `RUSTUP_HOME=/opt/rust/rustup`, `LANG=en_US.UTF-8`. `bash -s < tests/container/check-image.sh` run in it prints one `ok`/`MISSING` line per item and exits with the number missing.
+- Produces: `bash tests/container/image.sh` — prints the image's name, `niritasks-tests:<12 hex>`, on stdout, building it first (build output on stderr) when no image has that name; exits non-zero if the build fails. The name is a hash of `tests/container/Dockerfile`, `tests/container/dconf/00-machine`, `Cargo.toml` and `Cargo.lock`. The image's default user is `tester` (uid 1000, `HOME=/home/tester`), workdir `/work` (owned by `tester`, with `/work/target` existing and owned by `tester`), `CARGO_HOME=/opt/rust/cargo` (with `/opt/rust/cargo/registry` owned by `tester`), `RUSTUP_HOME=/opt/rust/rustup`, `LANG=en_US.UTF-8`, and the crate's dependencies compiled in `/work/target/debug` (dev profile) with no niri-tasks artifacts. `bash -s < tests/container/check-image.sh` run in it prints one `ok`/`MISSING` line per item and exits with the number missing.
 
 - [ ] **Step 1: Write the check**
 
@@ -211,6 +214,12 @@ check "/work writable"         test -w /work
 check "/work/target writable"  test -w /work/target
 check "cargo registry writable" test -w "${CARGO_HOME:-/nonexistent}/registry"
 
+echo "prebuilt dependencies"
+check "gtk4 compiled in /work/target"  sh -c 'ls /work/target/debug/deps | grep -q "^libgtk4-"'
+check "clap compiled in /work/target"  sh -c 'ls /work/target/debug/deps | grep -q "^libclap-"'
+check "no niri-tasks artifacts"        sh -c '! ls /work/target/debug/.fingerprint | grep -q "^niri-tasks-"'
+check "crates in the registry"         sh -c 'ls "$CARGO_HOME"/registry/cache/*/ | grep -q "^gtk4-"'
+
 echo
 echo "$missing missing"
 exit "$missing"
@@ -254,8 +263,9 @@ text-scaling-factor=1.0
 # inventory, with where each piece comes from and what is left out on
 # purpose, is in
 # docs/superpowers/plans/2026-10-28-run-the-test-suite-in-a-docker-container.md.
-# tests/container.sh tags the image with this file's hash, so any edit here
-# builds a new image on the next run.
+# tests/container/image.sh builds it, with only this file, the dconf
+# keyfile, Cargo.toml and Cargo.lock as its context, and names it after
+# them, so a change to any of them builds a new image on the next run.
 
 FROM ubuntu:26.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -321,7 +331,7 @@ RUN curl -fsSLo /tmp/iosevka.zip https://github.com/be5invis/Iosevka/releases/do
 
 # The machine's GTK look, as a dconf system database GSettings reads with no
 # dconf service running.
-COPY dconf/00-machine /etc/dconf/db/local.d/00-machine
+COPY tests/container/dconf/00-machine /etc/dconf/db/local.d/00-machine
 RUN printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user && dconf update
 
 # A uid-1000 user, as on the machine, with what its home holds there: a
@@ -357,23 +367,69 @@ RUN curl -fsSLo /tmp/wt.tar.xz https://github.com/max-sixty/worktrunk/releases/d
 # download against its release manifest. Never logged in here.
 RUN curl -fsSL https://claude.ai/install.sh | bash -s 2.1.312 \
  && [ "$(readlink /home/tester/.local/bin/claude)" = /home/tester/.local/share/claude/versions/2.1.312 ]
+
+# This crate's dependencies, compiled as inside.sh compiles (cargo build,
+# dev profile, in /work), so their paths and hashes are the ones a run
+# looks for. Docker copies /work/target and the registry into each new,
+# empty volume mounted over them, so a new worktree's first run compiles
+# only niri-tasks. The crate itself is two empty stand-ins here, cleaned
+# away afterwards: left behind, cargo would take their artifacts as up to
+# date against the real sources, whose mtimes are older than this build.
+# cargo test reuses these too: its profile inherits dev's.
+COPY --chown=tester:tester Cargo.toml Cargo.lock /work/
+RUN mkdir -p src && printf 'fn main() {}\n' > src/main.rs && : > src/lib.rs \
+ && cargo build --locked \
+ && cargo clean --locked -p niri-tasks \
+ && rm -rf src Cargo.toml Cargo.lock
 ```
 
 Notes for the implementer:
 - If `unzip -j … '*.ttf'` finds the files under a subfolder, `-j` already flattens it; the check wants exactly 54 TTFs.
 
-- [ ] **Step 5: Build the image and run the check**
+- [ ] **Step 5: Write image.sh**
+
+`tests/container/image.sh`:
 
 ```bash
-docker build -t niritasks-tests:dev tests/container
+#!/usr/bin/env bash
+# The test image's name, building it first if there is none. tests/container.sh
+# runs it; so can you, to build the image or check what is in it:
+#
+#   image=$(bash tests/container/image.sh)
+#   docker run --rm -i "$image" bash -s < tests/container/check-image.sh
+#
+# The image is named after everything it is built from — the Dockerfile, the
+# dconf keyfile, Cargo.toml and Cargo.lock — so a change to any of them
+# builds a new one, and nothing else does. Those four files are all the build
+# sees: they go to docker build as a tar on stdin, so the rest of the
+# checkout is never sent. The name is printed on stdout, the build on stderr.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+
+INPUTS=(tests/container/Dockerfile tests/container/dconf/00-machine Cargo.toml Cargo.lock)
+IMAGE="niritasks-tests:$(sha256sum "${INPUTS[@]}" | sha256sum | cut -c1-12)"
+
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    echo "building $IMAGE: once, and again only when one of ${INPUTS[*]} changes" >&2
+    tar -cf - "${INPUTS[@]}" | docker build -t "$IMAGE" -f tests/container/Dockerfile - >&2
+fi
+echo "$IMAGE"
+```
+
+- [ ] **Step 6: Build the image and run the check**
+
+```bash
+chmod +x tests/container/image.sh
+IMAGE=$(bash tests/container/image.sh) && docker tag "$IMAGE" niritasks-tests:dev
 docker run --rm -i niritasks-tests:dev bash -s < tests/container/check-image.sh; echo "exit: $?"
 ```
 
-The first build takes several minutes: Taskwarrior compiles, the apt list is about 360 packages, and Claude Code is a ~200MB download. Expected: every line `ok`, `0 missing`, `exit: 0`.
+The first build takes several minutes: Taskwarrior compiles, the apt list is about 360 packages, Claude Code is a ~200MB download, and the crate's dependencies compile (gtk4 and its bindings). Run `bash tests/container/image.sh` again: it prints the same name at once, with no build. `niritasks-tests:dev` is a second name for the same image, for the one-off runs in Tasks 2 and 4. Expected: every line `ok`, `0 missing`, `exit: 0`.
 
 A `MISSING` line is fixed in the Dockerfile (or the keyfile), then rebuild and rerun — never by loosening the check. If a value can't be matched (say `gsettings get` prints a font name differently), compare against `gsettings get org.gnome.desktop.interface <key>` on the host, and stop and ask if the host's own value is now different from the plan's.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 chmod +x tests/container/check-image.sh
@@ -384,8 +440,10 @@ A ubuntu:26.04 image with what the suites use on the machine: niri 26.04
 and ghostty from the same PPA, Taskwarrior 3.5.0 compiled from its tarball
 (never apt's 2.6), herdr, worktrunk and Claude Code in ~/.local/bin as
 there, rustc 1.95.0, Iosevka Term 34.8.1, the machine's GTK look as a
-dconf database, en_US.UTF-8 and a uid-1000 user. check-image.sh
-lists each piece as ok or missing.
+dconf database, en_US.UTF-8, a uid-1000 user, and the crate's
+dependencies prebuilt. check-image.sh lists each piece as ok or
+missing; image.sh names the image after its inputs and builds it when
+they change.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -629,7 +687,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Create: `tests/container.sh`
 
 **Interfaces:**
-- Consumes: `tests/container/Dockerfile` (Task 1); `bash /work/tests/container/inside.sh [command...]` (Task 2), run under `dbus-run-session` as `tester` with `/work/target` and `/opt/rust/cargo/registry` mounted.
+- Consumes: `bash tests/container/image.sh` (Task 1) for the image's name; `bash /work/tests/container/inside.sh [command...]` (Task 2), run under `dbus-run-session` as `tester` with `/work/target` and `/opt/rust/cargo/registry` mounted.
 - Produces: `bash tests/container.sh [command...]` — exits with the in-container command's status (default `bash tests/all.sh`); 1 when Docker is missing or unreachable, the image cannot be built, or a run of the same checkout is already going; 130 when interrupted. Writes the whole run to `target/container-tests/<UTC stamp>-<pid>.log`, `latest.log` pointing at it. Containers carry `niritasks.tests.root=<checkout path>`; volumes `niritasks.tests=1`. With `NIRITASKS_CONTAINER_KEEP=1` the container is kept after the run and its name printed, for `docker cp`.
 
 - [ ] **Step 1: Run the command that should not exist yet**
@@ -661,11 +719,13 @@ Expected: `No such file or directory`, `exit: 127`.
 # are now, edited or not, and untracked ones that are not ignored. Not
 # target/, not .git.
 #
-# The image is built the first time, and again only when the Dockerfile
-# changes: it is tagged with the file's hash. The cargo registry lives in
-# one Docker volume shared by every checkout, and each checkout's build
-# directory in a volume of its own, so a second run rebuilds only what
-# changed. Two runs of the same checkout at once would share that build
+# The image (tests/container/image.sh) is built the first time, and again
+# only when the Dockerfile, its dconf keyfile, Cargo.toml or Cargo.lock
+# changes. It carries the crate's dependencies already compiled. The cargo
+# registry lives in one Docker volume shared by every checkout, and each
+# checkout's build directory in a volume of its own, which Docker fills
+# from the image's prebuilt dependencies when it is new: a checkout's first
+# run compiles only niri-tasks, and later runs only what changed. Two runs of the same checkout at once would share that build
 # directory, so the second refuses; runs of different worktrees go side by
 # side.
 #
@@ -681,7 +741,6 @@ cd "$ROOT" || exit 1
 command -v docker >/dev/null || { echo "docker is required" >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "docker is not running, or this user cannot reach it" >&2; exit 1; }
 
-IMAGE="niritasks-tests:$(sha256sum tests/container/Dockerfile | cut -c1-12)"
 KEY=$(printf '%s' "$ROOT" | sha256sum | cut -c1-12)
 TARGET_VOLUME="niritasks-tests-target-$KEY"
 REGISTRY_VOLUME="niritasks-tests-cargo"
@@ -702,10 +761,8 @@ exec > >(tee "$LOG") 2>&1
 echo "repo  $ROOT"
 echo "log   $LOG"
 
-if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-    echo "building $IMAGE: once, and again only when tests/container/Dockerfile changes"
-    docker build -t "$IMAGE" tests/container || exit 1
-fi
+IMAGE=$(bash tests/container/image.sh) || exit 1
+echo "image $IMAGE"
 for volume in "$TARGET_VOLUME" "$REGISTRY_VOLUME"; do
     docker volume inspect "$volume" >/dev/null 2>&1 ||
         docker volume create --label niritasks.tests=1 "$volume" >/dev/null || exit 1
@@ -765,7 +822,7 @@ Expected: one `<stamp>-<pid>.log`, `latest.log -> <that file>`, ending with the 
 - [ ] **Step 4: Check the build, the cache and the exit status**
 
 Run: `time bash tests/container.sh true; echo "exit: $?"` twice.
-Expected: the first prints cargo fetching and compiling (minutes); the second prints `Finished` with nothing compiled, in well under a minute; both `exit: 0`.
+Expected: the first prints `Compiling niri-tasks` and **no other** `Compiling` or `Downloading` line — the dependencies came with the volume, seeded from the image in Step 3 — in about the time an edit-and-rebuild takes on the host; the second prints `Finished` with nothing compiled, in seconds; both `exit: 0`. If gtk4 or clap compile, the volume was not seeded: check `docker volume inspect` shows it was created by this script (empty) and not before the image had dependencies, and check the image's `/work/target` with `check-image.sh`.
 
 Run: `bash tests/container.sh false; echo "exit: $?"`
 Expected: `exit: 1`.
@@ -930,7 +987,7 @@ git worktree remove ../container-proof
 docker volume rm "niritasks-tests-target-$(printf '%s' "$(cd .. && pwd)/container-proof" | sha256sum | cut -c1-12)"
 ```
 
-Expected: `exit: 0`, no image rebuild (same Dockerfile, same tag), and a build directory volume of its own, removed afterwards.
+Expected: `exit: 0`, no image rebuild (same inputs, same name), only `Compiling niri-tasks` before the suite (its new volume came seeded with the dependencies), and a build directory volume of its own, removed afterwards.
 
 - [ ] **Step 6: Document it in README.md**
 
@@ -944,7 +1001,7 @@ bash tests/container.sh     # everything, in a Docker container     ~NNNs
 In the Needs/Touches table, directly under the `tests/all.sh` row:
 
 ```markdown
-| `tests/container.sh` | Docker, and the user in the `docker` group. The first run builds the image (several minutes) and needs the network | Nothing of yours. Docker's own image and volumes (`niritasks-tests*`), and its log in `target/container-tests/` |
+| `tests/container.sh` | Docker, and the user in the `docker` group. The first run builds the image (several minutes, and again after a `Cargo.lock` change) and needs the network | Nothing of yours. Docker's own image and volumes (`niritasks-tests*`), and its log in `target/container-tests/` |
 ```
 
 After the paragraph ending "…and a long note list scrolls, keeping a row made by Enter at the bottom in view." and before the `> [!IMPORTANT]` box:
@@ -980,9 +1037,11 @@ outer niri in it with two named workspaces, builds the copy and runs
 `tests/all.sh` with `NIRITASKS` set to that build; the e2e suites nest their
 niri in the outer one as they would in yours.
 
-The image is built on the first run and again only when the Dockerfile
-changes; cargo's registry and each checkout's build directory live in Docker
-volumes, so later runs rebuild only what changed. A second run of the same
+The image is built on the first run, and again only when the Dockerfile,
+`Cargo.toml` or `Cargo.lock` changes (`tests/container/image.sh`). It holds
+the crate's dependencies already compiled, so a checkout's first run compiles
+only niri-tasks itself; cargo's registry and each checkout's build directory
+live in Docker volumes, so later runs rebuild only what changed. A second run of the same
 checkout while one is going refuses, since the two would share a build
 directory. Every run is logged in `target/container-tests/`, `latest.log` the
 newest, and it exits as `tests/all.sh` does. `NIRITASKS_CONTAINER_KEEP=1`
