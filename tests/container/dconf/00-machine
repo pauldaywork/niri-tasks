@@ -1,0 +1,14 @@
+# The machine's GTK look, which every GTK window the e2e suites draw is
+# drawn with. Copied from `gsettings get org.gnome.desktop.interface <key>`
+# on the machine; tests/container/parity.sh compares the two at every run.
+[org/gnome/desktop/interface]
+color-scheme='prefer-dark'
+gtk-theme='Yaru-purple-dark'
+icon-theme='Yaru-purple-dark'
+cursor-theme='Adwaita'
+font-name='Adwaita Sans 11'
+monospace-font-name='Ubuntu Sans Mono 11'
+font-antialiasing='grayscale'
+font-hinting='slight'
+font-rgba-order='rgb'
+text-scaling-factor=1.0
