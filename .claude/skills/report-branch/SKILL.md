@@ -81,18 +81,18 @@ suite by suite; a suite starts at a `── name ──` header line (some
 terminals show colour codes around it) and runs to the next header.
 
 - `suite.runs`: one entry for each suite whose header is not followed by
-  `SKIP:`. `suite` is the header's name, short. `command` is the
-  command as the log shows it: take it from the suite's own output if it
-  prints one, else from the `command` in the tests file, with the
-  suite's name after it if the command runs several. `passed` and `failed`
-  are the counts in that suite's own summary lines, never the sum over the
-  log and never a count you made by tallying lines: `test result: ok. 12
-  passed; 0 failed` lines for cargo (a cargo suite prints one per test
-  binary, so add up that suite's lines, and only that suite's), `Ran N
-  tests` and `OK` or `FAILED (failures=N)` for Python unittest, `N pass` and
-  `N fail` for Bun and `claude plugin test`. If a suite prints no summary
-  you can read, say so in the report and use the counts you can see in its
-  lines; do not guess.
+  `SKIP:`. `suite` is the header's name, short. `command` is the line
+  under the header that starts `$ `, without the `$ `: the command that
+  suite ran. A log with no such line (another project's runner) gives the
+  `command` in the tests file instead; never make one up. `passed` and
+  `failed` are the counts in that suite's own summary lines, never the sum
+  over the log and never a count you made by tallying lines: `test result:
+  ok. 12 passed; 0 failed` lines for cargo (a cargo suite prints one per
+  test binary, so add up that suite's lines, and only that suite's), `Ran
+  N tests` and `OK` or `FAILED (failures=N)` for Python unittest, `N pass`
+  and `N fail` for Bun and `claude plugin test`. If a suite prints no
+  summary you can read, say so in the report and use the counts you can
+  see in its lines; do not guess.
 - `suite.not_run`: one entry for each header followed by `SKIP: <reason>`, with
   that reason as `why`, shortened to fit. The sandbox stopped none of
   them, so give no sandbox reason. The e2e suites are named here too, as
@@ -145,10 +145,11 @@ of `failed` and `failing`, and list it under `not_run` with "stopped by the
 sandbox" and the test's name as the why. For each suite run, take the passed
 and failed counts from its own summary, and name each failing test.
 
-With or without a tests file, find the tests the branch adds or changes (`git diff "$mb" HEAD` on the
-test files and the `#[test]`, `def test_` or `test(` lines it adds), and for
-each: its layer (unit, integration, e2e), the behaviour it pins, and its
-result from the runs. Note any changed code that no test covers.
+With or without a tests file, find the tests the branch adds or changes
+(`git diff "$mb" HEAD` on the test files and the `#[test]`, `def test_` or
+`test(` lines it adds), and for each: its layer (unit, integration, e2e),
+the behaviour it pins, and its result from the runs. Note any changed code
+that no test covers.
 
 ## 4. Fill the report
 

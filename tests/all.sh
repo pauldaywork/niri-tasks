@@ -115,6 +115,9 @@ suite() {  # name, reason it cannot run (empty if it can), command...
         return
     fi
     printf '\n\033[1m── %s ──\033[0m\n' "$name"
+    # The command as run, so that a reader of the log (a branch report)
+    # can name it rather than guess it.
+    printf '$ %s\n' "$*"
     local start=$SECONDS
     if "$@"; then
         passed+=("$name ($((SECONDS - start))s)")
