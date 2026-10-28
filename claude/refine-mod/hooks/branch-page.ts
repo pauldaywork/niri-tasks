@@ -6,7 +6,9 @@
 
 import type { Plan } from './plan'
 import { BRANCH_HEADINGS as H } from './report'
-import type { Commit, Facts, HotSpot, Lens, MapEntry, NewTest, PlanItem, Progress, Report, Result, Step, Suite, Untested } from './report'
+import type {
+  Commit, Facts, HotSpot, Lens, MapEntry, NewTest, PlanItem, Progress, Report, Result, RunLine, Step, Suite, Untested,
+} from './report'
 import {
   badge, bullets, count, deck, decision, escapeHtml, files, glance, inline, lensSlides, needsBrowser, path, plain,
   readingMinutes, terms,
@@ -64,9 +66,10 @@ const changesMap = (entries: readonly MapEntry[]): string =>
     )
     .join('\n')}</div>`
 
-// Did anything break: one line that answers it, then each suite run and
-// each not run, and the failing tests by name.
-const suite = (s: Suite): string => {
+// Did anything break: one line that answers it, the run before the
+// session when there was one, then each suite run and each not run, and the
+// failing tests by name.
+const suite = (s: Suite, run: RunLine | undefined): string => {
   const passed = s.runs.reduce((n, r) => n + r.passed, 0)
   const failed = s.runs.reduce((n, r) => n + r.failed, 0)
   const across = `across ${count(s.runs.length, 'suite')}.`
@@ -86,6 +89,9 @@ const suite = (s: Suite): string => {
   return [
     `<h2>${H.suite}</h2>`,
     verdict,
+    run === undefined
+      ? ''
+      : `<p class="hint">Run before this session: <code>${escapeHtml(run.command)}</code>, exit ${run.exit_code}, log ${path(run.log)}.</p>`,
     `<div class="suites">${[...runs, ...notRun].join('')}</div>`,
     s.failing.length > 0
       ? `<h3>Failing</h3><ul>${s.failing.map(f => `<li><code>${escapeHtml(f.test)}</code> ${path(f.file)}: ${plain(f.why)}</li>`).join('')}</ul>`
@@ -165,7 +171,7 @@ export const branchPage = (
     ...of('outside-tools'),
     ...of('styling'),
     ...of('code'),
-    { id: 'suite', pill: 'Test suite', name: 'Test suite', ground: 'green', body: suite(b.suite) },
+    { id: 'suite', pill: 'Test suite', name: 'Test suite', ground: 'green', body: suite(b.suite, b.run) },
     { id: 'new-tests', pill: 'New tests', name: 'New tests', ground: 'blue', body: newTests(b.new_tests, b.untested) },
     ...of('newcomer'),
     ...(b.plan_vs_done.length > 0

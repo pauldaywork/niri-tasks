@@ -459,6 +459,17 @@ describe('a branch report', () => {
     expect(branchPage(one, PLAN)).toContain('nothing broke</span> 1 test passed across 1 suite.')
   })
 
+  test('the suite names the run before the session: its command, exit code and log', () => {
+    const report = branched()
+    const run = { command: 'bash tests/all.sh', exit_code: 0, log: '/r/branch-tests.log' }
+    const page = branchPage({ ...report, branch: { ...report.branch!, run } }, PLAN)
+    const suite = page.slice(page.indexOf('id="suite"'), page.indexOf('id="new-tests"'))
+    expect(suite).toContain(
+      '<p class="hint">Run before this session: <code>bash tests/all.sh</code>, exit 0, log <code class="path">/<wbr>r/<wbr>branch-tests.log</code>.</p>',
+    )
+    expect(branchPage(report, PLAN)).not.toContain('Run before this session')
+  })
+
   test('a suite not run is shown dashed, with why', () => {
     const page = branchPage(
       branched({ ...BRANCH_MIN, suite: { ...BRANCH_MIN.suite, not_run: [{ suite: 'e2e-panel.sh', why: 'Nests a niri.' }] } }),

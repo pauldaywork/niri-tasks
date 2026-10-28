@@ -61,6 +61,13 @@
       "description": "With branch set: the branch the task's branch is measured against, the repository's default branch. Unset, no report tool is offered in a branch session.",
       "required": false,
       "default": ""
+    },
+    "tests": {
+      "type": "string",
+      "title": "Test run",
+      "description": "With branch set: the absolute path of the results file of the project's tests, which Rust ran outside the sandbox before the session. The report's suite is checked against its exit code. Unset, the session runs what tests it finds itself.",
+      "required": false,
+      "default": ""
     }
   }
 }

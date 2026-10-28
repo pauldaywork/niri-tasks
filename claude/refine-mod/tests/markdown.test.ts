@@ -341,6 +341,24 @@ describe('a branch report', () => {
     expect(reportFromMarkdown(reportMarkdown(MINIMAL, PLAN)).report.branch).toBeUndefined()
   })
 
+  const RUN = { command: 'bash tests/all.sh', exit_code: 1, log: '/r/branch-0b8f6a52-20261006-010203-tests.log' }
+
+  test('names the test run under the suite heading, and reads it back', () => {
+    const withRun = { ...full, branch: { ...full.branch!, run: RUN } }
+    const md = reportMarkdown(withRun, PLAN)
+    expect(md).toContain(
+      '## Did anything break?\n\n_Run before this session: `bash tests/all.sh`, exit 1, log ' +
+        '`/r/branch-0b8f6a52-20261006-010203-tests.log`._\n\n| Suite |',
+    )
+    expect(reportFromMarkdown(md)).toEqual({ report: withRun, plan: PLAN })
+    expect(typeof twinOf(withRun, PLAN)).toBe('object')
+  })
+
+  test('with no run, the suite has no run line', () => {
+    expect(reportMarkdown(full, PLAN)).not.toContain('_Run before this session')
+    expect(reportFromMarkdown(reportMarkdown(full, PLAN)).report.branch?.run).toBeUndefined()
+  })
+
   test('refuses a branch whose name would not read back', () => {
     const odd = { ...full, branch: { ...full.branch!, facts: { ...full.branch!.facts, branch: 'a`b' } } }
     expect(typeof twinOf(odd, PLAN)).toBe('string')

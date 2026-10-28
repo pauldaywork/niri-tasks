@@ -44,12 +44,14 @@ import {
   BRANCH_LENSES,
   BRANCH_REPORT_NOTE,
   REPORT_NOTE,
+  checkSuite,
   homeDir,
   madeAlready,
   notePath,
   openArgv,
   overLimits,
   parseReport,
+  parseTestRun,
   reportPath,
   reportsDir,
   unexplainable,
@@ -57,7 +59,7 @@ import {
   withReportNote,
   withReportNotes,
 } from './report'
-import type { MadeReport, Parsed, Report, ReportKind } from './report'
+import type { MadeReport, Parsed, Report, ReportKind, TestRun } from './report'
 
 // The tool's listed name: mcp__<plugin>__<name>, hyphens kept.
 export const TOOL = 'mcp__niri-tasks-refine__write_task_plan'
@@ -200,6 +202,8 @@ const branchSpec = () => {
       'tested, in one fixed, easy-to-read layout, opens it in the browser and links it from the task as a ' +
       "Branch report: <path> note. Fill the fields as the report-branch skill's branch-catalogue.md says. Name " +
       'commits by sha alone: the tool reads each subject, and the branch, its base and its numbers, from git. ' +
+      "When the session's prompt names a test run, the suite comes from its log, and the tool checks it against " +
+      "the run's exit code. " +
       'Every text field is one line of plain text; a report over the limits is refused with every reason at once. ' +
       'One report a session.',
     inputSchema: {
@@ -401,15 +405,40 @@ const readGit = async ($: EngineInterface, target: Target): Promise<Git | string
   }
 }
 
+// The project's tests as Rust ran them before the session, read from the
+// results file it wrote, outside the sandbox, which cannot read the
+// reports folder; or why it cannot be read.
+const readTestRun = async ($: EngineInterface, path: string): Promise<TestRun | string> => {
+  let text: string
+  try {
+    text = await $.fs.read(path)
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+  return parseTestRun(text)
+}
+
 // A branch report's fields, each commit named by git and the branch's facts
-// read from it; or the refusal to answer the call with.
-const withBranch = async ($: EngineInterface, parsed: Parsed, target: Target): Promise<Report | { deny: string }> => {
+// read from it, and its suite held to the test run when Rust ran one; or
+// the refusal to answer the call with.
+const withBranch = async (
+  $: EngineInterface,
+  parsed: Parsed,
+  target: Target,
+  tests: string | undefined,
+): Promise<Report | { deny: string }> => {
   if (parsed.branch === undefined) return { deny: 'show_task_report: nothing written: the report has no branch fields.' }
   const git = await readGit($, target)
   if (typeof git === 'string') return { deny: `show_task_report: nothing written: ${git}.` }
   const branch = withGit(parsed.branch, git)
   if (typeof branch === 'string') return { deny: `show_task_report: ${branch}` }
-  return { ...parsed.report, branch }
+  if (tests === undefined) return { ...parsed.report, branch }
+  const run = await readTestRun($, tests)
+  if (typeof run === 'string') return { deny: `show_task_report: nothing written: could not read the test run ${tests}: ${run}` }
+  const disagree = checkSuite(branch.suite, run)
+  if (disagree.length > 0) return { deny: `show_task_report: ${disagree.join('; ')}` }
+  const { command, exit_code, log } = run
+  return { ...parsed.report, branch: { ...branch, run: { command, exit_code, log } } }
 }
 
 // The person's answer to "Write this to the task?", or the refusal to answer
@@ -436,6 +465,9 @@ type ReportSession = {
   kind: ReportKind
   // The worktree and base a branch report reads; undefined in a plan's.
   target: Target | undefined
+  // The results file of the tests Rust ran before a branch session, which
+  // its suite is held to; undefined when none ran, or in a plan's.
+  tests: string | undefined
   home: string | undefined
   unattended: boolean
   fonts: { read?: Fonts }
@@ -454,7 +486,7 @@ const reportSession = async (
   uuid: string,
   folder: string,
 ): Promise<{ deny: string } | { result: string }> => {
-  const { kind, target, home, unattended, fonts } = at
+  const { kind, target, tests, home, unattended, fonts } = at
   if (at.linked !== undefined) return { deny: madeAlready(at.linked, kind) }
   // The plan is the task as it is now: read here, not at session start,
   // so an edit made since the button was pressed is what is reported.
@@ -471,7 +503,7 @@ const reportSession = async (
   let report = parsed.report
   if (kind === 'branch') {
     if (target === undefined) return { deny: 'show_task_report is not armed in this session.' }
-    const branched = await withBranch($, parsed, target)
+    const branched = await withBranch($, parsed, target, tests)
     if ('deny' in branched) return branched
     report = branched
   }
@@ -553,6 +585,10 @@ export const register: Register = (on, options) => {
   // measured against; without both, no report tool is offered.
   const kind: ReportKind = reportOnly && options.branch === true ? 'branch' : 'plan'
   const target = kind === 'branch' ? branchTarget(options.worktree, options.base) : undefined
+  // The tests Rust ran before a branch session, outside its sandbox: their
+  // results file, read when the report is shown. Empty when none ran, and
+  // then the session runs what it finds itself, as before.
+  const tests = kind === 'branch' && typeof options.tests === 'string' && options.tests !== '' ? options.tests : undefined
   // The plan the person was shown when they chose REPORT in answer to the
   // latest question, spent by the first well-formed report. Module state: a
   // reload forgets it, and the model is told to ask again.
@@ -565,7 +601,7 @@ export const register: Register = (on, options) => {
   // The report's two typefaces, read on the first report and kept.
   const fonts: { read?: Fonts } = {}
   // A report session's state: its kind, and the report it has linked.
-  const session: ReportSession = { kind, target, home, unattended, fonts }
+  const session: ReportSession = { kind, target, tests, home, unattended, fonts }
 
   on('session.start', async ($, e, next) => {
     if ((await armedUuid($, options.uuid)) !== undefined) {

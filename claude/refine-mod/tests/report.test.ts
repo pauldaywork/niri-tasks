@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { LIMITS, WORD_GRACE, homeDir, madeAlready, notePath, openArgv, overLimits, parseReport, reportPath, reportsDir, unexplainable, unreportable, withReportNote, withReportNotes } from '../hooks/report'
+import { LIMITS, WORD_GRACE, checkSuite, homeDir, madeAlready, notePath, openArgv, overLimits, parseReport, parseTestRun, reportPath, reportsDir, unexplainable, unreportable, withReportNote, withReportNotes } from '../hooks/report'
 import type { Task } from '../hooks/plan'
 import { EXAMPLE } from './example-report'
 import { BRANCH_MIN } from './branch-fixtures'
@@ -589,4 +589,62 @@ test('takes the branch catalogue\'s worked example, within every limit', () => {
   const parsed = parseReport(EXAMPLE_BRANCH, 'branch')
   expect(typeof parsed).toBe('object')
   expect(typeof parsed === 'object' && parsed.warnings).toEqual([])
+})
+
+// The test run Rust writes before an Explain branch session starts.
+const RUN = {
+  command: 'bash tests/all.sh',
+  exit_code: 0,
+  log: '/r/branch-0b8f6a52-20261006-010203-tests.log',
+  started: '2026-10-06T01:00:00Z',
+  finished: '2026-10-06T01:02:00Z',
+}
+
+describe('parseTestRun', () => {
+  test('takes the file Rust writes', () => {
+    expect(parseTestRun(JSON.stringify(RUN))).toEqual(RUN)
+    expect(parseTestRun(JSON.stringify({ ...RUN, exit_code: 101 }))).toEqual({ ...RUN, exit_code: 101 })
+  })
+
+  test('says which field is missing or wrong', () => {
+    const { log: _log, ...noLog } = RUN
+    expect(parseTestRun(JSON.stringify(noLog))).toBe('log must be a string')
+    expect(parseTestRun(JSON.stringify({ ...RUN, exit_code: '0' }))).toBe('exit_code must be a whole number')
+    expect(parseTestRun('[]')).toBe('it is not a JSON object')
+  })
+
+  test('says when it is not JSON', () => {
+    expect(parseTestRun('{"command":')).toStartWith('it is not JSON (')
+  })
+})
+
+describe('checkSuite', () => {
+  const suite = (failed: number, failing: { test: string; file: string; why: string }[] = []) => ({
+    runs: [{ suite: 'all.sh', command: 'bash tests/all.sh', passed: 10, failed }],
+    not_run: [],
+    failing,
+  })
+  const broke = { test: 'words_are_new', file: 'src/words.rs', why: 'Old words.' }
+
+  test('a run that passed takes a suite where nothing failed', () => {
+    expect(checkSuite(suite(0), RUN)).toEqual([])
+  })
+
+  test('a run that failed takes a suite that names what failed', () => {
+    expect(checkSuite(suite(1, [broke]), { ...RUN, exit_code: 1 })).toEqual([])
+    expect(checkSuite(suite(2), { ...RUN, exit_code: 1 })).toEqual([])
+    expect(checkSuite(suite(0, [broke]), { ...RUN, exit_code: 1 })).toEqual([])
+  })
+
+  test('a run that passed refuses a suite that failed', () => {
+    const why = 'the test run passed (exit 0), so no suite can have failed'
+    expect(checkSuite(suite(1), RUN)).toEqual([why])
+    expect(checkSuite(suite(0, [broke]), RUN)).toEqual([why])
+  })
+
+  test('a run that failed refuses a suite where nothing failed, naming its log', () => {
+    expect(checkSuite(suite(0), { ...RUN, exit_code: 2 })).toEqual([
+      `the test run failed (exit 2): name the suite and the tests that failed, from its log ${RUN.log}`,
+    ])
+  })
 })

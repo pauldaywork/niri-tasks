@@ -126,9 +126,47 @@ export type BranchInput = {
   plan_vs_done: PlanItem[]
 }
 
+// The project's tests as Rust ran them, outside the sandbox, before an
+// Explain branch session started: the results file it wrote beside the
+// run's log.
+export type TestRun = { command: string; exit_code: number; log: string; started: string; finished: string }
+
+// What a report keeps of the run: what the suite slide and its twin name.
+// Its times are left in the file, so the twin reads back the whole of it.
+export type RunLine = Pick<TestRun, 'command' | 'exit_code' | 'log'>
+
 // As a report holds them: each commit with its subject, and the branch's
-// facts, both from git (branch.ts).
-export type Branch = Omit<BranchInput, 'story'> & { facts: Facts; story: Step<Commit>[] }
+// facts, both from git (branch.ts); and the test run, when there was one.
+export type Branch = Omit<BranchInput, 'story'> & { facts: Facts; story: Step<Commit>[]; run?: RunLine }
+
+// The test run from its results file, or why it cannot be read.
+export const parseTestRun = (text: string): TestRun | string => {
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch (error) {
+    return `it is not JSON (${error instanceof Error ? error.message : String(error)})`
+  }
+  if (!isObject(value) || Array.isArray(value)) return 'it is not a JSON object'
+  for (const field of ['command', 'log', 'started', 'finished'] as const) {
+    if (typeof value[field] !== 'string') return `${field} must be a string`
+  }
+  if (typeof value.exit_code !== 'number' || !Number.isInteger(value.exit_code)) return 'exit_code must be a whole number'
+  const { command, exit_code, log, started, finished } = value as TestRun
+  return { command, exit_code, log, started, finished }
+}
+
+// Why the model's suite cannot be the run's: a run that passed had no
+// failure, and one that failed had at least one, which its log names.
+// Nothing when they agree.
+export const checkSuite = (suite: Suite, run: TestRun): string[] => {
+  const failed = suite.runs.some(r => r.failed > 0) || suite.failing.length > 0
+  if (run.exit_code === 0 && failed) return ['the test run passed (exit 0), so no suite can have failed']
+  if (run.exit_code !== 0 && !failed) {
+    return [`the test run failed (exit ${run.exit_code}): name the suite and the tests that failed, from its log ${run.log}`]
+  }
+  return []
+}
 
 // The branch fields' names, refused in a plan report.
 const BRANCH_FIELDS = ['hot_spots', 'story', 'map', 'suite', 'new_tests', 'untested', 'plan_vs_done'] as const

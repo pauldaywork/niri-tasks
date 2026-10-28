@@ -70,13 +70,15 @@ const ran = (stdout = '', exitCode = 0) => ({
 // log lines and the questions in the order they reached the engine.
 // `writeFails`, when given, is what `$.fs.write` is refused with. With
 // `fonts`, `$.fs.read` answers each font file with a short stand-in; without,
-// it is refused, as when the mod's fonts are missing.
+// it is refused, as when the mod's fonts are missing. A path in `files` is
+// read as its text there.
 const engine = (
   on: On,
   settings: Record<string, unknown>,
   answer: Answers = WRITE,
   writeFails?: string,
   fonts = false,
+  files: Record<string, string> = {},
 ) => {
   const registered: string[] = []
   const seen: string[] = []
@@ -101,6 +103,8 @@ const engine = (
   })
   on('fs.read', ($, e) => {
     reads.push(e.path)
+    const file = files[e.path]
+    if (file !== undefined) return { value: file }
     if (!fonts) return { deny: 'no fonts here' }
     return { value: { base64: e.path.endsWith('space-grotesk-latin-wght-normal.woff2') ? 'RElTUA==' : 'Qk9EWQ==' } }
   })
@@ -951,9 +955,10 @@ const gitAnswer = (argv: readonly string[], fails?: string) => {
   return ran('')
 }
 
-// The world, with git answering for the worktree.
-const branchWorld = (on: On, exports: readonly object[] = [TASK], fails?: string) => {
-  const { registered, seen, writes } = engine(on, SANDBOX, { deny: 'nobody should be asked' })
+// The world, with git answering for the worktree, and `files` read as
+// their text there.
+const branchWorld = (on: On, exports: readonly object[] = [TASK], fails?: string, files: Record<string, string> = {}) => {
+  const { registered, seen, writes, reads } = engine(on, SANDBOX, { deny: 'nobody should be asked' }, undefined, false, files)
   const runs: Run[] = []
   let exported = 0
   on('process.run', ($, e) => {
@@ -964,7 +969,7 @@ const branchWorld = (on: On, exports: readonly object[] = [TASK], fails?: string
     const task = exports[Math.min(exported++, exports.length - 1)]
     return ran(JSON.stringify([task]))
   })
-  return { registered, runs, seen, writes }
+  return { registered, runs, seen, writes, reads }
 }
 
 test('branch mode: only the report tool', { options: BRANCH_MODE }, async ($, on) => {
@@ -1074,4 +1079,80 @@ test('branch mode: one report a session', { options: BRANCH_MODE }, async ($, on
       "Close this tab and choose Explain branch in the card's Go to list again for another.",
   )
   expect(writes.map(w => w.path)).toEqual([BRANCH_PATH, BRANCH_MD])
+})
+
+// An Explain branch session whose tests Rust ran before it started: the
+// results file it wrote.
+const TESTS = '/r/branch-0b8f6a52-20261006-010000-tests.json'
+const TESTS_MODE = { ...BRANCH_MODE, tests: TESTS }
+const TEST_LOG = '/r/branch-0b8f6a52-20261006-010000-tests.log'
+const testRun = (exit_code: number) =>
+  JSON.stringify({
+    command: 'bash tests/all.sh',
+    exit_code,
+    log: TEST_LOG,
+    started: '2026-10-06T01:00:00Z',
+    finished: '2026-10-06T01:02:00Z',
+  })
+
+test('branch mode with a test run: reads it, and the deck and twin name it', { options: TESTS_MODE }, async ($, on) => {
+  const { writes, reads, runs } = branchWorld(on, [TASK], undefined, { [TESTS]: testRun(0) })
+  await $.session.start(START)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN })
+  expect(shown.deny).toBeUndefined()
+  expect(reads).toContain(TESTS)
+  expect(writes.map(w => w.path)).toEqual([BRANCH_PATH, BRANCH_MD])
+  expect(writes[0]?.text).toContain('Run before this session: <code>bash tests/all.sh</code>, exit 0, log ')
+  expect(writes[1]?.text).toContain(`_Run before this session: \`bash tests/all.sh\`, exit 0, log \`${TEST_LOG}\`._`)
+  // Read with the engine's own file system: no command run for it.
+  expect(runs.map(r => r.argv[0])).toEqual(['task', 'git', 'git', 'git', 'git', 'git', 'sh', 'task'])
+})
+
+test('branch mode with a test run: a suite that disagrees with it is refused, and nothing written', { options: TESTS_MODE }, async ($, on) => {
+  const { writes, runs } = branchWorld(on, [TASK], undefined, { [TESTS]: testRun(1) })
+  await $.session.start(START)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN })
+  expect(shown.deny).toBe(
+    `show_task_report: the test run failed (exit 1): name the suite and the tests that failed, from its log ${TEST_LOG}`,
+  )
+  expect(writes).toEqual([])
+  expect(verbs(runs)).not.toContain('import')
+})
+
+test('branch mode with a test run: a suite that agrees with a failed run is written', { options: TESTS_MODE }, async ($, on) => {
+  const { writes } = branchWorld(on, [TASK], undefined, { [TESTS]: testRun(1) })
+  await $.session.start(START)
+  const failed = {
+    runs: [{ suite: 'all.sh', command: 'bash tests/all.sh', passed: 2, failed: 1 }],
+    failing: [{ test: 'words_are_new', file: 'src/words.rs', why: 'It expects old words.' }],
+  }
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN, suite: failed })
+  expect(shown.deny).toBeUndefined()
+  expect(writes[1]?.text).toContain('exit 1, log ')
+})
+
+test('branch mode with a test run that is missing: refused, and nothing written', { options: TESTS_MODE }, async ($, on) => {
+  const { writes } = branchWorld(on)
+  await $.session.start(START)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN })
+  expect(shown.deny).toStartWith(`show_task_report: nothing written: could not read the test run ${TESTS}: `)
+  expect(writes).toEqual([])
+})
+
+test('branch mode with a test run that is malformed: refused, and nothing written', { options: TESTS_MODE }, async ($, on) => {
+  const { writes } = branchWorld(on, [TASK], undefined, { [TESTS]: '{"command":' })
+  await $.session.start(START)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN })
+  expect(shown.deny).toStartWith(`show_task_report: nothing written: could not read the test run ${TESTS}: it is not JSON (`)
+  expect(writes).toEqual([])
+})
+
+test('branch mode with no test run: nothing is read for one, and no run is named', { options: { ...BRANCH_MODE, tests: '' } }, async ($, on) => {
+  const { writes, reads } = branchWorld(on)
+  await $.session.start(START)
+  const shown = await $.tool.call({ tool: REPORT_TOOL, ...BRANCH_MIN })
+  expect(shown.deny).toBeUndefined()
+  expect(reads.filter(r => r.endsWith('.json'))).toEqual([])
+  expect(writes[1]?.text).not.toContain('Run before this session')
+  expect(writes[0]?.text).not.toContain('Run before this session')
 })

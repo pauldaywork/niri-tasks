@@ -9,7 +9,7 @@ import type { Plan } from './plan'
 import { BRANCH_HEADINGS as H, CHANGES, LAYERS, LENSES, PLAN_KINDS, PROGRESS, RESULTS, SWAPS } from './report'
 import type {
   Branch, Change, CodePair, Commit, Diagram, Facts, FileChange, HotSpot, Layer, Lens, MapEntry, PlanKind,
-  Progress, Report, Result, Section, Step, Suite, Swap, Tool,
+  Progress, Report, Result, RunLine, Section, Step, Suite, Swap, Tool,
 } from './report'
 
 // The twin's path: the report's, with .md for .html.
@@ -86,6 +86,12 @@ const factsLine = (f: Facts): string =>
   `_Branch \`${f.branch}\` from \`${f.base}\` at \`${f.merge_base}\`: ${f.commits} commits, ${f.files} files, ` +
   `+${f.added} -${f.removed}, ${f.uncommitted} uncommitted._`
 
+// The test run before the session, when there was one, under the suite's
+// heading.
+const RUN = /^_Run before this session: `(.+)`, exit (-?\d+), log `(.+)`\._$/
+const runLine = (r: RunLine): string =>
+  `_Run before this session: \`${r.command}\`, exit ${r.exit_code}, log \`${r.log}\`._`
+
 const SUITE_HEAD = ['Suite', 'Command', 'Passed', 'Failed']
 const NOT_RUN_HEAD = ['Not run', 'Why']
 const FAILING_HEAD = ['Failing test', 'File', 'Why']
@@ -111,8 +117,9 @@ const changesMap = (entries: readonly MapEntry[]): string =>
     .map(m => [`### ${m.change} ${ticked(m.path)}`, bullets(m.items.map(i => `**${i.name}**: ${i.does}`))].join('\n\n'))
     .join('\n\n')
 
-const suite = (s: Suite): string =>
+const suite = (s: Suite, run: RunLine | undefined): string =>
   [
+    run === undefined ? '' : runLine(run),
     table(SUITE_HEAD, s.runs.map(r => [r.suite, r.command, String(r.passed), String(r.failed)])),
     s.not_run.length > 0 ? table(NOT_RUN_HEAD, s.not_run.map(n => [n.suite, n.why])) : '',
     s.failing.length > 0 ? table(FAILING_HEAD, s.failing.map(f => [f.test, ticked(f.file), f.why])) : '',
@@ -151,7 +158,7 @@ export const reportMarkdown = (report: Report, plan: Plan): string => {
   if (b !== undefined) out.push(`## ${H.story}\n\n${story(b.story)}`)
   out.push(...report.sections.map(part))
   if (b !== undefined) {
-    out.push(`## ${H.map}\n\n${changesMap(b.map)}`, `## ${H.suite}\n\n${suite(b.suite)}`, `## ${H.newTests}\n\n${newTests(b)}`)
+    out.push(`## ${H.map}\n\n${changesMap(b.map)}`, `## ${H.suite}\n\n${suite(b.suite, b.run)}`, `## ${H.newTests}\n\n${newTests(b)}`)
     if (b.plan_vs_done.length > 0) {
       out.push(
         `## ${H.planVsDone}\n\n${table(PLAN_HEAD, b.plan_vs_done.map(p => [p.item, p.kind, p.progress, p.shown_by]))}`,
@@ -417,6 +424,13 @@ export const reportFromMarkdown = (markdown: string): ReadBack => {
     heading(H.map)
     const map = blocks(mapEntry)
     heading(H.suite)
+    const r = RUN.exec(lines[at] ?? '')
+    let run: RunLine | undefined
+    if (r !== null) {
+      at += 1
+      run = { command: r[1] ?? '', exit_code: Number(r[2]), log: r[3] ?? '' }
+      gap()
+    }
     const runs = rows(SUITE_HEAD).map(([suite = '', command = '', passed = '', failed = '']) => ({
       suite,
       command,
@@ -458,7 +472,10 @@ export const reportFromMarkdown = (markdown: string): ReadBack => {
         shown_by,
       }))
     }
-    branch = { facts, hot_spots, story: steps, map, suite: { runs, not_run, failing }, new_tests, untested, plan_vs_done }
+    branch = {
+      facts, hot_spots, story: steps, map, suite: { runs, not_run, failing }, new_tests, untested, plan_vs_done,
+      ...(run === undefined ? {} : { run }),
+    }
   }
   let files: FileChange[] = []
   if (slide('Files')) {
