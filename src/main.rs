@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 use niri_tasks::{
-    actions::{Action, TaskState}, backup, dirs, docs, github, ipc, link, niri, notify, open, programs, project, refine, session, speak, status_line, task,
+    actions::{Action, TaskState}, backup, branch_tests, dirs, docs, github, ipc, link, niri, notify, open, programs, project, refine, session, speak, status_line, task,
     text, work, workspace::Workspace,
 };
 
@@ -262,9 +262,13 @@ enum TaskCommand {
     /// With --branch, the same for the task's branch report, `Branch
     /// report: <path>`: opened if linked, else Claude explains what the
     /// task's worktree branch has changed since it left the default branch,
-    /// runs the tests, opens the report and links it; refused for a task
-    /// with no worktree or a deleted one. Any status but deleted; no plan
-    /// needed.
+    /// opens the report and links it; refused for a task with no worktree
+    /// or a deleted one. Any status but deleted; no plan needed. When the
+    /// worktree has a test command (git config `niri-tasks.test`, else
+    /// `NIRITASKS_HEADLESS=1 bash tests/all.sh`), a tab of its own runs it
+    /// first, outside Claude's sandbox, its log and results in the reviews
+    /// folder, and Claude reports on that run; else Claude runs what tests
+    /// it can itself.
     Report {
         /// The task's uuid, or its first 8 characters
         uuid: String,
@@ -274,6 +278,14 @@ enum TaskCommand {
         /// The report of what the task's worktree branch has changed, not of its plan
         #[arg(long)]
         branch: bool,
+        /// Internal: the tests tab's step, run inside the tab `task report
+        /// --branch` opens: run the tests, start Claude on them, close the tab
+        #[arg(long, requires_all = ["branch", "workspace"])]
+        here: bool,
+        /// Internal: the workspace the task belongs to (only with --here,
+        /// which runs inside herdr where niri's focus says nothing about it)
+        #[arg(long, requires = "here")]
+        workspace: Option<String>,
     },
     /// List a task's documents, one per line: a label, a tab, the path
     ///
@@ -459,7 +471,7 @@ fn explain_branch(t: &task::Task, fresh: bool) -> Result<()> {
     if gone.is_some() {
         notify::tasks(&format!("Branch report file gone, building a fresh one: {}", t.description));
     }
-    refine::launch_branch(&workspace, t, &refine::Branch { worktree, base })
+    refine::explain_branch(&workspace, t, &refine::Branch { worktree, base, tests: None })
 }
 
 fn task_command(cmd: TaskCommand) -> Result<()> {
@@ -635,7 +647,12 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             refine::launch(&workspace, &t, mode)?;
         }
 
-        TaskCommand::Report { uuid, fresh, branch } => {
+        TaskCommand::Report { uuid, fresh, branch, here, workspace } => {
+            if here {
+                // clap's `requires` guarantees it; the context is for the type.
+                let workspace = workspace.context("--here needs --workspace")?;
+                return branch_tests::run_here(&workspace, &uuid);
+            }
             let t = task::get(&uuid)?.context("task not found")?;
             // Its plan is still being written, and the second run will link
             // a report itself.
@@ -787,6 +804,20 @@ mod tests {
         }
         assert!(Cli::try_parse_from(["niritasks", "task", "open", "c53b6e3d", "report"]).is_err());
         assert!(Cli::try_parse_from(["niritasks", "task", "open", "c53b6e3d"]).is_err());
+    }
+
+    /// The tests tab's own command parses, as `branch_tests::here_command`
+    /// builds it; `--here` is a branch report's alone, and needs its
+    /// workspace.
+    #[test]
+    fn the_tests_tab_runs_a_branch_report_here() {
+        let line = branch_tests::here_command("niritasks", "my project", "c53b6e3d");
+        assert_eq!(line, "'niritasks' task report 'c53b6e3d' --branch --here --workspace 'my project'");
+        let args = ["niritasks", "task", "report", "c53b6e3d", "--branch", "--here", "--workspace", "my project"];
+        assert!(Cli::try_parse_from(args).is_ok());
+        assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d", "--here", "--workspace", "a"]).is_err());
+        assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d", "--branch", "--here"]).is_err());
+        assert!(Cli::try_parse_from(["niritasks", "task", "report", "c53b6e3d", "--branch", "--workspace", "a"]).is_err());
     }
 
     /// A workspace gets its name by opening a project on it, so there is no

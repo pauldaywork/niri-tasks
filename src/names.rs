@@ -87,6 +87,12 @@ pub fn elide(description: &str) -> String {
     elide_to(description, LABEL_MAX)
 }
 
+/// The tab Explain branch runs a branch's tests in, before its report:
+/// `Tests: <description>`, cut short as a Claude tab's label is.
+pub fn tests_tab_label(description: &str) -> String {
+    format!("Tests: {}", elide(description))
+}
+
 /// `text` with its whitespace collapsed, cut to `max` characters with an
 /// ellipsis when longer.
 pub fn elide_to(text: &str, max: usize) -> String {

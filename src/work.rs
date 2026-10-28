@@ -342,6 +342,14 @@ pub fn set_up_here(workspace: &str, uuid: &str) -> Result<()> {
         _setup = Some(ws.session()?.hold_setup(uuid)?);
         set_up(&ws, uuid).map(|()| ws)
     });
+    end_tab(done)
+}
+
+/// How a tab's own step ends, `done` being its workspace or its error:
+/// gone, its tab closed, or the error shown with the tab held open until
+/// the user presses Enter. Start working's setup tab and Explain branch's
+/// tests tab end alike.
+pub fn end_tab(done: Result<Workspace>) -> Result<()> {
     match done {
         Ok(ws) => {
             // Best effort: closing our own tab ends this process, and a tab

@@ -5,7 +5,7 @@
 //! worktrees it has opened, niri's windows, and it logs every call it gets,
 //! and every claim's and setup lock's release.
 
-use super::{Agent, Claim, Claude, Created, HerdrError, HerdrResult, Opened, Pane, Port, WindowInfo, Workspace};
+use super::{Agent, Claim, Claude, Created, HerdrError, HerdrResult, Opened, Pane, Port, TaskLock, WindowInfo, Workspace};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -60,6 +60,8 @@ struct State {
     /// held on every try after, as once a setup tab has taken it; None, the
     /// default, grants every one.
     setup_free_tries: Option<u32>,
+    /// The same for the tests lock.
+    tests_free_tries: Option<u32>,
     windows: Vec<WindowInfo>,
     log: Vec<String>,
 }
@@ -172,6 +174,13 @@ impl Fake {
     /// setup tab already under way.
     pub fn with_setup_held_after(self, tries: u32) -> Fake {
         self.state.borrow_mut().setup_free_tries = Some(tries);
+        self
+    }
+
+    /// A tests lock granted `tries` times, then held by someone else: 0 is
+    /// a tests tab already running.
+    pub fn with_tests_held_after(self, tries: u32) -> Fake {
+        self.state.borrow_mut().tests_free_tries = Some(tries);
         self
     }
 
@@ -434,9 +443,15 @@ impl Port for Fake {
         self.note(format!("claim {session}"));
         Ok(Claim::new(Release { fake: self.clone(), line: format!("release {session}") }))
     }
-    fn setup_lock(&self, task: &str, wait: Duration) -> anyhow::Result<Option<Claim>> {
-        self.note(format!("setup_lock {task} {}ms", wait.as_millis()));
-        let held = match self.state.borrow_mut().setup_free_tries.as_mut() {
+    fn task_lock(&self, lock: TaskLock, task: &str, wait: Duration) -> anyhow::Result<Option<Claim>> {
+        let kind = lock.name();
+        self.note(format!("{kind}_lock {task} {}ms", wait.as_millis()));
+        let mut state = self.state.borrow_mut();
+        let tries = match lock {
+            TaskLock::Setup => &mut state.setup_free_tries,
+            TaskLock::Tests => &mut state.tests_free_tries,
+        };
+        let held = match tries.as_mut() {
             None => false,
             Some(0) => true,
             Some(n) => {
@@ -444,10 +459,11 @@ impl Port for Fake {
                 false
             }
         };
+        drop(state);
         if held {
-            self.note(format!("setup_held {task}"));
+            self.note(format!("{kind}_held {task}"));
             return Ok(None);
         }
-        Ok(Some(Claim::new(Release { fake: self.clone(), line: format!("setup_release {task}") })))
+        Ok(Some(Claim::new(Release { fake: self.clone(), line: format!("{kind}_release {task}") })))
     }
 }

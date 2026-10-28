@@ -5,6 +5,7 @@
 
 pub mod actions;
 pub mod backup;
+pub mod branch_tests;
 pub mod daemon;
 pub mod dirs;
 pub mod docs;

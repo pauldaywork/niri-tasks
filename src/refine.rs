@@ -39,12 +39,15 @@ pub enum Mode {
     Branch,
 }
 
-/// A branch to explain: the task's worktree, and the branch it is
-/// measured against ([`crate::work::default_branch`]).
+/// A branch to explain: the task's worktree, the branch it is measured
+/// against ([`crate::work::default_branch`]), and the results file of
+/// the test run made before the session, when there was one
+/// ([`crate::branch_tests::run_tests`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Branch {
     pub worktree: PathBuf,
     pub base: String,
+    pub tests: Option<PathBuf>,
 }
 
 /// Only the uuid crosses to the skill — the description and everything else
@@ -61,9 +64,13 @@ pub fn prompt(uuid: &str, mode: Mode) -> String {
 }
 
 /// Explain branch's prompt: [`prompt`]'s, then the base, which the skill
-/// measures the branch against, as the mod does.
-pub fn branch_prompt(uuid: &str, base: &str) -> String {
-    format!("{} {base}", prompt(uuid, Mode::Branch))
+/// measures the branch against, as the mod does, then the test run's
+/// results file, when the tests were run before the session.
+pub fn branch_prompt(uuid: &str, base: &str, tests: Option<&Path>) -> String {
+    match tests {
+        Some(t) => format!("{} {base} {}", prompt(uuid, Mode::Branch), t.display()),
+        None => format!("{} {base}", prompt(uuid, Mode::Branch)),
+    }
 }
 
 /// The verb says which mode the tab is in; the description is cut short
@@ -248,7 +255,9 @@ pub fn log_path(dirs: &Dirs, uuid: &str, now: i64) -> PathBuf {
 /// report tool opens nothing (see [`run_unattended`]). `branch`, `worktree`
 /// and `base` in an Explain branch session, which reads that worktree's
 /// branch against that base; `project` is then the worktree, so the session
-/// cannot write it.
+/// cannot write it. `tests` in one whose tests ran first, outside the
+/// sandbox: the run's results file, which the mod checks the report's
+/// suite against; empty when they did not.
 /// `status_line`, when given, is the command for the task's status line
 /// (`status_line::command`); a tab's refine shows it, an unattended run has
 /// no screen to.
@@ -285,6 +294,7 @@ pub fn session_settings(project: &Path, task_data: &Path, fence: &Fence, uuid: &
                 "branch": mode == Mode::Branch,
                 "worktree": branch.map(|b| b.worktree.display().to_string()).unwrap_or_default(),
                 "base": branch.map(|b| b.base.clone()).unwrap_or_default(),
+                "tests": branch.and_then(|b| b.tests.as_ref()).map(|t| t.display().to_string()).unwrap_or_default(),
                 "unattended": unattended,
             } },
         },
@@ -472,13 +482,84 @@ pub fn launch(ws: &Workspace, t: &task::Task, mode: Mode) -> Result<()> {
 /// Explain branch: Claude in the task's worktree, in a tab of the
 /// workspace's herdr session, on what its branch has changed since it left
 /// `branch.base`. Fenced as a refine is, the worktree read-only to it.
+/// Started now, on `branch.tests` if the tests have run: what the tests
+/// tab does once they have ([`crate::branch_tests::run_here`]).
 pub fn launch_branch(ws: &Workspace, t: &task::Task, branch: &Branch) -> Result<()> {
     start(ws, t, Mode::Branch, Some(branch))
+}
+
+/// What an Explain branch press says when the task's tests are running
+/// already, from an earlier press.
+const TESTS_UNDER_WAY: &str = "Already running this task's tests — see its tab.";
+
+/// An Explain branch press: when the worktree has a test command
+/// ([`crate::branch_tests::test_command`]), a tab of its own that runs the
+/// tests where the user can watch, outside the sandbox, and then starts
+/// Claude on their results; else Claude straight away, as
+/// [`launch_branch`].
+///
+/// The fence and the mod are checked first either way, so a refusal comes
+/// before a test run that may take minutes rather than after it.
+pub fn explain_branch(ws: &Workspace, t: &task::Task, branch: &Branch) -> Result<()> {
+    let tab_command = match crate::branch_tests::test_command(&branch.worktree)? {
+        Some(_) => {
+            let exe = std::env::current_exe().context("could not find the niritasks binary")?;
+            Some(crate::branch_tests::here_command(&exe.display().to_string(), ws.name(), &t.uuid))
+        }
+        None => None,
+    };
+    let (session, claude) = prepare(ws, t, Mode::Branch, Some(branch))?;
+    branch_in(&session, t, ws.name(), &claude, branch, tab_command.as_deref())
+}
+
+/// [`explain_branch`]'s steps in `session`, apart from what reads the
+/// machine: with no `tab_command`, Claude at once ([`open_in`]); with one,
+/// the tests tab, in the worktree, running it.
+///
+/// The tests tab is opened under the session's claim, as Start working's
+/// setup tab is, after looking for the branch's Claude, which a press
+/// goes back to, and for the task's tests tab, which a press points at
+/// rather than opening a second. The claim is kept until the new tab is
+/// seen holding the tests lock, so a second press waiting on it finds the
+/// lock held; then it goes, and the tab takes it again only to start
+/// Claude, once the tests are done.
+fn branch_in(session: &Session, t: &task::Task, workspace_label: &str, claude: &Claude, branch: &Branch, tab_command: Option<&str>) -> Result<()> {
+    let Some(command) = tab_command else {
+        let text = branch_prompt(&t.uuid, &branch.base, branch.tests.as_deref());
+        return open_in(session, t, workspace_label, claude, Mode::Branch, &branch.worktree, &text);
+    };
+    let claim = session.claim()?;
+    let workspaces = session.open()?;
+    if session.focus_agent(&agent_name(Mode::Branch, &t.uuid))? {
+        session.notify(already_open(Mode::Branch));
+        return Ok(());
+    }
+    if session.tests_under_way(&t.uuid)? {
+        session.notify(TESTS_UNDER_WAY);
+        return Ok(());
+    }
+    let tab = session.new_tab(&workspaces, &branch.worktree, &names::tests_tab_label(&t.description), workspace_label)?;
+    session.run_in_pane(&tab.pane, command)?;
+    session.wait_for_tests(&t.uuid);
+    drop(claim);
+    Ok(())
 }
 
 /// [`launch`]'s body, for a branch too: the project is the worktree, and
 /// the prompt names the base.
 fn start(ws: &Workspace, t: &task::Task, mode: Mode, branch: Option<&Branch>) -> Result<()> {
+    let (session, claude) = prepare(ws, t, mode, branch)?;
+    let project = branch.map_or(session.dir(), |b| b.worktree.as_path());
+    let text = match branch {
+        Some(b) => branch_prompt(&t.uuid, &b.base, b.tests.as_deref()),
+        None => prompt(&t.uuid, mode),
+    };
+    open_in(&session, t, ws.name(), &claude, mode, project, &text)
+}
+
+/// Everything [`start`] needs before it opens anything: the fence made and
+/// the mod found, or the refusal, and the session and the fenced Claude.
+fn prepare(ws: &Workspace, t: &task::Task, mode: Mode, branch: Option<&Branch>) -> Result<(Session, Claude)> {
     let dirs = Dirs::from_env()?;
 
     // Before anything opens, so a refused refine opens no tab. It may
@@ -509,11 +590,7 @@ fn start(ws: &Workspace, t: &task::Task, mode: Mode, branch: Option<&Branch>) ->
     );
 
     let claude = Claude::Refiner { settings, mod_dir, tmp: fence.tmp.clone() };
-    let text = match branch {
-        Some(b) => branch_prompt(&t.uuid, &b.base),
-        None => prompt(&t.uuid, mode),
-    };
-    open_in(&session, t, ws.name(), &claude, mode, project, &text)
+    Ok((session, claude))
 }
 
 /// The herdr agent `mode`'s session runs under: Refine and Grill me share
@@ -1743,7 +1820,7 @@ Num       RefCount Protocol Flags    Type St Inode Path
 
     #[test]
     fn a_branch_session_prompts_report_branch_with_its_base() {
-        assert_eq!(branch_prompt("u-1", "main"), "/report-branch u-1 main");
+        assert_eq!(branch_prompt("u-1", "main", None), "/report-branch u-1 main");
         assert_eq!(agent_name(Mode::Branch, "7CD9FD3A-d27b"), "branch-7cd9fd3a");
         assert_eq!(tab_label(Mode::Branch, "fix: a thing"), "Branch: fix: a thing");
     }
@@ -1752,7 +1829,7 @@ Num       RefCount Protocol Flags    Type St Inode Path
     /// branch, which worktree and which base; a plan report's says no branch.
     #[test]
     fn a_branch_session_tells_the_mod_its_worktree_and_base() {
-        let b = Branch { worktree: PathBuf::from("/w/t"), base: "main".into() };
+        let b = Branch { worktree: PathBuf::from("/w/t"), base: "main".into(), tests: None };
         let json = session_settings(Path::new("/w/t"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Branch, Some(&b), false, None);
         let v: Value = serde_json::from_str(&json).unwrap();
         let options = &v["pluginConfigs"][REFINE_MOD]["options"];
@@ -1774,7 +1851,7 @@ Num       RefCount Protocol Flags    Type St Inode Path
         let fake = Fake::running(&[("w1", "alpha")]);
         open(&fake, Mode::Report).unwrap();
         let session = Session::with_port("alpha", PathBuf::from("/p/alpha"), Box::new(fake.clone()));
-        open_in(&session, &tk(), "alpha", &refiner(), Mode::Branch, Path::new("/w/t"), &branch_prompt(&tk().uuid, "main")).unwrap();
+        open_in(&session, &tk(), "alpha", &refiner(), Mode::Branch, Path::new("/w/t"), &branch_prompt(&tk().uuid, "main", None)).unwrap();
         let log = fake.log();
         assert!(log.iter().any(|l| l == "tab_create alpha w1 /w/t Branch: fix: a thing"), "{log:?}");
         assert!(log.iter().any(|l| l.starts_with("agent_start alpha branch-7cd9fd3a ")), "{log:?}");
@@ -1782,5 +1859,94 @@ Num       RefCount Protocol Flags    Type St Inode Path
             log.iter().any(|l| l.starts_with("agent_prompt alpha branch-7cd9fd3a") && l.contains("/report-branch 7cd9fd3a-d27b-4387-8249-aaf0d6785f90 main")),
             "{log:?}"
         );
+    }
+
+    /// With a test run, the prompt names its results file after the base,
+    /// and the mod is told it as `tests`; without one, `tests` is empty.
+    #[test]
+    fn a_branch_session_with_a_test_run_names_its_results() {
+        assert_eq!(
+            branch_prompt("u-1", "main", Some(Path::new("/r/branch-u-1-tests.json"))),
+            "/report-branch u-1 main /r/branch-u-1-tests.json"
+        );
+        let b = Branch { worktree: PathBuf::from("/w/t"), base: "main".into(), tests: Some(PathBuf::from("/r/t.json")) };
+        let json = session_settings(Path::new("/w/t"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Branch, Some(&b), false, None);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["tests"], "/r/t.json");
+        let b = Branch { tests: None, ..b };
+        let json = session_settings(Path::new("/w/t"), Path::new("/t"), &fence(&[]), "u", Path::new("/r"), Mode::Branch, Some(&b), false, None);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["pluginConfigs"][REFINE_MOD]["options"]["tests"], "");
+    }
+
+    fn branch() -> Branch {
+        Branch { worktree: PathBuf::from("/w/t"), base: "main".into(), tests: None }
+    }
+
+    /// An Explain branch press's session steps over `fake`, with
+    /// `tab_command` the tests tab's command, or none.
+    fn explain(fake: &Fake, tab_command: Option<&str>) -> Result<()> {
+        let session = Session::with_port("alpha", PathBuf::from("/p/alpha"), Box::new(fake.clone()));
+        branch_in(&session, &tk(), "alpha", &refiner(), &branch(), tab_command)
+    }
+
+    /// With no test command, the press starts Claude straight away, as it
+    /// always has, prompted with no results file; no tests tab, no lock.
+    #[test]
+    fn a_branch_with_no_test_command_starts_claude_directly() {
+        let fake = Fake::running(&[("w1", "alpha")]);
+        explain(&fake, None).unwrap();
+        let log = fake.log();
+        assert!(log.iter().any(|l| l == "tab_create alpha w1 /w/t Branch: fix: a thing"), "{log:?}");
+        assert!(
+            log.iter().any(|l| l == "agent_prompt alpha branch-7cd9fd3a /report-branch 7cd9fd3a-d27b-4387-8249-aaf0d6785f90 main"),
+            "{log:?}"
+        );
+        assert!(!log.iter().any(|l| l.contains("Tests:") || l.starts_with("tests_lock")), "{log:?}");
+    }
+
+    /// With one, the press opens a tests tab in the worktree and runs the
+    /// command in it, keeping the claim until the tab holds the tests lock;
+    /// Claude is the tab's to start, not the press's.
+    #[test]
+    fn a_branch_with_a_test_command_opens_a_tests_tab() {
+        let fake = Fake::running(&[("w1", "alpha")]).with_tests_held_after(2);
+        explain(&fake, Some("'/bin/nt' task report u --branch --here --workspace alpha")).unwrap();
+        let log = fake.log();
+        assert_eq!(log[0], "claim alpha", "{log:?}");
+        let tab = at(&log, "tab_create alpha w1 /w/t Tests: fix: a thing");
+        assert!(at(&log, "agent_get alpha branch-7cd9fd3a") < tab, "the agent is looked for first: {log:?}");
+        let run = at(&log, "pane_run alpha");
+        assert!(log[run].ends_with(" '/bin/nt' task report u --branch --here --workspace alpha"), "{log:?}");
+        assert!(tab < run && run < at(&log, "tests_held"), "{log:?}");
+        assert!(at(&log, "tests_held") < at(&log, "release alpha"), "{log:?}");
+        assert!(!log.iter().any(|l| l.starts_with("agent_start") || l.starts_with("agent_prompt")), "{log:?}");
+    }
+
+    /// A press while the task's tests run opens no second tab, and says
+    /// where they are.
+    #[test]
+    fn a_press_while_the_tests_run_opens_no_second_tab() {
+        let fake = Fake::running(&[("w1", "alpha")]).with_tests_held_after(0);
+        explain(&fake, Some("cmd")).unwrap();
+        let log = fake.log();
+        assert!(log.contains(&format!("notify {TESTS_UNDER_WAY}")), "{log:?}");
+        assert_eq!(TESTS_UNDER_WAY, "Already running this task's tests — see its tab.");
+        assert!(!log.iter().any(|l| ["tab_create", "pane_run", "agent_start"].iter().any(|p| l.starts_with(p))), "{log:?}");
+        assert_eq!(log.last().map(String::as_str), Some("release alpha"), "{log:?}");
+    }
+
+    /// A press with the branch's Claude already up goes back to it, and
+    /// runs no tests.
+    #[test]
+    fn a_press_with_the_branch_session_live_focuses_it() {
+        let fake = Fake::running(&[("w1", "alpha")]);
+        explain(&fake, None).unwrap();
+        let before = fake.log().len();
+        explain(&fake, Some("cmd")).unwrap();
+        let log: Vec<String> = fake.log().into_iter().skip(before).collect();
+        assert!(log.iter().any(|l| l == "agent_focus alpha branch-7cd9fd3a"), "{log:?}");
+        assert!(log.contains(&format!("notify {}", already_open(Mode::Branch))), "{log:?}");
+        assert!(!log.iter().any(|l| l.starts_with("tab_create") || l.starts_with("pane_run")), "{log:?}");
     }
 }

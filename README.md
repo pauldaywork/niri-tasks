@@ -100,7 +100,7 @@ applies:
 | **Get started**, **Back to worktree** once started | on a task on the list, unless its work Claude is running: Go to work session then goes there |
 | **Generate report**, **Regenerate report** once one exists | on a planned task on the list |
 | **Open report** | its notes link a report (`Report: <path>`, the path absolute, `~/...`, or a name in `~/.local/share/niri-tasks/reviews`): an HTML one in a new browser window on this workspace, a Markdown one in a VS Code of its own, as the plan and spec are |
-| **Explain branch** | the task has a worktree: Claude, in a tab of its own in the worktree, explains what its branch has changed since it left the default branch, runs the tests, and links the deck as `Branch report: <path>` |
+| **Explain branch** | the task has a worktree: its tests run first in a `Tests:` tab, outside Claude's sandbox, when it has a test command; then Claude, in a tab of its own in the worktree, explains what its branch has changed since it left the default branch, reports on that test run (or runs what tests it can itself), and links the deck as `Branch report: <path>` |
 | **Branch report** | its notes link a branch report: opened as Open report opens a report |
 | **Planning doc**, **Design spec** | its notes link a plan (`Plan: <path>`) or a spec (`Spec: <path>`): opened in a VS Code of its own, apart from your VS Code windows, sharing your extensions, settings and keybindings |
 | **Go to refine session**, **Go to work session** | on a task on the list, that Claude (`task-<uuid8>`, `work-<uuid8>`) is running, checked as the panel slides out |
@@ -422,8 +422,10 @@ niritasks task report <uuid>       # open the report of its plan linked from its
                                    #   (beside any refine tab), opened in the browser and linked from the task's
                                    #   notes (a planned task only)
 niritasks task report <uuid> --fresh  #   build a new report even when its notes link one
-niritasks task report <uuid> --branch  # open the branch report linked from its notes; without one, Claude explains what its worktree branch has changed, runs the tests, opens the report and links it
+niritasks task report <uuid> --branch  # open the branch report linked from its notes; without one, Claude explains what its worktree branch has changed, opens the report and links it; first, a Tests: tab runs the worktree's tests outside Claude's sandbox (git config niri-tasks.test, else NIRITASKS_HEADLESS=1 bash tests/all.sh) and Claude reports on that run
 niritasks task report <uuid> --branch --fresh  #   explain the branch afresh even when its notes link a branch report
+niritasks task report <uuid> --branch --here --workspace <name>
+                                   # internal: the tests step, run inside the Tests: tab `task report --branch` opens
 niritasks task docs <uuid> --project <dir> --notes-dir <dir>
                                    # list its documents, label<TAB>path: its reports (the Markdown twin, else
                                    #   the HTML), Markdown its notes name by path, its notes written to

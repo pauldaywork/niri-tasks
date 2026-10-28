@@ -270,10 +270,33 @@ pub(crate) trait Port {
     /// claim is dropped, waiting for one already held; an error when it is
     /// still held after a bounded wait.
     fn claim(&self, session: &str) -> Result<Claim>;
-    /// Try `task`'s setup lock, which a setup tab holds for its whole life,
-    /// for up to `wait`: the lock, or None when another holds it still. A
-    /// zero `wait` tries once.
-    fn setup_lock(&self, task: &str, wait: Duration) -> Result<Option<Claim>>;
+    /// Try `task`'s `lock`, which a setup or tests tab holds for its whole
+    /// life, for up to `wait`: the lock, or None when another holds it
+    /// still. A zero `wait` tries once.
+    fn task_lock(&self, lock: TaskLock, task: &str, wait: Duration) -> Result<Option<Claim>>;
+}
+
+/// Which of a task's per-task locks: each is held by the one tab doing
+/// that slow step for the task, for its whole life, so a second press
+/// meanwhile points at that tab rather than opening another. Apart, so
+/// a branch's test run and Start working's setup never shut each other out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskLock {
+    /// Start working's setup tab, making the worktree.
+    Setup,
+    /// Explain branch's tests tab, running the branch's tests.
+    Tests,
+}
+
+impl TaskLock {
+    /// The lock's name, in its file's (`task-<uuid8>.<name>.lock`) and in
+    /// the fake's log.
+    pub fn name(self) -> &'static str {
+        match self {
+            TaskLock::Setup => "setup",
+            TaskLock::Tests => "tests",
+        }
+    }
 }
 
 /// How long a just-opened project terminal gets to bring its herdr session up.
@@ -403,26 +426,52 @@ impl Session {
     /// takes it for a moment; held past that, another tab is setting the
     /// task up, and this one says so.
     pub fn hold_setup(&self, task: &str) -> Result<Claim> {
-        self.port
-            .setup_lock(task, SETUP_TAKE_WAIT)?
-            .context("This task is already being set up in another tab.")
+        self.hold(TaskLock::Setup, task, "This task is already being set up in another tab.")
     }
 
     /// Whether a setup tab holds `task`'s setup lock now. Looks once, without
     /// waiting, and lets a free lock go at once, so a setup tab starting just
     /// then gets it within its brief wait.
     pub fn setup_under_way(&self, task: &str) -> Result<bool> {
-        Ok(self.port.setup_lock(task, Duration::ZERO)?.is_none())
+        self.under_way(TaskLock::Setup, task)
     }
 
     /// Wait for the setup tab a launch just opened to hold `task`'s setup
     /// lock, for a few seconds at most: a tab whose command never starts must
     /// not keep the launch's claim, and every launch in the session with it.
     pub fn wait_for_setup(&self, task: &str) {
+        self.wait_for(TaskLock::Setup, task)
+    }
+
+    /// [`Session::hold_setup`] for Explain branch's tests tab: held while
+    /// the branch's tests run and Claude is started after them.
+    pub fn hold_tests(&self, task: &str) -> Result<Claim> {
+        self.hold(TaskLock::Tests, task, "This task's tests are already running in another tab.")
+    }
+
+    /// [`Session::setup_under_way`] for the tests tab.
+    pub fn tests_under_way(&self, task: &str) -> Result<bool> {
+        self.under_way(TaskLock::Tests, task)
+    }
+
+    /// [`Session::wait_for_setup`] for the tests tab.
+    pub fn wait_for_tests(&self, task: &str) {
+        self.wait_for(TaskLock::Tests, task)
+    }
+
+    fn hold(&self, lock: TaskLock, task: &str, held: &'static str) -> Result<Claim> {
+        self.port.task_lock(lock, task, SETUP_TAKE_WAIT)?.context(held)
+    }
+
+    fn under_way(&self, lock: TaskLock, task: &str) -> Result<bool> {
+        Ok(self.port.task_lock(lock, task, Duration::ZERO)?.is_none())
+    }
+
+    fn wait_for(&self, lock: TaskLock, task: &str) {
         for _ in 0..SETUP_POLLS {
             // The wait is best effort and the tab is running already, so a
             // lock file that cannot be looked at ends it rather than the launch.
-            if self.setup_under_way(task).unwrap_or(true) {
+            if self.under_way(lock, task).unwrap_or(true) {
                 return;
             }
             self.port.sleep(SETUP_POLL);
@@ -864,6 +913,23 @@ mod tests {
         let (s, _f) = session(Fake::running(&[("w1", "alpha")]).with_setup_held_after(0));
         let err = s.hold_setup("7cd9fd3a-0000").map(drop).unwrap_err().to_string();
         assert!(err.contains("already being set up in another tab"), "{err}");
+    }
+
+    /// A tests tab holds its task's tests lock, not its setup lock, and a
+    /// second one finds it held and says so; a look at it lets go at once.
+    #[test]
+    fn a_tests_tab_holds_its_own_lock() {
+        let (s, f) = session(Fake::running(&[("w1", "alpha")]));
+        let held = s.hold_tests("7cd9fd3a-0000").unwrap();
+        assert!(logged(&f, "tests_lock 7cd9fd3a-0000 2000ms"), "{:?}", f.log());
+        assert!(!logged_start(&f, "setup_lock"), "{:?}", f.log());
+        drop(held);
+        assert!(logged(&f, "tests_release 7cd9fd3a-0000"), "{:?}", f.log());
+        let (s, _f) = session(Fake::running(&[("w1", "alpha")]).with_tests_held_after(0));
+        let err = s.hold_tests("7cd9fd3a-0000").map(drop).unwrap_err().to_string();
+        assert!(err.contains("tests are already running in another tab"), "{err}");
+        assert!(s.tests_under_way("7cd9fd3a-0000").unwrap());
+        assert!(!s.setup_under_way("7cd9fd3a-0000").unwrap(), "the setup lock is apart");
     }
 
     /// A look at the setup lock tries once, without waiting, and lets a free

@@ -465,8 +465,8 @@ impl Port for Process {
         let waiting = || self.notify(CLAIM_WAITING);
         Ok(Claim::new(claim_in(&claims_dir(), session, CLAIM_WAIT, CLAIM_POLL, waiting)?))
     }
-    fn setup_lock(&self, task: &str, wait: Duration) -> Result<Option<Claim>> {
-        Ok(setup_lock_in(&claims_dir(), task, wait, CLAIM_POLL)?.map(Claim::new))
+    fn task_lock(&self, lock: super::TaskLock, task: &str, wait: Duration) -> Result<Option<Claim>> {
+        Ok(task_lock_in(&claims_dir(), lock, task, wait, CLAIM_POLL)?.map(Claim::new))
     }
 }
 
@@ -520,15 +520,22 @@ pub(crate) fn claim_in(
     })
 }
 
-/// Try `task`'s setup lock, which a setup tab holds for its whole life: an
-/// exclusive lock on `task-<uuid8>.setup.lock` in `dir` (see [`lock_in`]),
-/// or None when it is still held once `wait` has passed. A zero `wait`
-/// tries once, which is how a launch looks to see whether it is held.
-pub(crate) fn setup_lock_in(dir: &Path, task: &str, wait: Duration, poll: Duration) -> Result<Option<File>> {
+/// Try `task`'s `lock`, which a setup or tests tab holds for its whole
+/// life: an exclusive lock on `task-<uuid8>.<name>.lock` in `dir` (see
+/// [`lock_in`]), `setup` or `tests`, or None when it is still held once
+/// `wait` has passed. A zero `wait` tries once, which is how a launch looks
+/// to see whether it is held.
+pub(crate) fn task_lock_in(dir: &Path, lock: super::TaskLock, task: &str, wait: Duration, poll: Duration) -> Result<Option<File>> {
     // Through herdr's naming rule as a session's name is, so a task that is
     // not a uuid can never carry a `/` out of the folder.
-    let name = format!("task-{}.setup.lock", super::herdr_session_name(&crate::names::uuid8(task)));
+    let name = format!("task-{}.{}.lock", super::herdr_session_name(&crate::names::uuid8(task)), lock.name());
     lock_in(dir, &name, wait, poll, || ())
+}
+
+/// [`task_lock_in`] for the setup lock, as its tests take it.
+#[cfg(test)]
+pub(crate) fn setup_lock_in(dir: &Path, task: &str, wait: Duration, poll: Duration) -> Result<Option<File>> {
+    task_lock_in(dir, super::TaskLock::Setup, task, wait, poll)
 }
 
 /// An exclusive `flock` on `name` in `dir`, tried every `poll` until it is
@@ -695,6 +702,23 @@ mod tests {
         assert!(setup_lock_in(&dir, "11111111-0000", Duration::ZERO, poll).unwrap().is_some());
         drop(first);
         assert!(setup_lock_in(&dir, task, Duration::ZERO, poll).unwrap().is_some(), "free once its holder goes");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A task's tests lock is a file of its own beside its setup lock, so
+    /// a branch's test run and Start working's setup never shut each other
+    /// out.
+    #[test]
+    fn a_tests_lock_is_apart_from_the_setup_lock() {
+        let dir = scratch("tests");
+        let task = "7cd9fd3a-d27b-4387-8249-aaf0d6785f90";
+        let poll = Duration::from_millis(10);
+        let setup = task_lock_in(&dir, super::super::TaskLock::Setup, task, Duration::ZERO, poll).unwrap();
+        assert!(setup.is_some());
+        let tests = task_lock_in(&dir, super::super::TaskLock::Tests, task, Duration::ZERO, poll).unwrap();
+        assert!(tests.is_some(), "free while the setup lock is held");
+        assert!(dir.join("task-7cd9fd3a.tests.lock").is_file());
+        assert!(task_lock_in(&dir, super::super::TaskLock::Tests, task, Duration::ZERO, poll).unwrap().is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
