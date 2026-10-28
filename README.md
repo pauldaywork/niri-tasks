@@ -687,6 +687,20 @@ hand: × deletes its row, "+ Add note" appends an empty row with the cursor in
 it, and a long note list scrolls, keeping a row made by Enter at the bottom in
 view.
 
+> [!IMPORTANT]
+> All three scripts run `niritasks` **from `$PATH`** — the installed binary, not the one you
+> just built. A green run after an edit you have not installed is testing the
+> old code. Point them at a build with `NIRITASKS=`:
+>
+> ```bash
+> cargo build --release
+> NIRITASKS=./target/release/niritasks bash tests/e2e-box.sh
+> ```
+>
+> To try a change by hand rather than under test, use `bash try.sh` (below),
+> not `install.sh` or `cargo install`: both replace the `niritasks` your
+> daemon and every other worktree's test runs use.
+
 ### Running the tests in a container
 
 `tests/container.sh` runs `tests/all.sh` in a Docker container, against this
@@ -717,9 +731,9 @@ out, and Claude Code is never logged in.
 lists what the image holds. Inside, `tests/container/inside.sh` starts a
 headless sway, an outer niri in it with two named workspaces, builds the copy
 and runs `tests/all.sh` with `NIRITASKS` set to that build; the e2e suites
-nest their niri in the outer one as they would in yours. GTK gets its settings
-from a `settings.ini` that `inside.sh` writes from the image's gsettings, since
-GTK on Wayland reads no GSettings without a desktop portal.
+nest their niri in the outer one as they would in yours. Since GTK on Wayland
+reads no GSettings without a desktop portal, `inside.sh` also writes a GTK
+`settings.ini` from the image's gsettings.
 
 The image is built on the first run, and again only when one of its four
 inputs changes: the Dockerfile, its GTK settings keyfile
@@ -734,7 +748,10 @@ with `NIRITASKS_CONTAINER_REBUILD=1 bash tests/container.sh`. A second run of
 the same checkout while one is going refuses, since the two would share a
 build directory. Every run is logged in `target/container-tests/`,
 `latest.log` the newest; a failed run's logs and the e2e suites' frames are
-kept beside it in `<stamp>-artifacts/`. It exits as `tests/all.sh` does.
+kept beside it in `<stamp>-artifacts/`. It exits as `tests/all.sh` does,
+non-zero only when a suite that ran said no, and also non-zero when the run
+cannot get that far: no Docker, a failed image build, a refused run, or the
+container's desktop or build failing.
 Each run removes the build volumes nothing will use again — those of
 worktrees since removed, and of images since replaced; old images themselves
 go only when a new one is built, which keeps the three newest. To reclaim everything:
@@ -743,20 +760,6 @@ go only when a new one is built, which keeps the three newest. To reclaim everyt
 docker volume rm $(docker volume ls -q --filter label=niritasks.tests=1)
 docker image rm $(docker image ls -q niritasks-tests)
 ```
-
-> [!IMPORTANT]
-> All three scripts run `niritasks` **from `$PATH`** — the installed binary, not the one you
-> just built. A green run after an edit you have not installed is testing the
-> old code. Point them at a build with `NIRITASKS=`:
->
-> ```bash
-> cargo build --release
-> NIRITASKS=./target/release/niritasks bash tests/e2e-box.sh
-> ```
->
-> To try a change by hand rather than under test, use `bash try.sh` (below),
-> not `install.sh` or `cargo install`: both replace the `niritasks` your
-> daemon and every other worktree's test runs use.
 
 ### Trying a change by hand
 
