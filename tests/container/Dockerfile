@@ -46,7 +46,9 @@ ENV LANG=en_US.UTF-8 \
 # niri 26.04 is not in Ubuntu's archive: the machine's comes from the
 # avengemedia/danklinux PPA, and so does this one, with ghostty. sway is
 # only the headless compositor the outer niri runs in; Mesa is the software
-# GL and Vulkan. The rest is what the suites use on the machine.
+# GL and Vulkan. The rest is what the suites use on the machine, with its
+# system fonts, every one: a glyph the user's fonts below lack falls back
+# to them.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends software-properties-common gpg-agent \
  && add-apt-repository -y ppa:avengemedia/danklinux \
@@ -56,21 +58,14 @@ RUN apt-get update \
       libgtk-4-dev libgtk4-layer-shell-dev libwayland-dev libuuid1 libsqlite3-0 \
       wtype alacritty python3 python3-pil python3-gi gir1.2-gtk-4.0 \
       util-linux procps sqlite3 unzip xz-utils fzf xdg-utils libnotify-bin \
-      fontconfig fonts-noto-core fonts-noto-color-emoji \
+      fontconfig fonts-noto-core fonts-noto-color-emoji fonts-noto-mono fonts-noto-cjk \
+      fonts-dejavu-core fonts-dejavu-extra fonts-dejavu-mono fonts-droid-fallback \
+      fonts-liberation fonts-liberation2 fonts-liberation-sans-narrow fonts-ubuntu fonts-urw-base35 \
       adwaita-icon-theme yaru-theme-gtk yaru-theme-icon hicolor-icon-theme glycin-loaders librsvg2-common \
       dconf-gsettings-backend dconf-cli gsettings-desktop-schemas \
       locales tzdata \
  && rm -rf /var/lib/apt/lists/* \
  && locale-gen en_US.UTF-8
-
-# The panel and the box draw in Iosevka Term Extended, by name
-# (src/panel/style.rs). The machine's version, from the same release zip.
-RUN curl -fsSLo /tmp/iosevka.zip https://github.com/be5invis/Iosevka/releases/download/v34.8.1/PkgTTF-IosevkaTerm-34.8.1.zip \
- && echo "c9929ef8c27e5469906468e378e11d3023690ae9cd411a4af3de78190b901075  /tmp/iosevka.zip" | sha256sum -c - \
- && mkdir -p /usr/local/share/fonts/iosevka-term \
- && unzip -q -j /tmp/iosevka.zip '*.ttf' -d /usr/local/share/fonts/iosevka-term \
- && rm /tmp/iosevka.zip \
- && fc-cache -f
 
 # The machine's GTK look, as a dconf system database GSettings reads with no
 # dconf service running.
@@ -92,6 +87,25 @@ RUN userdel -r ubuntu \
  && chown -R tester:tester /home/tester /work /opt/rust
 USER tester
 WORKDIR /work
+
+# The machine's own fonts, where it has them: in ~/.local/share/fonts, not
+# a system folder. The panel and the box draw in Iosevka Term Extended, by
+# name (src/panel/style.rs), and the action buttons' Font Awesome glyphs
+# (src/actions.rs) fall back to JetBrainsMonoNL Nerd Font. The folder
+# matters: e2e-panel.sh gives the nested session an XDG_DATA_HOME of its
+# own, which takes these fonts out of fontconfig's reach, so on the machine
+# the panel's checks measure Noto Sans and the system fonts' fallbacks.
+# Fonts in /usr/local/share/fonts stay in reach and draw another height.
+# The machine's versions, from the same release zips.
+RUN mkdir -p /home/tester/.local/share/fonts/iosevka-term \
+ && curl -fsSLo /tmp/iosevka.zip https://github.com/be5invis/Iosevka/releases/download/v34.8.1/PkgTTF-IosevkaTerm-34.8.1.zip \
+ && echo "c9929ef8c27e5469906468e378e11d3023690ae9cd411a4af3de78190b901075  /tmp/iosevka.zip" | sha256sum -c - \
+ && unzip -q -j /tmp/iosevka.zip '*.ttf' -d /home/tester/.local/share/fonts/iosevka-term \
+ && curl -fsSLo /tmp/jbm.zip https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/JetBrainsMono.zip \
+ && echo "76f05ff3ace48a464a6ca57977998784ff7bdbb65a6d915d7e401cd3927c493c  /tmp/jbm.zip" | sha256sum -c - \
+ && unzip -q /tmp/jbm.zip -d /home/tester/.local/share/fonts \
+ && rm /tmp/iosevka.zip /tmp/jbm.zip \
+ && fc-cache -f
 
 # What the machine has in ~/.local/bin, where it has it. The folder
 # matters: tests/lib/nested-niri.sh takes herdr's folder off every nested

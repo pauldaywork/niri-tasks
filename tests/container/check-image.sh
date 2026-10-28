@@ -63,7 +63,11 @@ check "Gtk 4.0" python3 -c 'import gi; gi.require_version("Gtk", "4.0"); from gi
 
 echo "fonts"
 check "Iosevka Term Extended" sh -c 'fc-match -f "%{file}" "Iosevka Term Extended" | grep -q "/IosevkaTerm-Extended.ttf$"'
-check "54 Iosevka Term files" sh -c '[ "$(ls /usr/local/share/fonts/iosevka-term/*.ttf | wc -l)" = 54 ]'
+check "54 Iosevka Term files" sh -c '[ "$(ls ~/.local/share/fonts/iosevka-term/*.ttf | wc -l)" = 54 ]'
+check "action glyphs are JetBrainsMonoNL Nerd Font" sh -c 'fc-match -f "%{file}" "Iosevka Term Extended:charset=f141" | grep -q "/JetBrainsMonoNLNerdFont-Regular.ttf$"'
+check "96 JetBrainsMono Nerd Font files" sh -c '[ "$(ls ~/.local/share/fonts/JetBrainsMono*.ttf | wc -l)" = 96 ]'
+check "another XDG_DATA_HOME hides them" sh -c 'XDG_DATA_HOME=/nonexistent fc-match -f "%{file}" "Iosevka Term Extended" | grep -q "/NotoSans-Regular.ttf$"'
+check "and leaves the check mark to Liberation" sh -c 'XDG_DATA_HOME=/nonexistent fc-match -f "%{file}" "Iosevka Term Extended:charset=f00c" | grep -q "/LiberationSerif-Italic.ttf$"'
 check "sans is Noto Sans"     sh -c 'fc-match -f "%{file}" sans-serif | grep -q "/NotoSans-Regular.ttf$"'
 check "emoji is Noto"         sh -c 'fc-match -f "%{file}" emoji | grep -q "/NotoColorEmoji.ttf$"'
 
