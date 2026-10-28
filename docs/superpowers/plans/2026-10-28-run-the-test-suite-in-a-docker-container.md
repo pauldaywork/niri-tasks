@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `bash tests/container.sh` runs all five suites against the current checkout, uncommitted edits included, inside a Docker container, in the foreground or the background, and touches nothing on the machine: not its niri, workspaces, task database or installed `niritasks`.
+**Goal:** `bash tests/container.sh` runs all six suites `tests/all.sh` runs against the current checkout, uncommitted edits included, inside a Docker container, in the foreground or the background, and touches nothing on the machine: not its niri, workspaces, task database or installed `niritasks`.
 
 **Architecture:** An image built from `ubuntu:26.04` (`tests/container/Dockerfile`) reproduces what this machine gives the suites — every program they run, at the machine's versions and in the machine's folders, the same niri, Taskwarrior, compiler, fonts, GTK look, locale, timezone and a uid-1000 user — plus this crate's dependencies already compiled. `tests/container/check-image.sh` proves the image is as designed; `tests/container/parity.sh`, run on both sides at every run, warns when the machine has moved on from the image. Inside a container with no network and no host mounts, `tests/container/inside.sh` starts a headless sway, an outer niri set up like the machine's, makes the links `install.sh` makes, builds the snapshot and runs `tests/all.sh` unchanged. The wrapper `tests/container.sh` gets the image from `tests/container/image.sh` (named after its inputs, built when they change), streams a tar snapshot of the working tree in on stdin, keeps each checkout's build directory in a Docker volume seeded from the image, tees everything to a log, and copies a failed run's logs and frames out.
 
@@ -23,7 +23,7 @@
 - Inside, a headless compositor runs an outer niri with two named workspaces, and `tests/all.sh` runs as it does now. `tests/all.sh`, `tests/e2e-*.sh`, `tests/lib/*`, `install.sh` and `src/` are **not** changed to suit the container. If a check can only pass by changing one of them, stop and tell the user.
 - Nothing on the host is touched, and nothing outside it either: no bind mount of any host path, no host `XDG_RUNTIME_DIR`, Wayland, niri or D-Bus socket, **`--network none`**, `--cap-drop ALL`, `--security-opt no-new-privileges`, no `--privileged`. The only host writes are logs and failure artifacts under the checkout's own `target/container-tests/`, and Docker's own images and volumes, which the scripts prune.
 - The wrapper is `bash tests/container.sh`: builds the image if needed, copies the tree in, runs `tests/all.sh`, saves the log, and can run in the background.
-- Done when: from any worktree the wrapper runs all five suites in the container with zero skips and the same results as on the host, the host's windows, workspaces and task database are unchanged, and README documents it beside `tests/all.sh`.
+- Done when: from any worktree the wrapper runs all of `tests/all.sh`'s suites — six since main added the refine mod's tests (`claude plugin test claude/refine-mod`) on 2026-10-28; the spec said five when it was written — in the container with zero skips and the same results as on the host, the host's windows, workspaces and task database are unchanged, and README documents it beside `tests/all.sh`.
 - Out of scope: CI, and replacing `tests/all.sh` or `try.sh` on the host.
 - Commits: Conventional Commits, `test(container): …`, `docs(readme): …`, subject ≤72 characters, ending with the `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` trailer.
 
@@ -39,9 +39,9 @@ What the suites reach for on this machine, where it comes from here, and what th
 | Taskwarrior 3.5.0 | everything | compiled from the release tarball, `cmake --install` to `~/.local/opt/taskwarrior-3.5.0`, linked from `~/.local/bin/task` | compiled from the same tarball (sha256 pinned), same prefix, same link — so `nested-niri.sh`'s "taking out herdr's folder takes `task` with it" path runs as on the machine |
 | herdr 0.9.3 | every herdr call the suites fake sits in front of it on PATH; `nested-niri.sh` strips its folder from every nested PATH and stops if it can still find it; `programs::tests::startup_commands_join_the_named_session_in_the_raw_folder` asserts the herdr argv only when it is on PATH | `~/.local/bin/herdr`, the static release binary | `herdr-linux-x86_64` v0.9.3 (sha256 pinned) into `~/.local/bin`. No herdr server of yours is reachable: no mounts, no network |
 | worktrunk (`wt`) 0.79.0 | `src/work.rs` checks it is on PATH; e2e-tag and the cargo tests put a fake `wt` first | `~/.local/bin/wt`, ubuntu-setup's pinned musl tarball | the same tarball (sha256 pinned) into `~/.local/bin` |
-| Claude Code 2.1.312 | `src/refine.rs` checks it is on PATH; no suite runs it (refines stop at the fake or missing herdr, and the e2e spawn PATH, `/usr/bin:/bin`, does not hold it on the machine either) | native install, `~/.local/bin/claude` → `~/.local/share/claude/versions/2.1.312` | the official installer pinned to 2.1.312 (it checks the download's checksum), auto-update off. Not logged in, and no network at run time |
+| Claude Code 2.1.312 | runs the refine mod's suite, `claude plugin test claude/refine-mod` (274 tests in 7 files on the machine, ~14s; they pass with a bare `PATH` of `claude`, `/usr/bin` and `/bin` — no bun, node or node_modules; `render/diagrams.mjs` is committed, and `hooks/draw.ts`'s bwrap and runtime lookups are only asserted as argv); `src/refine.rs` checks it is on PATH; no other suite runs it (refines stop at the fake or missing herdr, and the e2e spawn PATH, `/usr/bin:/bin`, does not hold it on the machine either) | native install, `~/.local/bin/claude` → `~/.local/share/claude/versions/2.1.312` | the official installer pinned to 2.1.312 (it checks the download's checksum), auto-update off. Not logged in, and no network at run time |
 | ghostty 1.3.1 | `programs::terminal_command`'s argv; on the e2e spawn PATH (`/usr/bin`) as on the machine | `ghostty 1.3.1ppa11`, `/usr/bin`, from the danklinux PPA (ubuntu-setup) | same PPA, same package |
-| `install.sh`'s links | e2e-tag's `task refine` runs under the real `$HOME`, and `refine::launch` refuses unless `~/.local/share/niri-tasks/refine-mod/.claude-plugin/plugin.json` exists (`src/refine.rs:442`) | `install.sh` links `niri/niri-tasks.kdl`, seven skill files, `claude/refine-mod` and `claude/rules/niri-tasks.md` into `~/.config`, `~/.claude` and `~/.local/share` | `inside.sh` makes the same links from the snapshot at the start of every run, and stops if `install.sh` links a file its list lacks |
+| `install.sh`'s links | e2e-tag's `task refine` runs under the real `$HOME`, and `refine::launch` refuses unless `~/.local/share/niri-tasks/refine-mod/.claude-plugin/plugin.json` exists | `install.sh` links `niri/niri-tasks.kdl`, nine skill files, `claude/refine-mod` and `claude/rules/niri-tasks.md` into `~/.config`, `~/.claude` and `~/.local/share` | `inside.sh` makes the same links from the snapshot at the start of every run, and stops if `install.sh` links a file its list lacks |
 | outer niri's window handling | the nested niri's window must give it a 1600x1000 output, or `nested_start` dies on its size check | `prefer-no-csd`, `layout { border { off; } }` in `~/.config/niri/config.kdl` | the same two settings in `tests/container/niri.kdl`. Without `prefer-no-csd` the nested niri (a winit client) would draw its own title bar inside its window |
 | rustc/cargo 1.95.0 | build, `cargo test` | rustup | rustup-init 1.29.2 (sha256 pinned), toolchain 1.95.0 minimal |
 | the crate's dependencies, compiled | build, `cargo test` | `target/` of each checkout | compiled at image build into `/work/target` (dev profile, the path a run uses); seeded into each new build-directory volume |
@@ -87,7 +87,7 @@ What the suites reach for on this machine, where it comes from here, and what th
 - rustup-init 1.29.2: `https://static.rust-lang.org/rustup/archive/1.29.2/x86_64-unknown-linux-gnu/rustup-init`, sha256 `5be191e8c70a5007074254cb74d78dbfdd25cd5a61c27de7b8e5410122ec24f4`.
 - Iosevka Term 34.8.1: `https://github.com/be5invis/Iosevka/releases/download/v34.8.1/PkgTTF-IosevkaTerm-34.8.1.zip`, sha256 `c9929ef8c27e5469906468e378e11d3023690ae9cd411a4af3de78190b901075`, the same 54 files.
 - The crate is one package with no build script, no dev-dependencies, no features and fixed `[lib]`/`[[bin]]` paths, so its dependencies prebuild with two stub source files and `cargo clean -p niri-tasks` afterwards; cargo-chef, the usual tool, earns its keep on workspaces and build scripts, which this crate has none of.
-- `install.sh`'s file links are the lines that **start** with `link "$REPO/…"` (10 of them). `herdr plugin link "$REPO/herdr/task-docs"` also matches a looser grep and is not a file link.
+- `install.sh`'s file links are the lines that **start** with `link "$REPO/…"` (12 of them, since main added the report-branch skill and its catalogue on 2026-10-28). `herdr plugin link "$REPO/herdr/task-docs"` also matches a looser grep and is not a file link.
 - `refine::launch`'s socket fence (`src/refine.rs:351`) reads `/proc/net/unix`, which is per network namespace: in the container it sees only the container's sockets, all under `/tmp` (sway, both niris, the private D-Bus), which the fence hides. So the refine checks pass there for the same reason as on the machine.
 - Spike, half done: in such an image `sway` (headless, pixman) runs an outer `niri` (`LIBGL_ALWAYS_SOFTWARE=1`) whose `niri msg workspaces` shows its two named workspaces, the first focused; a nested niri on it answers `niri msg action screenshot-screen` with a PNG of the configured `#406080`. Harmless log noise: `EGL_EXT_device_drm` unsupported, no login1/locale1, no xcursor theme, no Xwayland. Sway's default headless output is 1920x1080, which left the outer niri 1916x1053.
 - The worktree's `.git` is a file, so the snapshot is `git ls-files --cached --others --exclude-standard`; no suite needs the checkout to be a repository.
@@ -345,7 +345,9 @@ RUN curl -fsSLo /tmp/iosevka.zip https://github.com/be5invis/Iosevka/releases/do
 # The machine's GTK look, as a dconf system database GSettings reads with no
 # dconf service running.
 COPY tests/container/dconf/00-machine /etc/dconf/db/local.d/00-machine
-RUN printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user && dconf update
+RUN mkdir -p /etc/dconf/profile \
+ && printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user \
+ && dconf update
 
 # A uid-1000 user, as on the machine, with what its home holds there: a
 # .taskrc, and ~/Projects with folders in it, without which e2e-panel.sh
@@ -715,6 +717,8 @@ LINKS=(
     ".claude/skills/refine-task/SKILL.md             .claude/skills/refine-task/SKILL.md"
     ".claude/skills/refine-task/report-catalogue.md  .claude/skills/refine-task/report-catalogue.md"
     ".claude/skills/report-task/SKILL.md             .claude/skills/report-task/SKILL.md"
+    ".claude/skills/report-branch/SKILL.md           .claude/skills/report-branch/SKILL.md"
+    ".claude/skills/report-branch/branch-catalogue.md .claude/skills/report-branch/branch-catalogue.md"
     ".claude/skills/finish-worktree/SKILL.md         .claude/skills/finish-worktree/SKILL.md"
     ".claude/skills/reject-worktree/SKILL.md         .claude/skills/reject-worktree/SKILL.md"
     ".claude/skills/private-github-repo/SKILL.md     .claude/skills/private-github-repo/SKILL.md"
@@ -1094,7 +1098,7 @@ cargo build && NIRITASKS=$PWD/target/debug/niritasks bash tests/all.sh 2>&1 | te
 grep -E '^(passed:|  (PASS|SKIP|FAIL) |[0-9]+ passed|test result:)' target/container-tests/host.log
 ```
 
-Expected: five suites `PASS`. Note each suite's inner `passed: N   failed: M   skipped: K` line and `cargo test`'s `test result:` lines — they are what the container must match.
+Expected: six suites `PASS`. Note each suite's inner `passed: N   failed: M   skipped: K` line, `cargo test`'s `test result:` lines and the refine mod's `N pass` / `N fail` lines — they are what the container must match. (Run it without `NIRITASKS_HEADLESS`, which would skip the e2e suites.)
 
 - [ ] **Step 2: e2e-panel.sh — the gate**
 
@@ -1113,11 +1117,12 @@ If it fails, the run has already kept its frames and logs in `target/container-t
 ```bash
 bash tests/container.sh cargo test; echo "exit: $?"
 bash tests/container.sh python3 -m unittest discover -s herdr/task-docs/tests -t herdr/task-docs; echo "exit: $?"
+bash tests/container.sh claude plugin test claude/refine-mod; echo "exit: $?"
 bash tests/container.sh bash tests/e2e-tag.sh; echo "exit: $?"
 bash tests/container.sh bash tests/e2e-box.sh; echo "exit: $?"
 ```
 
-Expected: each `exit: 0`, with the same counts as the host (`test result: ok. N passed` per cargo test binary; `Ran N tests … OK`; e2e-tag `passed: N   failed: 0`, including its six `task start|refine|session` launch checks, which need the refine mod link; e2e-box `passed: N   failed: 0   skipped: 0`). Fix a failure on the container side as in Step 2, and add anything new to the inventory in `check-image.sh` (and `parity.sh` if it is a version the machine has too), so the checks keep describing the image.
+Expected: each `exit: 0`, with the same counts as the host (`test result: ok. N passed` per cargo test binary; `Ran N tests … OK`; the refine mod's `N pass`, `0 fail` (274 on 2026-10-28) — it runs with no network and no Claude login in here, which is the point to check; e2e-tag `passed: N   failed: 0`, including its six `task start|refine|session` launch checks, which need the refine mod link; e2e-box `passed: N   failed: 0   skipped: 0`). Fix a failure on the container side as in Step 2, and add anything new to the inventory in `check-image.sh` (and `parity.sh` if it is a version the machine has too), so the checks keep describing the image.
 
 - [ ] **Step 4: Commit any fixes**
 
@@ -1128,7 +1133,7 @@ If Steps 2–3 changed anything: `git add tests/container && git commit` with `f
 ### Task 5: README, and proof of the done-when
 
 **Files:**
-- Modify: `README.md` — "Running the tests" (code block around line 595, table around line 614, a subsection before the `> [!IMPORTANT]` box around line 675)
+- Modify: `README.md` — "Running the tests" (code block around line 602, table around line 627, a subsection before the `> [!IMPORTANT]` box around line 688)
 
 **Interfaces:**
 - Consumes: `bash tests/container.sh` (Task 3), `target/container-tests/host.log` (Task 4).
@@ -1152,7 +1157,7 @@ Tell the user the whole suite is about to run in the container, and ask them not
 - [ ] **Step 2: Run everything, and check what the container could reach**
 
 Run: `time bash tests/container.sh; echo "exit: $?"`
-Expected: `parity: the image matches this machine`, `5 passed   0 failed   0 skipped`, every inner summary `skipped: 0`, `exit: 0`. Note the wall time.
+Expected: `parity: the image matches this machine`, `6 passed   0 failed   0 skipped`, every inner summary `skipped: 0`, `exit: 0`. Note the wall time.
 
 While it runs, from a second shell: `docker inspect $(docker ps -q --filter label=niritasks.tests.root="$PWD") --format '{{json .Mounts}} {{.HostConfig.NetworkMode}} {{.HostConfig.Privileged}} {{.HostConfig.CapDrop}}'`
 Expected: one mount, `"Type":"volume"` (`niritasks-tests-target-…`), no `"Type":"bind"`; `none`; `false`; `[ALL]`.
@@ -1178,9 +1183,10 @@ Expected: six `same:` lines. A difference must be traced to the user's own activ
 Counts can match while different checks pass, so compare the checks themselves, with numbers and parenthesised details (timings, pixel columns, pids) taken out:
 
 ```bash
-checks() { grep -E '^ *(PASS|FAIL|SKIP) |^test result:|^passed:|^Ran ' "$1" | sed -E 's/\([^)]*\)//g; s/[0-9]+/N/g; s/ +$//' | sort; }
+checks() { grep -E '^ *(PASS|FAIL|SKIP) |^test result:|^passed:|^Ran |^ *[0-9]+ (pass|fail)$' "$1" | sed -E 's/\([^)]*\)//g; s/[0-9]+/N/g; s/ +$//' | sort; }
 diff <(checks target/container-tests/host.log) <(checks target/container-tests/latest.log) && echo "checks: same"
-grep -E '^test result:|^passed:|^Ran ' target/container-tests/host.log > /tmp/h; grep -E '^test result:|^passed:|^Ran ' target/container-tests/latest.log > /tmp/c; diff /tmp/h /tmp/c && echo "counts: same"
+counts() { grep -E '^test result:|^passed:|^Ran |^ *[0-9]+ (pass|fail)$' "$1" | sed -E 's/\[[0-9.]+s\]//; s/finished in [0-9.]+s//'; }
+diff <(counts target/container-tests/host.log) <(counts target/container-tests/latest.log) && echo "counts: same"
 ```
 
 Expected: `checks: same` and `counts: same`. The one early-returning cargo test (VS Code's — see the inventory) passes on both sides, so it changes neither. Any other difference is a finding: report it with both lines.
