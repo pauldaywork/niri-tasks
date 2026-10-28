@@ -735,8 +735,9 @@ the same checkout while one is going refuses, since the two would share a
 build directory. Every run is logged in `target/container-tests/`,
 `latest.log` the newest; a failed run's logs and the e2e suites' frames are
 kept beside it in `<stamp>-artifacts/`. It exits as `tests/all.sh` does.
-Volumes of removed worktrees and superseded images are removed by the next
-run; after a build, only the three newest images are kept. To reclaim everything:
+Each run removes the build volumes nothing will use again — those of
+worktrees since removed, and of images since replaced; old images themselves
+go only when a new one is built, which keeps the three newest. To reclaim everything:
 
 ```bash
 docker volume rm $(docker volume ls -q --filter label=niritasks.tests=1)
