@@ -3,16 +3,24 @@
 #
 #   bash tests/all.sh
 #
-# There are five suites and they do not have the same prerequisites:
+# There are six suites and they do not have the same prerequisites:
 #   - cargo test needs only cargo and taskwarrior;
 #   - the herdr plugin's tests need python3 and git, and fake herdr;
+#   - the refine mod's tests need claude (`claude plugin test`);
 #   - e2e-tag.sh needs niri;
 #   - e2e-panel.sh needs Pillow, and niri to nest a niri in;
 #   - e2e-box.sh needs wtype and python3, and niri to nest a niri in.
 # A machine missing any of them is the normal case — an SSH session has no Wayland display, a fresh
 # checkout has no wtype — and that is the whole reason this file exists.
-# Running the five by hand means reading five error messages and deciding, each
+# Running the six by hand means reading six error messages and deciding, each
 # time, whether "wtype is required" meant the code is broken or the machine is.
+#
+# NIRITASKS_HEADLESS=1 skips the three e2e suites, whatever the machine has:
+# they nest a niri and borrow a workspace, which is wrong for a run nobody is
+# watching, such as the one Explain branch makes before a branch report. cargo,
+# the plugin tests and the mod tests are what is left. The mod suite is here
+# because the mod is TypeScript that cargo never sees: without it a broken
+# hook or panel would pass this file and show up only in a live session.
 #
 # So each suite's prerequisites are checked here first, and one that cannot run
 # is reported as SKIP with the reason. A skip is not a failure: this exits
@@ -50,18 +58,25 @@ export NIRITASKS
 
 passed=(); failed=(); skipped=()
 
+headless_skip() {
+    [ -n "${NIRITASKS_HEADLESS:-}" ] || return 1
+    echo "headless run (NIRITASKS_HEADLESS)"
+}
+
 # Why this suite cannot run, or nothing at all if it can.
 why_cargo() {
     command -v cargo >/dev/null || { echo "no cargo on \$PATH"; return; }
     command -v task  >/dev/null || { echo "no taskwarrior on \$PATH"; return; }
 }
 why_tag() {
+    headless_skip && return
     command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
     command -v niri >/dev/null || { echo "no niri"; return; }
     command -v flock >/dev/null || { echo "no flock (util-linux)"; return; }
     [ -n "${NIRI_SOCKET:-}" ] || { echo "niri is not running (no \$NIRI_SOCKET)"; return; }
 }
 why_panel() {
+    headless_skip && return
     command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
     command -v niri >/dev/null || { echo "no niri"; return; }
     command -v flock >/dev/null || { echo "no flock (util-linux)"; return; }
@@ -72,6 +87,7 @@ why_panel() {
     python3 -c "import PIL" 2>/dev/null || { echo "no python3 Pillow (sudo apt install python3-pil)"; return; }
 }
 why_box() {
+    headless_skip && return
     command -v "$NIRITASKS" >/dev/null || { echo "no $NIRITASKS on \$PATH — build it, or set NIRITASKS="; return; }
     command -v wtype >/dev/null || { echo "no wtype (sudo apt install wtype)"; return; }
     command -v niri  >/dev/null || { echo "no niri"; return; }
@@ -85,6 +101,10 @@ why_box() {
 why_plugin() {
     command -v python3 >/dev/null || { echo "no python3"; return; }
     command -v git >/dev/null || { echo "no git"; return; }
+}
+
+why_mod() {
+    command -v claude >/dev/null || { echo "no claude on \$PATH"; return; }
 }
 
 suite() {  # name, reason it cannot run (empty if it can), command...
@@ -106,10 +126,11 @@ suite() {  # name, reason it cannot run (empty if it can), command...
 echo "repo      $ROOT"
 echo "niritasks $(command -v "$NIRITASKS" 2>/dev/null || echo "not found ($NIRITASKS)")"
 
-suite "cargo test"           "$(why_cargo)"   cargo test
+suite "cargo test"           "$(why_cargo)"   cargo test --no-fail-fast
 suite "tests/e2e-tag.sh"     "$(why_tag)"     bash tests/e2e-tag.sh
 suite "herdr/task-docs tests" "$(why_plugin)" \
     python3 -m unittest discover -s herdr/task-docs/tests -t herdr/task-docs
+suite "refine mod tests"     "$(why_mod)"     claude plugin test claude/refine-mod
 
 if [ -z "$(why_panel)" ] || [ -z "$(why_box)" ]; then
     echo

@@ -608,13 +608,15 @@ bash tests/e2e-box.sh       # the task box, in a nested niri         ~35s
 
 Each exits non-zero on failure, so any of them can go in a loop or a hook.
 
-`tests/all.sh` is the five in one command, run cheapest-and-quietest first. It
+`tests/all.sh` is the six in one command, run cheapest-and-quietest first. It
 checks each suite's prerequisites itself and reports one it cannot run as a
 **skip, with the reason** — no niri, no Pillow, no Wayland display — rather than
 letting it fail. A skip is not a failure: it exits non-zero only when a suite
 that actually ran said no, which is what makes it safe on a machine that can
 only run half of it. Neither e2e suite takes the machine over: both run in a
 nested niri parked on a spare workspace, and it tells you which one to keep off.
+`NIRITASKS_HEADLESS=1 bash tests/all.sh` skips the three e2e suites and runs the
+rest, including the refine mod's tests (`claude plugin test claude/refine-mod`).
 
 | | Needs | Touches |
 |---|---|---|
