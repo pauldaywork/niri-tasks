@@ -15,7 +15,7 @@ use crate::workspace::Workspace;
 use crate::{refine, task, work};
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::SystemTime;
 
 /// A worktree's test command: a shell line, and what its environment
@@ -49,7 +49,14 @@ pub const CONFIG_KEY: &str = "niri-tasks.test";
 /// when there is a `tests/all.sh`; else none, and the session runs what it
 /// finds itself, in its sandbox, as it always has.
 pub fn test_command(worktree: &Path) -> Result<Option<TestCommand>> {
+    test_command_with(worktree, &[])
+}
+
+/// [`test_command`], with `git_env` added to git's environment: the tests'
+/// seam for keeping the user's own git config out of what is read.
+fn test_command_with(worktree: &Path, git_env: &[(&str, &str)]) -> Result<Option<TestCommand>> {
     let out = Command::new("git")
+        .envs(git_env.iter().copied())
         .arg("-C")
         .arg(worktree)
         .args(["config", "--get", CONFIG_KEY])
@@ -99,26 +106,42 @@ fn unix_secs(t: SystemTime) -> i64 {
 /// file to `reviews`: `branch-<uuid8>-<stamp>-tests.log` and `.json`. The
 /// path of the results file.
 ///
-/// Its output reaches this tab's terminal as it comes, and the log too:
-/// stdout and stderr together, through `tee`, under bash for the exit code
-/// of the command rather than of `tee`. stdin is the terminal's, for a
-/// suite that asks something. Only a command that cannot be started, or
+/// Its output reaches `terminal` as it comes (the tab's own terminal, in
+/// a real run), and the log too: stdout and stderr together, through
+/// `tee`, under bash for the exit code of the command rather than of
+/// `tee`. stdin is the terminal's, for a suite that asks something. Only a command that cannot be started, or
 /// files that cannot be written, are errors; the command's own exit code,
 /// whatever it is, goes in the results file.
-pub fn run_tests(worktree: &Path, cmd: &TestCommand, reviews: &Path, uuid: &str, now: SystemTime) -> Result<PathBuf> {
+pub fn run_tests(
+    worktree: &Path,
+    cmd: &TestCommand,
+    reviews: &Path,
+    uuid: &str,
+    now: SystemTime,
+    terminal: Stdio,
+) -> Result<PathBuf> {
     std::fs::create_dir_all(reviews).with_context(|| format!("could not make {}", reviews.display()))?;
     let started = unix_secs(now);
     let base = format!("branch-{}-{}-tests", crate::names::uuid8(uuid), file_stamp(started));
     let log = reviews.join(format!("{base}.log"));
     let json = reviews.join(format!("{base}.json"));
+    // Ctrl-C in the tab interrupts the tests, and only the tests: the run
+    // is then a result like any other, its exit code 130, and the report
+    // still starts. So this process, bash and `tee` each outlive it. Bash
+    // traps it rather than ignoring it, since an ignored signal stays
+    // ignored in the command it starts; `tee`, which starts nothing,
+    // ignores it.
+    let _held = interrupts::hold();
     // The command and the log go in as arguments, never into the script's
     // text, so nothing in them needs quoting.
+    let script = r#"trap : INT; sh -c "$1" 2>&1 | (trap '' INT; exec tee "$2"); exit "${PIPESTATUS[0]}""#;
     let status = Command::new("bash")
-        .args(["-c", r#"sh -c "$1" 2>&1 | tee "$2"; exit "${PIPESTATUS[0]}""#, "bash"])
+        .args(["-c", script, "bash"])
         .arg(&cmd.shell)
         .arg(&log)
         .current_dir(worktree)
         .envs(cmd.env.iter().map(|(k, v)| (k, v)))
+        .stdout(terminal)
         .status()
         .with_context(|| format!("could not run {} in {}", cmd.display(), worktree.display()))?;
     let finished = unix_secs(SystemTime::now()).max(started);
@@ -134,6 +157,52 @@ pub fn run_tests(worktree: &Path, cmd: &TestCommand, reviews: &Path, uuid: &str,
     });
     std::fs::write(&json, format!("{results:#}\n")).with_context(|| format!("could not write {}", json.display()))?;
     Ok(json)
+}
+
+/// Keeping SIGINT from ending this process while a test run is in hand.
+mod interrupts {
+    use std::sync::Mutex;
+
+    // From the C library every Rust program on Linux already links, so no
+    // crate is needed for one call. glibc's `signal` installs the handler
+    // with BSD semantics: it stays installed, and interrupted calls restart.
+    extern "C" {
+        fn signal(signum: i32, handler: usize) -> usize;
+    }
+    const SIGINT: i32 = 2;
+
+    // A handler that does nothing, rather than SIG_IGN: a caught signal
+    // goes back to its default in a program this one starts, an ignored
+    // one would stay ignored, and the tests could not be interrupted.
+    extern "C" fn nothing(_: i32) {}
+
+    /// How many holds there are, and the handler from before the first.
+    static HELD: Mutex<(usize, usize)> = Mutex::new((0, 0));
+
+    /// SIGINT does nothing to this process until the hold is dropped, and
+    /// what it did before is put back once the last hold is.
+    pub struct Hold(());
+
+    pub fn hold() -> Hold {
+        let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+        if held.0 == 0 {
+            // Safety: `nothing` is async-signal-safe, doing nothing.
+            held.1 = unsafe { signal(SIGINT, nothing as extern "C" fn(i32) as usize) };
+        }
+        held.0 += 1;
+        Hold(())
+    }
+
+    impl Drop for Hold {
+        fn drop(&mut self) {
+            let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+            held.0 -= 1;
+            if held.0 == 0 {
+                // Safety: puts back the handler `signal` gave out.
+                unsafe { signal(SIGINT, held.1) };
+            }
+        }
+    }
 }
 
 /// What the tests tab runs: this binary's `task report <uuid> --branch
@@ -177,7 +246,8 @@ fn test_then_explain(ws: &Workspace, uuid: &str) -> Result<()> {
     let tests = match test_command(&worktree)? {
         Some(cmd) => {
             eprintln!("Running {} in {}\n", cmd.display(), worktree.display());
-            Some(run_tests(&worktree, &cmd, &refine::reports_dir(&dirs), &t.uuid, SystemTime::now())?)
+            let reviews = refine::reports_dir(&dirs);
+            Some(run_tests(&worktree, &cmd, &reviews, &t.uuid, SystemTime::now(), Stdio::inherit())?)
         }
         None => None,
     };
@@ -209,20 +279,25 @@ mod tests {
         dir
     }
 
+    /// Git as the tests read config through it: blind to the user's global
+    /// and the system's config, so neither can set `niri-tasks.test`.
+    const NO_USER_CONFIG: &[(&str, &str)] = &[("GIT_CONFIG_GLOBAL", "/dev/null"), ("GIT_CONFIG_NOSYSTEM", "1")];
+
     /// The repository's own setting wins over `tests/all.sh`, which wins
     /// over nothing.
     #[test]
     fn the_test_command_is_the_config_else_all_sh_else_none() {
         let dir = repo("which");
-        assert_eq!(test_command(&dir).unwrap(), None);
+        let which = || test_command_with(&dir, NO_USER_CONFIG).unwrap();
+        assert_eq!(which(), None);
         std::fs::create_dir_all(dir.join("tests")).unwrap();
         std::fs::write(dir.join("tests/all.sh"), "exit 0\n").unwrap();
         assert_eq!(
-            test_command(&dir).unwrap(),
+            which(),
             Some(TestCommand { shell: "bash tests/all.sh".into(), env: vec![("NIRITASKS_HEADLESS".into(), "1".into())] })
         );
         git(&dir, &["config", CONFIG_KEY, "make check"]);
-        assert_eq!(test_command(&dir).unwrap(), Some(TestCommand { shell: "make check".into(), env: vec![] }));
+        assert_eq!(which(), Some(TestCommand { shell: "make check".into(), env: vec![] }));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -245,7 +320,7 @@ mod tests {
         let cmd = TestCommand { shell: "echo hi; echo \"$WHO\" >&2; pwd; exit 3".into(), env: vec![("WHO".into(), "there".into())] };
         // 2026-10-28 01:02:03 UTC.
         let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_793_149_323);
-        let json = run_tests(&work, &cmd, &reviews, "7CD9FD3A-d27b", now).unwrap();
+        let json = run_tests(&work, &cmd, &reviews, "7CD9FD3A-d27b", now, Stdio::null()).unwrap();
         assert_eq!(json, reviews.join("branch-7cd9fd3a-20261028-010203-tests.json"));
         let log = reviews.join("branch-7cd9fd3a-20261028-010203-tests.log");
         let text = std::fs::read_to_string(&log).unwrap();
@@ -266,9 +341,28 @@ mod tests {
     #[test]
     fn a_passing_run_says_exit_code_0() {
         let work = scratch("pass");
-        let json = run_tests(&work, &TestCommand { shell: "true".into(), env: vec![] }, &work, "u", SystemTime::now()).unwrap();
+        let cmd = TestCommand { shell: "true".into(), env: vec![] };
+        let json = run_tests(&work, &cmd, &work, "u", SystemTime::now(), Stdio::null()).unwrap();
         let v: Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
         assert_eq!(v["exit_code"], 0);
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// Ctrl-C in the tab interrupts the whole foreground group: the tests,
+    /// the shell around them and `tee`, and this process. Only the tests
+    /// stop. The run is a result, with their exit code, 130, and the log
+    /// keeps what `tee` was given after the interrupt; the report session
+    /// still starts on it. The interrupt is sent here by hand to each of
+    /// them, since a test cannot press Ctrl-C at a terminal.
+    #[test]
+    fn an_interrupted_run_is_a_result() {
+        let work = scratch("interrupt");
+        let shell = r#"echo before; kill -INT "$NT_PID" "$PPID"; pkill -INT -x -P "$PPID" tee; echo after; kill -INT $$; echo never"#;
+        let cmd = TestCommand { shell: shell.into(), env: vec![("NT_PID".into(), std::process::id().to_string())] };
+        let json = run_tests(&work, &cmd, &work, "u", SystemTime::now(), Stdio::null()).unwrap();
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+        assert_eq!(v["exit_code"], 130);
+        assert_eq!(std::fs::read_to_string(v["log"].as_str().unwrap()).unwrap(), "before\nafter\n");
         let _ = std::fs::remove_dir_all(&work);
     }
 
