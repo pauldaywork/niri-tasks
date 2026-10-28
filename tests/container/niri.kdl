@@ -1,0 +1,22 @@
+// The outer niri in the test container (tests/container/inside.sh): the
+// niri tests/all.sh takes for yours. Two named workspaces, the first
+// focused, as tests/e2e-tag.sh wants, named like the ~/Projects folders the
+// image makes; the e2e tests park their nested niri on the empty workspace
+// niri keeps after them.
+//
+// prefer-no-csd and no border, as in the machine's config: the nested niri
+// is a winit client, and asked to draw its own decorations it would put a
+// title bar inside its window, leaving its output short of the 1600x1000
+// tests/lib/nested-niri.sh insists on.
+//
+// The startup line is how inside.sh learns this niri's sockets.
+prefer-no-csd
+hotkey-overlay { skip-at-startup; }
+xwayland-satellite { off; }
+animations { off; }
+layout {
+    border { off; }
+}
+workspace "alpha"
+workspace "beta"
+spawn-sh-at-startup "env > $XDG_RUNTIME_DIR/outer.env.tmp && mv $XDG_RUNTIME_DIR/outer.env.tmp $XDG_RUNTIME_DIR/outer.env"
