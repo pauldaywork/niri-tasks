@@ -15,7 +15,8 @@
 - A Docker container, not a VM. A VM only if Task 2 or Task 4 proves niri cannot run in a container — then **stop and ask** the user before anything else.
 - Image from `ubuntu:26.04`, everything baked in, so a run installs nothing (crates on a cold cargo cache are the one download).
 - **Taskwarrior is 3.5.0, compiled from the release tarball, and nothing else.** Never apt's `taskwarrior` (2.6.2) — not directly, not as a dependency. The image build fails if `dpkg -s taskwarrior` succeeds or `task --version` is not exactly `3.5.0`.
-- **VS Code is excluded** (user's decision, 2026-10-28): no `code`, no stub.
+- **VS Code is excluded** (user's decision, 2026-10-28): no `code`, no stub. Everything else the machine has on the suites' PATH is in the image, at the version the machine runs.
+- **Programs sit where they sit on the machine**, because the suites' behaviour depends on the directory: `herdr`, `wt`, `claude` and `task` in `~/.local/bin` (`task` a link into `~/.local/opt/taskwarrior-3.5.0`, `claude` a link into `~/.local/share/claude/versions`), ghostty and the apt programs in `/usr/bin`, and `~/.local/bin` on `PATH` before `/usr/local/bin` and `/usr/bin`. Nothing named `herdr` may be in `/usr/bin` or `/bin`: that is the e2e spawn PATH, and a herdr there makes e2e-panel and e2e-box skip their refine checks.
 - Code goes in as a snapshot of the current working tree, uncommitted edits included, copied in at start; it builds there with `NIRITASKS` set to that build; the cargo cache lives in a Docker volume.
 - Inside, a headless compositor runs an outer niri with two named workspaces, and `tests/all.sh` runs as it does now. `tests/all.sh`, `tests/e2e-*.sh`, `tests/lib/*` and `src/` are **not** changed to suit the container. If a check can only pass by changing one of them, stop and tell the user.
 - Nothing on the host is touched: no bind mount of any host path, no host `XDG_RUNTIME_DIR`, Wayland, niri or D-Bus socket, no `--network host`, no `--privileged`. The only host writes are the log under the checkout's own `target/` and Docker's own image and volumes.
@@ -33,7 +34,11 @@ This is the heart of the plan: what the suites reach for on this machine, where 
 | What | Used by | On this machine | In the image |
 |---|---|---|---|
 | niri 26.04 | e2e suites (outer + nested), `tests/all.sh` checks | `niri 26.04ppa3`, `ppa:avengemedia/danklinux` (ubuntu-setup adds it; **not** in Ubuntu's archive) | same PPA, same package |
-| Taskwarrior 3.5.0 | everything | compiled from the release tarball, `cmake --install` | compiled from the same tarball (sha256 pinned), installed to `/usr/local` |
+| Taskwarrior 3.5.0 | everything | compiled from the release tarball, `cmake --install` to `~/.local/opt/taskwarrior-3.5.0`, linked from `~/.local/bin/task` | compiled from the same tarball (sha256 pinned), same prefix, same link — so `nested-niri.sh`'s "take out herdr's directory, which also holds `task`" path runs as on the machine |
+| herdr 0.9.3 | every herdr call the suites fake sits in front of it on PATH; `nested-niri.sh` strips its directory from every nested PATH and stops if it can still find it; `programs::tests::startup_commands_join_the_named_session_in_the_raw_folder` asserts the herdr argv only when it is on PATH | `~/.local/bin/herdr`, the static release binary | `herdr-linux-x86_64` v0.9.3 (sha256 pinned) into `~/.local/bin`. No herdr server runs in the container, so a stray call reaches nothing — safer than the host, where it would reach yours |
+| worktrunk (`wt`) 0.79.0 | `src/work.rs` checks it is on PATH; e2e-tag and the cargo tests put a fake `wt` first | `~/.local/bin/wt`, ubuntu-setup's pinned musl tarball | the same tarball (sha256 pinned) into `~/.local/bin` |
+| Claude Code 2.1.312 | `src/refine.rs` checks it is on PATH; no suite runs it (refines stop at the missing herdr session, and the e2e spawn PATH, `/usr/bin:/bin`, does not hold it on the machine either) | native install, `~/.local/bin/claude` → `~/.local/share/claude/versions/2.1.312` | the official installer pinned to 2.1.312 (it checks the download's checksum), auto-update off. Not logged in, so anything that did run it would fail rather than spend |
+| ghostty 1.3.1 | `programs::terminal_command`'s argv; on the e2e spawn PATH (`/usr/bin`) as on the machine | `ghostty 1.3.1ppa11`, `/usr/bin`, from the danklinux PPA (ubuntu-setup) | same PPA, same package |
 | rustc/cargo 1.95.0 | build, `cargo test` | rustup | rustup-init 1.29.2 (sha256 pinned), toolchain 1.95.0 minimal |
 | GTK 4.22 + gtk4-layer-shell 1.3 dev, libwayland-dev, pkg-config, build-essential | the crate's `-sys` crates (gtk4, gdk4-wayland, gtk4-layer-shell, wayland-sys, pango, graphene, gio) | apt (ubuntu-setup `APT_BUILD_PACKAGES`) | apt |
 | Iosevka Term 34.8.1 | panel and box font, by name (`src/panel/style.rs:12`); covers every UI glyph (▶ ● ○ × … — · ─ ✓ ✕, checked with `fc-match …:charset=`) | `~/.local/share/fonts/iosevka-term/`, 54 TTFs from the release zip (ubuntu-setup `IOSEVKA_VERSION`) | same zip (sha256 pinned), `/usr/local/share/fonts/iosevka-term` |
@@ -61,8 +66,8 @@ This is the heart of the plan: what the suites reach for on this machine, where 
 |---|---|---|
 | apt `taskwarrior` 2.6.2 (in ubuntu-setup's `APT_PACKAGES`) | the suites are written against 3.5.0 | — (the build refuses it) |
 | VS Code (`code`) | user's decision | `programs::tests::the_editor_is_given_the_project_directory` returns early (passes without asserting), as on any machine without VS Code |
-| herdr | every suite fakes it; `nested-niri.sh` strips it from PATH, and a herdr in `/usr/bin` would make e2e-panel and e2e-box **skip** their refine checks (`tests/e2e-panel.sh:734`, `tests/e2e-box.sh:401`) | `programs::tests::startup_commands_join_the_named_session_in_the_raw_folder` skips its one herdr-only assert |
-| claude, wt (worktrunk), ghostty, gh, plannotator-tui | no suite runs them for real: they are faked (`wt`, `herdr`, `plannotator-tui`) or only an argv is asserted; the e2e spawn PATH (`$SB/bin:/usr/bin:/bin`) has none of them on the host either (they are in `~/.local/bin`), and gh would need your GitHub login | nothing measured |
+| gh | the project list's GitHub refresh, which needs your GitHub login; without gh it keeps its cached list, which in the e2e sandbox is empty either way | nothing measured |
+| plannotator-tui | the herdr plugin tests fake it | nothing |
 | ffmpeg/ffplay, docker, nvidia-smi, curl's Kokoro use (`src/speak.rs`) | its unit tests only assert argv strings and run `cat` | nothing |
 | mako, waybar, fuzzel, bubblewrap, socat, your niri config and window rules | desktop pieces no suite reaches: notifications are stubbed, the nested niri has its own config, the refine sandbox is never started | nothing |
 | the installed `niritasks`, its systemd unit, `install.sh`'s links (skills, rules, refine mod, herdr plugin, niri include) | the suites run the snapshot's build through `NIRITASKS`, and the e2e scripts point `XDG_DATA_HOME` at a sandbox; `systemctl --user` missing makes `nested_service_untouched` compare `0` with `0` | nothing |
@@ -70,6 +75,7 @@ This is the heart of the plan: what the suites reach for on this machine, where 
 ### Other facts
 
 - In `ubuntu:26.04` with the PPA added, the image's whole apt list resolves (359 packages) and pulls in neither `taskwarrior` nor any missing package (checked with `apt-get install -s`).
+- Pins for the `~/.local/bin` programs: herdr `https://github.com/herdrdev/herdr/releases/download/v0.9.3/herdr-linux-x86_64`, sha256 `18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7` (from `https://herdr.dev/latest.json`'s `releases`); worktrunk `https://github.com/max-sixty/worktrunk/releases/download/v0.79.0/worktrunk-x86_64-unknown-linux-musl.tar.xz`, sha256 `b8c190b1d652370ef9f6b8f4694a2d6831b5b22f4b789f047612aad32764c6cf`, binary at `worktrunk-x86_64-unknown-linux-musl/wt` (ubuntu-setup `lib/manifest.sh`); Claude Code `curl -fsSL https://claude.ai/install.sh | bash -s 2.1.312`, run as the user, installs `~/.local/bin/claude` → `~/.local/share/claude/versions/2.1.312`.
 - Spike, half done: in such an image `sway` (headless, pixman) runs an outer `niri` (`LIBGL_ALWAYS_SOFTWARE=1`) whose `niri msg workspaces` shows its two named workspaces, the first focused; a nested niri on it, started as `tests/lib/nested-niri.sh` does, answers `niri msg action screenshot-screen` with a PNG of the configured `#406080`. Harmless log noise: `EGL_EXT_device_drm` unsupported, no login1/locale1, no xcursor theme, no Xwayland. Sway's default headless output is 1920x1080, which leaves the outer niri 1916x1053.
 - Taskwarrior 3.5.0: `https://github.com/GothenburgBitFactory/taskwarrior/releases/download/v3.5.0/task-3.5.0.tar.gz`, sha256 `9ea64b411f8314414f440ec765dfdf5a86c9f6159df47e2f60cff3db6b31157a`. CMake `3.24...4.0` policy range (apt's 4.2 is fine), C++17, libuuid, libsqlite3, Rust ≥ 1.91.1, network at configure. Must be **installed** (`cmake --install`), or it cannot find `default.theme` (upstream #4174).
 - rustup-init 1.29.2: `https://static.rust-lang.org/rustup/archive/1.29.2/x86_64-unknown-linux-gnu/rustup-init`, sha256 `5be191e8c70a5007074254cb74d78dbfdd25cd5a61c27de7b8e5410122ec24f4`.
@@ -131,7 +137,8 @@ check() {  # label, command...
 echo "programs"
 for p in niri sway alacritty wtype python3 git flock setsid timeout realpath \
          sqlite3 tar fzf xdg-open xdg-settings notify-send dbus-run-session \
-         cargo rustc cc pkg-config task fc-match gsettings locale; do
+         cargo rustc cc pkg-config task fc-match gsettings locale \
+         herdr wt claude ghostty; do
     check "$p" command -v "$p"
 done
 
@@ -140,9 +147,21 @@ check "niri 26.04"          sh -c 'niri --version | grep -q "^niri 26\.04"'
 check "task 3.5.0"          sh -c '[ "$(task --version)" = 3.5.0 ]'
 check "rustc 1.95.0"        sh -c 'rustc --version | grep -q "^rustc 1\.95\.0 "'
 check "no apt taskwarrior"  sh -c '! dpkg -s taskwarrior'
+check "herdr 0.9.3"         sh -c '[ "$(herdr --version)" = "herdr 0.9.3" ]'
+check "wt v0.79.0"          sh -c 'wt --version | grep -q "^wt v0\.79\.0"'
+check "claude 2.1.312"      sh -c 'claude --version | grep -q "^2\.1\.312 "'
+check "ghostty 1.3.1"       sh -c 'ghostty --version | grep -q "^Ghostty 1\.3\.1"'
+
+echo "where they are, as on the machine"
+for p in herdr wt claude task; do
+    check "$p in ~/.local/bin" sh -c "[ \"\$(command -v $p)\" = \"\$HOME/.local/bin/$p\" ]"
+done
+check "task -> ~/.local/opt/taskwarrior-3.5.0" sh -c '[ "$(readlink -f "$HOME/.local/bin/task")" = "$HOME/.local/opt/taskwarrior-3.5.0/bin/task" ]'
+check "ghostty in /usr/bin"   sh -c '[ "$(command -v ghostty)" = /usr/bin/ghostty ]'
+check "no herdr on the e2e spawn PATH" sh -c '! PATH=/usr/bin:/bin command -v herdr'
 
 echo "left out on purpose"
-for p in code herdr claude wt ghostty gh plannotator-tui; do
+for p in code gh plannotator-tui; do
     check "no $p" sh -c "! command -v $p"
 done
 
@@ -200,7 +219,7 @@ exit "$missing"
 - [ ] **Step 2: Run it against the bare base image, to see it fail**
 
 Run: `docker run --rm -i ubuntu:26.04 bash -s < tests/container/check-image.sh; echo "exit: $?"`
-Expected: mostly `MISSING` lines, ending `N missing` with N > 40, and a non-zero exit. (Only things like `tar`, `timeout`, `realpath`, `setsid`, `flock` and the `no …` lines are `ok`.)
+Expected: mostly `MISSING` lines, ending `N missing` with N > 50, and a non-zero exit. (Only things like `tar`, `timeout`, `realpath`, `setsid`, `flock`, `no herdr on the e2e spawn PATH` and the `no …` lines are `ok`.)
 
 - [ ] **Step 3: Write the dconf keyfile**
 
@@ -252,9 +271,10 @@ RUN curl -fsSLo /tmp/rustup-init https://static.rust-lang.org/rustup/archive/1.2
  && /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain 1.95.0 \
  && rm /tmp/rustup-init
 
-# Taskwarrior 3.5.0, compiled from the release tarball as on the machine.
-# Never apt's taskwarrior, which is 2.6.2. Installed, not run from the build
-# tree: 3.5.0 cannot find default.theme otherwise (upstream #4174).
+# Taskwarrior 3.5.0, compiled from the release tarball as on the machine,
+# into the prefix the machine uses. Never apt's taskwarrior, which is 2.6.2.
+# Installed, not run from the build tree: 3.5.0 cannot find default.theme
+# otherwise (upstream #4174).
 FROM base AS taskwarrior
 RUN apt-get update \
  && apt-get install -y --no-install-recommends cmake uuid-dev libsqlite3-dev \
@@ -262,34 +282,33 @@ RUN apt-get update \
 RUN curl -fsSLo /tmp/task.tar.gz https://github.com/GothenburgBitFactory/taskwarrior/releases/download/v3.5.0/task-3.5.0.tar.gz \
  && echo "9ea64b411f8314414f440ec765dfdf5a86c9f6159df47e2f60cff3db6b31157a  /tmp/task.tar.gz" | sha256sum -c - \
  && tar -xzf /tmp/task.tar.gz -C /tmp \
- && cmake -S /tmp/task-3.5.0 -B /tmp/task-build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+ && cmake -S /tmp/task-3.5.0 -B /tmp/task-build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/home/tester/.local/opt/taskwarrior-3.5.0 \
  && cmake --build /tmp/task-build -j"$(nproc)" \
  && cmake --install /tmp/task-build
 
 FROM base
-ENV LANG=en_US.UTF-8
+ENV LANG=en_US.UTF-8 \
+    DISABLE_AUTOUPDATER=1 \
+    PATH=/home/tester/.local/bin:/opt/rust/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # niri 26.04 is not in Ubuntu's archive: the machine's comes from the
-# avengemedia/danklinux PPA, and so does this one. sway is only the headless
+# avengemedia/danklinux PPA, and so does this one, with ghostty. sway is only the headless
 # compositor the outer niri runs in; Mesa is the software GL and Vulkan.
 # Everything else is in the inventory.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends software-properties-common gpg-agent \
  && add-apt-repository -y ppa:avengemedia/danklinux \
  && apt-get install -y --no-install-recommends \
-      niri sway libgl1-mesa-dri libegl-mesa0 libegl1 mesa-vulkan-drivers libvulkan1 \
+      niri ghostty sway libgl1-mesa-dri libegl-mesa0 libegl1 mesa-vulkan-drivers libvulkan1 \
       dbus-daemon dbus-bin \
       libgtk-4-dev libgtk4-layer-shell-dev libwayland-dev libuuid1 libsqlite3-0 \
       wtype alacritty python3 python3-pil python3-gi gir1.2-gtk-4.0 \
-      util-linux procps sqlite3 unzip fzf xdg-utils libnotify-bin \
+      util-linux procps sqlite3 unzip xz-utils fzf xdg-utils libnotify-bin \
       fontconfig fonts-noto-core fonts-noto-color-emoji \
       adwaita-icon-theme yaru-theme-gtk yaru-theme-icon hicolor-icon-theme glycin-loaders librsvg2-common \
       dconf-gsettings-backend dconf-cli gsettings-desktop-schemas \
       locales tzdata \
  && rm -rf /var/lib/apt/lists/* \
  && locale-gen en_US.UTF-8
-COPY --from=taskwarrior /usr/local/bin/task /usr/local/bin/task
-COPY --from=taskwarrior /usr/local/share/doc/task /usr/local/share/doc/task
-RUN ! dpkg -s taskwarrior >/dev/null 2>&1 && [ "$(task --version)" = 3.5.0 ]
 
 # The panel and the box draw in Iosevka Term Extended, by name
 # (src/panel/style.rs). The machine's version, from the same release zip.
@@ -313,10 +332,31 @@ RUN printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user && dconf 
 RUN userdel -r ubuntu \
  && useradd -m -u 1000 -s /bin/bash tester \
  && printf 'data.location=$HOME/.task\n' > /home/tester/.taskrc \
- && mkdir -p /home/tester/Projects/alpha /home/tester/Projects/beta /work/target /opt/rust/cargo/registry \
+ && mkdir -p /home/tester/Projects/alpha /home/tester/Projects/beta /home/tester/.local/bin \
+             /work/target /opt/rust/cargo/registry \
  && chown -R tester:tester /home/tester /work /opt/rust
 USER tester
 WORKDIR /work
+
+# What the machine has in ~/.local/bin, where it has it. The directory
+# matters: tests/lib/nested-niri.sh takes herdr's directory off every nested
+# PATH, and `task` beside it with it, and a herdr in /usr/bin would make the
+# e2e suites skip their refine checks.
+COPY --from=taskwarrior --chown=tester:tester /home/tester/.local/opt/taskwarrior-3.5.0 /home/tester/.local/opt/taskwarrior-3.5.0
+RUN ln -s ../opt/taskwarrior-3.5.0/bin/task /home/tester/.local/bin/task \
+ && ! dpkg -s taskwarrior >/dev/null 2>&1 && [ "$(task --version)" = 3.5.0 ]
+RUN curl -fsSLo /home/tester/.local/bin/herdr https://github.com/herdrdev/herdr/releases/download/v0.9.3/herdr-linux-x86_64 \
+ && echo "18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7  /home/tester/.local/bin/herdr" | sha256sum -c - \
+ && chmod +x /home/tester/.local/bin/herdr
+RUN curl -fsSLo /tmp/wt.tar.xz https://github.com/max-sixty/worktrunk/releases/download/v0.79.0/worktrunk-x86_64-unknown-linux-musl.tar.xz \
+ && echo "b8c190b1d652370ef9f6b8f4694a2d6831b5b22f4b789f047612aad32764c6cf  /tmp/wt.tar.xz" | sha256sum -c - \
+ && tar -xJf /tmp/wt.tar.xz -C /tmp worktrunk-x86_64-unknown-linux-musl/wt \
+ && install -m 755 /tmp/worktrunk-x86_64-unknown-linux-musl/wt /home/tester/.local/bin/wt \
+ && rm -rf /tmp/wt.tar.xz /tmp/worktrunk-x86_64-unknown-linux-musl
+# Claude Code's own installer, pinned to the machine's version; it checks the
+# download against its release manifest. Never logged in here.
+RUN curl -fsSL https://claude.ai/install.sh | bash -s 2.1.312 \
+ && [ "$(readlink /home/tester/.local/bin/claude)" = /home/tester/.local/share/claude/versions/2.1.312 ]
 ```
 
 Notes for the implementer:
@@ -329,7 +369,7 @@ docker build -t niritasks-tests:dev tests/container
 docker run --rm -i niritasks-tests:dev bash -s < tests/container/check-image.sh; echo "exit: $?"
 ```
 
-The first build takes several minutes: Taskwarrior compiles, and the apt list is about 360 packages. Expected: every line `ok`, `0 missing`, `exit: 0`.
+The first build takes several minutes: Taskwarrior compiles, the apt list is about 360 packages, and Claude Code is a ~200MB download. Expected: every line `ok`, `0 missing`, `exit: 0`.
 
 A `MISSING` line is fixed in the Dockerfile (or the keyfile), then rebuild and rerun — never by loosening the check. If a value can't be matched (say `gsettings get` prints a font name differently), compare against `gsettings get org.gnome.desktop.interface <key>` on the host, and stop and ask if the host's own value is now different from the plan's.
 
@@ -341,9 +381,10 @@ git add tests/container
 git commit -m "test(container): add the test image and a check of what it holds
 
 A ubuntu:26.04 image with what the suites use on the machine: niri 26.04
-from the same PPA, Taskwarrior 3.5.0 compiled from its tarball (never
-apt's 2.6), rustc 1.95.0, Iosevka Term 34.8.1, the machine's GTK look
-as a dconf database, en_US.UTF-8 and a uid-1000 user. check-image.sh
+and ghostty from the same PPA, Taskwarrior 3.5.0 compiled from its tarball
+(never apt's 2.6), herdr, worktrunk and Claude Code in ~/.local/bin as
+there, rustc 1.95.0, Iosevka Term 34.8.1, the machine's GTK look as a
+dconf database, en_US.UTF-8 and a uid-1000 user. check-image.sh
 lists each piece as ok or missing.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -876,7 +917,7 @@ Expected: six `same:` lines. A difference must be traced to the user's own activ
 
 Put `target/container-tests/host.log` (Task 4 Step 1) beside `target/container-tests/latest.log` and compare, suite by suite, the inner `passed/failed/skipped` lines and cargo test's `test result:` lines.
 
-Expected: identical counts. The two early-returning cargo tests (VS Code's, herdr's one assert — see the inventory) pass on both sides, so they do not change the counts. Any other difference is a finding: report it with both lines.
+Expected: identical counts. The one early-returning cargo test (VS Code's — see the inventory) passes on both sides, so it does not change the counts. Any other difference is a finding: report it with both lines.
 
 - [ ] **Step 5: From another worktree**
 
@@ -928,9 +969,11 @@ tail -f target/container-tests/latest.log
 
 The image (`tests/container/Dockerfile`) reproduces what the suites use here:
 niri 26.04 from the same PPA, Taskwarrior 3.5.0 compiled from its tarball,
-rustc 1.95.0, Iosevka Term, the GTK theme and font settings, `en_US.UTF-8`,
-your timezone and a uid-1000 user. VS Code, herdr, Claude Code, worktrunk,
-ghostty and gh are left out: the suites fake or skip past them.
+rustc 1.95.0, herdr, worktrunk, Claude Code and ghostty at your versions and
+in the same places, Iosevka Term, the GTK theme and font settings,
+`en_US.UTF-8`, your timezone and a uid-1000 user. VS Code and gh are left out.
+No herdr server runs in it and Claude Code is not logged in, so nothing in
+the container can reach either.
 `docker run --rm -i <image> bash -s < tests/container/check-image.sh` lists
 what it holds. Inside, `tests/container/inside.sh` starts a headless sway, an
 outer niri in it with two named workspaces, builds the copy and runs
