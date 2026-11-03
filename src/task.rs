@@ -1,9 +1,9 @@
 //! Taskwarrior, via the `task` CLI.
 //!
 //! This is the only module that assumes anything about taskwarrior's interface.
-//! The machine here runs 2.6.2, where `task export` emits JSON and there is no
-//! library to link against. Keeping it behind one module means a later move to
-//! 3.x (taskchampion) touches one file.
+//! The machine here runs 3.5.0, where `task export` emits JSON and there is no
+//! library to link against. Keeping it behind one module means a change in
+//! Taskwarrior's interface touches one file.
 //!
 //! Every invocation carries `rc.confirmation=no rc.verbose=nothing` so nothing
 //! blocks on a prompt or prints chatter into output the caller is parsing.

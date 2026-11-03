@@ -408,9 +408,9 @@ sync.
   - Without the lookup, it would fire on every project you opened.
 - **Tested against:**
   - niri 26.04 and Taskwarrior 3.5.0.
-  - It still runs on Taskwarrior 2.6.2, whose data lives in `pending.data`
-    and `completed.data` rather than 3.x's `taskchampion.sqlite3`. The panel
-    watches both.
+  - Taskwarrior 2.6.2 is no longer supported. Its `task export` exits
+    non-zero on a filter that matches nothing, which now reads as an error
+    rather than an empty list.
 
 How the task's Claude panes and the worktree skills behave:
 
