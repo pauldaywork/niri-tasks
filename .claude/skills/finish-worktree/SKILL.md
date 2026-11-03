@@ -64,11 +64,15 @@ git branch --show-current
   aren't a problem.
 
 **3. Take the lock.** Another agent may be finishing another worktree of the
-same repository at the same moment, on the same `M`.
+same repository at the same moment, on the same `M`. The holder may be
+running the tests, which in niri-tasks take eight minutes or more, so the
+wait is half an hour.
 ```bash
 L="$(git rev-parse --git-common-dir)/finish-worktree.lock"
-timeout 600 bash -c "until mkdir '$L' 2>/dev/null; do sleep 5; done" && echo "$(git branch --show-current) $(date -Is)" > "$L/owner"
+timeout 1800 bash -c "until mkdir '$L' 2>/dev/null; do sleep 5; done" && echo "$(git branch --show-current) $(date -Is)" > "$L/owner"
 ```
+- Run the wait in the background and wait for it to finish: it can outlast a
+  foreground command.
 - If it times out, read `$L/owner`. An owner more than an hour old is a stale
   lock from a run that died: remove it with `rm -r "$L"` and take it again.
   Otherwise stop.
@@ -97,15 +101,47 @@ git -C M rev-list --left-right --count main...origin/main   # "<ahead> <behind>"
   default (`cargo test`, `npm test`, `pytest`, `go test ./...`).
 - Point end-to-end suites at the build of this branch, not an installed copy:
   one that runs the installed binary by default proves nothing about the
-  branch. In niri-tasks that is `NIRITASKS=$PWD/target/debug/niritasks bash
-  tests/all.sh`, after `cargo build`.
-- Run a suite that sandboxes itself: one that types only into a nested
-  compositor of its own, or borrows a spare workspace and gives it back.
+  branch.
+- **In niri-tasks, test in the container.** `tests/container.sh` runs
+  `tests/all.sh` on a desktop of its own, against a copy of this worktree that
+  it builds itself and points `NIRITASKS` at, so every suite runs and none
+  touches the user's desktop. It takes about eight minutes, longer on a
+  worktree's first run: run this in the background and wait for it.
+  ```bash
+  LOGS=target/container-tests
+  before=$(readlink "$LOGS/latest.log" 2>/dev/null)
+  bash tests/container.sh 2>&1 | tail -n 3; echo "exit ${PIPESTATUS[0]}"
+  after=$(readlink "$LOGS/latest.log" 2>/dev/null)
+  if [ -n "$after" ] && [ "$after" != "$before" ] &&
+      grep -Eq '^[0-9]+ passed +[0-9]+ failed +[0-9]+ skipped$' "$LOGS/$after"; then
+      grep -E '^parity:|^  [<>] |^  (PASS|SKIP|FAIL)  |^[0-9]+ passed ' "$LOGS/$after"
+  else
+      echo "no test run in the container"
+  fi
+  ```
+  - A run that printed the summary line (`N passed N failed N skipped`) is the
+    test result, red or green: `0 failed` is green, anything else red. The exit
+    status alone can't tell a failed suite from a run that never started.
+  - `latest.log` moves only once a run gets as far as its log. A run turned
+    away at the door (no Docker, a run of this checkout already going) leaves
+    the last run's log there, so the block reads it only if it moved.
+  - `no test run in the container` (no Docker, the daemon down, the image
+    build failing, the run refused) means the host run below, and the report
+    says so, with the reason from the lines above it.
+  - A `parity: the image differs` line, with the differences under it, goes in
+    the report. Don't rebuild the image for it: that takes minutes and needs
+    the network.
+- **On the host** (any other repo, or niri-tasks when the container did not
+  run): in niri-tasks that is `cargo build`, then `NIRITASKS=$PWD/target/debug/niritasks bash
+  tests/all.sh`. Run a suite that sandboxes itself: one that types only into a
+  nested compositor of its own, or borrows a spare workspace and gives it back.
   Leave out only a suite that types or clicks on the user's own desktop, or
   uses their clipboard, and name it in the report as skipped.
 - Red means stop. Nothing has been merged yet. Before asking, run the same
   check in `M`, so you can say whether `main` was already red without this
-  branch or the branch broke it.
+  branch or the branch broke it. In niri-tasks that is the container block
+  again, run from `M` (`cd` there in the same command), falling back to the
+  host run as above.
 
 **7. Merge, then push.**
 ```bash
@@ -168,7 +204,9 @@ work has already landed.
 
 **10. Report**, in this order:
 - what landed: `<old>..<new>` on `origin/main`, and how many commits
-- the tests that ran and their result, and the suites skipped
+- the tests that ran and their result, and the suites skipped; in niri-tasks,
+  whether they ran in the container or on the host, and why it fell back, and
+  any parity difference the container named
 - each conflict resolved, and how
 - the task completed (or "no task: branch isn't `task/…`")
 - the `Plan:` and `Spec:` notes added, the ones already there, or "no plan or
