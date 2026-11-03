@@ -430,6 +430,7 @@ fn remember_peek(peeks: &mut HashMap<String, String>, tag: &str, uuid: Option<&s
 /// shows it later is handed it by the tick. What a `peek` request and a
 /// workspace switch both end in.
 fn set_peek(tag: &str, uuid: Option<&str>) {
+    debug(&format!("peek +{tag}: {uuid:?}"));
     PEEKS.with(|p| remember_peek(&mut p.borrow_mut(), tag, uuid));
     let showing: Vec<Rc<Panel>> =
         PANELS.with(|p| p.borrow().values().filter(|panel| panel.shows(tag)).cloned().collect());

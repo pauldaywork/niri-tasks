@@ -443,19 +443,20 @@ switch() {  # away to the empty workspace below, and back
     "${NENV[@]}" niri msg action focus-workspace e2e >/dev/null 2>&1
     settle
 }
-check() {  # label frame-to-match message
+check() {  # label frame-to-match message [why]
     shot "$1" || { summary; exit 1; }
     if same "$2" "$1"; then
         ok "$3"
     else
         read -r x0 x1 y0 y1 < <(measure "$1" "$2")
-        bad "$3 — not so: columns ${x0}-${x1}, rows ${y0}-${y1} differ from $2"
+        bad "$3 — not so: columns ${x0}-${x1}, rows ${y0}-${y1} differ from $2${4:+
+      $4}"
     fi
 }
 
 focus "work-${ship:0:8}"
 nested_daemon_stop
-"${NENV[@]}" PATH="$STUB_PATH" "$NIRITASKS" daemon >"$SB/daemon-herdr.err" 2>&1 &
+"${NENV[@]}" PATH="$STUB_PATH" NIRITASKS_DEBUG=1 "$NIRITASKS" daemon >"$SB/daemon-herdr.err" 2>&1 &
 DAEMON=$!
 sleep 3
 kill -0 "$DAEMON" 2>/dev/null || die "the daemon with the herdr stub exited at once:
@@ -481,16 +482,21 @@ switch
 check switched_dead baseline "a herdr session that is not running leaves the edge empty"
 
 # --focused is what herdr's focus hooks run: the same lookup, from the pane.
+# Each call's stderr is kept, and a failure shows it with the daemon's last
+# peeks, so a flake says which side dropped the task.
+peeks() { grep -F '[daemon] peek ' "$SB/daemon-herdr.err" | tail -n 4 | tr '\n' ';'; }
 focus "work-${ship:0:8}"
-"${NENV[@]}" PATH="$STUB_PATH" HERDR_SESSION=e2e "$NIRITASKS" task peek --focused >/dev/null 2>&1 ||
-    bad "task peek --focused failed"
+"${NENV[@]}" PATH="$STUB_PATH" HERDR_SESSION=e2e "$NIRITASKS" task peek --focused >/dev/null 2>"$SB/peek-focused.err" ||
+    bad "task peek --focused failed: $(tail -n 5 "$SB/peek-focused.err")"
 settle
-check focused_cli one "task peek --focused peeks at the focused pane's task"
+check focused_cli one "task peek --focused peeks at the focused pane's task" \
+    "stderr: $(tail -n 5 "$SB/peek-focused.err") daemon: $(peeks)"
 focus ""
-"${NENV[@]}" PATH="$STUB_PATH" HERDR_SESSION=e2e "$NIRITASKS" task peek --focused >/dev/null 2>&1 ||
-    bad "task peek --focused on no task failed"
+"${NENV[@]}" PATH="$STUB_PATH" HERDR_SESSION=e2e "$NIRITASKS" task peek --focused >/dev/null 2>"$SB/peek-focused-none.err" ||
+    bad "task peek --focused on no task failed: $(tail -n 5 "$SB/peek-focused-none.err")"
 settle
-check focused_none baseline "task peek --focused on a pane with no task leaves the edge empty"
+check focused_none baseline "task peek --focused on a pane with no task leaves the edge empty" \
+    "stderr: $(tail -n 5 "$SB/peek-focused-none.err") daemon: $(peeks)"
 
 # Back to a daemon with no herdr at all, its edge empty, for the sections
 # below.
