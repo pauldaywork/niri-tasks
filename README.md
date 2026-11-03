@@ -768,46 +768,49 @@ Meanwhile and after:
 
 Before a clean install:
 
-1. **Push every task worktree branch.** A task's `Plan:` and `Spec:` notes
-   name files in its repo's `docs/superpowers/`, and until the branch lands
-   they live only on that branch. In each repo,
-   `git branch --list 'task/*'` lists them; `git push origin <branch>` each
-   one. `export` does not do this for you.
-2. **Run `niritasks export`.** It writes every task, whatever its status,
-   to `~/niri-tasks-backup-<YYYYMMDD-HHMM>.tar.gz` (or the path you give;
-   it refuses one already there), and prints the path and how many tasks
-   it holds. The archive holds `tasks.json`, the store as `task export`
-   writes it; `taskchampion.sqlite3`, a copy of the store taken through
-   SQLite's own backup; and `reviews/`, the refine reports folder, when
-   the folder exists. It then lists each `Report:` or
-   `Report (earlier draft):` note whose file is already gone, or is outside
-   the reviews folder and so not in the archive — the task's uuid8, status
-   and path. Those notes will dangle after the restore whatever you do;
-   the backup goes ahead without them.
+1. **Push every task worktree branch.**
+   - A task's `Plan:` and `Spec:` notes name files in its repo's `docs/superpowers/`.
+   - Until the branch lands, those files live only on that branch.
+   - In each repo, `git branch --list 'task/*'` lists the branches.
+   - Run `git push origin <branch>` for each one.
+   - `export` does not do this for you.
+2. **Run `niritasks export`.**
+   - It writes every task, whatever its status, to `~/niri-tasks-backup-<YYYYMMDD-HHMM>.tar.gz`.
+   - Or give it a path; it refuses one that is already there.
+   - It prints the path and how many tasks the archive holds.
+   - The archive holds:
+     - `tasks.json`, the store as `task export` writes it.
+     - `taskchampion.sqlite3`, a copy of the store taken through SQLite's own backup.
+     - `reviews/`, the refine reports folder, when the folder exists.
+   - It then lists each `Report:` or `Report (earlier draft):` note that is not in the archive:
+     - Its file is already gone, or is outside the reviews folder.
+     - Each line gives the task's uuid8, status and path.
+     - Those notes will dangle after the restore whatever you do.
+     - The backup goes ahead without them.
 3. **Copy the archive off the machine.**
 
 After reinstalling Taskwarrior 3.5 and niri-tasks:
 
-1. **Give `task` an rc file.** A fresh install has no `~/.taskrc`, which is
-   not backed up, and `task` refuses to run without one ("Cannot proceed
-   without rc file."). Restore yours, or run `task` once interactively and
-   let it create one; either way `data.location` must point where you want
-   the store.
-2. **Run `niritasks import <archive>`.** It imports `tasks.json` with hooks
-   off, copies `reviews/` back into the reviews folder
-   (`~/.local/share/niri-tasks/reviews`, or under `$XDG_DATA_HOME`)
-   without overwriting any file already there, and prints how many tasks it
-   imported. It refuses a store that already holds tasks (any status,
-   deleted ones included), so an old backup cannot undo newer edits;
-   `--force` imports anyway, and a task in both takes the backup's copy. If
-   it stops after the tasks are in, say while copying reports, rerunning
-   with `--force` from the same backup is safe.
+1. **Give `task` an rc file.**
+   - A fresh install has no `~/.taskrc`, which is not backed up.
+   - `task` refuses to run without one ("Cannot proceed without rc file.").
+   - Restore yours, or run `task` once interactively and let it create one.
+   - Either way, `data.location` must point where you want the store.
+2. **Run `niritasks import <archive>`.**
+   - It imports `tasks.json` with hooks off.
+   - It copies `reviews/` back into the reviews folder, `~/.local/share/niri-tasks/reviews` (or under `$XDG_DATA_HOME`).
+   - It does not overwrite any file already there.
+   - It prints how many tasks it imported.
+   - It refuses a store that already holds tasks (any status, deleted ones included), so an old backup cannot undo newer edits.
+   - `--force` imports anyway, and a task in both takes the backup's copy.
+   - If it stops after the tasks are in, say while copying reports, rerunning with `--force` from the same backup is safe.
 
-If `tasks.json` will not import, restore the SQLite copy by hand, once
-`task` has an rc file as above, into a store with nothing in it and no
-`task` running. A reinstalled `task` may already have made an empty
-`taskchampion.sqlite3` with `-wal` and `-shm` files beside it, so remove
-those first:
+**If `tasks.json` will not import**, restore the SQLite copy by hand:
+
+- Do it once `task` has an rc file, as above.
+- Restore into a store with nothing in it, and no `task` running.
+- A reinstalled `task` may already have made an empty `taskchampion.sqlite3`, with `-wal` and `-shm` files beside it.
+- The `rm` below removes those first.
 
 ```bash
 tar -xzf niri-tasks-backup-<stamp>.tar.gz taskchampion.sqlite3
@@ -817,19 +820,21 @@ cp taskchampion.sqlite3 "$(task _get rc.data.location)/"
 task count                      # every task, back
 ```
 
-Not backed up: `~/.taskrc`, and the rest of `~/.local/share/niri-tasks`
-(unattended logs, ideas, the VS Code profile).
+**Not backed up:** `~/.taskrc`, and the rest of `~/.local/share/niri-tasks` (unattended logs, ideas, the VS Code profile).
 
 ## Notes
 
-`~/.taskrc` is not managed here. The only requirement is that
-`data.location` points somewhere `task` can read and write.
+- `~/.taskrc` is not managed here.
+- The only requirement is that `data.location` points somewhere `task` can read and write.
 
-The task panel's blur rule is in `niri-tasks.kdl`: it matches
-the panel's own namespace, `niri-tasks-panel`, and sets how the blur looks but
-never `blur true`. A rule's blur would fill the panel's whole surface, which is
-wider than the cards so they have room to slide. The panel asks for blur behind
-the cards alone instead, and niri takes noise and saturation from the rule.
+**Blur rule** of the task panel:
+
+- It is in `niri-tasks.kdl`.
+- It matches the panel's own namespace, `niri-tasks-panel`.
+- It sets how the blur looks, but never `blur true`.
+- A rule's blur would fill the panel's whole surface, which is wider than the cards so they have room to slide.
+- The panel asks for blur behind the cards alone instead.
+- niri takes noise and saturation from the rule.
 
 ## Development
 
