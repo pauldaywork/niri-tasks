@@ -69,7 +69,7 @@ CARD=760
 SURFACE=784
 NOTES_MAX=240
 PADDING=12
-SHORT_NOTES_GROWTH=50
+SHORT_NOTES_GROWTH=46
 # Where the tucked peek starts: the peek, and the card's outline ring drawn
 # outside it.
 PEEK_X=$((OUT_W - PEEK - RING))
@@ -213,8 +213,32 @@ blur { on; }'
 nested_start
 
 # The Ideas tab saves under XDG_DATA_HOME: the sandbox's, never the real
-# ~/.local/share. Set before the daemon starts, so it has it.
+# ~/.local/share. Set before the daemon starts, so it has it. Its fonts are
+# the real ones, linked in below.
 NENV+=(XDG_DATA_HOME="$SB/share")
+
+# Fontconfig reads a user's fonts from $XDG_DATA_HOME/fonts and nowhere
+# else of theirs, so the sandbox's share gets a link to the real folder.
+# rm -rf of the sandbox removes the link, never the fonts.
+mkdir -p "$SB/share"
+ln -s "${XDG_DATA_HOME:-$HOME/.local/share}/fonts" "$SB/share/fonts"
+
+# The panel draws in Iosevka Term Extended (src/panel/style.rs), and its
+# action buttons' glyphs come from JetBrainsMonoNL Nerd Font. Fontconfig
+# finds a user's fonts only in $XDG_DATA_HOME/fonts, so without the link
+# below the frames would draw in Noto Sans and the expectations would
+# measure a fallback. Checked before the first shot, so a missing font
+# fails here, by name, not as heights that are off.
+font=$("${NENV[@]}" fc-match -f '%{family[0]}' 'Iosevka Term Extended' 2>/dev/null)
+glyphs=$("${NENV[@]}" fc-match -f '%{family[0]}' 'Iosevka Term Extended:charset=f141' 2>/dev/null)
+if [ "$font" = "Iosevka Term" ] && [ "$glyphs" = "JetBrainsMonoNL Nerd Font" ]; then
+    ok "the nested session draws in Iosevka Term, its action glyphs in ${glyphs}"
+else
+    bad "under the nested session's XDG_DATA_HOME the panel's font is '${font}' and its
+      action glyphs' '${glyphs}', expected 'Iosevka Term' and 'JetBrainsMonoNL Nerd Font' —
+      are they in ${XDG_DATA_HOME:-$HOME/.local/share}/fonts?"
+    summary; exit 1
+fi
 
 TAG=$("${NENV[@]}" "$NIRITASKS" tag 2>/dev/null)
 if [ "$TAG" = e2e ]; then
@@ -577,8 +601,9 @@ if command -v wtype >/dev/null; then
       the focused card's notes should show and the panel grow to fit"
     fi
     # One short note must not cost the card more than its lines: the id line
-    # and the note, a padding over them, make up SHORT_NOTES_GROWTH, as
-    # measured on 1efd4c6, before the notes were put in a scroller.
+    # and the note, a padding over them, make up SHORT_NOTES_GROWTH, measured
+    # in Iosevka Term Extended. (1efd4c6, before the notes were put in a
+    # scroller, measured 50 in the fallback font.)
     if [ "$((y1 - y0 - keyboard_h))" -eq "$SHORT_NOTES_GROWTH" ]; then
         ok "one short note grows the card by exactly its lines ($((y1 - y0 - keyboard_h))px)"
     else
