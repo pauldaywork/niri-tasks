@@ -891,6 +891,8 @@ It runs on a screen of its own:
 - Its own daemon, against a sandboxed `TASKDATA`.
 - Your wallpaper, windows, window rules, notifications and pointer cannot reach its frames.
 - Your `niri-tasks` daemon keeps running throughout.
+- The panel's blur is drawn grey there (a layer-rule with saturation 0), so
+  blur off the cards shows on the flat screen.
 - The nested niri's window opens over yours for a moment.
 - Then it is parked floating and unfocused on the last workspace of that monitor.
 - Keep off that workspace while it runs.
@@ -1033,8 +1035,9 @@ tail -f target/container-tests/latest.log
   - Taskwarrior 3.5.0, compiled from its tarball.
   - rustc 1.95.0.
   - herdr, worktrunk and Claude Code in `~/.local/bin`.
-  - Iosevka Term in `~/.local/share/fonts`, as here, because the panel test's
-    own `XDG_DATA_HOME` hides that folder and its results depend on the font.
+  - Iosevka Term and JetBrainsMono Nerd Font in `~/.local/share/fonts`, as
+    here, which the panel test links into its own `XDG_DATA_HOME` so its
+    checks draw in the panel's font.
   - The GTK theme and font settings.
   - `en_US.UTF-8`.
   - Your timezone.
