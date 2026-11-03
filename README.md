@@ -52,64 +52,123 @@ workspace's herdr session, where Claude works it up into a plan.
 
 ## Task panel
 
+### Cards
+
 Each monitor's task panel holds the pending tasks of the workspace it is
-displaying, as a stack of cards — the active tasks first (there can be
-several, one per worktree being worked), each ▶ and text in green, then any
-up next, then the rest by priority (H, M, L, none) and newest first, the
-blocked ones last: ○, a dimmed lock for one blocked on
-another task, ● for one already worked up into a plan with
-Claude from a card's Go to list's **Refine** or **Grill me**, or a report icon for a
-planned one whose notes link a refine report, which its Go to list's **Open report**
-opens. Up to eight, then a "+N more" card. Each card ends in how long ago
-its task was added: 5m, 3h, 2d, 4w.
+displaying, as a stack of cards.
 
-Tucked away on the right edge, the panel shows one card at most: the task of
-the herdr pane you have selected, on that workspace's monitor (see [Peeking at
-the focused pane's task](#peeking-at-the-focused-panes-task)). Only 30px of it
-shows. Move the pointer onto it and it slides out to full width, whole: its
-description, its id and notes, and its buttons, which work by click while
-herdr keeps the keyboard; move away and it slides back. Go to… and Move to
-workspace open lists the keyboard drives, so a click on either hands the panel
-the keyboard on that card first. The space around the card is click-through,
-so the panel never gets in the way of the windows beneath, and a fullscreen
-window covers it. With no task's pane selected, nothing shows at all.
+Order:
 
-The rest of the workspace's tasks are on the keyboard's panel (below), whose
-"+N more" card shows any past the first eight.
+1. The active tasks (there can be several, one per worktree being worked): ▶ and text in green.
+2. Any up next.
+3. The rest by priority (H, M, L, none), newest first.
+4. The blocked ones last.
 
-`Mod+Alt+Ctrl+T` hands the panel the keyboard and moves it to the middle of the
-screen, leaving no peek on the right edge while it is there. Every card opens up
-to its whole description, wrapped, and the focused card shows a row of buttons
-under it:
+Icons:
 
-With no tasks at all, finished ones included, or no workspace name, a notification says so instead.
+- ○ for a plain task.
+- A dimmed lock for one blocked on another task.
+- ● for one already worked up into a plan with Claude, from a card's Go to
+  list's **Refine** or **Grill me**.
+- A report icon for a planned one whose notes link a refine report, which
+  its Go to list's **Open report** opens.
+
+Up to eight cards show, then a "+N more" card. Each card ends in how long
+ago its task was added: 5m, 3h, 2d, 4w.
+
+### The peek on the right edge
+
+- Tucked away on the right edge, the panel shows one card at most: the task
+  of the herdr pane you have selected, on that workspace's monitor (see
+  [Peeking at the focused pane's task](#peeking-at-the-focused-panes-task)).
+- Only 30px of it shows.
+- The pointer on it slides it out to full width, whole: description, id and
+  notes, buttons.
+- The buttons work by click while herdr keeps the keyboard. Moving away
+  slides it back.
+- Go to… and Move to workspace open lists the keyboard drives, so a click on
+  either first hands the panel the keyboard on that card.
+- The space around the card is click-through, so the panel never gets in the
+  way of the windows beneath. A fullscreen window covers it.
+- With no task's pane selected, nothing shows at all.
+- The rest of the workspace's tasks are on the keyboard's panel (below),
+  whose "+N more" card shows any past the first eight.
+
+### With the keyboard (Mod+Alt+Ctrl+T)
+
+`Mod+Alt+Ctrl+T` hands the panel the keyboard.
+
+- It moves to the middle of the screen, leaving no peek on the right edge
+  while it is there.
+- Every card opens up to its whole description, wrapped.
+- The focused card shows a row of buttons under it.
+
+With no tasks at all, finished ones included, or no workspace name, a
+notification says so instead.
+
+The buttons:
 
 | Button | Key | Does |
 |---|---|---|
-| **Go to…** (blue) | `o` | A list in the panel of what else can be done with the task and where it can be gone to — Refine (Redo refine), Grill me, Get started (Back to worktree), Generate report (Regenerate report), Explain branch, Open report, Branch report, Planning doc, Design spec, Go to refine session, Go to work session, Open worktree folder, Open in VS Code and Read aloud (Stop reading aloud), each only when it applies (see below) — first on every card |
-| **Start working** (green) | `s` | The task's own worktree, herdr tab and Claude, which plans the task first and links the plan it saves as a `Plan: docs/superpowers/plans/<file>.md` note — not on an active task, which is already being worked |
+| **Go to…** (blue) | `o` | A list of what else can be done with the task and where it can be gone to. First on every card |
+| **Start working** (green) | `s` | The task's own worktree, herdr tab and Claude. Not on an active task |
 | **Edit** (yellow) | `e` | Open it in the task box. Closing the box, saved or not, hands the keyboard back to the panel on the same tab, on this card |
-| **Up next** (yellow) | | Mark it as the one to do next: its card turns yellow and moves up under the active tasks. On a task already up next it reads **Not up next**, and clears it — not on a waiting or finished task |
+| **Up next** (yellow) | | Mark it as the one to do next. Not on a waiting or finished task |
 | **Complete** (green) | `c` | Mark it done: it leaves the panel, which keeps the keyboard — not on a finished task |
 | **Move to workspace** (sapphire) | `m` | Pick another `~/Projects` folder from a list in the panel, and move the task to that folder's workspace — not on a finished task |
 | **Stop** (peach) | `t` | Stop it — only on an active task |
 | **Waiting** (teal) | | Park it as waiting: off the panel, and on the Waiting tab instead |
-| **Back to list** (lavender) | `b` | Off waiting, or reopened from finished, and back on the list — only on a waiting or finished task. A waiting task gets just this, Go to…, Edit, Complete, Move to workspace and Remove; a finished one just this, Go to…, Edit and Remove |
-| **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes the task, moving away puts it back. `Ctrl+Delete` deletes the focused task at once, whichever of its buttons is focused, and moves on to the next card |
-| **Clear all** (red) | `Ctrl+Shift+Delete` | On the Waiting tab, on a strip under the tabs, not a card: turns into **Confirm clear all** and takes the focus off the cards; a second press, or `Enter`, deletes every waiting task on the workspace and goes back to All, while `Escape` or moving away puts it back |
+| **Back to list** (lavender) | `b` | Off waiting, or reopened from finished, back on the list |
+| **Remove** (red) | `Delete` | Turns into **Confirm remove**; a second press deletes it |
+| **Clear all** (red) | `Ctrl+Shift+Delete` | On the Waiting tab: deletes every waiting task, after **Confirm clear all** |
 
-Up and Down move a darker fill and the buttons between cards, and Down onto
-"+N more" shows the rest in its place, carrying on to the first of them; Left,
-Right and Tab move along the focused card's buttons, and Enter presses the
-focused one. Beside the buttons, in smaller dimmed text, the focused card names
-its own keys: the focused button's letter and name (`o: Go to…`,
-`Del: Remove`), or on a card's description `Space: view notes`
-or `Space: hide notes`, and what Ctrl+Enter would do to this task. A line under the list
-names the keys that act the same on every card: Enter or Space, and Ctrl+Delete (not on
-Ideas, where the notepad takes those keys as typing). Enter or a click on the card's description shows, dimmed under it, the task's id and uuid (`#48 · <uuid>`, the uuid alone on a finished task) and then its notes, one per note, scrolling once they pass about twelve lines, and a second press hides them; opening another card's notes hides the first's, and giving the keyboard back hides them all. Every button that opens something gives the keyboard back as it runs; Go to…, Up next, Complete, Move to workspace, Waiting, Back to list and Remove keep the list up, and Escape puts the panel back on the
-right edge, tucked away to the peeked card, if there is one. A list taller
-than the screen scrolls, keeping the focused card in view. Hovering shows the
-buttons only on the peeked card; on the others only the keyboard does.
+- **Go to…**: every row is in the Go to… table further down.
+- **Start working**: Claude plans the task first and links the plan it saves
+  as a `Plan: docs/superpowers/plans/<file>.md` note. An active task is
+  already being worked.
+- **Up next**: the card turns yellow and moves up under the active tasks. On
+  a task already up next it reads **Not up next**, and clears it.
+- **Back to list**: only on a waiting or finished task.
+  - A waiting task gets just this, Go to…, Edit, Complete, Move to workspace
+    and Remove.
+  - A finished one gets just this, Go to…, Edit and Remove.
+- **Remove**: moving away puts it back. `Ctrl+Delete` deletes the focused
+  task at once, whichever button is focused, and moves to the next card.
+- **Clear all**: sits on a strip under the tabs, not a card.
+  - Arming it takes the focus off the cards.
+  - A second press or `Enter` deletes every waiting task on the workspace
+    and goes back to All.
+  - `Escape` or moving away puts it back.
+
+### Keys
+
+| Key | Does |
+|---|---|
+| Up, Down | Move the darker fill and the buttons between cards. Down onto "+N more" shows the rest in its place and carries on to the first of them |
+| Left, Right, Tab | Move along the focused card's buttons |
+| Enter | Presses the focused button |
+| Enter or a click on a card's description | Shows its notes; a second press hides them |
+| Escape | Puts the panel back on the right edge, tucked away to the peeked card if there is one |
+
+- The hint: beside the buttons, in smaller dimmed text, the focused card
+  names its own keys.
+  - The focused button's letter and name (`o: Go to…`, `Del: Remove`).
+  - Or on a card's description `Space: view notes` / `Space: hide notes`.
+  - And what Ctrl+Enter would do to this task.
+- The line under the list names the keys that act the same on every card:
+  Enter or Space, and Ctrl+Delete. It is not on Ideas, where the notepad
+  takes those keys as typing.
+- Notes show, dimmed under the description, the id and uuid (`#48 · <uuid>`,
+  the uuid alone on a finished task), then its notes, one per note.
+  - They scroll past about twelve lines.
+  - Opening another card's notes hides the first's.
+  - Giving the keyboard back hides them all.
+- Every button that opens something gives the keyboard back as it runs.
+  Go to…, Up next, Complete, Move to workspace, Waiting, Back to list and
+  Remove keep the list up.
+- A list taller than the screen scrolls, keeping the focused card in view.
+- Hovering shows the buttons only on the peeked card; on the others only the
+  keyboard does.
 
 **Move to workspace** swaps the cards for a list of your `~/Projects`
 folders, drawn like cards under a line naming the task: every folder but
@@ -152,20 +211,28 @@ and the spec are linked by the Claude Start working starts, once it has
 saved its plan; their paths are the repository's, read in the task's
 worktree while it has one.
 
-Ctrl+Enter and Ctrl+Delete act on the focused card, whichever of its buttons is
-focused. Ctrl+Enter refines the task, or starts working on it once it is
-planned, and the panel keeps the keyboard with the same card focused, so you can
-carry on down the list. On a task already being worked with a live Claude,
-planned or not, it goes to that session, as the Go to list's session rows do, and gives the keyboard
-back. On a worked task with no Claude it refines the task if it has no plan and
-does nothing if it has one; it does nothing on a waiting or finished task.
-Ctrl+Delete deletes the task at once, with no Confirm remove, and moves the
-focus to the next card (the one above, from the last) with the list kept up;
-Delete alone still asks first. Ctrl still held from the `Mod+Alt+Ctrl+T` chord
-counts, so let go of Ctrl before pressing Enter if you only want the focused
-button, or Delete if you want Remove to ask. Apart from Ctrl+Shift+Delete, the
-Waiting tab's Clear all (below), every other Ctrl chord passes through
-untouched.
+### Ctrl+Enter and Ctrl+Delete
+
+- Both act on the focused card, whichever of its buttons is focused.
+- Ctrl+Enter depends on the task:
+
+| Task | Ctrl+Enter |
+|---|---|
+| Unplanned | Refines it. The panel keeps the keyboard, same card focused, so you can carry on down the list |
+| Planned | Starts working on it. Same: keyboard kept, same card focused |
+| Being worked, live Claude, planned or not | Goes to that session, as the Go to list's session rows do, and gives the keyboard back |
+| Worked, no Claude | Refines it if it has no plan; does nothing if it has one |
+| Waiting or finished | Does nothing |
+
+- Ctrl+Delete deletes the task at once, with no Confirm remove.
+- It moves the focus to the next card (the one above, from the last), with
+  the list kept up.
+- Delete alone still asks first.
+- Ctrl still held from the `Mod+Alt+Ctrl+T` chord counts:
+  - let go of Ctrl before Enter if you only want the focused button;
+  - let go of Ctrl before Delete if you want Remove to ask.
+- Every other Ctrl chord passes through untouched, apart from
+  Ctrl+Shift+Delete, the Waiting tab's Clear all (below).
 
 Above the cards, tabs narrow them while the panel has the keyboard: **All**,
 **Active** (started), **Planned** (refined or grilled into a plan, and not
