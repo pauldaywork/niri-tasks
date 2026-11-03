@@ -854,94 +854,171 @@ bash tests/e2e-box.sh       # the task box, in a nested niri         ~35s
 
 Each exits non-zero on failure, so any of them can go in a loop or a hook.
 
-`tests/all.sh` is the lot in one command, run cheapest-and-quietest first. It
-checks each suite's prerequisites itself and reports one it cannot run as a
-**skip, with the reason** — no niri, no Pillow, no Wayland display — rather than
-letting it fail. A skip is not a failure: it exits non-zero only when a suite
-that actually ran said no, which is what makes it safe on a machine that can
-only run half of it. None of the three e2e suites takes the machine over: the panel and box tests
-run in a nested niri parked on a spare workspace, and `e2e-tag.sh` at most names
-a spare workspace for a moment; `all.sh` tells you which one to keep off.
-`NIRITASKS_HEADLESS=1 bash tests/all.sh` skips the three e2e suites and runs the
-rest, including the refine mod's tests (`claude plugin test claude/refine-mod`).
+- `tests/all.sh` runs everything in one command, cheapest and quietest first.
+- It checks each suite's prerequisites itself.
+- It reports a suite it cannot run as a **skip, with the reason**: no niri, no
+  Pillow, no Wayland display.
+- A skip is not a failure.
+- It exits non-zero only when a suite that ran said no, so it is safe on a
+  machine that can only run half of it.
+- No e2e suite takes the machine over:
+  - The panel and box tests run in a nested niri parked on a spare workspace.
+  - `e2e-tag.sh` at most names a spare workspace for a moment.
+  - `all.sh` tells you which one to keep off.
+- `NIRITASKS_HEADLESS=1 bash tests/all.sh` skips the three e2e suites.
+- It runs the rest, including `claude plugin test claude/refine-mod`.
 
 | | Needs | Touches |
 |---|---|---|
 | `tests/all.sh` | Nothing of its own — whatever is missing is skipped and named | Whatever the suites it ends up running touch |
-| `tests/container.sh` | Docker, and the user in the `docker` group. The first run builds the image (several minutes, and again when one of its inputs changes) and needs the network; runs do not | Nothing of yours. Docker's own images and volumes (`niritasks-tests*`, pruned as they go stale), and its logs in `target/container-tests/` |
+| `tests/container.sh` | Docker, the user in the `docker` group | Nothing of yours |
 | `cargo test` | `taskwarrior` on `$PATH` | Nothing. The write-path suite points `TASKDATA` at a scratch directory |
 | `herdr/task-docs` tests | `python3`, `git` | Nothing. A fake `herdr`, `notify-send` and `xdg-open` stand in, in a scratch folder |
 | `claude plugin test claude/refine-mod` | `claude` on `$PATH` | Nothing of yours. The mod's tests run against a fake session |
-| `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the name of that spare workspace, taken off again. No herdr session (a fake `herdr` stands in), and only a scratch task database of its own |
-| `tests/e2e-panel.sh` | niri, a Wayland session, `python3-pil`, taskwarrior; `wtype` for its keyboard checks, which are skipped without it | A nested niri window for the run, parked on the spare workspace at the end of your monitor; keep off that workspace until it finishes. Not your clipboard, your screenshots or the `niri-tasks` daemon |
-| `tests/e2e-box.sh` | `wtype`, niri, a Wayland session, taskwarrior | A nested niri window for the run, parked like the panel test's; keep off that workspace until it finishes. Its keys go only to that nested niri. Not your keyboard or the `niri-tasks` daemon |
+| `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the spare workspace's name, taken off again |
+| `tests/e2e-panel.sh` | niri, Wayland, `python3-pil`, taskwarrior; `wtype` for its keyboard checks | A nested niri window, parked on the spare workspace |
+| `tests/e2e-box.sh` | `wtype`, niri, a Wayland session, taskwarrior | A nested niri window, parked like the panel test's |
 
-Narrowing `cargo test` works as usual — `cargo test --lib`, `cargo test --test
-write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
+- **`tests/container.sh`**:
+  - The first run builds the image (several minutes, and again when one of its
+    inputs changes) and needs the network. Later runs do not.
+  - It touches Docker's own images and volumes (`niritasks-tests*`, pruned as
+    they go stale), and its logs in `target/container-tests/`.
+- **`tests/e2e-tag.sh`**:
+  - No herdr session (a fake `herdr` stands in).
+  - Only a scratch task database of its own.
+- **`tests/e2e-panel.sh`**:
+  - Its keyboard checks are skipped without `wtype`.
+  - The nested niri is parked at the end of your monitor.
+  - Keep off that workspace until it finishes.
+  - It never touches your clipboard, your screenshots or the `niri-tasks` daemon.
+- **`tests/e2e-box.sh`**:
+  - Keep off its parked workspace until it finishes.
+  - Its keys go only to that nested niri.
+  - Never your keyboard or the `niri-tasks` daemon.
 
-`e2e-panel.sh` runs on a screen of its own: a nested niri, started with its own
-runtime directory and a flat 1600x1000 output, with its own daemon against a
-sandboxed `TASKDATA`. Your wallpaper, windows, window rules, notifications and
-pointer cannot reach its frames, and your `niri-tasks` daemon keeps running
-throughout. The nested niri's window opens over yours for a moment, then is
-parked floating and unfocused on the last workspace of that monitor. Keep off
-that workspace while it runs: going there focuses the window, and the run
-fails, saying so, rather than measuring frames your typing could have reached.
-Run it with `NIRITASKS=$PWD/target/debug/niritasks`: without that it runs the
-installed `niritasks`, which may be an older build.
-`NIRITASKS_E2E_KEEP=1` leaves the frames on disk when you need to see what a
-failure actually looked like.
+Narrow `cargo test` as usual: `cargo test --lib`, `cargo test --test write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
 
-It cannot move the pointer, so the hover is checked by hand after a change to
-`src/panel/surface.rs`, with a task peeked (select its herdr pane, or run
-`niritasks task peek <uuid8>` from a pane of its workspace's session): the peek
-slides out when the pointer reaches it and back about 0.4s after it leaves, the
-slide is smooth, its notes and buttons show, a click just left of the peek lands
-on the window beneath, a click on its description does nothing, Complete
-completes it and empties the edge without taking the keyboard from herdr,
-Remove asks once and the pointer leaving puts it back, and Go to… slides the
-panel to the middle with the keyboard, on that card's Go to list. And the
-keyboard, past what the script measures: `Mod+Alt+Ctrl+T` slides the panel from the right edge to the
-middle of the screen, smoothly, with every card wrapped and the first
-darkened. The pointer passing over it does not move it. Check also active tasks with Stop and no
-Start working; Up and Down move the darkening between cards, Left, Right and
-Tab along the buttons; `s` starts working,
-`e` opens the box, `t` stops; Delete arms Remove and only a second
-Delete deletes, while moving away disarms it; Enter on a card's description shows its notes, dimmed under it, with the panel and its blur grown to fit, and a second Enter hides them; a card with more notes than fit stops at about twelve lines and scrolls the rest by wheel and by dragging the scrollbar, neither of which hides them, while a click on the notes does, `c` completes the task, `m` shows the project list and Escape comes back from it while Enter on a folder moves the task there, `project open` on a workspace with no tasks shows the project list and Escape closes it,
-Down reaching "+N more" shows the rest, focused on the first card it hid, and a
-list taller than the screen scrolls with the focus; a click on a filter tab switches the cards and does not take the focus (the focus still falls back to the first card when the focused one is not under the new tab), a started planned task shows under Active but not Planned, and Back to list on a waiting task brings it back to All; a click on Clear all arms it, darkening no card, a second click deletes the waiting tasks, and Up or Down in between puts it back with the focus on the card it was on; arming Clear all puts an armed Remove back, and arming Remove puts Clear all back; Escape tucks it away, to the peeked card if there is one.
+#### tests/e2e-panel.sh
 
-`e2e-box.sh` runs in the same kind of nested niri (`tests/lib/nested-niri.sh`
-starts it for both). Its keys are pressed with `wtype` pointed at that nested
-niri, so they never reach your windows, and you can keep working while it
-runs — keep off the workspace it is parked on, as for the panel test. The
-box is served by a daemon started inside the nested niri; once that is
-stopped, it checks the CLI refuses with "daemon is not running" rather than
-drawing a box of its own. Your own `niri-tasks` daemon is never stopped.
-Run from a herdr pane, both nested tests drop every `HERDR_*` variable before
-starting the nested niri, so they behave as from a plain terminal and never
-touch your herdr session or pane. Either way, the daemon and the commands they
-run see a `$PATH` with every directory holding a `herdr` taken out, and the run
-stops if `herdr` can still be found, so nothing they start reaches your herdr.
+It runs on a screen of its own:
 
-It cannot click, so after a change to the task box (`src/taskbox.rs` or `src/taskbox/`) check the pointer half by
-hand: × deletes its row, "+ Add note" appends an empty row with the cursor in
-it, and a long note list scrolls, keeping a row made by Enter at the bottom in
-view.
+- A nested niri, started with its own runtime directory and a flat 1600x1000 output.
+- Its own daemon, against a sandboxed `TASKDATA`.
+- Your wallpaper, windows, window rules, notifications and pointer cannot reach its frames.
+- Your `niri-tasks` daemon keeps running throughout.
+- The nested niri's window opens over yours for a moment.
+- Then it is parked floating and unfocused on the last workspace of that monitor.
+- Keep off that workspace while it runs.
+- Going there focuses the window, and the run fails, saying so, rather than
+  measuring frames your typing could have reached.
+- Run it with `NIRITASKS=$PWD/target/debug/niritasks`.
+- Without that it runs the installed `niritasks`, which may be an older build.
+- `NIRITASKS_E2E_KEEP=1` leaves the frames on disk, to see what a failure
+  looked like.
+
+**Check by hand after changing `src/panel/surface.rs`**, because the script
+cannot move the pointer.
+First set up with a task peeked:
+
+- Select its herdr pane, or
+- run `niritasks task peek <uuid8>` from a pane of its workspace's session.
+
+Pointer:
+
+- The peek slides out when the pointer reaches it.
+- It slides back about 0.4s after the pointer leaves.
+- The slide is smooth.
+- Its notes and buttons show.
+- A click just left of the peek lands on the window beneath.
+- A click on its description does nothing.
+- Complete completes it and empties the edge, without taking the keyboard from herdr.
+- Remove asks once, and the pointer leaving puts it back.
+- Go to… slides the panel to the middle with the keyboard, on that card's Go to list.
+
+Keyboard, past what the script measures:
+
+- `Mod+Alt+Ctrl+T` slides the panel from the right edge to the middle of the
+  screen, smoothly, with every card wrapped and the first darkened.
+- The pointer passing over it does not move it.
+- Active tasks show Stop, and no Start working.
+- Up and Down move the darkening between cards.
+- Left, Right and Tab move along the buttons.
+- `s` starts working.
+- `e` opens the box.
+- `t` stops.
+- Delete arms Remove, and only a second Delete deletes.
+- Moving away disarms Remove.
+- Enter on a card's description shows its notes, dimmed under it, with the
+  panel and its blur grown to fit.
+- A second Enter hides the notes.
+- A card with more notes than fit stops at about twelve lines.
+- It scrolls the rest by wheel and by dragging the scrollbar, and neither hides them.
+- A click on the notes hides them.
+- `c` completes the task.
+- `m` shows the project list.
+- Escape comes back from the project list.
+- Enter on a folder moves the task there.
+- `project open` on a workspace with no tasks shows the project list.
+- Escape closes that project list.
+- Down reaching "+N more" shows the rest, focused on the first card it hid.
+- A list taller than the screen scrolls with the focus.
+- A click on a filter tab switches the cards and does not take the focus.
+- The focus still falls back to the first card when the focused one is not
+  under the new tab.
+- A started planned task shows under Active but not Planned.
+- Back to list on a waiting task brings it back to All.
+- A click on Clear all arms it, darkening no card.
+- A second click deletes the waiting tasks.
+- Up or Down in between puts Clear all back, with the focus on the card it was on.
+- Arming Clear all puts an armed Remove back.
+- Arming Remove puts Clear all back.
+- Escape tucks the panel away, to the peeked card if there is one.
+
+#### tests/e2e-box.sh
+
+- It runs in the same kind of nested niri (`tests/lib/nested-niri.sh` starts it
+  for both).
+- Its keys are pressed with `wtype` pointed at that nested niri.
+- They never reach your windows, so you can keep working while it runs.
+- Keep off the workspace it is parked on, as for the panel test.
+- The box is served by a daemon started inside the nested niri.
+- Once that daemon is stopped, it checks the CLI refuses with "daemon is not
+  running" rather than drawing a box of its own.
+- Your own `niri-tasks` daemon is never stopped.
+
+**From a herdr pane:**
+
+- Both nested tests drop every `HERDR_*` variable before starting the nested niri.
+- So they behave as from a plain terminal, and never touch your herdr session or pane.
+- Either way, the daemon and the commands they run see a `$PATH` with every
+  directory holding a `herdr` taken out.
+- The run stops if `herdr` can still be found, so nothing they start reaches your herdr.
+
+**Check by hand after changing `src/taskbox.rs` or `src/taskbox/`**, because
+the script cannot click:
+
+- × deletes its row.
+- "+ Add note" appends an empty row with the cursor in it.
+- A long note list scrolls, keeping a row made by Enter at the bottom in view.
 
 > [!IMPORTANT]
-> All three scripts run `niritasks` **from `$PATH`** — the installed binary, not the one you
-> just built. A green run after an edit you have not installed is testing the
-> old code. Point them at a build with `NIRITASKS=`:
+> All three scripts run `niritasks` **from `$PATH`**:
+>
+> - That is the installed binary, not the one you just built.
+> - A green run after an edit you have not installed is testing the old code.
+> - Point them at a build with `NIRITASKS=`:
 >
 > ```bash
 > cargo build --release
 > NIRITASKS=./target/release/niritasks bash tests/e2e-box.sh
 > ```
 >
-> To try a change by hand rather than under test, use `bash try.sh` (below),
-> not `install.sh` or `cargo install`: both replace the `niritasks` your
-> daemon and every other worktree's test runs use.
+> To try a change by hand rather than under test, use `bash try.sh` (below):
+>
+> - Not `install.sh` or `cargo install`.
+> - Both replace the `niritasks` your daemon and every other worktree's test
+>   runs use.
 
 ### Running the tests in a container
 
