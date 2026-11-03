@@ -599,10 +599,12 @@ niritasks task peek <uuid>         # peek at that task's card on its workspace's
 niritasks task peek --clear        # peek at nothing: the edge shows no card
 niritasks task peek --focused      # peek at the task of the session's focused pane, or at nothing
                                    #   (herdr's focus hooks run it)
-niritasks task status <uuid> <state>  # what a card's Stop, Waiting, Complete and Remove run: active|stopped|waiting|completed|deleted
+niritasks task status <uuid> <state>  # what a card's Stop, Waiting, Complete and Remove run:
+                                   #   active|stopped|waiting|completed|deleted
                                    #   (stopped also brings back a waiting task, and reopens a completed one)
 niritasks task status <uuid> deleted --yes  # deleted needs --yes, Remove's confirmation
-niritasks task move <uuid> <folder>  # to another ~/Projects folder's workspace, as a card's Move to workspace does
+niritasks task move <uuid> <folder>  # to another ~/Projects folder's workspace, as a card's Move to workspace
+                                   #   does
 niritasks task add <text>          # honours taskwarrior attributes: due:friday, priority:H
                                    #   to the herdr session's workspace in herdr, else the focused one
                                    #   (task refine, start and session pick their workspace the same way)
@@ -624,17 +626,26 @@ niritasks task up-next <uuid>      # mark it up next: its card turns yellow and 
                                    #   run again to clear it
 niritasks task refine <uuid>       # work it up into a plan with Claude, in the workspace's herdr session
 niritasks task refine <uuid> --grill  #   the same, interviewing you first
-niritasks task refine <uuid> --unattended  # headless: Claude plans it asking nothing, then builds and links its
+niritasks task refine <uuid> --unattended  # headless: Claude plans it asking nothing, then builds and links
+                                   #   its
                                    #   report, in the background; the card shows an hourglass meanwhile
 niritasks task report <uuid>       # open the report of its plan linked from its notes; without one, a report
-                                   #   built by Claude in a Report: tab of its own in the workspace's herdr session
-                                   #   (beside any refine tab), opened in the browser and linked from the task's
+                                   #   built by Claude in a Report: tab of its own in the workspace's herdr
+                                   #   session
+                                   #   (beside any refine tab), opened in the browser and linked from the
+                                   #   task's
                                    #   notes (a planned task only)
 niritasks task report <uuid> --fresh  #   build a new report even when its notes link one
-niritasks task report <uuid> --branch  # open the branch report linked from its notes; without one, Claude explains what its worktree branch has changed, opens the report and links it; first, a Tests: tab runs the worktree's tests outside Claude's sandbox (git config niri-tasks.test, else NIRITASKS_HEADLESS=1 bash tests/all.sh) and Claude reports on that run
-niritasks task report <uuid> --branch --fresh  #   explain the branch afresh even when its notes link a branch report
+niritasks task report <uuid> --branch  # open the branch report linked from its notes; without one, Claude
+                                   #   explains what its worktree branch has changed, opens the report and
+                                   #   links it; first, a Tests: tab runs the worktree's tests outside
+                                   #   Claude's sandbox (git config niri-tasks.test, else NIRITASKS_HEADLESS=1
+                                   #   bash tests/all.sh) and Claude reports on that run
+niritasks task report <uuid> --branch --fresh  # explain the branch afresh even when its notes link a branch
+                                   #   report
 niritasks task report <uuid> --branch --here --workspace <name>
-                                   # internal: the tests step, run inside the Tests: tab `task report --branch` opens
+                                   #   internal: the tests step, run inside the Tests: tab `task report
+                                   #   --branch` opens
 niritasks task docs <uuid> --project <dir> --notes-dir <dir>
                                    # list its documents, label<TAB>path: its reports (the Markdown twin, else
                                    #   the HTML), Markdown its notes name by path, its notes written to
@@ -644,82 +655,96 @@ niritasks task start <uuid>        # its own worktree (task/<slug>-<uuid8>), ope
                                    #   with Claude planning it; picked again, back to both
 niritasks task start <uuid> --here --workspace <name>
                                    # internal: the setup step, run inside the tab `task start` opens
-niritasks task session <uuid>      # back to the Claude working on it (work-/task-<uuid8>) in the herdr session
-niritasks task session <uuid> --work    #   its working Claude alone (work-<uuid8>): the Go to list's Go to work session
+niritasks task session <uuid>      # back to the Claude working on it (work-/task-<uuid8>) in the herdr
+                                   #   session
+niritasks task session <uuid> --work  # its working Claude alone (work-<uuid8>): the Go to list's Go to work
+                                   #   session
 niritasks task session <uuid> --refine  #   its refine Claude alone (task-<uuid8>): Go to refine session
-niritasks task open <uuid> spec    # open the design spec its notes link (Spec: <path>) in a VS Code of its own, read in its
+niritasks task open <uuid> spec    # open the design spec its notes link (Spec: <path>) in a VS Code of its
+                                   #   own, read in its
                                    #   worktree while it has one, else the project folder
 niritasks task open <uuid> plan    #   the same for its plan (Plan: <path>)
 niritasks task open <uuid> worktree  # a terminal in its worktree
 niritasks task open <uuid> editor  # VS Code on its worktree, else the project folder
-niritasks task open-report <path>  # a report just written, in a new browser window on this workspace (what refine runs)
+niritasks task open-report <path>  # a report just written, in a new browser window on this workspace (what
+                                   #   refine runs)
 niritasks project open             # the panel's project list: pick a ~/Projects folder or GitHub repo
                                    #   onto its own named workspace, or type a new name (Mod+Alt+W)
 niritasks project open <name>      # open that one, cloning or making it first: what a pick runs
 niritasks export [<path>]          # every task, any status, and the reviews folder to one .tar.gz, by default
-                                   #   ~/niri-tasks-backup-<YYYYMMDD-HHMM>.tar.gz; lists report notes whose file is gone
-niritasks import <archive>         # put an export back, into an empty store (see Backing up before a reinstall)
-niritasks import <archive> --force #   into a store that already holds tasks; a task in both takes the backup's copy
+                                   #   ~/niri-tasks-backup-<YYYYMMDD-HHMM>.tar.gz; lists report notes whose
+                                   #   file is gone
+niritasks import <archive>         # put an export back, into an empty store (see Backing up before a
+                                   #   reinstall)
+niritasks import <archive> --force  # into a store that already holds tasks; a task in both takes the backup's
+                                   #   copy
 niritasks terminal                 # a terminal in the focused workspace's ~/Projects folder (Mod+Return)
 niritasks daemon                   # internal: the task panels and task-box server, run by the
                                    #   niri-tasks systemd user unit
 ```
 
-Every `<uuid>` is the full uuid or its first 8 characters, never a task's
-number: numbers are renumbered as tasks complete, so a stale one points at
-another task. `niritasks <command> --help` says the same as each line here, at
-more length.
+- Every `<uuid>` is the full uuid or its first 8 characters, never a task's number.
+- Numbers are renumbered as tasks complete, so a stale one points at another task.
+- `niritasks <command> --help` says the same as each line here, at more length.
 
 ### Two rules that look alike and are not
 
-`niritasks task add` **word-splits** the description, so taskwarrior parses its own
-attribute syntax — `niritasks task add ship it due:friday` sets a due date.
+| Command | Splits words? | So `due:friday`… |
+|---|---|---|
+| `niritasks task add` | **Yes**: taskwarrior parses its own attribute syntax | sets a due date (`niritasks task add ship it due:friday`) |
+| `niritasks task edit`, `niritasks task note` | **No**: the text goes through as one argument | stays literal text |
+| The task box, adding | Yes | is a due date |
+| The task box, editing an existing task | No | stays literal |
 
-`niritasks task edit` and `niritasks task note` **do not** split. The text goes through as one
-argument, so a typed `due:` stays literal text.
-
-Both are covered by tests in `tests/write_path.rs`, against a sandboxed task
-database. Getting them backwards fails silently, which is why they are pinned.
-
-The task box follows the same split. Adding word-splits the description, so
-`due:friday` in it is a due date; editing an existing task in the box keeps it
-literal.
+Both rules are pinned by tests in `tests/write_path.rs`, against a sandboxed
+task database, because getting them backwards fails silently.
 
 ### The task box
 
-One window adds a task and edits one. Edit opens it on the task's description
-and every note, and `niritasks task note <uuid>` opens it the same way with the cursor in a
-new empty row at the end. Each note is a row: it wraps, you edit it in place,
-its date sits small at its right end, and × deletes it. "+ Add note" appends a
-row. Adding has two more buttons. **Add & refine** adds the task and hands it
-straight to Claude's refine-task skill, in a new tab of the workspace's herdr
-session, as a card's Refine does. **Add & all** adds it and plans it in the
-background instead: `niritasks task refine <uuid> --unattended` runs Claude
-headless in the project folder, behind the same fence as a refine tab, first
-to write the plan asking nothing (each question it would have asked is
-decided with its recommended answer and recorded as a `Decided:` note), then
-to build the report and link it from the task's notes as `Report: <path>`,
-without opening it. The card is dimmed with an hourglass meanwhile and offers
-nothing; a notification says `Planned and reported` when both are done, or
-which step failed and where its log is
-(`$XDG_DATA_HOME/niri-tasks/unattended/`, by default
-`~/.local/share/niri-tasks/unattended/`).
-The log holds each run's final answer and every action Claude was refused,
-if any, and the notification counts the refusals and gives the log's path.
-Add & all has no key and needs Claude Code but not herdr. If a refine fails,
-either way the task stays added and a notification says why.
+**What it is:** one window adds a task and edits one.
+- Edit opens it on the task's description and every note.
+- `niritasks task note <uuid>` opens it the same way, with the cursor in a new empty row at the end.
 
-There is only ever one box. Mod+Alt+T, or Edit or Note on a card, while a box
-is open brings that box forward and opens nothing, so nothing typed into it is
-lost; if you asked for a different box, a notification says one is already
-open. Save or discard it, then ask again.
+**Notes:**
 
-A box opened by a card's Edit hands the keyboard back to the task panel
-when it closes, however it closes, on the tab Edit was pressed on with
-that card focused (or the tab's first card, if that one has gone). A box
-opened any other way, by Mod+Alt+T or `niritasks task edit`, leaves the
-panel tucked away, as does taking or giving back the panel's keyboard
-while the box is open.
+- Each note is a row, and it wraps.
+- You edit a note in place.
+- Its date sits small at its right end.
+- × deletes it.
+- "+ Add note" appends a row.
+
+**Add & refine:** adds the task and hands it straight to Claude's refine-task
+skill, in a new tab of the workspace's herdr session, as a card's Refine does.
+
+**Add & all:** adds the task and plans it in the background instead.
+`niritasks task refine <uuid> --unattended` does this:
+
+1. Runs Claude headless in the project folder, behind the same fence as a refine tab.
+2. Writes the plan, asking nothing. Each question it would have asked is decided with its recommended answer and recorded as a `Decided:` note.
+3. Builds the report and links it from the task's notes as `Report: <path>`, without opening it.
+
+Meanwhile and after:
+
+- The card is dimmed with an hourglass meanwhile and offers nothing.
+- A notification says `Planned and reported` when both steps are done.
+- Or it says which step failed and where its log is: `$XDG_DATA_HOME/niri-tasks/unattended/`, by default `~/.local/share/niri-tasks/unattended/`.
+- The log holds each run's final answer and every action Claude was refused, if any.
+- The notification counts the refusals and gives the log's path.
+- Add & all has no key and needs Claude Code but not herdr.
+- If a refine fails, either way the task stays added and a notification says why.
+
+**One box only:**
+
+- Mod+Alt+T, or Edit or Note on a card, while a box is open brings that box forward and opens nothing, so nothing typed into it is lost.
+- If you asked for a different box, a notification says one is already open.
+- Save or discard it, then ask again.
+
+**Where the keyboard goes after:**
+
+- A box opened by a card's Edit hands the keyboard back to the task panel when it closes, however it closes.
+- It returns on the tab Edit was pressed on, with that card focused (or the tab's first card, if that one has gone).
+- A box opened any other way, by Mod+Alt+T or `niritasks task edit`, leaves the panel tucked away.
+- So does taking or giving back the panel's keyboard while the box is open.
 
 | Key | Does |
 |---|---|
@@ -730,11 +755,14 @@ while the box is open.
 | Ctrl+Shift+Enter | Add & refine, when adding |
 | Esc | Discards everything, without asking |
 
-Saving an existing task writes its description and whole note list back in
-one `task import`. Untouched and edited notes keep the date they were first
-written; new ones are dated when saved, and a save that changed nothing writes
-nothing. Taskwarrior keeps notes in date order, so a note typed between two
-old ones moves to the end once saved. Empty rows are dropped.
+**Saving an existing task:**
+
+- One `task import` writes its description and whole note list back.
+- Untouched and edited notes keep the date they were first written.
+- New notes are dated when saved.
+- A save that changed nothing writes nothing.
+- Taskwarrior keeps notes in date order, so a note typed between two old ones moves to the end once saved.
+- Empty rows are dropped.
 
 ## Backing up before a reinstall
 
