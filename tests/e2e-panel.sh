@@ -195,13 +195,17 @@ whereabouts() {  # label against
 # cards (src/panel/blur.rs), but over the flat background a blur is the
 # background again, so blur in the wrong place would draw nothing to
 # measure. With saturation 0 it is grey on the blue: blur off the cards
-# shows in the gaps between them.
+# shows in the gaps between them. The rule asks for blur itself, and with
+# xray off: under xray, in this nested niri, the blur drew nothing.
 NESTED_EXTRA_KDL='layer-rule {
     match namespace="^niri-tasks-panel$"
     background-effect {
+        xray false
+        blur true
         saturation 0.0
     }
-}'
+}
+blur { on; }'
 
 nested_start
 
