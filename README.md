@@ -641,7 +641,8 @@ write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
 runtime directory and a flat 1600x1000 output, with its own daemon against a
 sandboxed `TASKDATA`. Your wallpaper, windows, window rules, notifications and
 pointer cannot reach its frames, and your `niri-tasks` daemon keeps running
-throughout. The nested niri's window opens over yours for a moment, then is
+throughout. The panel's blur is drawn grey there (a layer-rule with saturation 0), so
+blur off the cards shows on the flat screen. The nested niri's window opens over yours for a moment, then is
 parked floating and unfocused on the last workspace of that monitor. Keep off
 that workspace while it runs: going there focuses the window, and the run
 fails, saying so, rather than measuring frames your typing could have reached.

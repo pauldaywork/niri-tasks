@@ -836,7 +836,14 @@ impl Panel {
 
         // Measured, like the cards, once in the window; margins included,
         // so this is the bar and the gap under it.
-        let tabs_h = if self.tabs.is_visible() {
+        //
+        // get_visible(), the widget's own flag, here and below, never
+        // is_visible(). is_visible() also asks every ancestor, the window
+        // included, and a render on a hidden panel (a workspace with
+        // nothing peeked) fits it before present() maps the window. The
+        // bar and footer then measured 0px, and the blur sat that far
+        // above the cards.
+        let tabs_h = if self.tabs.get_visible() {
             self.tabs.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX).1
         } else {
             0
@@ -844,9 +851,9 @@ impl Panel {
 
         // The bar and Clear all's strip apart, for the blur, which leaves
         // out the gap between them and the room left of the strip.
-        let bar_shown = self.tabs.is_visible();
+        let bar_shown = self.tabs.get_visible();
         let bar_h = if bar_shown { self.bar.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX).1 } else { 0 };
-        let clear = if bar_shown && self.clear_strip.is_visible() {
+        let clear = if bar_shown && self.clear_strip.get_visible() {
             (
                 self.clear_strip.measure(gtk4::Orientation::Horizontal, -1).1,
                 self.clear_strip.measure(gtk4::Orientation::Vertical, -1).1,
@@ -857,7 +864,7 @@ impl Panel {
 
         // The footer, measured the same way: margins included, so the gap
         // over it and the ring room under it. Hidden on Ideas, so 0 there.
-        let footer_h = if self.footer.is_visible() {
+        let footer_h = if self.footer.get_visible() {
             self.footer.measure(gtk4::Orientation::Vertical, CARD_WIDTH_PX + 2 * RING_PX).1
         } else {
             0
@@ -1308,7 +1315,7 @@ impl Panel {
             }
         }
         self.show_row(row.as_deref());
-        if relabelled && self.clear_strip.is_visible() {
+        if relabelled && self.clear_strip.get_visible() {
             self.refit();
         }
     }
@@ -1350,7 +1357,7 @@ impl Panel {
         for card in self.cards.borrow().iter() {
             let Some(row) = &card.row else { continue };
             let show = uuid.is_some() && card.uuid.as_deref() == uuid;
-            if row.row.is_visible() != show {
+            if row.row.get_visible() != show {
                 row.separator.set_visible(show);
                 row.row.set_visible(show);
                 changed = true;
@@ -1372,7 +1379,7 @@ impl Panel {
             for card in self.cards.borrow().iter() {
                 let (Some(uuid), Some(notes)) = (&card.uuid, &card.notes) else { continue };
                 let show = state.shows_notes(uuid);
-                if notes.is_visible() != show {
+                if notes.get_visible() != show {
                     notes.set_visible(show);
                     changed = true;
                 }
