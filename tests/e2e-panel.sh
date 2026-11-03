@@ -22,6 +22,8 @@
 # not have changed is compared pixel for pixel. A parked nested niri draws only
 # when asked, so its first frame after a change can be stale; every frame is
 # shot until two in a row match.
+# The panel's blur is drawn grey (NESTED_EXTRA_KDL below), so where it
+# lies shows on the flat screen too.
 #
 # The nested window is parked, floating and unfocused, on the last workspace of
 # the monitor you start it from. Keep off that workspace while it runs: going
@@ -188,6 +190,18 @@ whereabouts() {  # label against
         echo "columns ${x0}-${x1}, rows ${y0}-${y1}"
     fi
 }
+
+# The panel's blur, drawn grey. The panel asks niri for blur behind its
+# cards (src/panel/blur.rs), but over the flat background a blur is the
+# background again, so blur in the wrong place would draw nothing to
+# measure. With saturation 0 it is grey on the blue: blur off the cards
+# shows in the gaps between them.
+NESTED_EXTRA_KDL='layer-rule {
+    match namespace="^niri-tasks-panel$"
+    background-effect {
+        saturation 0.0
+    }
+}'
 
 nested_start
 
@@ -1061,6 +1075,21 @@ if command -v wtype >/dev/null && [ -d "$HOME/Projects" ]; then
         bad "project open drew nothing on a workspace with no tasks"
     else
         ok "project open shows the project list with no task on the workspace"
+    fi
+    # Typed and taken back, the list draws again on a panel that is mapped
+    # by now. Its first draw was measured with the window still hidden, as
+    # on a workspace with nothing peeked. The field bar and the footer
+    # measured 0px then, and the blur sat that far above the rows, grey in
+    # the gaps between them (see NESTED_EXTRA_KDL). Both frames must match.
+    "${NENV[@]}" wtype x
+    sleep 1
+    "${NENV[@]}" wtype -k BackSpace
+    let_cursor_rest
+    shot open_redrawn || { summary; exit 1; }
+    if same open_list open_redrawn; then
+        ok "the project list opened on a hidden panel has its blur under its rows, as when drawn again"
+    else
+        bad "the project list opened on a hidden panel differs from the same list drawn again ($(whereabouts open_redrawn open_list)): its blur is off its rows"
     fi
     "${NENV[@]}" wtype -k Escape
     sleep 1
