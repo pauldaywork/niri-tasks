@@ -26,22 +26,6 @@ Which tasks you see goes purely off the workspace name:
 **Add & refine:** once added, the task opens in a "Refine: …" tab of the
 workspace's herdr session, where Claude works it up into a plan.
 
-**`Mod+Alt+Ctrl+T`, the panel with the keyboard** (full detail under [Task panel](#task-panel)):
-
-- Every card shows its whole description.
-- The focused card has buttons to:
-  - open its Go to… list (refine it into a plan with Claude or be grilled about it, its report, plan and spec, its Claude sessions, its worktree, VS Code, read it aloud)
-  - start working on it in its own worktree
-  - edit it, complete it, or move it to another project's workspace
-  - stop it, park it as waiting, or remove it
-- Ctrl+Enter refines the focused task, or starts it once it is planned, and keeps the list up. On a task already being worked with a Claude on it, it goes to that session.
-- Tabs above the cards narrow them: All, Active, Planned, To refine, Waiting, Finished. Each is labelled with its key, as To refine (4); pick with 1–6 or `[` and `]`.
-- The Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task.
-- Finished lists the last 12 finished tasks; Back to list (`b`) reopens one.
-- Ctrl+Delete deletes the focused task at once.
-- A hint beside the focused card's buttons, and a line under the list, name the keys.
-- The last tab, Ideas (7), is a notepad for the workspace's ideas that are not tasks yet.
-
 **`Mod+Alt+W`, the project list:**
 
 - It lists the `~/Projects` folders, then your GitHub repos not cloned yet.
@@ -188,8 +172,8 @@ The buttons:
 
 ### Go to…
 
-It swaps the cards for a list under a line naming the task, of what else can
-be done with it and where it can be gone to, each row only when it applies:
+Go to… swaps the cards, in the panel, for a list under a line naming the
+task, of what else can be done with it and where it can be gone to, each row only when it applies:
 
 | Row | Shows when |
 |---|---|
@@ -211,7 +195,7 @@ be done with it and where it can be gone to, each row only when it applies:
   - An HTML report opens in a new browser window on this workspace.
   - A Markdown one opens in a VS Code of its own, as the plan and spec are.
 - **Explain branch**:
-  1. Its tests run first in a `Tests:` tab, outside Claude's sandbox, when it
+  1. The task's tests run first in a `Tests:` tab, outside Claude's sandbox, when it
      has a test command (`git config niri-tasks.test '<command>'`, else this
      repo's `tests/all.sh` headless).
   2. Claude, in a tab of its own in the worktree, explains what the branch
@@ -301,12 +285,13 @@ Above the cards, six tabs narrow them while the panel has the keyboard:
 2. First press: like Remove, it asks first. It arms as **Confirm clear all**
    and takes the focus off the cards.
    - No card's buttons show.
-   - A card's own keys, `Ctrl+Delete` among them, do nothing.
+   - A card's own keys, `Ctrl+Delete` among them, do nothing until it is
+     disarmed.
 3. Second press, or `Enter`, deletes every waiting task on this workspace,
    one `task status <uuid> deleted --yes` after another. The panel goes back
    to All, keeping the keyboard.
-4. `Escape`, an arrow, Tab, or switching tab disarms it instead. The focus
-   returns to the card it was on, and the panel stays up.
+4. `Escape`, an arrow or Tab disarms it: the focus returns to the card it
+   was on, and the panel stays up. Switching tab disarms it too.
 
 ### Ideas
 
@@ -378,23 +363,25 @@ sync.
 
 | Needs | For | Without it |
 | --- | --- | --- |
-| `niri`, `taskwarrior`, a Rust toolchain | Everything | Required |
+| `niri`, `taskwarrior` | Everything | Required |
+| A Rust toolchain | Building `niritasks` | Required |
 | `ghostty` 1.2 or later | `+new-window` | Required |
 | `notify-send` | Feedback | Feedback degrades to stderr |
 | `fzf` | Ranks what you type on the project list | Plain-text matching, and it says so once |
 | `tar`, `sqlite3` | `niritasks export` and `import` | — (`sudo apt install sqlite3`) |
-| [herdr](https://herdr.dev), optional | `project open` runs the workspace's herdr session in the project terminal | A plain shell in the project folder |
+| [herdr](https://herdr.dev) on `$PATH`, optional | `project open` runs the workspace's herdr session in the project terminal | A plain shell in the project folder |
 | Claude Code (`claude`, 2.1.287 or later for Refine's mod) + herdr | **Refine**, **Grill me**, **Generate report**, **Explain branch** | — |
 | Claude Code alone | **Add & all** (the box) | — |
 | `bubblewrap`, `socat` | The Bash sandbox (`sudo apt install bubblewrap socat`) | Claude refuses to start rather than run unfenced |
-| [worktrunk](https://worktrunk.dev) (`wt`) + herdr + Claude Code, `~/Projects` a git repo | **Start working** | — |
+| [worktrunk](https://worktrunk.dev) (`wt`) + herdr + Claude Code, the workspace's `~/Projects` folder a git repo | **Start working** | — |
 | herdr 0.9.1+, `python3`, `fzf`, plannotator-tui | **Task docs** | The key says so |
 | `claude`, `curl`, `ffplay` (from ffmpeg), a Kokoro server on `127.0.0.1:8880` | **Read aloud** (in a card's Go to list) | — |
 | `code` (VS Code), optional | `project open` starts VS Code | Only the terminal starts |
 
 - **Claude Code + herdr:** these open Claude inside the herdr session.
   Add & all needs Claude Code alone, on `$PATH`.
-- **`bubblewrap`, `socat`:** the sandbox keeps that Claude to:
+- **`bubblewrap`, `socat`:** the sandbox keeps the Claude of Refine, Grill me, Generate report, Explain
+  branch and Add & all to:
   - reading anything but secrets;
   - reaching only a fixed list of source and docs hosts;
   - writing only the task and its own temp folder.
@@ -414,9 +401,6 @@ sync.
     [herdr-speak](https://github.com/pauldaywork/herdr-speak) uses, so the
     two share one server.
   - Kokoro is [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI).
-- **herdr:** with it on `$PATH`, `niritasks project open` runs the workspace's
-  herdr session in the project terminal. Without it, the terminal is a plain
-  shell in the project folder.
 - **VS Code:** `project open` starts VS Code on the project folder when `code`
   is on `$PATH`, else only the terminal.
   - The lookup is there because niri answers a spawn of a missing binary with
@@ -428,6 +412,8 @@ sync.
     and `completed.data` rather than 3.x's `taskchampion.sqlite3`. The panel
     watches both.
 
+How the task's Claude panes and the worktree skills behave:
+
 - **Pane labels:** a Refine or Start working Claude's pane says which task it
   is on.
   - Border: `Refine #61 · <description>` or `Work #61 · <description>`.
@@ -437,10 +423,10 @@ sync.
   - herdr draws a border, and the label in it, only around split panes. To
     always draw it, add this to `~/.config/herdr/config.toml` and run
     `herdr server reload-config`:
-
-        [ui]
-        pane_borders = "always"
-
+    ```toml
+    [ui]
+    pane_borders = "always"
+    ```
   - niri-tasks never edits that file.
   - The pane also carries `task_id`, `task` and `task_uuid` tokens. An Agent
     row in `[ui.sidebar.agents]` can show them as `$task_id`, `$task` and
@@ -453,7 +439,9 @@ sync.
   - gets the pane label `Work #<id> · <description>`, so the task's Go to
     list can offer Go to work session;
   - keeps its name if Refine or Start working already named the agent.
-- **`/finish-worktree`** in that worktree's Claude lands it:
+- **`/finish-worktree`** in that worktree's Claude lands it, stopping to ask
+  only for a conflict with no obvious resolution, red tests, or `main` holding
+  commits origin doesn't have:
   1. syncs `main` with origin;
   2. rebases the branch and tests the result in a container (`tests/container.sh`,
      every suite, nothing on your desktop touched; `tests/all.sh` on the host
@@ -463,9 +451,6 @@ sync.
   5. links any plan or spec doc the branch added that the task doesn't yet
      carry as a `Plan:` or `Spec:` note;
   6. removes the worktree.
-
-  It stops to ask only for a conflict with no obvious resolution, red tests,
-  or `main` holding commits origin doesn't have.
 - **`/reject-worktree`** in that worktree's Claude throws an attempt away:
   - removes the worktree and its branch, locally and on origin;
   - puts the task back on the list, stopped, to be started fresh;
@@ -571,8 +556,8 @@ The plugin also hooks herdr's events, so there is no key to bind:
   card the edge shows.
 - Going to a niri workspace does the same without touching herdr.
   - The daemon asks that workspace's herdr session for its focused pane each
-    time a monitor switches to it, and when the daemon starts.
-  - So the peek is right after a restart too.
+    time a monitor switches to it, and when the daemon starts, so the peek is
+    right after a restart too.
 - The edge empties for a pane with no task, or a session that is not running.
 - It also empties when the task leaves the list (completed, waiting or
   removed).
@@ -627,14 +612,11 @@ niritasks task up-next <uuid>      # mark it up next: its card turns yellow and 
 niritasks task refine <uuid>       # work it up into a plan with Claude, in the workspace's herdr session
 niritasks task refine <uuid> --grill  #   the same, interviewing you first
 niritasks task refine <uuid> --unattended  # headless: Claude plans it asking nothing, then builds and links
-                                   #   its
-                                   #   report, in the background; the card shows an hourglass meanwhile
+                                   #   its report, in the background; the card shows an hourglass meanwhile
 niritasks task report <uuid>       # open the report of its plan linked from its notes; without one, a report
                                    #   built by Claude in a Report: tab of its own in the workspace's herdr
-                                   #   session
-                                   #   (beside any refine tab), opened in the browser and linked from the
-                                   #   task's
-                                   #   notes (a planned task only)
+                                   #   session (beside any refine tab), opened in the browser and linked from
+                                   #   the task's notes (a planned task only)
 niritasks task report <uuid> --fresh  #   build a new report even when its notes link one
 niritasks task report <uuid> --branch  # open the branch report linked from its notes; without one, Claude
                                    #   explains what its worktree branch has changed, opens the report and
@@ -644,8 +626,8 @@ niritasks task report <uuid> --branch  # open the branch report linked from its 
 niritasks task report <uuid> --branch --fresh  # explain the branch afresh even when its notes link a branch
                                    #   report
 niritasks task report <uuid> --branch --here --workspace <name>
-                                   #   internal: the tests step, run inside the Tests: tab `task report
-                                   #   --branch` opens
+                                   #   internal: the tests step, run inside the Tests: tab
+                                   #   `task report --branch` opens
 niritasks task docs <uuid> --project <dir> --notes-dir <dir>
                                    # list its documents, label<TAB>path: its reports (the Markdown twin, else
                                    #   the HTML), Markdown its notes name by path, its notes written to
@@ -661,8 +643,7 @@ niritasks task session <uuid> --work  # its working Claude alone (work-<uuid8>):
                                    #   session
 niritasks task session <uuid> --refine  #   its refine Claude alone (task-<uuid8>): Go to refine session
 niritasks task open <uuid> spec    # open the design spec its notes link (Spec: <path>) in a VS Code of its
-                                   #   own, read in its
-                                   #   worktree while it has one, else the project folder
+                                   #   own, read in its worktree while it has one, else the project folder
 niritasks task open <uuid> plan    #   the same for its plan (Plan: <path>)
 niritasks task open <uuid> worktree  # a terminal in its worktree
 niritasks task open <uuid> editor  # VS Code on its worktree, else the project folder
@@ -702,6 +683,7 @@ task database, because getting them backwards fails silently.
 ### The task box
 
 **What it is:** one window adds a task and edits one.
+
 - Edit opens it on the task's description and every note.
 - `niritasks task note <uuid>` opens it the same way, with the cursor in a new empty row at the end.
 
@@ -713,24 +695,26 @@ task database, because getting them backwards fails silently.
 - × deletes it.
 - "+ Add note" appends a row.
 
+Adding has two more buttons:
+
 **Add & refine:** adds the task and hands it straight to Claude's refine-task
 skill, in a new tab of the workspace's herdr session, as a card's Refine does.
 
-**Add & all:** adds the task and plans it in the background instead.
+**Add & all:** adds the task and plans it in the background instead. It has no
+key and needs Claude Code but not herdr.
 `niritasks task refine <uuid> --unattended` does this:
 
 1. Runs Claude headless in the project folder, behind the same fence as a refine tab.
 2. Writes the plan, asking nothing. Each question it would have asked is decided with its recommended answer and recorded as a `Decided:` note.
 3. Builds the report and links it from the task's notes as `Report: <path>`, without opening it.
 
-Meanwhile and after:
+While it runs, and after:
 
-- The card is dimmed with an hourglass meanwhile and offers nothing.
+- The card is dimmed with an hourglass and offers nothing.
 - A notification says `Planned and reported` when both steps are done.
 - Or it says which step failed and where its log is: `$XDG_DATA_HOME/niri-tasks/unattended/`, by default `~/.local/share/niri-tasks/unattended/`.
 - The log holds each run's final answer and every action Claude was refused, if any.
 - The notification counts the refusals and gives the log's path.
-- Add & all has no key and needs Claude Code but not herdr.
 - If a refine fails, either way the task stays added and a notification says why.
 
 **One box only:**
@@ -827,7 +811,7 @@ task count                      # every task, back
 - `~/.taskrc` is not managed here.
 - The only requirement is that `data.location` points somewhere `task` can read and write.
 
-**Blur rule** of the task panel:
+**The task panel's blur rule:**
 
 - It is in `niri-tasks.kdl`.
 - It matches the panel's own namespace, `niri-tasks-panel`.
@@ -876,7 +860,7 @@ Each exits non-zero on failure, so any of them can go in a loop or a hook.
 | `herdr/task-docs` tests | `python3`, `git` | Nothing. A fake `herdr`, `notify-send` and `xdg-open` stand in, in a scratch folder |
 | `claude plugin test claude/refine-mod` | `claude` on `$PATH` | Nothing of yours. The mod's tests run against a fake session |
 | `tests/e2e-tag.sh` | niri running with **two named workspaces** — one focused, one not (it borrows the spare empty one if not) | At most the spare workspace's name, taken off again |
-| `tests/e2e-panel.sh` | niri, Wayland, `python3-pil`, taskwarrior; `wtype` for its keyboard checks | A nested niri window, parked on the spare workspace |
+| `tests/e2e-panel.sh` | niri, a Wayland session, `python3-pil`, taskwarrior; `wtype` for its keyboard checks | A nested niri window, parked on the spare workspace |
 | `tests/e2e-box.sh` | `wtype`, niri, a Wayland session, taskwarrior | A nested niri window, parked like the panel test's |
 
 - **`tests/container.sh`**:
@@ -895,7 +879,7 @@ Each exits non-zero on failure, so any of them can go in a loop or a hook.
 - **`tests/e2e-box.sh`**:
   - Keep off its parked workspace until it finishes.
   - Its keys go only to that nested niri.
-  - Never your keyboard or the `niri-tasks` daemon.
+  - It never touches your keyboard or the `niri-tasks` daemon.
 
 Narrow `cargo test` as usual: `cargo test --lib`, `cargo test --test write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
 
@@ -924,7 +908,7 @@ First set up with a task peeked:
 - Select its herdr pane, or
 - run `niritasks task peek <uuid8>` from a pane of its workspace's session.
 
-Pointer:
+**Pointer:**
 
 - The peek slides out when the pointer reaches it.
 - It slides back about 0.4s after the pointer leaves.
@@ -936,7 +920,7 @@ Pointer:
 - Remove asks once, and the pointer leaving puts it back.
 - Go to… slides the panel to the middle with the keyboard, on that card's Go to list.
 
-Keyboard, past what the script measures:
+**Keyboard, past what the script measures:**
 
 - `Mod+Alt+Ctrl+T` slides the panel from the right edge to the middle of the
   screen, smoothly, with every card wrapped and the first darkened.
@@ -1025,7 +1009,7 @@ the script cannot click:
 `tests/container.sh` runs `tests/all.sh` in a Docker container, against this
 checkout as it stands, uncommitted edits included.
 
-**Isolation**
+**Isolation:**
 
 - The container gets no mount, socket or display of yours, and no network.
 - It gets only a copy of the files git would see.
@@ -1041,7 +1025,7 @@ bash tests/container.sh >/dev/null 2>&1 &        # in the background
 tail -f target/container-tests/latest.log
 ```
 
-**The image** (`tests/container/Dockerfile`)
+**The image** (`tests/container/Dockerfile`):
 
 - It reproduces what the suites use here, at this machine's versions and in
   the same folders:
@@ -1058,24 +1042,25 @@ tail -f target/container-tests/latest.log
 - Each run makes the links `install.sh` makes, from the copy.
 - VS Code and gh are left out.
 - Claude Code is never logged in.
-- This command lists what the image holds (too long for prose):
+- This command lists what the image holds:
 
 ```bash
 docker run --rm -i "$(bash tests/container/image.sh)" bash -s < tests/container/check-image.sh
 ```
 
-**Inside a run**
+**Inside a run:**
 
-1. `tests/container/inside.sh` starts a headless sway.
-2. It starts an outer niri in it, with two named workspaces.
-3. It writes a GTK `settings.ini` from the image's gsettings, since GTK on
-   Wayland reads no GSettings without a desktop portal.
+1. `tests/container/inside.sh` writes a GTK `settings.ini` from the image's
+   gsettings, since GTK on Wayland reads no GSettings without a desktop
+   portal.
+2. It starts a headless sway.
+3. It starts an outer niri in it, with two named workspaces.
 4. It builds the copy.
 5. It runs `tests/all.sh` with `NIRITASKS` set to that build.
 
 The e2e suites nest their niri in the outer one, as they would in yours.
 
-**Rebuilds**
+**Rebuilds:**
 
 - The image is built on the first run.
 - It is built again only when one of its four inputs changes
@@ -1086,14 +1071,14 @@ The e2e suites nest their niri in the outer one, as they would in yours.
 - So a checkout's first run compiles only niri-tasks, and later runs only what
   changed.
 
-**Parity**
+**Parity:**
 
 - Each run starts by saying whether the image still matches this machine:
   package versions, programs, font, GTK settings (`tests/container/parity.sh`).
 - When it does not, rebuild with
   `NIRITASKS_CONTAINER_REBUILD=1 bash tests/container.sh`.
 
-**Runs and logs**
+**Runs and logs:**
 
 - A second run of the same checkout while one is going refuses, since the two
   would share a build directory.
@@ -1101,7 +1086,7 @@ The e2e suites nest their niri in the outer one, as they would in yours.
 - A failed run's logs and the e2e suites' frames are kept beside it in
   `<stamp>-artifacts/`.
 
-**It exits non-zero when**
+**It exits non-zero when:**
 
 - a suite that ran fails, as `tests/all.sh` does;
 - there is no Docker;
@@ -1109,7 +1094,7 @@ The e2e suites nest their niri in the outer one, as they would in yours.
 - the run is refused;
 - the container's desktop or build fails.
 
-**Clean-up**
+**Clean-up:**
 
 - Each run removes the build volumes nothing will use again: those of
   worktrees since removed, and of images since replaced.
@@ -1128,19 +1113,20 @@ bash try.sh             # a debug build
 bash try.sh --release   # a release build, to see how the panel animates
 ```
 
-**What it does**
+**What it does:**
 
 - Run it from any checkout or worktree.
 - It builds it and opens it in a nested niri: the same sandbox the e2e tests
   use (`tests/lib/nested-niri.sh`), but as an ordinary window, focused, on your
   workspace.
-- Its one workspace is named after the project.
-- The panel shows the project's tasks from a copy of your task database, taken
-  with an SQLite online backup.
+- Its one workspace is named after the project, so the panel shows the
+  project's tasks.
+- They come from a copy of your task database, taken with an SQLite online
+  backup.
 - Nothing is written back.
 - Notifications are printed in the terminal rather than shown on your desktop.
 
-**Keys**
+**Keys:**
 
 `niri/niri-tasks.kdl` is included with Mod on plain Alt, since your own niri
 takes Super combinations first.
@@ -1153,7 +1139,7 @@ takes Super combinations first.
 | Alt+W       | Opens a project                            |
 | Alt+Return  | Opens a terminal (stubbed in a try window) |
 
-**The try shell**
+**The try shell:**
 
 - The terminal becomes a try shell whose `niritasks`, `task` and `niri msg`
   reach the nested niri.
@@ -1161,7 +1147,7 @@ takes Super combinations first.
   copy.
 - `exit` closes everything.
 
-**Kept apart**
+**Kept apart:**
 
 - The installed binary, the `niri-tasks` service and `install.sh`'s links are
   never touched.
@@ -1227,7 +1213,7 @@ Installing a build for daily use is still `bash install.sh`, on main.
 - So it screenshots a nested niri of its own and measures the panel against a
   frame taken with no tasks.
 
-**What it measures**
+**What it measures:**
 
 - Nothing on the edge until a task is peeked.
 - The peek's width and its notes.
@@ -1254,7 +1240,7 @@ Installing a build for daily use is still `bash install.sh`, on main.
 Which tab, card and button a key leads to, and what it arms, are
 `src/panel/state.rs`'s unit tests, which need no display.
 
-**Why its numbers are exact**
+**Why its numbers are exact:**
 
 - The nested screen is a flat colour at a fixed size.
 - With a task peeked, the peek starts at column 1566 of 1600.
