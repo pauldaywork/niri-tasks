@@ -197,6 +197,9 @@ whereabouts() {  # label against
 # measure. With saturation 0 it is grey on the blue: blur off the cards
 # shows in the gaps between them. The rule asks for blur itself, and with
 # xray off: under xray, in this nested niri, the blur drew nothing.
+# The global `blur { on; }` below is set as well. This combination (the
+# rule's blur true, blur on globally, xray off) is the one verified to draw
+# the grey blur in the nested niri; neither was tested alone.
 NESTED_EXTRA_KDL='layer-rule {
     match namespace="^niri-tasks-panel$"
     background-effect {

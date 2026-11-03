@@ -641,15 +641,15 @@ write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
 runtime directory and a flat 1600x1000 output, with its own daemon against a
 sandboxed `TASKDATA`. Your wallpaper, windows, window rules, notifications and
 pointer cannot reach its frames, and your `niri-tasks` daemon keeps running
-throughout. The panel's blur is drawn grey there (a layer-rule with saturation 0), so
-blur off the cards shows on the flat screen. The nested niri's window opens over yours for a moment, then is
-parked floating and unfocused on the last workspace of that monitor. Keep off
-that workspace while it runs: going there focuses the window, and the run
-fails, saying so, rather than measuring frames your typing could have reached.
-Run it with `NIRITASKS=$PWD/target/debug/niritasks`: without that it runs the
-installed `niritasks`, which may be an older build.
-`NIRITASKS_E2E_KEEP=1` leaves the frames on disk when you need to see what a
-failure actually looked like.
+throughout. The panel's blur is drawn grey there (a layer-rule with saturation
+0), so blur off the cards shows on the flat screen. The nested niri's window
+opens over yours for a moment, then is parked floating and unfocused on the last
+workspace of that monitor. Keep off that workspace while it runs: going there
+focuses the window, and the run fails, saying so, rather than measuring frames
+your typing could have reached. Run it with
+`NIRITASKS=$PWD/target/debug/niritasks`: without that it runs the installed
+`niritasks`, which may be an older build. `NIRITASKS_E2E_KEEP=1` leaves the
+frames on disk when you need to see what a failure actually looked like.
 
 It cannot move the pointer, so the hover is checked by hand after a change to
 `src/panel/surface.rs`, with a task peeked (select its herdr pane, or run
