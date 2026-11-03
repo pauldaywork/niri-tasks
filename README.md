@@ -722,9 +722,9 @@ tail -f target/container-tests/latest.log
 The image (`tests/container/Dockerfile`) reproduces what the suites use here,
 at this machine's versions and in the same folders: niri and ghostty from the
 same PPA, Taskwarrior 3.5.0 compiled from its tarball, rustc 1.95.0, herdr,
-worktrunk and Claude Code in `~/.local/bin`, Iosevka Term (in
-`~/.local/share/fonts`, as here, because the panel test's own
-`XDG_DATA_HOME` hides that folder and its results depend on the font), the GTK
+worktrunk and Claude Code in `~/.local/bin`, Iosevka Term and JetBrainsMono
+Nerd Font (in `~/.local/share/fonts`, as here, which the panel test links into
+its own `XDG_DATA_HOME` so its checks draw in the panel's font), the GTK
 theme and font settings, `en_US.UTF-8`, your timezone and a uid-1000 user. Each
 run makes the links `install.sh` makes, from the copy. VS Code and gh are left
 out, and Claude Code is never logged in.

@@ -93,9 +93,8 @@ WORKDIR /work
 # name (src/panel/style.rs), and the action buttons' Font Awesome glyphs
 # (src/actions.rs) fall back to JetBrainsMonoNL Nerd Font. The folder
 # matters: e2e-panel.sh gives the nested session an XDG_DATA_HOME of its
-# own, which takes these fonts out of fontconfig's reach, so on the machine
-# the panel's checks measure Noto Sans and the system fonts' fallbacks.
-# Fonts in /usr/local/share/fonts stay in reach and draw another height.
+# own and links this folder into it, as on the machine, so the panel's
+# checks draw in these fonts and fail at once when they are not there.
 # The machine's versions, from the same release zips.
 RUN mkdir -p /home/tester/.local/share/fonts/iosevka-term \
  && curl -fsSLo /tmp/iosevka.zip https://github.com/be5invis/Iosevka/releases/download/v34.8.1/PkgTTF-IosevkaTerm-34.8.1.zip \
