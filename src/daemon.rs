@@ -457,8 +457,12 @@ fn refresh_peeks(outputs: &BTreeMap<String, Option<String>>) {
         // A workspace with no usable tag has no session of ours to ask.
         let Ok(ws) = Workspace::named(&name) else { continue };
         std::thread::spawn(move || {
-            let uuid = crate::link::focused_task(&crate::session::Session::named(&ws.session_name()));
             let tag = ws.tag().to_string();
+            let uuid = crate::link::focused_task(&crate::session::Session::named(&ws.session_name()))
+                .unwrap_or_else(|e| {
+                    debug(&format!("focused pane of +{tag}: {e:#}"));
+                    None
+                });
             debug(&format!("focused pane of +{tag}: {uuid:?}"));
             gtk4::glib::idle_add_once(move || set_peek(&tag, uuid.as_deref()));
         });

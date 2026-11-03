@@ -135,9 +135,23 @@ pub fn focused_uuid8(session: &Session, branch_in: impl Fn(&Path) -> Option<Stri
 /// The full uuid of the task `session`'s focused pane is on, as
 /// [`focused_uuid8`] finds it, asking git for the folder's branch. None too
 /// for a uuid8 Taskwarrior does not know: a branch that outlived its task.
-pub fn focused_task(session: &Session) -> Option<String> {
-    let uuid8 = focused_uuid8(session, crate::work::branch_in)?;
-    crate::task::get(&uuid8).ok().flatten().map(|t| t.uuid)
+/// A Taskwarrior that fails is an error, never no task: the caller decides
+/// what a failed lookup means.
+pub fn focused_task(session: &Session) -> Result<Option<String>> {
+    focused_task_in(session, crate::work::branch_in, crate::task::get)
+}
+
+/// [`focused_task`] with the branch reader and the task lookup handed in.
+fn focused_task_in(
+    session: &Session,
+    branch_in: impl Fn(&Path) -> Option<String>,
+    get: impl Fn(&str) -> Result<Option<crate::task::Task>>,
+) -> Result<Option<String>> {
+    let Some(uuid8) = focused_uuid8(session, branch_in) else {
+        return Ok(None);
+    };
+    let task = get(&uuid8).with_context(|| format!("Could not look up task {uuid8}, the focused pane's"))?;
+    Ok(task.map(|t| t.uuid))
 }
 
 /// The live agent `which` picks for `uuid` in `ws`'s herdr session, if
@@ -167,6 +181,40 @@ mod tests {
 
     fn task(id: u64, uuid: &str, description: &str) -> crate::task::Task {
         serde_json::from_value(serde_json::json!({"id": id, "uuid": uuid, "description": description})).unwrap()
+    }
+
+    /// A focused pane on a task, with Taskwarrior asked by `get`.
+    fn on_task() -> Session {
+        let fake = Fake::running(&[("w1", "alpha")])
+            .with_pane("w1:p1", true, "/work")
+            .with_agent(Some("work-1234abcd"), "w1:p1", "idle");
+        Session::with_port("alpha", PathBuf::new(), Box::new(fake))
+    }
+
+    /// A lookup that fails is an error naming the task, never a pane on no
+    /// task: `task peek --focused` would clear the peek and exit 0.
+    #[test]
+    fn a_failed_task_lookup_is_an_error_not_no_task() {
+        let err = focused_task_in(&on_task(), |_| None, |_| anyhow::bail!("database is locked")).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("1234abcd") && msg.contains("database is locked"), "{msg}");
+    }
+
+    #[test]
+    fn the_focused_panes_task_is_looked_up_by_its_uuid8() {
+        let found = focused_task_in(&on_task(), |_| None, |u| {
+            assert_eq!(u, "1234abcd");
+            Ok(Some(task(5, "1234abcd-0000-4000-8000-000000000000", "x")))
+        });
+        assert_eq!(found.unwrap().as_deref(), Some("1234abcd-0000-4000-8000-000000000000"));
+        assert_eq!(focused_task_in(&on_task(), |_| None, |_| Ok(None)).unwrap(), None, "a branch that outlived its task");
+    }
+
+    /// A pane on no task asks Taskwarrior nothing, so it cannot fail.
+    #[test]
+    fn a_pane_on_no_task_is_no_task_without_asking() {
+        let s = Session::with_port("alpha", PathBuf::new(), Box::new(Fake::running(&[("w1", "alpha")]).with_pane("w1:p1", true, "/")));
+        assert_eq!(focused_task_in(&s, |_| None, |_| panic!("asked Taskwarrior")).unwrap(), None);
     }
 
     /// A Claude started by hand takes the task's work- name and its pane the

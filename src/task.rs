@@ -411,10 +411,9 @@ fn base() -> Command {
     cmd
 }
 
-/// Run a `task export` filter and parse the result.
-///
-/// `export` exits non-zero when the filter matches nothing, which is a normal
-/// case rather than an error — an empty list is returned instead.
+/// Run a `task export` filter and parse the result. A filter that matches
+/// nothing exits 0 with an empty list on Taskwarrior 3; a `task` that
+/// fails is an error, never no tasks.
 fn export(filter: &[&str]) -> Result<Vec<Task>> {
     export_values(filter)?
         .into_iter()
@@ -443,6 +442,11 @@ fn export_values(filter: &[&str]) -> Result<Vec<Value>> {
         .arg("export")
         .output()
         .context("could not run `task` — is taskwarrior installed?")?;
+    anyhow::ensure!(
+        out.status.success(),
+        "`task export` failed: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     let trimmed = stdout.trim();

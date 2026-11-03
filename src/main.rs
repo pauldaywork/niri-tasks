@@ -497,7 +497,7 @@ fn task_command(cmd: TaskCommand) -> Result<()> {
             )?;
             let tag = Workspace::of_session()?.tag().to_string();
             let uuid = if focused {
-                link::focused_task(&session::Session::named(&pane.session))
+                link::focused_task(&session::Session::named(&pane.session))?
             } else {
                 match uuid {
                     Some(u) => Some(task::get(&u)?.context("task not found")?.uuid),
