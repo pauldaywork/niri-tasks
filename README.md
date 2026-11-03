@@ -262,7 +262,9 @@ that task active (`niritasks task status <uuid> active`): its agent is named
 `Work #<id> · <description>`, so the task's Go to list can offer Go to work session. An agent already named by Refine or Start working keeps its name.
 
 When the work is done, `/finish-worktree` in that worktree's Claude lands it:
-it syncs `main` with origin, rebases the branch and tests the result, then
+it syncs `main` with origin, rebases the branch and tests the result in a
+container (`tests/container.sh`, every suite, nothing on your desktop touched;
+`tests/all.sh` on the host when Docker can't run it, and it says so), then
 fast-forwards `main`, pushes, marks the task completed with `niritasks task status`,
 links any plan or spec doc the branch added that the task doesn't yet carry as a
 `Plan:` or `Spec:` note, and removes the worktree. It stops to ask only for a
