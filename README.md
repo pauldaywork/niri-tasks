@@ -170,46 +170,79 @@ The buttons:
 - Hovering shows the buttons only on the peeked card; on the others only the
   keyboard does.
 
-**Move to workspace** swaps the cards for a list of your `~/Projects`
-folders, drawn like cards under a line naming the task: every folder but
-this workspace's own. Type to narrow it: a field above the folders ranks
-them as fzf does, best match first, and the highlight goes to the top match
-(without fzf it keeps the folders whose names hold what you typed). Up and
-Down move the highlight, and Enter or a click moves the task there,
-retagging it to that folder's workspace, and goes back to the cards with
-the next one focused. Escape clears what you typed, and on an empty field
-goes back to the cards on the same one without moving it.
+### Move to workspace
 
-**Go to…** swaps the cards for a list under a line naming the task, of what
-else can be done with it and where it can be gone to, each row only when it
-applies:
+1. The cards swap for a list of your `~/Projects` folders, drawn like cards,
+   under a line naming the task. Every folder but this workspace's own is
+   listed.
+2. Type to narrow it.
+   - The field above ranks folders as fzf does, best match first.
+   - The highlight goes to the top match.
+   - Without fzf it keeps the folders whose names hold what you typed.
+3. Up and Down move the highlight.
+4. Enter or a click moves the task there.
+   - It is retagged to that folder's workspace.
+   - The panel goes back to the cards, with the next one focused.
+5. Escape clears what you typed. On an empty field, it goes back to the
+   cards, on the same one, without moving the task.
+
+### Go to…
+
+It swaps the cards for a list under a line naming the task, of what else can
+be done with it and where it can be gone to, each row only when it applies:
 
 | Row | Shows when |
 |---|---|
 | **Refine**, **Redo refine** once planned, and **Grill me** | on a task on the list, unless its refine Claude is running: Go to refine session then goes there |
 | **Get started**, **Back to worktree** once started | on a task on the list, unless its work Claude is running: Go to work session then goes there |
 | **Generate report**, **Regenerate report** once one exists | on a planned task on the list |
-| **Open report** | its notes link a report (`Report: <path>`, the path absolute, `~/...`, or a name in `~/.local/share/niri-tasks/reviews`): an HTML one in a new browser window on this workspace, a Markdown one in a VS Code of its own, as the plan and spec are |
-| **Explain branch** | the task has a worktree: its tests run first in a `Tests:` tab, outside Claude's sandbox, when it has a test command (`git config niri-tasks.test '<command>'`, else this repo's `tests/all.sh` headless); then Claude, in a tab of its own in the worktree, explains what its branch has changed since it left the default branch, reads that test run into its report (or, with no test command, runs what tests it can itself), and links the deck as `Branch report: <path>` |
+| **Open report** | its notes link a report (`Report: <path>`) |
+| **Explain branch** | the task has a worktree |
 | **Branch report** | its notes link a branch report: opened as Open report opens a report |
-| **Planning doc**, **Design spec** | its notes link a plan (`Plan: <path>`) or a spec (`Spec: <path>`): opened in a VS Code of its own, apart from your VS Code windows, sharing your extensions, settings and keybindings |
+| **Planning doc**, **Design spec** | its notes link a plan (`Plan: <path>`) or a spec (`Spec: <path>`) |
 | **Go to refine session**, **Go to work session** | on a task on the list, that Claude (`task-<uuid8>`, `work-<uuid8>`) is running, checked as the panel slides out |
 | **Open worktree folder** | the task has a worktree: a terminal in it |
 | **Open in VS Code** | `code` is installed: on the worktree, else the project folder |
 | **Read aloud**, **Stop reading aloud** while a speech plays | always: its description and notes, rewritten by Claude for listening |
 
-Rows of a kind share a colour: mauve for a Claude working on the plan
-(Refine, Grill me, Generate report, Explain branch), green for Get started,
-blue for going to a running Claude, yellow for the documents (Open report,
-Branch report, Planning doc, Design spec), sapphire for the worktree
-and VS Code, and pink for Read aloud.
+- **Open report**:
+  - The report's path is absolute, `~/...`, or a name in
+    `~/.local/share/niri-tasks/reviews`.
+  - An HTML report opens in a new browser window on this workspace.
+  - A Markdown one opens in a VS Code of its own, as the plan and spec are.
+- **Explain branch**:
+  1. Its tests run first in a `Tests:` tab, outside Claude's sandbox, when it
+     has a test command (`git config niri-tasks.test '<command>'`, else this
+     repo's `tests/all.sh` headless).
+  2. Claude, in a tab of its own in the worktree, explains what the branch
+     has changed since it left the default branch.
+  3. Claude reads that test run into its report (or, with no test command,
+     runs what tests it can itself).
+  4. The deck is linked as `Branch report: <path>`.
+- **Planning doc**, **Design spec**: opened in a VS Code of its own, apart
+  from your VS Code windows, sharing your extensions, settings and
+  keybindings.
 
-There is no field to type in: Up and Down move the highlight, Enter or a
-click runs the row and gives the keyboard back (Read aloud keeps it, back
-on the cards), and Escape goes back to the cards on the same one. The plan
-and the spec are linked by the Claude Start working starts, once it has
-saved its plan; their paths are the repository's, read in the task's
-worktree while it has one.
+Rows of a kind share a colour:
+
+| Colour | Rows |
+|---|---|
+| mauve | a Claude working on the plan (Refine, Grill me, Generate report, Explain branch) |
+| green | Get started |
+| blue | going to a running Claude |
+| yellow | the documents (Open report, Branch report, Planning doc, Design spec) |
+| sapphire | the worktree and VS Code |
+| pink | Read aloud |
+
+- There is no field to type in.
+- Up and Down move the highlight.
+- Enter or a click runs the row and gives the keyboard back. Read aloud keeps
+  it, back on the cards.
+- Escape goes back to the cards on the same one.
+- The plan and the spec are linked by the Claude Start working starts, once
+  it has saved its plan.
+- Their paths are the repository's, read in the task's worktree while it has
+  one.
 
 ### Ctrl+Enter and Ctrl+Delete
 
@@ -234,49 +267,77 @@ worktree while it has one.
 - Every other Ctrl chord passes through untouched, apart from
   Ctrl+Shift+Delete, the Waiting tab's Clear all (below).
 
-Above the cards, tabs narrow them while the panel has the keyboard: **All**,
-**Active** (started), **Planned** (refined or grilled into a plan, and not
-started yet), **To refine** (neither planned nor started yet), **Waiting**
-(parked) and **Finished** (the last 12 completed, the most recently finished
-first, each aged from when it was finished). A tab shows only while it has a
-task under it, All apart. `1` to `6` pick one, each always the same tab and
-doing nothing while it is hidden, and each tab's label ends in its key, as **To
-refine (4)**; `[` and `]` step to the shown tab either side; a click picks one
-too. The arrows and Tab still move only between cards and buttons. A started
-task is under Active alone, not Planned or To refine. Waiting tasks are on the
-Waiting tab only: not on All, and never the peek. Finished tasks are on the
-Finished tab only, the same way, and Back to list on one reopens it, back on
-All. The panel opens on All every time, and goes back to All when the tab it is
-on runs out of tasks. On the Waiting tab alone, **Clear all** sits under the
-tabs on a strip of its own, which `Ctrl+Shift+Delete` presses (`Ctrl+Delete` and
-`Delete` are still the focused card's). Like Remove it asks first, as **Confirm
-clear all**, and its second press deletes every waiting task on this workspace,
-one `task status <uuid> deleted --yes` after another, putting the panel back on
-All with the keyboard kept. Armed, it takes the focus off the cards, so no
-card's buttons show and `Enter` confirms as a second `Ctrl+Shift+Delete` does; a
-card's own keys, `Ctrl+Delete` among them, do nothing until it is put back.
-`Escape`, an arrow or Tab puts it back with the focus on the card it was on, and
-the panel stays up; switching tab puts it back too.
+### Tabs
 
-The last tab, **Ideas**, is not a filter: in place of the cards it shows one
-large text area, a notepad for this workspace's ideas that are not tasks yet. It
-is always there, after Finished; `7` picks it, as `]` does from the last tab
-before it. While it is picked every key is typing, the letters, digits and
-brackets included: `Escape` saves and goes back to the task list, on the tab you
-were on before Ideas, with the panel still up (a second `Escape` gives the
-keyboard back), and `Ctrl+[` and `Ctrl+]` switch tab. Each workspace tag has its
-own notepad, plain text in `$XDG_DATA_HOME/niri-tasks/ideas/<tag>.md` (under
-`~/.local/share` without it), saved a second after typing stops and again on
-leaving Ideas or when the panel gives the keyboard back.
+Above the cards, six tabs narrow them while the panel has the keyboard:
 
-The cards are shaped like mako notifications and take a terminal window's font
-and colours: a dark tint over blurred wallpaper, with niri's faint focus-ring outline
-(`src/panel/style.rs` names the configs it copies). The blur is asked for by the
-panel itself, over `ext-background-effect-v1`, in the exact shape of the cards;
-a compositor without that protocol shows them unblurred. The lock icon comes
-from a Nerd Font (JetBrainsMono Nerd Font here). See
-`docs/adr/0001-task-panel-in-gtk-not-quickshell.md` for why it is drawn the way
-it is.
+| Tab | Key | Holds |
+|---|---|---|
+| **All** | `1` | everything but waiting and finished tasks |
+| **Active** | `2` | started tasks |
+| **Planned** | `3` | refined or grilled into a plan, not started yet |
+| **To refine** | `4` | neither planned nor started yet |
+| **Waiting** | `5` | parked tasks |
+| **Finished** | `6` | the last 12 completed, the most recently finished first, each aged from when it was finished |
+
+- A tab shows only while it has a task under it, All apart.
+- `1`–`6` each always pick the same tab, and do nothing while it is hidden.
+- Each label ends in its key, as **To refine (4)**.
+- `[` and `]` step to the shown tab either side.
+- A click picks one too.
+- The arrows and Tab still move only between cards and buttons.
+- A started task is under Active alone, not Planned or To refine.
+- Waiting tasks are on the Waiting tab only: not on All, and never the peek.
+- Finished tasks are on the Finished tab only, the same way. Back to list on
+  one reopens it, back on All.
+- The panel opens on All every time, and goes back to All when the tab it is
+  on runs out of tasks.
+
+#### Clear all
+
+1. It shows only on the Waiting tab, on a strip of its own under the tabs.
+   `Ctrl+Shift+Delete` presses it. `Ctrl+Delete` and `Delete` are still the
+   focused card's.
+2. First press: like Remove, it asks first. It arms as **Confirm clear all**
+   and takes the focus off the cards.
+   - No card's buttons show.
+   - A card's own keys, `Ctrl+Delete` among them, do nothing.
+3. Second press, or `Enter`, deletes every waiting task on this workspace,
+   one `task status <uuid> deleted --yes` after another. The panel goes back
+   to All, keeping the keyboard.
+4. `Escape`, an arrow, Tab, or switching tab disarms it instead. The focus
+   returns to the card it was on, and the panel stays up.
+
+### Ideas
+
+- The last tab. Not a filter: in place of the cards, one large text area, a
+  notepad for this workspace's ideas that are not tasks yet.
+- Always there, after Finished. `7` picks it, as `]` does from the last tab
+  before it.
+- While it is picked every key is typing, the letters, digits and brackets
+  included.
+- `Escape` saves and goes back to the task list, on the tab you were on
+  before Ideas, with the panel still up. A second `Escape` gives the
+  keyboard back.
+- `Ctrl+[` and `Ctrl+]` switch tab.
+- One notepad per workspace tag, plain text in
+  `$XDG_DATA_HOME/niri-tasks/ideas/<tag>.md` (under `~/.local/share` without
+  it).
+- Saved a second after typing stops, and again on leaving Ideas or when the
+  panel gives the keyboard back.
+
+### How it looks
+
+- The cards are shaped like mako notifications and take a terminal window's
+  font and colours.
+- A dark tint over blurred wallpaper, with niri's faint focus-ring outline
+  (`src/panel/style.rs` names the configs it copies).
+- The blur is asked for by the panel itself, over `ext-background-effect-v1`,
+  in the exact shape of the cards.
+- A compositor without that protocol shows them unblurred.
+- The lock icon comes from a Nerd Font (JetBrainsMono Nerd Font here).
+- See `docs/adr/0001-task-panel-in-gtk-not-quickshell.md` for why it is drawn
+  the way it is.
 
 ## Install
 
