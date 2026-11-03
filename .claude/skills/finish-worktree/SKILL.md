@@ -73,7 +73,7 @@ timeout 1800 bash -c "until mkdir '$L' 2>/dev/null; do sleep 5; done" && echo "$
 ```
 - Run the wait in the background and wait for it to finish: it can outlast a
   foreground command.
-- If it times out, read `$L/owner`. An owner more than an hour old is a stale
+- If it times out, read `$L/owner`. An owner more than two hours old is a stale
   lock from a run that died: remove it with `rm -r "$L"` and take it again.
   Otherwise stop.
 - **Release it (`rm -r "$L"`) at every exit after this point**: after the push,
@@ -98,7 +98,8 @@ git -C M rev-list --left-right --count main...origin/main   # "<ahead> <behind>"
   in step 7, and that is the test.
 - Otherwise run the repo's own check here. Use what README or CLAUDE.md say runs
   everything, such as a `tests/all.sh`, and failing that, the language's
-  default (`cargo test`, `npm test`, `pytest`, `go test ./...`).
+  default (`cargo test`, `npm test`, `pytest`, `go test ./...`). (In niri-tasks,
+  the container below.)
 - Point end-to-end suites at the build of this branch, not an installed copy:
   one that runs the installed binary by default proves nothing about the
   branch.
@@ -114,14 +115,18 @@ git -C M rev-list --left-right --count main...origin/main   # "<ahead> <behind>"
   after=$(readlink "$LOGS/latest.log" 2>/dev/null)
   if [ -n "$after" ] && [ "$after" != "$before" ] &&
       grep -Eq '^[0-9]+ passed +[0-9]+ failed +[0-9]+ skipped$' "$LOGS/$after"; then
-      grep -E '^parity:|^  [<>] |^  (PASS|SKIP|FAIL)  |^[0-9]+ passed ' "$LOGS/$after"
+      grep -E '^parity:|^  [<>] ' "$LOGS/$after"
+      tac "$LOGS/$after" | sed '/^────/q' | tac | grep -E '^  (PASS|SKIP|FAIL)  |^[0-9]+ passed '
   else
       echo "no test run in the container"
+      [ -n "$after" ] && [ "$after" != "$before" ] && tail -n 15 "$LOGS/$after"
   fi
   ```
   - A run that printed the summary line (`N passed N failed N skipped`) is the
     test result, red or green: `0 failed` is green, anything else red. The exit
     status alone can't tell a failed suite from a run that never started.
+    A SKIP in the container means the image is missing something: name it in
+    the report.
   - `latest.log` moves only once a run gets as far as its log. A run turned
     away at the door (no Docker, a run of this checkout already going) leaves
     the last run's log there, so the block reads it only if it moved.
@@ -132,15 +137,16 @@ git -C M rev-list --left-right --count main...origin/main   # "<ahead> <behind>"
     the report. Don't rebuild the image for it: that takes minutes and needs
     the network.
 - **On the host** (any other repo, or niri-tasks when the container did not
-  run): in niri-tasks that is `cargo build`, then `NIRITASKS=$PWD/target/debug/niritasks bash
-  tests/all.sh`. Run a suite that sandboxes itself: one that types only into a
-  nested compositor of its own, or borrows a spare workspace and gives it back.
+  run): in niri-tasks that is `cargo build`, then
+  `NIRITASKS=$PWD/target/debug/niritasks bash tests/all.sh`. Run a suite
+  that sandboxes itself: one that types only into a nested compositor of its
+  own, or borrows a spare workspace and gives it back.
   Leave out only a suite that types or clicks on the user's own desktop, or
   uses their clipboard, and name it in the report as skipped.
 - Red means stop. Nothing has been merged yet. Before asking, run the same
   check in `M`, so you can say whether `main` was already red without this
   branch or the branch broke it. In niri-tasks that is the container block
-  again, run from `M` (`cd` there in the same command), falling back to the
+  again, run as `cd M && <the block>` in one command, falling back to the
   host run as above.
 
 **7. Merge, then push.**
