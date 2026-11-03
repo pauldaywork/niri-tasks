@@ -748,10 +748,10 @@ with `NIRITASKS_CONTAINER_REBUILD=1 bash tests/container.sh`. A second run of
 the same checkout while one is going refuses, since the two would share a
 build directory. Every run is logged in `target/container-tests/`,
 `latest.log` the newest; a failed run's logs and the e2e suites' frames are
-kept beside it in `<stamp>-artifacts/`. It exits as `tests/all.sh` does,
-non-zero only when a suite that ran said no, and also non-zero when the run
-cannot get that far: no Docker, a failed image build, a refused run, or the
-container's desktop or build failing.
+kept beside it in `<stamp>-artifacts/`. It exits non-zero when a suite that
+ran fails, as `tests/all.sh` does, or when the run cannot get that far: no
+Docker, a failed image build, a refused run, or the container's desktop or
+build failing.
 Each run removes the build volumes nothing will use again — those of
 worktrees since removed, and of images since replaced; old images themselves
 go only when a new one is built, which keeps the three newest. To reclaim everything:
