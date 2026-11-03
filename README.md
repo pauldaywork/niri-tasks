@@ -492,47 +492,55 @@ sync.
 
 ### Annotating a task's documents in herdr
 
-`install.sh` links a herdr plugin, `herdr/task-docs`. Bind its action to a
-key in `~/.config/herdr/config.toml`, then run `herdr config check` and
-`herdr server reload-config`:
+`install.sh` links the plugin, `herdr/task-docs`. To bind its action:
 
-```toml
-[[keys.command]]
-key = "prefix+shift+f"
-type = "plugin_action"
-command = "task-docs.open"
-description = "task docs: annotate one of this task's documents"
-```
+1. Add it to `~/.config/herdr/config.toml`:
 
-Press it in the pane of a task's Claude, or any pane whose folder is on the
-task's `task/<slug>-<uuid8>` branch. A list opens over the pane:
+   ```toml
+   [[keys.command]]
+   key = "prefix+shift+f"
+   type = "plugin_action"
+   command = "task-docs.open"
+   description = "task docs: annotate one of this task's documents"
+   ```
 
-- the task's refine reports, newest first, earlier drafts marked;
-- Markdown files the task's notes name by absolute path, such as a
-  handoff, newest note first;
-- the task's description and notes, as Markdown;
-- the plans in the project's `docs/superpowers/plans` and in
-  `~/.claude/plans` changed since the task was added, newest first. A
-  project plan counts from its last commit, so a fresh worktree does not
-  list every old plan; one that is untracked or edited locally counts from
-  its file time.
+2. Run `herdr config check`.
+3. Run `herdr server reload-config`.
 
-Enter opens the pick in plannotator-tui, to the right of the task's Claude.
-Comment on it there; **Send** makes the comments that Claude's next message.
-A report made before reports had a Markdown twin opens in the browser
-instead, as a card's Open report does. A pane with no task, or a task with
-no Claude running, gets a notification saying so and nothing opens. The list
-is `niritasks task docs <uuid>`, so a script can read it too.
+Use it:
 
-Each refine report is written first as `<report>.md`, its Markdown twin,
-diagrams kept as Mermaid blocks; its HTML slides are then built from what
-that twin reads back as, so the two never disagree. The Markdown is what
-plannotator-tui opens.
+- Press it in the pane of a task's Claude, or any pane whose folder is on the
+  task's `task/<slug>-<uuid8>` branch.
+- A list opens over the pane:
+  - the task's refine reports, newest first, earlier drafts marked;
+  - Markdown files the task's notes name by absolute path, such as a
+    handoff, newest note first;
+  - the task's description and notes, as Markdown;
+  - the plans in the project's `docs/superpowers/plans` and in
+    `~/.claude/plans` changed since the task was added, newest first.
+    - A project plan counts from its last commit, so a fresh worktree does
+      not list every old plan.
+    - A plan that is untracked or edited locally counts from its file time.
+- Enter opens the pick in plannotator-tui, to the right of the task's Claude.
+- Comment there; **Send** makes the comments that Claude's next message.
+- A report made before reports had a Markdown twin opens in the browser
+  instead, as a card's Open report does.
+- A pane with no task, or a task with no Claude running, gets a notification
+  saying so, and nothing opens.
+- The list is `niritasks task docs <uuid>`, so a script can read it too.
+
+The Markdown twin:
+
+- Each refine report is written first as `<report>.md`, its Markdown twin,
+  with diagrams kept as Mermaid blocks.
+- Its HTML slides are then built from what that twin reads back as, so the
+  two never disagree.
+- plannotator-tui opens the Markdown.
 
 ### Opening the task panel on a herdr pane's task
 
-The same plugin has a second action, `task-docs.panel`. Bind it too, on a
-key of its own: not `prefix+shift+t`, which is herdr's rename tab:
+The same plugin has a second action, `task-docs.panel`. Bind it on a key of
+its own, not `prefix+shift+t`, which is herdr's rename tab:
 
 ```toml
 [[keys.command]]
@@ -542,28 +550,37 @@ command = "task-docs.panel"
 description = "task panel: open it on this task's card"
 ```
 
-Press it in a task's pane, found as for Task docs: the task panel slides
-out with the keyboard, on All, the focus on that task's card with its notes
-hidden. A task with no card on the focused workspace's panel, one on
-another workspace or not pending (waiting or finished, say), opens the panel on its first card
-with a notification saying why. A pane with no task gets a notification and
-nothing opens. It runs `niritasks task panel <uuid8>`.
+- Press it in a task's pane, found as for Task docs.
+- The task panel slides out with the keyboard, on All, with the focus on that
+  task's card and its notes hidden.
+- A task with no card on the focused workspace's panel opens the panel on its
+  first card, with a notification saying why.
+  - That is a task on another workspace, or one that is not pending (waiting
+    or finished, say).
+- A pane with no task gets a notification, and nothing opens.
+- It runs `niritasks task panel <uuid8>`.
 
 ### Peeking at the focused pane's task
 
-The plugin also hooks herdr's `pane.focused`, `tab.focused` and
-`workspace.focused` events; no key to bind. Selecting a pane, a tab or a
-workspace finds the now-focused pane's task, as Task docs does, and that
-task's card becomes the peek on its workspace's task panel: the one card the
-edge shows. Going to a niri workspace does the same without touching herdr:
-the daemon asks that workspace's herdr session for its focused pane each time
-a monitor switches to it, and when the daemon starts, so the peek is right
-after a restart too. A pane with no task, or a session that is not running,
-empties the edge, and so does the task leaving the list (completed, waiting
-or removed). Selecting the same pane again changes nothing on the panel. The
-hooks run `niritasks task peek --focused` and need herdr 0.9.3. They send no
-notification; if the peek does not follow the focus inside herdr,
-`herdr plugin log list --plugin task-docs` says why.
+The plugin also hooks herdr's events, so there is no key to bind:
+
+- The events are `pane.focused`, `tab.focused` and `workspace.focused`.
+- Selecting a pane, a tab or a workspace finds the now-focused pane's task, as
+  Task docs does.
+- That task's card becomes the peek on its workspace's task panel: the one
+  card the edge shows.
+- Going to a niri workspace does the same without touching herdr.
+  - The daemon asks that workspace's herdr session for its focused pane each
+    time a monitor switches to it, and when the daemon starts.
+  - So the peek is right after a restart too.
+- The edge empties for a pane with no task, or a session that is not running.
+- It also empties when the task leaves the list (completed, waiting or
+  removed).
+- Selecting the same pane again changes nothing on the panel.
+- The hooks run `niritasks task peek --focused` and need herdr 0.9.3.
+- They send no notification.
+- If the peek does not follow the focus inside herdr,
+  `herdr plugin log list --plugin task-docs` says why.
 
 ## Commands
 
