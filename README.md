@@ -2,24 +2,53 @@
 
 Workspace-scoped Taskwarrior for [niri](https://github.com/YaLTeR/niri).
 
-The niri workspace you are looking at *is* the task filter. Name a workspace
-`website` and every task you add from it is tagged `+website`; the list
-shortcut shows that workspace's tasks and nothing else. Switch workspace and the
-same keys show a different set.
+The niri workspace you are looking at *is* the task filter:
 
-Which tasks you see goes purely off the workspace name, which `niritasks project open`
-sets to the folder name. `~/Projects` is only ever read to offer folders to pick
-from — opening one, or moving a task to another workspace. Opening a project is
-the only way a workspace gets a name, bar workspace 1, which starts as `general`.
+- Name a workspace `website`, and every task you add from it is tagged `+website`.
+- The list shortcut shows that workspace's tasks and nothing else.
+- Switch workspace, and the same keys show a different set.
+
+Which tasks you see goes purely off the workspace name:
+
+- `niritasks project open` sets it to the folder name.
+- That is the only way a workspace gets a name, bar workspace 1, which starts as `general`.
+- `~/Projects` is only ever read to offer folders to pick from: opening one, or moving a task to another workspace.
 
 ## Keybinds
 
 | Key | Does |
 |---|---|
-| `Mod+Alt+T` | Add a task to this workspace, with notes — Enter starts each one |
-| `Mod+Alt+Shift+T` | The same, with Add & refine as the default: once added, the task opens in a "Refine: …" tab of the workspace's herdr session, where Claude works it up into a plan |
-| `Mod+Alt+Ctrl+T` | Hand the task panel the keyboard, in the middle of the screen: every card shows its whole description, and the focused one has buttons to open its Go to… list (refine it into a plan with Claude or be grilled about it, its report, plan and spec, its Claude sessions, its worktree, VS Code, read it aloud), start working on it in its own worktree, edit it, complete it, move it to another project's workspace, stop it, park it as waiting, or remove it. Ctrl+Enter refines the focused task, or starts working on it once it is planned, and keeps the list up; on a task already being worked with a Claude on it, it goes to that session. Tabs above the cards, each labelled with the key that picks it, as To refine (4), and picked with 1–6 or [ and ], narrow them to All, Active, Planned, To refine, Waiting or Finished, and the Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task. Finished lists the last 12 finished tasks, and Back to list (`b`) reopens one. Ctrl+Delete deletes the focused task at once. A hint beside the focused card's buttons, and a line under the list, name the keys. The last tab, Ideas (7), is a notepad for the workspace's ideas that are not tasks yet. With no tasks at all, finished ones included, or no name, a notification says so instead |
-| `Mod+Alt+W` | The task panel's project list, in the middle of the screen: the `~/Projects` folders, then your GitHub repos not cloned yet. Type to narrow it; Enter or a click puts the project on its own named workspace (cloning a repo first) and opens a terminal and an editor in it. When nothing matches, the line under the title says what Enter will do with the name: open a folder of that name, make one, or clone your GitHub repo of that name. Escape clears what you typed, then closes it |
+| `Mod+Alt+T` | Add a task to this workspace, with notes. Enter starts each one |
+| `Mod+Alt+Shift+T` | The same, with **Add & refine** as the default (below) |
+| `Mod+Alt+Ctrl+T` | Hand the [task panel](#task-panel) the keyboard, in the middle of the screen |
+| `Mod+Alt+W` | The task panel's project list, in the middle of the screen (below) |
+
+**Add & refine:** once added, the task opens in a "Refine: …" tab of the
+workspace's herdr session, where Claude works it up into a plan.
+
+**`Mod+Alt+Ctrl+T`, the panel with the keyboard** (full detail under [Task panel](#task-panel)):
+
+- Every card shows its whole description.
+- The focused card has buttons to:
+  - open its Go to… list (refine it into a plan with Claude or be grilled about it, its report, plan and spec, its Claude sessions, its worktree, VS Code, read it aloud)
+  - start working on it in its own worktree
+  - edit it, complete it, or move it to another project's workspace
+  - stop it, park it as waiting, or remove it
+- Ctrl+Enter refines the focused task, or starts it once it is planned, and keeps the list up. On a task already being worked with a Claude on it, it goes to that session.
+- Tabs above the cards narrow them: All, Active, Planned, To refine, Waiting, Finished. Each is labelled with its key, as To refine (4); pick with 1–6 or `[` and `]`.
+- The Waiting tab's Clear all (Ctrl+Shift+Delete) deletes every waiting task.
+- Finished lists the last 12 finished tasks; Back to list (`b`) reopens one.
+- Ctrl+Delete deletes the focused task at once.
+- A hint beside the focused card's buttons, and a line under the list, name the keys.
+- The last tab, Ideas (7), is a notepad for the workspace's ideas that are not tasks yet.
+
+**`Mod+Alt+W`, the project list:**
+
+- It lists the `~/Projects` folders, then your GitHub repos not cloned yet.
+- Type to narrow it.
+- Enter or a click puts the project on its own named workspace (cloning a repo first), and opens a terminal and an editor in it.
+- When nothing matches, the line under the title says what Enter will do with the name: open a folder of that name, make one, or clone your GitHub repo of that name.
+- Escape clears what you typed, then closes it.
 
 ## Task panel
 
@@ -52,6 +81,8 @@ The rest of the workspace's tasks are on the keyboard's panel (below), whose
 screen, leaving no peek on the right edge while it is there. Every card opens up
 to its whole description, wrapped, and the focused card shows a row of buttons
 under it:
+
+With no tasks at all, finished ones included, or no workspace name, a notification says so instead.
 
 | Button | Key | Does |
 |---|---|---|
