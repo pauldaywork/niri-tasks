@@ -341,123 +341,154 @@ Above the cards, six tabs narrow them while the panel has the keyboard:
 
 ## Install
 
-```bash
-git clone https://github.com/pauldaywork/niri-tasks ~/Projects/niri-tasks
-cd ~/Projects/niri-tasks
-bash install.sh
-```
+1. Clone and install:
 
-Then add the include to `~/.config/niri/config.kdl`:
+   ```bash
+   git clone https://github.com/pauldaywork/niri-tasks ~/Projects/niri-tasks
+   cd ~/Projects/niri-tasks
+   bash install.sh
+   ```
 
-```kdl
-include "niri-tasks.kdl"
-```
+2. Add the include to `~/.config/niri/config.kdl`:
 
-`install.sh` builds `niritasks`, symlinks the niri include and
-the Claude skills (`workspace-tasks`, `refine-task`, `report-task`, `finish-worktree`, `reject-worktree`, `private-github-repo`) into `~/.claude/skills`,
-the refine mod (`claude/refine-mod`, which Refine's session writes the task with) into
-`~/.local/share/niri-tasks/refine-mod`, a Claude rule into `~/.claude/rules` (use `finish-worktree` to land a worktree branch), restarts the daemon
-onto the new binary, and reloads niri. Updating is `git pull && bash install.sh`.
+   ```kdl
+   include "niri-tasks.kdl"
+   ```
 
-The symlinks mean editing a file in this repo is immediately live — there is no
-copy to keep in sync.
+To update: `git pull && bash install.sh`.
+
+`install.sh` does this:
+
+- builds `niritasks`;
+- symlinks the niri include;
+- symlinks the Claude skills (`workspace-tasks`, `refine-task`, `report-task`,
+  `finish-worktree`, `reject-worktree`, `private-github-repo`) into
+  `~/.claude/skills`;
+- symlinks the refine mod (`claude/refine-mod`, which Refine's session writes
+  the task with) into `~/.local/share/niri-tasks/refine-mod`;
+- symlinks a Claude rule into `~/.claude/rules` (use `finish-worktree` to land
+  a worktree branch);
+- restarts the daemon onto the new binary;
+- reloads niri.
+
+The symlinks make edits in this repo live at once. There is no copy to keep in
+sync.
 
 ### Requirements
 
-`niri`, `taskwarrior`, `ghostty` 1.2 or later (for `+new-window`),
-and a Rust toolchain to build with. `notify-send` is used for feedback and
-degrades to stderr without it. `fzf` ranks what you type on the
-project list; without it the list matches plain text instead,
-and says so once.
+| Needs | For | Without it |
+| --- | --- | --- |
+| `niri`, `taskwarrior`, a Rust toolchain | Everything | Required |
+| `ghostty` 1.2 or later | `+new-window` | Required |
+| `notify-send` | Feedback | Feedback degrades to stderr |
+| `fzf` | Ranks what you type on the project list | Plain-text matching, and it says so once |
+| `tar`, `sqlite3` | `niritasks export` and `import` | — (`sudo apt install sqlite3`) |
+| [herdr](https://herdr.dev), optional | `project open` runs the workspace's herdr session in the project terminal | A plain shell in the project folder |
+| Claude Code (`claude`, 2.1.287 or later for Refine's mod) + herdr | **Refine**, **Grill me**, **Generate report**, **Explain branch** | — |
+| Claude Code alone | **Add & all** (the box) | — |
+| `bubblewrap`, `socat` | The Bash sandbox (`sudo apt install bubblewrap socat`) | Claude refuses to start rather than run unfenced |
+| [worktrunk](https://worktrunk.dev) (`wt`) + herdr + Claude Code, `~/Projects` a git repo | **Start working** | — |
+| herdr 0.9.1+, `python3`, `fzf`, plannotator-tui | **Task docs** | The key says so |
+| `claude`, `curl`, `ffplay` (from ffmpeg), a Kokoro server on `127.0.0.1:8880` | **Read aloud** (in a card's Go to list) | — |
+| `code` (VS Code), optional | `project open` starts VS Code | Only the terminal starts |
 
-`niritasks export` and `import` need `tar` and `sqlite3`
-(`sudo apt install sqlite3`).
+- **Claude Code + herdr:** these open Claude inside the herdr session.
+  Add & all needs Claude Code alone, on `$PATH`.
+- **`bubblewrap`, `socat`:** the sandbox keeps that Claude to:
+  - reading anything but secrets;
+  - reaching only a fixed list of source and docs hosts;
+  - writing only the task and its own temp folder.
+- **Start working:** worktrunk makes the task's worktree and runs the repo's
+  `.config/wt.toml` hooks. The first time a repo's hooks need approving, it
+  asks in a herdr tab.
+- **Task docs:** the herdr plugin `install.sh` links.
+  - plannotator-tui comes from herdr-annotate Full
+    (`herdr plugin install plannotator/herdr-annotate`).
+  - Lite has no plannotator-tui.
+- **Read aloud:** if Kokoro is not answering, Read aloud starts it:
+  - from the `kokoro-tts` container if there is one;
+  - otherwise a new one from `ghcr.io/remsky/kokoro-fastapi-gpu`;
+  - that needs `docker`, an NVIDIA GPU and the NVIDIA Container Toolkit;
+  - the first start downloads the image;
+  - the container is the one
+    [herdr-speak](https://github.com/pauldaywork/herdr-speak) uses, so the
+    two share one server.
+  - Kokoro is [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI).
+- **herdr:** with it on `$PATH`, `niritasks project open` runs the workspace's
+  herdr session in the project terminal. Without it, the terminal is a plain
+  shell in the project folder.
+- **VS Code:** `project open` starts VS Code on the project folder when `code`
+  is on `$PATH`, else only the terminal.
+  - The lookup is there because niri answers a spawn of a missing binary with
+    a desktop notification.
+  - Without the lookup, it would fire on every project you opened.
+- **Tested against:**
+  - niri 26.04 and Taskwarrior 3.5.0.
+  - It still runs on Taskwarrior 2.6.2, whose data lives in `pending.data`
+    and `completed.data` rather than 3.x's `taskchampion.sqlite3`. The panel
+    watches both.
 
-[herdr](https://herdr.dev) is optional. With it on `$PATH`, `niritasks project
-open` runs the workspace's herdr session in the project terminal; without it the
-terminal is a plain shell in the project folder. A card's Go to list's **Refine**, **Grill me**, **Generate report** and **Explain branch** need both herdr and Claude Code (`claude`, 2.1.287 or later for Refine's mod), and the box's **Add & all** Claude Code alone, on `$PATH` — they open
-Claude inside that session — plus `bubblewrap` and `socat` for the Bash
-sandbox that keeps that Claude to reading anything but secrets, reaching
-only a fixed list of source and docs hosts, and writing only the task and
-its own temp folder (`sudo apt install bubblewrap socat`). Without them Claude refuses to
-start rather than run unfenced. **Start working** needs herdr, Claude Code and
-[worktrunk](https://worktrunk.dev) (`wt`), and the workspace's `~/Projects`
-folder to be a git repository: worktrunk makes the task's worktree and runs the
-repo's `.config/wt.toml` hooks, asking in a herdr tab the first time a repo's
-hooks need approving.
+- **Pane labels:** a Refine or Start working Claude's pane says which task it
+  is on.
+  - Border: `Refine #61 · <description>` or `Work #61 · <description>`.
+  - Claude's status line, under its prompt:
+    `#61 · <description> · <state> · <branch>`, read afresh on each refresh.
+  - It replaces any status line of your own in those two Claudes only.
+  - herdr draws a border, and the label in it, only around split panes. To
+    always draw it, add this to `~/.config/herdr/config.toml` and run
+    `herdr server reload-config`:
 
-A Refine or Start working Claude's pane says which task it is on: its border
-reads `Refine #61 · <description>` or `Work #61 · <description>`, and Claude's
-status line, under its prompt, `#61 · <description> · <state> · <branch>`,
-read afresh on each refresh; it replaces any status line of your own in
-those two Claudes only. herdr draws a border, and the label in it, only
-around split panes unless you add this to `~/.config/herdr/config.toml` and
-run `herdr server reload-config` (niri-tasks never edits that file):
+        [ui]
+        pane_borders = "always"
 
-    [ui]
-    pane_borders = "always"
+  - niri-tasks never edits that file.
+  - The pane also carries `task_id`, `task` and `task_uuid` tokens. An Agent
+    row in `[ui.sidebar.agents]` can show them as `$task_id`, `$task` and
+    `$task_uuid`.
+  - The default sidebar shows none of them.
+- **A Claude started by hand** in a herdr pane:
+  - is linked to a task when it marks that task active
+    (`niritasks task status <uuid> active`);
+  - gets the agent name `work-<uuid8>`, the name Start working gives its own;
+  - gets the pane label `Work #<id> · <description>`, so the task's Go to
+    list can offer Go to work session;
+  - keeps its name if Refine or Start working already named the agent.
+- **`/finish-worktree`** in that worktree's Claude lands it:
+  1. syncs `main` with origin;
+  2. rebases the branch and tests the result in a container (`tests/container.sh`,
+     every suite, nothing on your desktop touched; `tests/all.sh` on the host
+     when the container can't run, and it says so);
+  3. fast-forwards `main` and pushes;
+  4. marks the task completed with `niritasks task status`;
+  5. links any plan or spec doc the branch added that the task doesn't yet
+     carry as a `Plan:` or `Spec:` note;
+  6. removes the worktree.
 
-The pane also carries `task_id`, `task` and `task_uuid` tokens, which an Agent
-row in `[ui.sidebar.agents]` can show as `$task_id`, `$task` and `$task_uuid`;
-the default sidebar shows none of them.
-
-**Task docs**, the herdr plugin `install.sh` links, needs herdr 0.9.1 or
-later, `python3`, `fzf`, and plannotator-tui from herdr-annotate Full
-(`herdr plugin install plannotator/herdr-annotate`; Lite has no
-plannotator-tui). Without it the key says so.
-
-**Read aloud** (in a card's Go to list) needs Claude Code (`claude`), `curl`, `ffplay` (from ffmpeg) and a
-[Kokoro](https://github.com/remsky/Kokoro-FastAPI) server on
-`127.0.0.1:8880`. If Kokoro is not answering, Read aloud starts it: the
-`kokoro-tts` container if there is one, otherwise a new one from
-`ghcr.io/remsky/kokoro-fastapi-gpu`. That needs `docker`, an NVIDIA GPU and
-the NVIDIA Container Toolkit, and the first start downloads the image. The
-container is the one [herdr-speak](https://github.com/pauldaywork/herdr-speak)
-uses, so the two share one server.
-
-A Claude you start by hand in a herdr pane is linked to a task when it marks
-that task active (`niritasks task status <uuid> active`): its agent is named
-`work-<uuid8>`, the name Start working gives its own, and its pane is labelled
-`Work #<id> · <description>`, so the task's Go to list can offer Go to work session. An agent already named by Refine or Start working keeps its name.
-
-When the work is done, `/finish-worktree` in that worktree's Claude lands it:
-it syncs `main` with origin, rebases the branch and tests the result in a
-container (`tests/container.sh`, every suite, nothing on your desktop touched;
-`tests/all.sh` on the host when the container can't run, and it says so), then
-fast-forwards `main`, pushes, marks the task completed with `niritasks task status`,
-links any plan or spec doc the branch added that the task doesn't yet carry as a
-`Plan:` or `Spec:` note, and removes the worktree. It stops to ask only for a
-conflict with no obvious resolution, red tests, or `main` holding commits origin
-doesn't have.
-
-To throw an attempt away instead, `/reject-worktree` in that worktree's Claude
-removes the worktree and its branch, locally and on origin, and puts the task
-back on the list, stopped, to be started fresh. Give it a reason and the task
-gets a `Rejected:` note. It asks first only when there are commits, uncommitted
-changes or a pushed branch to lose.
-
-A project with no GitHub repo yet gets one with `/private-github-repo`: a
-private repo on your account, named after the folder, set as `origin` and
-pushed. It runs `git init` if it has to, asks before making a first commit,
-and stops rather than push a secret, overwrite an existing `origin`, or reuse
-a name already taken on your account.
-
-VS Code is optional. `niritasks project open` starts one on the project folder when
-`code` is on `$PATH`, and starts only the terminal when it is not — the lookup
-is there because niri answers a spawn of a missing binary with a desktop
-notification, which would otherwise fire on every project you opened.
-
-Tested against niri 26.04 and Taskwarrior 3.5.0. It still runs on Taskwarrior
-2.6.2, whose data lives in `pending.data` and `completed.data` rather than
-3.x's `taskchampion.sqlite3`; the panel watches both.
+  It stops to ask only for a conflict with no obvious resolution, red tests,
+  or `main` holding commits origin doesn't have.
+- **`/reject-worktree`** in that worktree's Claude throws an attempt away:
+  - removes the worktree and its branch, locally and on origin;
+  - puts the task back on the list, stopped, to be started fresh;
+  - gives the task a `Rejected:` note if you give it a reason;
+  - asks first only when there are commits, uncommitted changes or a pushed
+    branch to lose.
+- **`/private-github-repo`** gives a project with no GitHub repo one:
+  - a private repo on your account, named after the folder, set as `origin`
+    and pushed;
+  - runs `git init` if it has to;
+  - asks before making a first commit;
+  - stops rather than push a secret, overwrite an existing `origin`, or reuse
+    a name already taken on your account.
 
 ### Privacy
 
-Read aloud sends the task's description and notes to Anthropic: `claude -p`
-rewrites them for listening, on Claude Haiku, with no tools and no saved
-session. The speech is made locally by Kokoro, and nothing is saved, neither
-the rewrite nor the audio. Refine and Start working send the task to Claude
-too, since a Claude session works on it.
+- Read aloud sends the task's description and notes to Anthropic.
+- `claude -p` rewrites them for listening, on Claude Haiku, with no tools and
+  no saved session.
+- The speech is made locally by Kokoro.
+- Nothing is saved, neither the rewrite nor the audio.
+- Refine and Start working send the task to Claude too, since a Claude session
+  works on it.
 
 ### Annotating a task's documents in herdr
 
@@ -802,15 +833,14 @@ write_path`, `cargo test tag::` for one module, `-- --nocapture` to see output.
 runtime directory and a flat 1600x1000 output, with its own daemon against a
 sandboxed `TASKDATA`. Your wallpaper, windows, window rules, notifications and
 pointer cannot reach its frames, and your `niri-tasks` daemon keeps running
-throughout. The panel's blur is drawn grey there (a layer-rule with saturation
-0), so blur off the cards shows on the flat screen. The nested niri's window
-opens over yours for a moment, then is parked floating and unfocused on the last
-workspace of that monitor. Keep off that workspace while it runs: going there
-focuses the window, and the run fails, saying so, rather than measuring frames
-your typing could have reached. Run it with
-`NIRITASKS=$PWD/target/debug/niritasks`: without that it runs the installed
-`niritasks`, which may be an older build. `NIRITASKS_E2E_KEEP=1` leaves the
-frames on disk when you need to see what a failure actually looked like.
+throughout. The nested niri's window opens over yours for a moment, then is
+parked floating and unfocused on the last workspace of that monitor. Keep off
+that workspace while it runs: going there focuses the window, and the run
+fails, saying so, rather than measuring frames your typing could have reached.
+Run it with `NIRITASKS=$PWD/target/debug/niritasks`: without that it runs the
+installed `niritasks`, which may be an older build.
+`NIRITASKS_E2E_KEEP=1` leaves the frames on disk when you need to see what a
+failure actually looked like.
 
 It cannot move the pointer, so the hover is checked by hand after a change to
 `src/panel/surface.rs`, with a task peeked (select its herdr pane, or run
@@ -883,9 +913,9 @@ tail -f target/container-tests/latest.log
 The image (`tests/container/Dockerfile`) reproduces what the suites use here,
 at this machine's versions and in the same folders: niri and ghostty from the
 same PPA, Taskwarrior 3.5.0 compiled from its tarball, rustc 1.95.0, herdr,
-worktrunk and Claude Code in `~/.local/bin`, Iosevka Term and JetBrainsMono
-Nerd Font (in `~/.local/share/fonts`, as here, which the panel test links into
-its own `XDG_DATA_HOME` so its checks draw in the panel's font), the GTK
+worktrunk and Claude Code in `~/.local/bin`, Iosevka Term (in
+`~/.local/share/fonts`, as here, because the panel test's own
+`XDG_DATA_HOME` hides that folder and its results depend on the font), the GTK
 theme and font settings, `en_US.UTF-8`, your timezone and a uid-1000 user. Each
 run makes the links `install.sh` makes, from the copy. VS Code and gh are left
 out, and Claude Code is never logged in.
