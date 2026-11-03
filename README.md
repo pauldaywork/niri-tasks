@@ -1023,12 +1023,16 @@ the script cannot click:
 ### Running the tests in a container
 
 `tests/container.sh` runs `tests/all.sh` in a Docker container, against this
-checkout as it stands, uncommitted edits included. Nothing of your desktop is
-in reach: the container gets no mount, socket or display of yours and no
-network, only a copy of the files git would see, so your niri, workspaces,
-task database and installed `niritasks` are never touched, and there is no
-workspace to keep off. Run it from any worktree, beside other worktrees' runs,
-in the foreground or in the background:
+checkout as it stands, uncommitted edits included.
+
+**Isolation**
+
+- The container gets no mount, socket or display of yours, and no network.
+- It gets only a copy of the files git would see.
+- So your niri, workspaces, task database and installed `niritasks` are never
+  touched, and there is no workspace to keep off.
+- Run it from any worktree, beside other worktrees' runs, in the foreground or
+  in the background.
 
 ```bash
 bash tests/container.sh                          # tests/all.sh
@@ -1037,43 +1041,80 @@ bash tests/container.sh >/dev/null 2>&1 &        # in the background
 tail -f target/container-tests/latest.log
 ```
 
-The image (`tests/container/Dockerfile`) reproduces what the suites use here,
-at this machine's versions and in the same folders: niri and ghostty from the
-same PPA, Taskwarrior 3.5.0 compiled from its tarball, rustc 1.95.0, herdr,
-worktrunk and Claude Code in `~/.local/bin`, Iosevka Term (in
-`~/.local/share/fonts`, as here, because the panel test's own
-`XDG_DATA_HOME` hides that folder and its results depend on the font), the GTK
-theme and font settings, `en_US.UTF-8`, your timezone and a uid-1000 user. Each
-run makes the links `install.sh` makes, from the copy. VS Code and gh are left
-out, and Claude Code is never logged in.
-`docker run --rm -i "$(bash tests/container/image.sh)" bash -s < tests/container/check-image.sh`
-lists what the image holds. Inside, `tests/container/inside.sh` starts a
-headless sway, an outer niri in it with two named workspaces, builds the copy
-and runs `tests/all.sh` with `NIRITASKS` set to that build; the e2e suites
-nest their niri in the outer one as they would in yours. Since GTK on Wayland
-reads no GSettings without a desktop portal, `inside.sh` also writes a GTK
-`settings.ini` from the image's gsettings.
+**The image** (`tests/container/Dockerfile`)
 
-The image is built on the first run, and again only when one of its four
-inputs changes: the Dockerfile, its GTK settings keyfile
-(`tests/container/dconf/00-machine`), `Cargo.toml` or `Cargo.lock`
-(`tests/container/image.sh`). It holds
-the crate's dependencies already compiled, and each checkout's build directory
-is a Docker volume filled from them, so a checkout's first run compiles only
-niri-tasks and later runs only what changed. Each run starts by saying
-whether the image still matches this machine — package versions, programs,
-font, GTK settings (`tests/container/parity.sh`); when it does not, rebuild
-with `NIRITASKS_CONTAINER_REBUILD=1 bash tests/container.sh`. A second run of
-the same checkout while one is going refuses, since the two would share a
-build directory. Every run is logged in `target/container-tests/`,
-`latest.log` the newest; a failed run's logs and the e2e suites' frames are
-kept beside it in `<stamp>-artifacts/`. It exits non-zero when a suite that
-ran fails, as `tests/all.sh` does, or when the run cannot get that far: no
-Docker, a failed image build, a refused run, or the container's desktop or
-build failing.
-Each run removes the build volumes nothing will use again — those of
-worktrees since removed, and of images since replaced; old images themselves
-go only when a new one is built, which keeps the three newest. To reclaim everything:
+- It reproduces what the suites use here, at this machine's versions and in
+  the same folders:
+  - niri and ghostty from the same PPA.
+  - Taskwarrior 3.5.0, compiled from its tarball.
+  - rustc 1.95.0.
+  - herdr, worktrunk and Claude Code in `~/.local/bin`.
+  - Iosevka Term in `~/.local/share/fonts`, as here, because the panel test's
+    own `XDG_DATA_HOME` hides that folder and its results depend on the font.
+  - The GTK theme and font settings.
+  - `en_US.UTF-8`.
+  - Your timezone.
+  - A uid-1000 user.
+- Each run makes the links `install.sh` makes, from the copy.
+- VS Code and gh are left out.
+- Claude Code is never logged in.
+- This command lists what the image holds (too long for prose):
+
+```bash
+docker run --rm -i "$(bash tests/container/image.sh)" bash -s < tests/container/check-image.sh
+```
+
+**Inside a run**
+
+1. `tests/container/inside.sh` starts a headless sway.
+2. It starts an outer niri in it, with two named workspaces.
+3. It writes a GTK `settings.ini` from the image's gsettings, since GTK on
+   Wayland reads no GSettings without a desktop portal.
+4. It builds the copy.
+5. It runs `tests/all.sh` with `NIRITASKS` set to that build.
+
+The e2e suites nest their niri in the outer one, as they would in yours.
+
+**Rebuilds**
+
+- The image is built on the first run.
+- It is built again only when one of its four inputs changes
+  (`tests/container/image.sh`): the Dockerfile, its GTK settings keyfile
+  (`tests/container/dconf/00-machine`), `Cargo.toml` or `Cargo.lock`.
+- It holds the crate's dependencies already compiled.
+- Each checkout's build directory is a Docker volume filled from them.
+- So a checkout's first run compiles only niri-tasks, and later runs only what
+  changed.
+
+**Parity**
+
+- Each run starts by saying whether the image still matches this machine:
+  package versions, programs, font, GTK settings (`tests/container/parity.sh`).
+- When it does not, rebuild with
+  `NIRITASKS_CONTAINER_REBUILD=1 bash tests/container.sh`.
+
+**Runs and logs**
+
+- A second run of the same checkout while one is going refuses, since the two
+  would share a build directory.
+- Every run is logged in `target/container-tests/`, `latest.log` the newest.
+- A failed run's logs and the e2e suites' frames are kept beside it in
+  `<stamp>-artifacts/`.
+
+**It exits non-zero when**
+
+- a suite that ran fails, as `tests/all.sh` does;
+- there is no Docker;
+- the image build fails;
+- the run is refused;
+- the container's desktop or build fails.
+
+**Clean-up**
+
+- Each run removes the build volumes nothing will use again: those of
+  worktrees since removed, and of images since replaced.
+- Old images go only when a new one is built, which keeps the three newest.
+- To reclaim everything:
 
 ```bash
 docker volume rm $(docker volume ls -q --filter label=niritasks.tests=1)
@@ -1087,87 +1128,142 @@ bash try.sh             # a debug build
 bash try.sh --release   # a release build, to see how the panel animates
 ```
 
-Run from any checkout or worktree, `try.sh` builds it and opens it in a
-nested niri — the same sandbox the e2e tests use (`tests/lib/nested-niri.sh`),
-but as an ordinary window, focused, on your workspace. Its one workspace is
-named after the project, so the panel shows the project's tasks from a copy
-of your task database, taken with an SQLite online backup; nothing is written
-back. `niri/niri-tasks.kdl` is included with Mod on plain Alt, since your own
-niri takes Super combinations first: Alt+T adds a task, Alt+Shift+T adds and
-refines, Alt+Ctrl+T shows the panel, Alt+W opens a project and Alt+Return
-opens a terminal (stubbed in a try window). Notifications are printed in the terminal
-rather than shown on your desktop.
+**What it does**
 
-The terminal becomes a try shell whose `niritasks`, `task` and `niri msg`
-reach the nested niri. `reload` rebuilds and restarts the nested daemon,
-keeping the window and the copy; `exit` closes everything. The installed
-binary, the `niri-tasks` service and `install.sh`'s links are never touched,
-so tries in several worktrees run beside each other and beside `tests/all.sh`.
-herdr is kept out, so Start working and the Go to list's sessions fail there, with the
-reason printed in the try shell. Terminals, editors and clones are not opened
-either: `ghostty`, `code` and `gh` are stubs that print what would have run
-(`[notify] would run: …`), because ghostty and VS Code would otherwise hand
-off to your running instances and `gh` would clone into your real
-`~/Projects`. The `gh` stub fails, so a clone says it could not and the
-project list keeps the GitHub repos it had, from a copy of your
-`~/.cache/niritasks` that the try build writes instead of yours. Alt+W can
-still make a folder under `~/Projects`, for a new name typed there.
+- Run it from any checkout or worktree.
+- It builds it and opens it in a nested niri: the same sandbox the e2e tests
+  use (`tests/lib/nested-niri.sh`), but as an ordinary window, focused, on your
+  workspace.
+- Its one workspace is named after the project.
+- The panel shows the project's tasks from a copy of your task database, taken
+  with an SQLite online backup.
+- Nothing is written back.
+- Notifications are printed in the terminal rather than shown on your desktop.
+
+**Keys**
+
+`niri/niri-tasks.kdl` is included with Mod on plain Alt, since your own niri
+takes Super combinations first.
+
+| Key         | Does                                       |
+| ----------- | ------------------------------------------ |
+| Alt+T       | Adds a task                                |
+| Alt+Shift+T | Adds and refines                           |
+| Alt+Ctrl+T  | Shows the panel                            |
+| Alt+W       | Opens a project                            |
+| Alt+Return  | Opens a terminal (stubbed in a try window) |
+
+**The try shell**
+
+- The terminal becomes a try shell whose `niritasks`, `task` and `niri msg`
+  reach the nested niri.
+- `reload` rebuilds and restarts the nested daemon, keeping the window and the
+  copy.
+- `exit` closes everything.
+
+**Kept apart**
+
+- The installed binary, the `niri-tasks` service and `install.sh`'s links are
+  never touched.
+- So tries in several worktrees run beside each other and beside
+  `tests/all.sh`.
+- herdr is kept out, so Start working and the Go to list's sessions fail there,
+  with the reason printed in the try shell.
+- Terminals, editors and clones are not opened either.
+- `ghostty`, `code` and `gh` are stubs that print what would have run
+  (`[notify] would run: …`).
+  - ghostty and VS Code would otherwise hand off to your running instances.
+  - `gh` would clone into your real `~/Projects`.
+- The `gh` stub fails, so a clone says it could not.
+- The project list keeps the GitHub repos it had, from a copy of your
+  `~/.cache/niritasks` that the try build writes instead of yours.
+- Alt+W can still make a folder under `~/Projects`, for a new name typed there.
+
 Installing a build for daily use is still `bash install.sh`, on main.
 
 ### Why the three scripts are not cargo tests
 
-`tests/e2e-box.sh` is not a cargo test and cannot be: it needs a running niri, a
-Wayland display, and `wtype` to press the keys. It opens the box, types into it,
-presses Ctrl+Enter, and checks a task was actually written — against a sandboxed
-`TASKDATA`, so your real database is untouched. It runs inside a nested niri
-of its own, served by a daemon started there, because the daemon is the one
-process that draws.
+**`tests/e2e-box.sh`** is not a cargo test and cannot be:
 
-It exists because two bugs reached daily use that no unit test could have caught.
-The box opened carrying the daemon's `app_id` instead of its own, so every check
-matching on app-id looked straight past it. And Ctrl+Enter did nothing: the key
-mapping was correct and tested, but the event controller was in the wrong
-propagation phase, so the focused text view swallowed Return before the window
-saw it. Both only exist once a compositor is involved.
+- It needs a running niri, a Wayland display, and `wtype` to press the keys.
+- It opens the box, types into it, presses Ctrl+Enter, and checks a task was
+  actually written, against a sandboxed `TASKDATA`, so your real database is
+  untouched.
+- It runs inside a nested niri of its own, served by a daemon started there,
+  because the daemon is the one process that draws.
+- It exists because two bugs reached daily use that no unit test could have
+  caught:
+  - The box opened carrying the daemon's `app_id` instead of its own, so every
+    check matching on app-id looked straight past it.
+  - Ctrl+Enter did nothing: the key mapping was correct and tested, but the
+    event controller was in the wrong propagation phase, so the focused text
+    view swallowed Return before the window saw it.
+- Both only exist once a compositor is involved.
 
-`tests/e2e-tag.sh` is a script for the same reason: it needs niri to ask for
-workspaces. It pins the property `--session` exists for, which no unit test can
-see — that the tag follows the terminal rather than the focus. It hands the
-binary a session the way herdr hands one to a pane (`HERDR_SESSION`, with
-`HERDR_SOCKET_PATH` as the backup) rather than starting herdr, so none of your
-sessions is attached to or created; the folder cases run under a throwaway
-`$HOME`. It also checks that `niritasks task add` files under the session's
-workspace from a herdr pane and under the focused one outside herdr, into a
-scratch task database it deletes afterwards; your own is never touched. And
-that `task start`, `task refine` and `task session` open in the same
-workspace's herdr session, against a fake `herdr` that logs which session it
-was asked for and opens nothing.
+**`tests/e2e-tag.sh`** is a script for the same reason:
 
-`tests/e2e-panel.sh` is the third, and the least obvious. The task panel is a
-layer-shell surface, so its behaviour is what the compositor puts on screen: the
-window can only report the size it *asked* for, and a surface that was never
-mapped reports nothing wrong while showing nothing — the overlay the panel
-replaced was invisible for whole sessions that way, past every unit test. So it
-screenshots a nested niri of its own and measures the panel against a frame taken
-with no tasks: nothing on the edge until a task is peeked, the peek's width and
-its notes, an empty edge for another tag's task, a task leaving pending and
-`--clear`, a restarted daemon and a workspace switch peeking at a stub herdr's
-focused pane, and `--focused`, the
-keyboard's cards in the middle of the screen and the focused one's buttons, a
-filter tab's fill, a waiting task on the Waiting tab and off the tucked panel,
-Clear all taking the focus off the cards on its first Ctrl+Shift+Delete and Enter then
-deleting both waiting tasks and nothing else, Escape cancelling Clear all,
-Ctrl+Enter's refine reaching `task refine`, "+N more" opening on Down, Escape
-putting them back, nothing for another tag's task, nothing once they are done,
-and a daemon cold-started with nothing to show. Which tab, card and button a key
-leads to, and what it arms, are `src/panel/state.rs`'s unit tests, which need no
-display.
+- It needs niri to ask for workspaces.
+- It pins the property `--session` exists for, which no unit test can see: the
+  tag follows the terminal rather than the focus.
+- It hands the binary a session the way herdr hands one to a pane
+  (`HERDR_SESSION`, with `HERDR_SOCKET_PATH` as the backup) rather than
+  starting herdr, so none of your sessions is attached to or created.
+- The folder cases run under a throwaway `$HOME`.
+- It checks that `niritasks task add` files under the session's workspace from
+  a herdr pane, and under the focused one outside herdr, into a scratch task
+  database it deletes afterwards; your own is never touched.
+- It checks that `task start`, `task refine` and `task session` open in the
+  same workspace's herdr session, against a fake `herdr` that logs which
+  session it was asked for and opens nothing.
 
-The nested screen is a flat colour at a fixed size, so its numbers are exact:
-the peek, with a task peeked, starts at column 1566 of 1600, the keyboard's cards span 420-1180, and
-a frame that should not have changed — another tag's task, Escape, an empty
-panel — is compared pixel for pixel. A nested niri parked out of sight draws
-only when asked, so each frame is shot until two in a row agree. It counts
-lines rather than pixels: the cards' shadows fade into the background over
-many pixels, and a column or row counts only once at least 20 of its pixels
-changed, which is what puts the panel's edge at the same column every run.
+**`tests/e2e-panel.sh`** is the third, and the least obvious:
+
+- The task panel is a layer-shell surface, so its behaviour is what the
+  compositor puts on screen.
+- The window can only report the size it *asked* for, and a surface that was
+  never mapped reports nothing wrong while showing nothing.
+- The overlay the panel replaced was invisible for whole sessions that way,
+  past every unit test.
+- So it screenshots a nested niri of its own and measures the panel against a
+  frame taken with no tasks.
+
+**What it measures**
+
+- Nothing on the edge until a task is peeked.
+- The peek's width and its notes.
+- An empty edge for another tag's task.
+- A task leaving pending.
+- `--clear`.
+- A restarted daemon and a workspace switch peeking at a stub herdr's focused
+  pane.
+- `--focused`.
+- The keyboard's cards in the middle of the screen and the focused one's
+  buttons.
+- A filter tab's fill.
+- A waiting task on the Waiting tab and off the tucked panel.
+- Clear all taking the focus off the cards on its first Ctrl+Shift+Delete, and
+  Enter then deleting both waiting tasks and nothing else.
+- Escape cancelling Clear all.
+- Ctrl+Enter's refine reaching `task refine`.
+- "+N more" opening on Down.
+- Escape putting them back.
+- Nothing for another tag's task.
+- Nothing once they are done.
+- A daemon cold-started with nothing to show.
+
+Which tab, card and button a key leads to, and what it arms, are
+`src/panel/state.rs`'s unit tests, which need no display.
+
+**Why its numbers are exact**
+
+- The nested screen is a flat colour at a fixed size.
+- With a task peeked, the peek starts at column 1566 of 1600.
+- The keyboard's cards span 420-1180.
+- A frame that should not have changed (another tag's task, Escape, an empty
+  panel) is compared pixel for pixel.
+- A nested niri parked out of sight draws only when asked, so each frame is
+  shot until two in a row agree.
+- It counts lines rather than pixels: the cards' shadows fade into the
+  background over many pixels, and a column or row counts only once at least 20
+  of its pixels changed, which puts the panel's edge at the same column every
+  run.
