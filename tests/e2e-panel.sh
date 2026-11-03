@@ -219,14 +219,14 @@ NENV+=(XDG_DATA_HOME="$SB/share")
 
 # Fontconfig reads a user's fonts from $XDG_DATA_HOME/fonts and nowhere
 # else of theirs, so the sandbox's share gets a link to the real folder.
-# rm -rf of the sandbox removes the link, never the fonts.
+# rm -rf of the sandbox removes the link, never the fonts. A kept sandbox
+# (NIRITASKS_E2E_KEEP) keeps the link: remove it without a trailing slash.
 mkdir -p "$SB/share"
 ln -s "${XDG_DATA_HOME:-$HOME/.local/share}/fonts" "$SB/share/fonts"
 
 # The panel draws in Iosevka Term Extended (src/panel/style.rs), and its
-# action buttons' glyphs come from JetBrainsMonoNL Nerd Font. Fontconfig
-# finds a user's fonts only in $XDG_DATA_HOME/fonts, so without the link
-# below the frames would draw in Noto Sans and the expectations would
+# action buttons' glyphs come from JetBrainsMonoNL Nerd Font. Without the
+# link above, the frames would draw in Noto Sans and the expectations would
 # measure a fallback. Checked before the first shot, so a missing font
 # fails here, by name, not as heights that are off.
 font=$("${NENV[@]}" fc-match -f '%{family[0]}' 'Iosevka Term Extended' 2>/dev/null)
