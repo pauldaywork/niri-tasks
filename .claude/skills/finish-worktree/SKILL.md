@@ -114,17 +114,21 @@ git -C M rev-list --left-right --count main...origin/main   # "<ahead> <behind>"
   bash tests/container.sh 2>&1 | tail -n 3; echo "exit ${PIPESTATUS[0]}"
   after=$(readlink "$LOGS/latest.log" 2>/dev/null)
   if [ -n "$after" ] && [ "$after" != "$before" ] &&
-      grep -Eq '^[0-9]+ passed +[0-9]+ failed +[0-9]+ skipped$' "$LOGS/$after"; then
+      grep -Eq '^[0-9]+ passed +[0-9]+ failed +[0-9]+ skipped$|^suites: [0-9]+ of [0-9]+ passed, [0-9]+ failed, [0-9]+ skipped · tests: ' "$LOGS/$after"; then
       grep -E '^parity:|^  [<>] ' "$LOGS/$after"
-      tac "$LOGS/$after" | sed '/^────/q' | tac | grep -E '^  (PASS|SKIP|FAIL)  |^[0-9]+ passed '
+      tac "$LOGS/$after" | sed '/^────/q' | tac | sed -E '/^(suites: |[0-9]+ passed )/q'
   else
       echo "no test run in the container"
       [ -n "$after" ] && [ "$after" != "$before" ] && tail -n 15 "$LOGS/$after"
   fi
   ```
-  - A run that printed the summary line (`N passed N failed N skipped`) is the
-    test result, red or green: `0 failed` is green, anything else red. The exit
-    status alone can't tell a failed suite from a run that never started.
+  - A run that printed a summary line is the test result, red or green:
+    either all.sh's older `N passed N failed N skipped` or its newer
+    `suites: N of N passed, N failed, N skipped · tests: …`. `0 failed` in
+    its suites count is green, anything else red. Under the newer line's
+    block, a failed suite lists its failing tests: name those in the report.
+    The exit status alone can't tell a failed suite from a run that never
+    started.
     A SKIP in the container means the image is missing something: name it in
     the report.
   - `latest.log` moves only once a run gets as far as its log. A run turned
