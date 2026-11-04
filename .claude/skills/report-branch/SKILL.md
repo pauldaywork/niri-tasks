@@ -80,32 +80,63 @@ Everything below comes from that log and nothing else. Work through it
 suite by suite; a suite starts at a `── name ──` header line (some
 terminals show colour codes around it) and runs to the next header.
 
-- `suite.runs`: one entry for each suite whose header is not followed by
-  `SKIP:`. `suite` is the header's name, short. `command` is the line
-  under the header that starts `$ `, without the `$ `: the command that
-  suite ran. A log with no such line (another project's runner) gives the
-  `command` in the tests file instead; never make one up. `passed` and
-  `failed` are the counts in that suite's own summary lines, never the sum
-  over the log and never a count you made by tallying lines: `test result:
-  ok. 12 passed; 0 failed` lines for cargo (a cargo suite prints one per
-  test binary, so add up that suite's lines, and only that suite's), `Ran
-  N tests` and `OK` or `FAILED (failures=N)` for Python unittest, `N pass`
-  and `N fail` for Bun and `claude plugin test`. If a suite prints no
-  summary you can read, say so in the report and use the counts you can
-  see in its lines; do not guess.
-- `suite.not_run`: one entry for each header followed by `SKIP: <reason>`, with
-  that reason as `why`, shortened to fit. The sandbox stopped none of
-  them, so give no sandbox reason. The e2e suites are named here too, as
-  the log names them.
-- `suite.failing`: each failing test the log names, with its file and what
-  it says went wrong. Look in a failed suite for `FAILED`, `FAIL`,
-  `panicked at` and `Traceback` lines.
-- The tests file's `exit_code` is checked against your counts: `0` means
-  nothing failed anywhere, so every `failed` is 0 and `failing` is empty;
-  anything else means at least one failed suite, so at least one `failed`
-  is above 0 and `failing` names it. A count that disagrees is wrong:
-  read the log again, do not adjust it to fit. A `FAIL` line at the foot
-  of the log's own summary names a suite that failed.
+- **A log from `tests/all.sh`** ends with its closing block: a `────`
+  rule, one line per suite, and a last line starting `suites:`. Take each
+  suite's counts and failing tests from that block, not from the suite's
+  own lines above:
+  - `  PASS  <suite> — P passed, F failed, S skipped (Ns)` or the same with
+    `FAIL`: a `suite.runs` entry, with `passed` P and `failed` F. `command`
+    is the line under that suite's `── <suite> ──` header that starts `$ `,
+    without the `$ `.
+  - Each `      - <test> — <reason>` line under a `FAIL`: a `suite.failing`
+    entry, the reason shortened to fit. Its `file` is the suite's script
+    for an e2e suite; otherwise the file that suite's section of the log
+    names for that test (cargo's `panicked at src/…`, unittest's
+    `File "…"`, bun's `at … (…test.ts:…)`).
+  - `  FAIL  <suite> — stopped before its summary: <reason>`: a
+    `suite.runs` entry with the counts you can see in its section's lines,
+    and a `suite.failing` entry whose test is "stopped before its summary"
+    and whose why is that reason. `counts unreadable` (a `PASS`): a
+    `suite.runs` entry with the counts you can see, and say in the report
+    that all.sh could not read them.
+  - `  SKIP  <suite> — <reason>`: a `suite.not_run` entry with that reason
+    as `why`. The sandbox stopped none of them, so give no sandbox reason.
+  - A suite whose `S skipped` is above 0 also gets one `suite.not_run`
+    entry (one per suite, never one per test): the suite's name and `(S
+    skipped)`, and as `why` the reasons on its `  SKIP  ` lines in its
+    section of the log, or "S tests skipped inside the suite" when it has
+    none.
+  - The tests file's `exit_code` is checked against the `suites:` line:
+    `0` means its suites count says `0 failed`, every `failed` is 0 and
+    `failing` is empty; anything else means at least one `FAIL` line, so
+    at least one `failed` is above 0 or a suite stopped, and `failing`
+    names it. A count that disagrees is wrong: read the log again, do not
+    adjust it to fit.
+- **Any other log** (another project's runner): work through it suite by
+  suite; a suite starts at a header line and runs to the next.
+  - `suite.runs`: one entry for each suite whose header is not followed by
+    `SKIP:`. `command` is the line under the header that starts `$ `,
+    without the `$ `; a log with no such line gives the `command` in the
+    tests file instead; never make one up. `passed` and `failed` are the
+    counts in that suite's own summary lines, never the sum over the log
+    and never a count you made by tallying lines: `test result: ok. 12
+    passed; 0 failed` lines for cargo (a cargo suite prints one per test
+    binary, so add up that suite's lines, and only that suite's), `Ran N
+    tests` and `OK` or `FAILED (failures=N)` for Python unittest, `N pass`
+    and `N fail` for Bun and `claude plugin test`. If a suite prints no
+    summary you can read, say so in the report and use the counts you can
+    see in its lines; do not guess.
+  - `suite.not_run`: one entry for each header followed by `SKIP:
+    <reason>`, with that reason as `why`, shortened to fit. The sandbox
+    stopped none of them, so give no sandbox reason.
+  - `suite.failing`: each failing test the log names, with its file and
+    what it says went wrong. Look in a failed suite for `FAILED`, `FAIL`,
+    `panicked at` and `Traceback` lines.
+  - The tests file's `exit_code` is checked against your counts: `0` means
+    nothing failed anywhere, so every `failed` is 0 and `failing` is empty;
+    anything else means at least one failed suite, so at least one `failed`
+    is above 0 and `failing` names it. A count that disagrees is wrong:
+    read the log again, do not adjust it to fit.
 - A test a run lists as failing is a failure of the branch. It is not
   "stopped by the sandbox", because no sandbox was involved.
 - Say in the report that the suites ran before the session, at the
