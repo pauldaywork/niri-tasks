@@ -27,6 +27,14 @@
 # non-zero only when a suite that actually ran said no. That is what makes it
 # safe to put in a hook or a loop on a machine where only half of it can run.
 #
+# The closing block, after a ──── rule, gives each suite's own counts —
+# tests passed, failed and skipped inside it, read from its summary — and
+# under a failed suite its failing tests with the first line of each reason,
+# then one line counting suites and tests apart. A suite that stops before
+# its summary says so, with its last line on stderr. Its output goes
+# through tee to be read, so no suite sees a terminal: cargo prints no
+# colour here.
+#
 # The prerequisites below mirror the checks at the top of each script. The
 # script's own check is still the authority — if one of these drifts out of
 # date, the suite runs and fails on its own terms, which is loud rather than
@@ -56,7 +64,8 @@ cd "$ROOT" || exit 1
 NIRITASKS="${NIRITASKS:-niritasks}"
 export NIRITASKS
 
-passed=(); failed=(); skipped=()
+# suite(), the four summary parsers and closing_block.
+source "$ROOT/tests/lib/suites.sh"
 
 headless_skip() {
     [ -n "${NIRITASKS_HEADLESS:-}" ] || return 1
@@ -107,49 +116,21 @@ why_mod() {
     command -v claude >/dev/null || { echo "no claude on \$PATH"; return; }
 }
 
-suite() {  # name, reason it cannot run (empty if it can), command...
-    local name="$1" why="$2"; shift 2
-    if [ -n "$why" ]; then
-        printf '\n\033[1m── %s ──\033[0m  SKIP: %s\n' "$name" "$why"
-        skipped+=("$name — $why")
-        return
-    fi
-    printf '\n\033[1m── %s ──\033[0m\n' "$name"
-    # The command as run, so that a reader of the log (a branch report)
-    # can name it rather than guess it.
-    printf '$ %s\n' "$*"
-    local start=$SECONDS
-    if "$@"; then
-        passed+=("$name ($((SECONDS - start))s)")
-    else
-        failed+=("$name")
-    fi
-}
-
 echo "repo      $ROOT"
 echo "niritasks $(command -v "$NIRITASKS" 2>/dev/null || echo "not found ($NIRITASKS)")"
 
-suite "cargo test"           "$(why_cargo)"   cargo test --no-fail-fast
-suite "tests/e2e-tag.sh"     "$(why_tag)"     bash tests/e2e-tag.sh
-suite "herdr/task-docs tests" "$(why_plugin)" \
+suite "cargo test"           "$(why_cargo)"  cargo    cargo test --no-fail-fast
+suite "tests/e2e-tag.sh"     "$(why_tag)"    e2e      bash tests/e2e-tag.sh
+suite "herdr/task-docs tests" "$(why_plugin)" unittest \
     python3 -m unittest discover -s herdr/task-docs/tests -t herdr/task-docs
-suite "refine mod tests"     "$(why_mod)"     claude plugin test claude/refine-mod
+suite "refine mod tests"     "$(why_mod)"    bun      claude plugin test claude/refine-mod
 
 if [ -z "$(why_panel)" ] || [ -z "$(why_box)" ]; then
     echo
     echo "  ! the panel and box tests park a nested niri on a spare workspace"
     echo "    at the end of this monitor: keep off those workspaces until they finish."
 fi
-suite "tests/e2e-panel.sh" "$(why_panel)" bash tests/e2e-panel.sh
-suite "tests/e2e-box.sh"     "$(why_box)"     bash tests/e2e-box.sh
+suite "tests/e2e-panel.sh" "$(why_panel)"  e2e      bash tests/e2e-panel.sh
+suite "tests/e2e-box.sh"     "$(why_box)"    e2e      bash tests/e2e-box.sh
 
-echo
-echo "──────────────────────────────────────────────────────────────"
-for s in ${passed+"${passed[@]}"};  do echo "  PASS  $s"; done
-for s in ${skipped+"${skipped[@]}"}; do echo "  SKIP  $s"; done
-for s in ${failed+"${failed[@]}"};  do echo "  FAIL  $s"; done
-echo
-echo "${#passed[@]} passed   ${#failed[@]} failed   ${#skipped[@]} skipped"
-
-# A skip is not a failure. Only a suite that ran and said no fails this.
-[ "${#failed[@]}" -eq 0 ]
+closing_block

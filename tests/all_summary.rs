@@ -205,3 +205,105 @@ fn no_summary_prints_nothing_and_says_so() {
         );
     }
 }
+
+/// all.sh's runner on suites given as shell lines, then its closing block:
+/// stdout, stderr, and the exit status all.sh would end on.
+fn run_all(suites: &str) -> (String, String, i32) {
+    let run = Command::new("bash")
+        .arg("-c")
+        .arg(format!("set -uo pipefail\nsource \"$1\"\n{suites}\nclosing_block"))
+        .arg("bash")
+        .arg(lib())
+        .output()
+        .expect("run bash");
+    (
+        String::from_utf8(run.stdout).unwrap(),
+        String::from_utf8(run.stderr).unwrap(),
+        run.status.code().expect("an exit status"),
+    )
+}
+
+/// The closing block, from its rule on, each suite's time taken out: a
+/// suite can straddle a second.
+fn closing(stdout: &str) -> String {
+    let block = &stdout[stdout.find("──────").expect("a closing block")..];
+    block
+        .lines()
+        .map(|line| match line.rfind(" (") {
+            Some(at)
+                if line.ends_with("s)")
+                    && line[at + 2..line.len() - 2].chars().all(|c| c.is_ascii_digit()) =>
+            {
+                &line[..at]
+            }
+            _ => line,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Counts per suite, failing checks under their suite, a suite that died
+/// with its reason, a skipped one; red, and the suite's own stderr still
+/// reaches the terminal.
+#[test]
+fn the_closing_block_counts_each_suite_and_names_what_broke() {
+    let (stdout, stderr, code) = run_all(
+        r#"suite "green" "" e2e bash -c 'echo "  SKIP  no wtype"; echo; echo "passed: 3   failed: 0   skipped: 1"'
+suite "skipped" "no wtype (sudo apt install wtype)" e2e true
+suite "red" "" e2e bash -c 'echo "  FAIL  the card shows — not so"; echo "passed: 2   failed: 1   skipped: 0"; exit 1'
+suite "dies" "" e2e bash -c 'echo "  PASS  one"; echo "the outer niri did not start" >&2; echo "files kept in /tmp/x"; exit 1'"#,
+    );
+    assert_eq!(
+        closing(&stdout),
+        "──────────────────────────────────────────────────────────────
+  PASS  green — 3 passed, 0 failed, 1 skipped
+  SKIP  skipped — no wtype (sudo apt install wtype)
+  FAIL  red — 2 passed, 1 failed, 0 skipped
+      - the card shows — not so
+  FAIL  dies — stopped before its summary: the outer niri did not start
+
+suites: 1 of 4 passed, 2 failed, 1 skipped · tests: 5 passed, 1 failed, 1 skipped (not counted: dies)"
+    );
+    assert_eq!(code, 1);
+    assert!(stdout.contains("── dies ──"), "{stdout}");
+    assert!(stdout.contains("$ bash -c "), "{stdout}");
+    assert!(stdout.contains("── skipped ──\u{1b}[0m  SKIP: no wtype"), "{stdout}");
+    assert!(stderr.contains("the outer niri did not start"), "{stderr}");
+}
+
+/// A suite that exits 0 with no summary it can read stays green: counts it
+/// can't read never change the exit status.
+#[test]
+fn counts_it_cannot_read_leave_a_green_run_green() {
+    let (stdout, _, code) = run_all(
+        r#"suite "cargo test" "" cargo bash -c 'echo "test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s"'
+suite "mute" "" bun true"#,
+    );
+    assert_eq!(
+        closing(&stdout),
+        "──────────────────────────────────────────────────────────────
+  PASS  cargo test — 2 passed, 0 failed, 1 skipped
+  PASS  mute — counts unreadable
+
+suites: 2 of 2 passed, 0 failed, 0 skipped · tests: 2 passed, 0 failed, 1 skipped (not counted: mute)"
+    );
+    assert_eq!(code, 0);
+}
+
+/// The suite's own exit status decides, not tee's: a non-zero exit whose
+/// summary names no failure is still a FAIL, with its last stderr line.
+#[test]
+fn a_failing_exit_with_a_clean_summary_is_red() {
+    let (stdout, _, code) = run_all(
+        r#"suite "crashed" "" cargo bash -c 'echo "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"; echo "error: test failed, to rerun pass --test x" >&2; exit 101'"#,
+    );
+    assert_eq!(
+        closing(&stdout),
+        "──────────────────────────────────────────────────────────────
+  FAIL  crashed — 5 passed, 0 failed, 0 skipped
+      - exited 101, naming no failing test: error: test failed, to rerun pass --test x
+
+suites: 0 of 1 passed, 1 failed, 0 skipped · tests: 5 passed, 0 failed, 0 skipped"
+    );
+    assert_eq!(code, 1);
+}

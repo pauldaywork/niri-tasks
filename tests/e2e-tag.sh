@@ -344,5 +344,5 @@ done
 rm -rf "$SB"
 
 echo
-echo "passed: $pass   failed: $fail"
+echo "passed: $pass   failed: $fail   skipped: 0"
 [ "$fail" -eq 0 ]
