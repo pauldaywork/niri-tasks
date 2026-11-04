@@ -93,6 +93,9 @@ terminals show colour codes around it) and runs to the next header.
     for an e2e suite; otherwise the file that suite's section of the log
     names for that test (cargo's `panicked at src/…`, unittest's
     `File "…"`, bun's `at … (…test.ts:…)`).
+    A `      - exited N, naming no failing test: <reason>` line is a
+    `suite.failing` entry too: its test is the suite's name, its why that
+    line.
   - `  FAIL  <suite> — stopped before its summary: <reason>`: a
     `suite.runs` entry with the counts you can see in its section's lines,
     and a `suite.failing` entry whose test is "stopped before its summary"

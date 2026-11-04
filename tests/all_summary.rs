@@ -307,3 +307,19 @@ suites: 0 of 1 passed, 1 failed, 0 skipped · tests: 5 passed, 0 failed, 0 skipp
     );
     assert_eq!(code, 1);
 }
+
+/// A suite killed with nothing on stderr still says how it stopped.
+#[test]
+fn a_silent_kill_shows_its_exit_status() {
+    let (stdout, _, code) = run_all(
+        r#"suite "killed" "" e2e bash -c 'echo "  PASS  one"; exit 137'"#,
+    );
+    assert_eq!(
+        closing(&stdout),
+        "──────────────────────────────────────────────────────────────
+  FAIL  killed — stopped before its summary: exited 137
+
+suites: 0 of 1 passed, 1 failed, 0 skipped · tests: 0 passed, 0 failed, 0 skipped (not counted: killed)"
+    );
+    assert_eq!(code, 1);
+}

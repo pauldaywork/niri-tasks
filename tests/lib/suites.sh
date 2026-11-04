@@ -143,7 +143,7 @@ suite() {  # name, reason it cannot run (empty if it can), summary format, comma
         fi
     elif [ "$rc" -ne 0 ]; then
         word=FAIL
-        results+=("  FAIL  $name — stopped before its summary: ${last:-nothing on stderr} (${secs}s)")
+        results+=("  FAIL  $name — stopped before its summary: ${last:-exited $rc} (${secs}s)")
         not_counted+=("$name")
     else
         # Exit 0 and no summary read: a parser out of date, not a red suite.
